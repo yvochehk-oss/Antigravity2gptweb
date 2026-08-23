@@ -39,89 +39,250 @@
           </div>
         </header>
 
-        <div class="min-h-0 flex-1 overflow-y-auto px-4.5 pb-[calc(28px+var(--sab))] pt-4 space-y-4">
+        <!-- 顶部视角双通道切换 TAB -->
+        <div class="px-4.5 pt-3 pb-1 shrink-0">
+          <div class="flex rounded-xl bg-black/40 p-1 border border-white/10 shadow-inner">
+            <button
+              type="button"
+              class="flex-1 py-2 text-center text-[13px] font-bold rounded-lg transition-all"
+              :class="activeViewTab === 'lifecycle' ? 'bg-gradient-to-r from-amber-500/20 to-amber-400/30 text-amber-200 border border-amber-400/40 shadow-sm' : 'text-slate-400 hover:text-slate-200'"
+              @click="activeViewTab = 'lifecycle'"
+            >
+              📊 全周期综合看板
+            </button>
+            <button
+              type="button"
+              class="flex-1 py-2 text-center text-[13px] font-bold rounded-lg transition-all"
+              :class="activeViewTab === 'penetration' ? 'bg-gradient-to-r from-purple-500/20 to-purple-400/30 text-purple-200 border border-purple-400/40 shadow-sm' : 'text-slate-400 hover:text-slate-200'"
+              @click="activeViewTab = 'penetration'"
+            >
+              🏢 26家系统内穿透
+            </button>
+          </div>
+        </div>
+
+        <div class="min-h-0 flex-1 overflow-y-auto px-4.5 pb-[calc(28px+var(--sab))] pt-3 space-y-4">
           <template v-if="hasDetailData">
-            <!-- 核心财务双指标卡 -->
-            <section class="grid grid-cols-2 gap-3" aria-label="项目财务摘要">
-              <article class="metric-card metric-card--gold rounded-2xl p-4 shadow-md">
-                <p class="text-[12px] font-medium text-amber-200/80">动态真实净利润</p>
-                <p class="metric-value mt-1.5 font-financial text-[22px] font-bold leading-6 text-amber-300">{{ money(financial.real_profit) }}</p>
-                <p class="mt-1.5 text-[12px] font-semibold text-emerald-300">毛利率 {{ percent(financial.gross_margin_pct) }}</p>
-              </article>
-              <article class="metric-card rounded-2xl p-4 shadow-md">
-                <p class="text-[12px] font-medium text-slate-400">已发生成本</p>
-                <p class="metric-value mt-1.5 font-financial text-[22px] font-bold leading-6 text-slate-100">{{ money(financial.actual_cost) }}</p>
-                <p class="mt-1.5 flex flex-wrap gap-x-1 text-[12px] font-medium text-slate-400"><span>EAC 预测</span><span class="font-financial font-semibold text-slate-300">{{ money(financial.eac_forecast_cost) }}</span></p>
-              </article>
-            </section>
 
-            <!-- 实际成本构成 -->
-            <section class="surface-card rounded-2xl p-4 shadow-md" aria-labelledby="cost-heading">
-              <div class="flex items-start justify-between gap-3 border-b border-white/10 pb-3">
-                <div>
-                  <h3 id="cost-heading" class="text-[16px] leading-6 font-bold text-slate-50">实际成本构成拆解</h3>
-                  <p class="mt-0.5 text-[12px] leading-4 text-slate-400">项目已发生金额分项权重</p>
+            <!-- ========================================================= -->
+            <!-- 视角 1：全周期综合看板 (Lifecycle Overview) -->
+            <!-- ========================================================= -->
+            <template v-if="activeViewTab === 'lifecycle'">
+              <!-- 核心财务双指标卡 -->
+              <section class="grid grid-cols-2 gap-3" aria-label="项目财务摘要">
+                <article class="metric-card metric-card--gold rounded-2xl p-4 shadow-md">
+                  <p class="text-[12px] font-medium text-amber-200/80">动态真实净利润</p>
+                  <p class="metric-value mt-1.5 font-financial text-[22px] font-bold leading-6 text-amber-300">{{ money(financial.real_profit) }}</p>
+                  <p class="mt-1.5 text-[12px] font-semibold text-emerald-300">毛利率 {{ percent(financial.gross_margin_pct) }}</p>
+                </article>
+                <article class="metric-card rounded-2xl p-4 shadow-md">
+                  <p class="text-[12px] font-medium text-slate-400">已发生成本</p>
+                  <p class="metric-value mt-1.5 font-financial text-[22px] font-bold leading-6 text-slate-100">{{ money(financial.actual_cost) }}</p>
+                  <p class="mt-1.5 flex flex-wrap gap-x-1 text-[12px] font-medium text-slate-400"><span>EAC 预测</span><span class="font-financial font-semibold text-slate-300">{{ money(financial.eac_forecast_cost) }}</span></p>
+                </article>
+              </section>
+
+              <!-- 实际成本构成 -->
+              <section class="surface-card rounded-2xl p-4 shadow-md" aria-labelledby="cost-heading">
+                <div class="flex items-start justify-between gap-3 border-b border-white/10 pb-3">
+                  <div>
+                    <h3 id="cost-heading" class="text-[16px] leading-6 font-bold text-slate-50">实际成本构成拆解</h3>
+                    <p class="mt-0.5 text-[12px] leading-4 text-slate-400">项目已发生金额分项权重</p>
+                  </div>
+                  <span class="shrink-0 rounded-md border border-amber-400/30 bg-amber-400/10 px-2 py-0.5 text-[11px] font-semibold text-amber-200">成本穿透</span>
                 </div>
-                <span class="shrink-0 rounded-md border border-amber-400/30 bg-amber-400/10 px-2 py-0.5 text-[11px] font-semibold text-amber-200">成本穿透</span>
-              </div>
 
-              <ol v-if="costItems.length" class="mt-3.5 space-y-3.5">
-                <li v-for="item in costItems" :key="item.key" class="space-y-1.5">
-                  <div class="flex items-start justify-between gap-3">
-                    <div class="min-w-0">
-                      <h4 class="text-[14px] leading-5 font-semibold text-slate-200">{{ item.label }}</h4>
-                      <p class="text-[11px] leading-4 text-slate-400">占实际成本 {{ item.percent }}%</p>
+                <ol v-if="costItems.length" class="mt-3.5 space-y-3.5">
+                  <li v-for="item in costItems" :key="item.key" class="space-y-1.5">
+                    <div class="flex items-start justify-between gap-3">
+                      <div class="min-w-0">
+                        <h4 class="text-[14px] leading-5 font-semibold text-slate-200">{{ item.label }}</h4>
+                        <p class="text-[11px] leading-4 text-slate-400">占实际成本 {{ item.percent }}%</p>
+                      </div>
+                      <span class="money-value shrink-0 text-right font-financial text-[15px] font-bold text-amber-200">{{ money(item.amount) }}</span>
                     </div>
-                    <span class="money-value shrink-0 text-right font-financial text-[15px] font-bold text-amber-200">{{ money(item.amount) }}</span>
-                  </div>
-                  <div class="h-2 overflow-hidden rounded-full bg-black/40" role="progressbar" :aria-valuenow="item.percent" aria-valuemin="0" aria-valuemax="100" :aria-label="`${item.label}成本占比`">
-                    <div class="h-full rounded-full bg-gradient-to-r from-amber-500 to-amber-300 transition-[width] duration-500" :style="{ width: `${item.percent}%` }" />
-                  </div>
-                </li>
-              </ol>
-              <div v-else class="mt-4 rounded-xl border border-dashed border-white/10 px-3 py-4 text-center text-[13px] leading-5 text-slate-400">暂无成本拆分数据</div>
-            </section>
+                    <div class="h-2 overflow-hidden rounded-full bg-black/40" role="progressbar" :aria-valuenow="item.percent" aria-valuemin="0" aria-valuemax="100" :aria-label="`${item.label}成本占比`">
+                      <div class="h-full rounded-full bg-gradient-to-r from-amber-500 to-amber-300 transition-[width] duration-500" :style="{ width: `${item.percent}%` }" />
+                    </div>
+                  </li>
+                </ol>
+                <div v-else class="mt-4 rounded-xl border border-dashed border-white/10 px-3 py-4 text-center text-[13px] leading-5 text-slate-400">暂无成本拆分数据</div>
+              </section>
 
-            <!-- 四流一致性合规底账 -->
-            <section class="surface-card rounded-2xl p-4 shadow-md" aria-labelledby="flow-heading">
-              <div class="flex items-start justify-between gap-3 border-b border-white/10 pb-3">
-                <div>
-                  <h3 id="flow-heading" class="text-[16px] leading-6 font-bold text-slate-50">四流一致性核验</h3>
-                  <p class="mt-0.5 text-[12px] leading-4 text-slate-400">合同、发票、资金与物资闭环证据链</p>
-                </div>
-                <span class="shrink-0 rounded-md border border-emerald-400/35 bg-emerald-400/15 px-2 py-0.5 text-[11px] font-bold text-emerald-200">100% 闭环</span>
-              </div>
-              <ol class="mt-3.5 space-y-2.5">
-                <li v-for="(flow, index) in flows" :key="flow.title" class="flex gap-3 rounded-xl border border-white/10 bg-gradient-to-b from-[#14233a] to-[#0c1626] p-3 shadow-sm">
-                  <span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-amber-400/40 bg-amber-400/15 font-financial text-[13px] font-bold text-amber-200">{{ index + 1 }}</span>
-                  <div class="min-w-0">
-                    <h4 class="text-[14px] leading-5 font-bold" :class="flow.color">{{ flow.title }}</h4>
-                    <p class="mt-0.5 text-[12px] leading-4 text-slate-300">{{ flow.detail }}</p>
+              <!-- 四流一致性合规底账 -->
+              <section class="surface-card rounded-2xl p-4 shadow-md" aria-labelledby="flow-heading">
+                <div class="flex items-start justify-between gap-3 border-b border-white/10 pb-3">
+                  <div>
+                    <h3 id="flow-heading" class="text-[16px] leading-6 font-bold text-slate-50">四流一致性核验</h3>
+                    <p class="mt-0.5 text-[12px] leading-4 text-slate-400">合同、发票、资金与物资闭环证据链</p>
                   </div>
-                </li>
-              </ol>
-            </section>
+                  <span class="shrink-0 rounded-md border border-emerald-400/35 bg-emerald-400/15 px-2 py-0.5 text-[11px] font-bold text-emerald-200">100% 闭环</span>
+                </div>
+                <ol class="mt-3.5 space-y-2.5">
+                  <li v-for="(flow, index) in flows" :key="flow.title" class="flex gap-3 rounded-xl border border-white/10 bg-gradient-to-b from-[#14233a] to-[#0c1626] p-3 shadow-sm">
+                    <span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-amber-400/40 bg-amber-400/15 font-financial text-[13px] font-bold text-amber-200">{{ index + 1 }}</span>
+                    <div class="min-w-0">
+                      <h4 class="text-[14px] leading-5 font-bold" :class="flow.color">{{ flow.title }}</h4>
+                      <p class="mt-0.5 text-[12px] leading-4 text-slate-300">{{ flow.detail }}</p>
+                    </div>
+                  </li>
+                </ol>
+              </section>
 
-            <!-- 关联凭证档案 -->
-            <section class="surface-card rounded-2xl p-4 shadow-md" aria-labelledby="evidence-heading">
-              <div class="flex items-start justify-between gap-3 border-b border-white/10 pb-3">
-                <div>
-                  <h3 id="evidence-heading" class="text-[16px] leading-6 font-bold text-slate-50">底层关联原始凭证</h3>
-                  <p class="mt-0.5 text-[12px] leading-4 text-slate-400">用于佐证经营底账与四流结论的材料</p>
-                </div>
-                <span class="shrink-0 rounded-md bg-white/5 px-2 py-0.5 text-[11px] font-medium text-slate-400">{{ documents.length ? `${documents.length} 份档案` : '暂无' }}</span>
-              </div>
-              <ul v-if="documents.length" class="mt-3.5 space-y-2">
-                <li v-for="doc in documents" :key="doc.id || doc.filename" class="flex min-w-0 items-center gap-3 rounded-xl border border-white/10 bg-gradient-to-b from-[#14233a] to-[#0c1626] p-3 transition-colors hover:border-amber-400/40">
-                  <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-white/15 bg-black/30 font-mono text-[11px] font-bold text-amber-300" aria-hidden="true">DOC</span>
-                  <div class="min-w-0 flex-1">
-                    <p class="break-words text-[14px] leading-5 font-semibold text-slate-100">{{ doc.filename || '未命名凭证' }}</p>
-                    <p class="mt-0.5 text-[12px] leading-4 text-slate-400">{{ doc.document_type || '未分类凭证' }}</p>
+              <!-- 关联凭证档案 -->
+              <section class="surface-card rounded-2xl p-4 shadow-md" aria-labelledby="evidence-heading">
+                <div class="flex items-start justify-between gap-3 border-b border-white/10 pb-3">
+                  <div>
+                    <h3 id="evidence-heading" class="text-[16px] leading-6 font-bold text-slate-50">底层关联原始凭证</h3>
+                    <p class="mt-0.5 text-[12px] leading-4 text-slate-400">用于佐证经营底账与四流结论的材料</p>
                   </div>
-                </li>
-              </ul>
-              <div v-else class="mt-4 rounded-xl border border-dashed border-white/10 px-3 py-4 text-center text-[13px] leading-5 text-slate-400">当前项目未返回关联凭证</div>
-            </section>
+                  <span class="shrink-0 rounded-md bg-white/5 px-2 py-0.5 text-[11px] font-medium text-slate-400">{{ documents.length ? `${documents.length} 份档案` : '暂无' }}</span>
+                </div>
+                <ul v-if="documents.length" class="mt-3.5 space-y-2">
+                  <li v-for="doc in documents" :key="doc.id || doc.filename" class="flex min-w-0 items-center gap-3 rounded-xl border border-white/10 bg-gradient-to-b from-[#14233a] to-[#0c1626] p-3 transition-colors hover:border-amber-400/40">
+                    <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-white/15 bg-black/30 font-mono text-[11px] font-bold text-amber-300" aria-hidden="true">DOC</span>
+                    <div class="min-w-0 flex-1">
+                      <p class="break-words text-[14px] leading-5 font-semibold text-slate-100">{{ doc.filename || '未命名凭证' }}</p>
+                      <p class="mt-0.5 text-[12px] leading-4 text-slate-400">{{ doc.document_type || '未分类凭证' }}</p>
+                    </div>
+                  </li>
+                </ul>
+                <div v-else class="mt-4 rounded-xl border border-dashed border-white/10 px-3 py-4 text-center text-[13px] leading-5 text-slate-400">当前项目未返回关联凭证</div>
+              </section>
+            </template>
+
+            <!-- ========================================================= -->
+            <!-- 视角 2：26 家系统内穿透看板 (System Penetration) -->
+            <!-- ========================================================= -->
+            <template v-else>
+              <!-- 集团合并利润与管理口径核心卡 -->
+              <section class="rounded-2xl border border-purple-400/30 bg-gradient-to-b from-[#1c1836] to-[#0c1022] p-4.5 shadow-lg">
+                <div class="flex items-center justify-between">
+                  <span class="text-[12px] font-bold text-purple-300">🏢 集团管理合并净利润</span>
+                  <span class="rounded-full bg-purple-400/20 px-2 py-0.5 text-[11px] font-bold text-purple-200 border border-purple-400/30">
+                    26 家合并口径
+                  </span>
+                </div>
+                <div class="mt-2 text-[26px] font-financial font-bold text-purple-100">
+                  {{ money(penetration.management_profit_after_tax) }}
+                </div>
+                <p class="mt-1 text-[11px] text-purple-200/70">
+                  公式：已确认外部结算收入 - 穿透后外部真实成本 - 项目实缴税款
+                </p>
+              </section>
+
+              <!-- 三大穿透指标卡（支持点击切换查看明细） -->
+              <section class="space-y-3" aria-label="穿透指标分项">
+                <!-- 1. 外部结算收入 -->
+                <div
+                  class="rounded-2xl border p-4 transition-all cursor-pointer bg-gradient-to-b from-[#112328] to-[#091518]"
+                  :class="activePenetrationTab === 'revenue' ? 'border-emerald-400/60 shadow-[0_0_15px_rgba(52,211,153,0.15)] ring-1 ring-emerald-400/40' : 'border-white/10'"
+                  @click="activePenetrationTab = activePenetrationTab === 'revenue' ? null : 'revenue'"
+                >
+                  <div class="flex items-center justify-between">
+                    <div>
+                      <div class="text-[12px] font-medium text-emerald-300">① 已确认外部结算收入 (元)</div>
+                      <div class="mt-1 text-[20px] font-financial font-bold text-emerald-100">
+                        {{ money(penetration.recognized_revenue) }}
+                      </div>
+                    </div>
+                    <span class="flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-400/15 text-emerald-300 font-bold transition-transform" :class="{ 'rotate-90': activePenetrationTab === 'revenue' }">
+                      ›
+                    </span>
+                  </div>
+                  <p class="mt-1 text-[11px] text-slate-400">穿透至业主/发包方真实结算款，不叠加内部加价</p>
+                </div>
+
+                <!-- 外部收入展开明细 -->
+                <div v-if="activePenetrationTab === 'revenue'" class="rounded-xl border border-emerald-400/20 bg-black/40 p-3 text-[12px] space-y-2">
+                  <div class="font-bold text-emerald-200 border-b border-white/10 pb-1.5 flex justify-between">
+                    <span>发包方名称</span>
+                    <span>已结算确认款</span>
+                  </div>
+                  <div v-for="(rev, idx) in penetration.revenueDetails || []" :key="idx" class="flex items-center justify-between py-1 border-b border-white/5">
+                    <div>
+                      <div class="font-medium text-slate-200">{{ rev.name }}</div>
+                      <div class="text-[10px] text-slate-400">{{ rev.type }}</div>
+                    </div>
+                    <span class="font-financial font-bold text-emerald-300">{{ money(rev.recognized) }}</span>
+                  </div>
+                  <div v-if="!penetration.revenueDetails?.length" class="text-center py-2 text-slate-500">暂无外部收入明细</div>
+                </div>
+
+                <!-- 2. 系统内交易规模 -->
+                <div
+                  class="rounded-2xl border p-4 transition-all cursor-pointer bg-gradient-to-b from-[#201633] to-[#0f0b1a]"
+                  :class="activePenetrationTab === 'internal' ? 'border-purple-400/60 shadow-[0_0_15px_rgba(192,132,252,0.15)] ring-1 ring-purple-400/40' : 'border-white/10'"
+                  @click="activePenetrationTab = activePenetrationTab === 'internal' ? null : 'internal'"
+                >
+                  <div class="flex items-center justify-between">
+                    <div>
+                      <div class="text-[12px] font-medium text-purple-300">② 26家系统内交易流转规模 (100% 抵销)</div>
+                      <div class="mt-1 text-[20px] font-financial font-bold text-purple-100">
+                        {{ money(penetration.internal_trade_volume_eliminated) }}
+                      </div>
+                    </div>
+                    <span class="flex h-7 w-7 items-center justify-center rounded-lg bg-purple-400/15 text-purple-300 font-bold transition-transform" :class="{ 'rotate-90': activePenetrationTab === 'internal' }">
+                      ›
+                    </span>
+                  </div>
+                  <p class="mt-1 text-[11px] text-slate-400">内部单位间开票净额，在集团合并利润中全额抵销</p>
+                </div>
+
+                <!-- 系统内流转展开明细 -->
+                <div v-if="activePenetrationTab === 'internal'" class="rounded-xl border border-purple-400/20 bg-black/40 p-3 text-[12px] space-y-2">
+                  <div class="font-bold text-purple-200 border-b border-white/10 pb-1.5 flex justify-between">
+                    <span>系统内主体 / 流转科目</span>
+                    <span>内部流转开票额</span>
+                  </div>
+                  <div v-for="(item, idx) in penetration.internalDetails || []" :key="idx" class="flex items-center justify-between py-1.5 border-b border-white/5">
+                    <div>
+                      <div class="font-medium text-slate-200">{{ item.unit }}</div>
+                      <div class="text-[10px] text-purple-300/80">{{ item.category }} · {{ item.node }}</div>
+                    </div>
+                    <span class="font-financial font-bold text-purple-200">{{ money(item.amount) }}</span>
+                  </div>
+                  <div v-if="!penetration.internalDetails?.length" class="text-center py-2 text-slate-500">暂无系统内流转记录</div>
+                </div>
+
+                <!-- 3. 穿透后系统外真实成本 -->
+                <div
+                  class="rounded-2xl border p-4 transition-all cursor-pointer bg-gradient-to-b from-[#261d11] to-[#120d07]"
+                  :class="activePenetrationTab === 'external' ? 'border-amber-400/60 shadow-[0_0_15px_rgba(251,191,36,0.15)] ring-1 ring-amber-400/40' : 'border-white/10'"
+                  @click="activePenetrationTab = activePenetrationTab === 'external' ? null : 'external'"
+                >
+                  <div class="flex items-center justify-between">
+                    <div>
+                      <div class="text-[12px] font-medium text-amber-300">③ 穿透后系统外真实成本 (元)</div>
+                      <div class="mt-1 text-[20px] font-financial font-bold text-amber-100">
+                        {{ money(penetration.system_external_real_cost) }}
+                      </div>
+                    </div>
+                    <span class="flex h-7 w-7 items-center justify-center rounded-lg bg-amber-400/15 text-amber-300 font-bold transition-transform" :class="{ 'rotate-90': activePenetrationTab === 'external' }">
+                      ›
+                    </span>
+                  </div>
+                  <p class="mt-1 text-[11px] text-slate-400">剔除内部加价，穿透至实际采购、劳务实名制工资等硬成本</p>
+                </div>
+
+                <!-- 外部真实成本展开明细 -->
+                <div v-if="activePenetrationTab === 'external'" class="rounded-xl border border-amber-400/20 bg-black/40 p-3 text-[12px] space-y-2">
+                  <div class="font-bold text-amber-200 border-b border-white/10 pb-1.5 flex justify-between">
+                    <span>外部终端供应商 / 科目</span>
+                    <span>真实流出成本</span>
+                  </div>
+                  <div v-for="(item, idx) in penetration.externalDetails || []" :key="idx" class="flex items-center justify-between py-1.5 border-b border-white/5">
+                    <div>
+                      <div class="font-medium text-slate-200">{{ item.supplier }}</div>
+                      <div class="text-[10px] text-amber-300/80">{{ item.category }} (名义: {{ money(item.nominal) }})</div>
+                    </div>
+                    <span class="font-financial font-bold text-amber-300">{{ money(item.real) }}</span>
+                  </div>
+                  <div v-if="!penetration.externalDetails?.length" class="text-center py-2 text-slate-500">暂无外部支出明细</div>
+                </div>
+              </section>
+            </template>
+
           </template>
 
           <div v-else class="rounded-2xl border border-amber-400/30 bg-[#18170f] px-4 py-8 text-center" role="status">
@@ -149,12 +310,16 @@ const { privacyMode } = storeToRefs(ui)
 
 const dataSource = computed(() => _dataSource.value || 'unavailable')
 
+const activeViewTab = ref('lifecycle') // 'lifecycle' | 'penetration'
+const activePenetrationTab = ref('internal') // 'revenue' | 'internal' | 'external' | null
+
 const closeButton = ref(null)
 let previousBodyOverflow = ''
 let bodyLocked = false
 
 const detailProject = computed(() => project360.value?.project || {})
 const financial = computed(() => project360.value?.financial_penetration || {})
+const penetration = computed(() => project360.value?.system_penetration || {})
 const documents = computed(() => Array.isArray(project360.value?.document_list) ? project360.value.document_list.slice(0, 8) : [])
 const costItems = computed(() => Object.entries(project360.value?.cost_breakdown || {}).map(([key, value]) => ({
   key,
@@ -162,7 +327,7 @@ const costItems = computed(() => Object.entries(project360.value?.cost_breakdown
   amount: value?.amount,
   percent: safePercent(value?.pct)
 })))
-const hasDetailData = computed(() => Boolean(project360.value?.financial_penetration || project360.value?.cost_breakdown || project360.value?.document_list))
+const hasDetailData = computed(() => Boolean(project360.value?.financial_penetration || project360.value?.system_penetration || project360.value?.cost_breakdown || project360.value?.document_list))
 
 const flows = [
   { title: '合同流', detail: '约定 9% 建筑服务税率与节点工程款结算', color: 'text-amber-200' },

@@ -215,6 +215,30 @@ export function generateDefaultProject360(projectId) {
       actual_cost: Math.round(cost * 0.72),
       eac_forecast_cost: Math.round(cost)
     },
+    system_penetration: {
+      project_id: project.id,
+      project_code: project.project_code,
+      recognized_revenue: Math.round(contract * 0.75),
+      external_invoice_revenue: Math.round(contract * 0.75),
+      internal_trade_volume_eliminated: Math.round(cost * 0.65),
+      system_external_real_cost: Math.round(cost * 0.58),
+      project_tax_paid: Math.round(contract * 0.02),
+      management_profit_after_tax: Math.round(contract * 0.75 - cost * 0.58 - contract * 0.02),
+      internal_unit_count: 26,
+      revenueDetails: [
+        { type: '发包方', name: '成都市天府新区金融城投公司 (EXT-TF)', contract: contract, recognized: Math.round(contract * 0.75) }
+      ],
+      internalDetails: [
+        { node: '四川 → 四川', unit: 'B01 四川乾润和贸易有限公司', category: '材料', amount: Math.round(cost * 0.35) },
+        { node: '四川 → 四川', unit: 'C01 四川本盛建筑劳务有限公司', category: '劳务', amount: Math.round(cost * 0.20) },
+        { node: '四川 → 四川', unit: 'D01 四川乾润和机械设备租赁公司', category: '设备', amount: Math.round(cost * 0.10) }
+      ],
+      externalDetails: [
+        { category: '材料采购', supplier: '四川乾润和贸易有限公司 (B01) · 钢材集采自营', nominal: Math.round(cost * 0.38), real: Math.round(cost * 0.35) },
+        { category: '劳务工资', supplier: '四川本盛建筑劳务有限公司 (C01) · 实名制工资金流', nominal: Math.round(cost * 0.22), real: Math.round(cost * 0.20) },
+        { category: '设备折旧', supplier: '四川乾润和机械设备租赁公司 (D01) · 塔吊与机具维保', nominal: Math.round(cost * 0.11), real: Math.round(cost * 0.10) }
+      ]
+    },
     cost_breakdown: {
       materials: { label: '材料采购', amount: Math.round(cost * 0.58), pct: 58 },
       labor: { label: '建筑劳务分包', amount: Math.round(cost * 0.28), pct: 28 },

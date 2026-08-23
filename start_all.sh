@@ -55,7 +55,22 @@ start_tax() {
 start_rag() {
   log "启动 RAG v1.1 (端口 8922)..."
   cd "$PROJECT_DIR/source_code/0.2_RAG系统/project-rag-v1.1"
+  # Preserve operator-supplied model paths while defaulting to the V2.0 bundle.
+  _rag_embedding_model_was_set="${PROJECT_RAG_EMBEDDING_MODEL+x}"
+  _rag_embedding_model_override="${PROJECT_RAG_EMBEDDING_MODEL-}"
+  _rag_reranker_model_was_set="${PROJECT_RAG_RERANKER_MODEL+x}"
+  _rag_reranker_model_override="${PROJECT_RAG_RERANKER_MODEL-}"
   set -a; source .env 2>/dev/null || true; set +a
+  if [ "$_rag_embedding_model_was_set" = x ]; then
+    export PROJECT_RAG_EMBEDDING_MODEL="$_rag_embedding_model_override"
+  else
+    export PROJECT_RAG_EMBEDDING_MODEL="${PROJECT_RAG_EMBEDDING_MODEL:-$PROJECT_DIR/models/bge-m3}"
+  fi
+  if [ "$_rag_reranker_model_was_set" = x ]; then
+    export PROJECT_RAG_RERANKER_MODEL="$_rag_reranker_model_override"
+  else
+    export PROJECT_RAG_RERANKER_MODEL="${PROJECT_RAG_RERANKER_MODEL:-$PROJECT_DIR/models/bge-reranker-v2-m3}"
+  fi
   uv sync
   uv run python -m app.seed 2>/dev/null || true
   uv run uvicorn app.main:app \
