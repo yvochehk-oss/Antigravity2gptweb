@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}{{ title or "锐宝智能资料管理系统" }}{% endblock %}</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+</head>
+<body>
+  <!-- 侧边导航栏 (Sidebar) -->
+  <aside id="sidebar">
+    <div class="brand-section">
+      <div class="brand-icon">
+        <span>R</span>
+      </div>
+      <div class="brand-text">
+        <h1>锐宝智能资料管理系统</h1>
+        <p>知识中枢与 RAG 引擎 V1.1</p>
+      </div>
+    </div>
+
+    <nav class="sidebar-menu">
+      <div class="menu-category">核心业务管控</div>
+      <a href="/" class="nav-item {% if active_page == 'dashboard' or not active_page %}active{% endif %}">
+        <span class="icon">📊</span>
+        <span>全局仪表盘</span>
+      </a>
+      <a href="/search" class="nav-item {% if active_page == 'search' %}active{% endif %}">
+        <span class="icon">🔍</span>
+        <span>智能证据检索</span>
+      </a>
+      <a href="/regulations" class="nav-item {% if active_page == 'regulations' %}active{% endif %}">
+        <span class="icon">⚖️</span>
+        <span>涉税法律法规</span>
+      </a>
+      <a href="/mounts" class="nav-item {% if active_page == 'mounts' %}active{% endif %}">
+        <span class="icon">📁</span>
+        <span>资料目录挂载</span>
+      </a>
+      <a href="/entities" class="nav-item {% if active_page == 'entities' %}active{% endif %}">
+        <span class="icon">👥</span>
+        <span>往来单位穿透</span>
+      </a>
+
+      <div class="menu-category" style="margin-top: 10px;">系统与接口</div>
+      <a href="/docs" target="_blank" class="nav-item">
+        <span class="icon">📖</span>
+        <span>API 接口文档</span>
+      </a>
+      <a href="/health" class="nav-item {% if active_page == 'health' %}active{% endif %}">
+        <span class="icon">🩺</span>
+        <span>健康体检看板</span>
+      </a>
+    </nav>
+
+    <div class="sidebar-footer">
+      <div class="status-pill">
+        <span class="status-dot"></span>
+        <span>PostgreSQL 18 联机</span>
+      </div>
+      <div style="font-size: 10px; color: var(--text-muted); margin-top: 4px;">
+        向量检索与重排引擎就绪
+      </div>
+    </div>
+  </aside>
+
+  <!-- 主内容布局 (App Layout) -->
+  <div id="app-layout">
+    <!-- 顶部状态栏 (Top Header) -->
+    <header id="top-header">
+      <div class="header-left">
+        <div class="breadcrumbs">
+          <a href="/">锐宝资料管理</a>
+          <span>/</span>
+          {% block breadcrumbs %}
+          <span class="current">全局总览</span>
+          {% endblock %}
+        </div>
+      </div>
+
+      <div class="header-right">
+        <span class="engine-tag ok" title="PostgreSQL 18 + pgvector 0.8.6 已启用">
+          <span style="font-size:8px;">●</span> pgvector 0.8.6
+        </span>
+        <span class="engine-tag ok" title="BGE-M3 Dense + Sparse Hybrid Search">
+          <span style="font-size:8px;">●</span> BGE-M3 检索
+        </span>
+        <span class="engine-tag {% if mineru %}ok{% else %}warn{% endif %}" title="MinerU PDF/DOCX 深度解析引擎">
+          <span style="font-size:8px;">●</span> MinerU: {{ '已就绪' if mineru else '兼容模式' }}
+        </span>
+        <a href="/search" class="btn btn-sm btn-primary">
+          <span>🔍 快速证据检索</span>
+        </a>
+      </div>
+    </header>
+
+    <!-- 核心内容区 -->
+    <main>
+      {% block body %}{% endblock %}
+    </main>
+  </div>
+
+  {% block scripts %}{% endblock %}
+</body>
+</html>

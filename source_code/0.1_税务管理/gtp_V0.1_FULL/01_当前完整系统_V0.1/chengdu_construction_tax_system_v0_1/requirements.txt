@@ -1,0 +1,8 @@
+fastapi
+uvicorn
+sqlalchemy
+jinja2
+python-multipart
+openpyxl
+psycopg[binary]
+httpx

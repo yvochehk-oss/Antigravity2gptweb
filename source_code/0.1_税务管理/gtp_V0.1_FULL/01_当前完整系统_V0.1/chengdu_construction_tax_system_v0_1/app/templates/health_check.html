@@ -1,0 +1,13 @@
+{% extends 'base.html' %}{% block body %}
+<h1>项目一键综合体检</h1>
+<div class="panel"><b>三档体检：</b>快速 = 项目总体/风险/EAC；标准 = 合同/履约/发票/资金/成本/税务/EAC/风险；深度 = 标准 + 材料/劳务/设备/专业分包。<br><span class="muted">可一次勾选多个模型，同一环节分别检查，再由本地共识引擎汇总共同发现和差异意见。</span></div>
+<form method="post" action="/health-check/run">
+<label>项目</label><select name="project_id">{% for p in projects %}<option value="{{p.id}}" {% if p.id==selected_project_id %}selected{% endif %}>{{p.code}} · {{p.name}}</option>{% endfor %}</select>
+<label>体检档位</label><select name="profile"><option value="quick">快速</option><option value="standard" selected>标准</option><option value="deep">深度</option></select>
+<div style="margin:12px 0"><b>模型：</b>{% for e in endpoints %}<label style="display:inline-block;margin-right:14px"><input type="checkbox" name="endpoint_ids" value="{{e.id}}" {% if loop.first %}checked{% endif %}>{{e.name}} / {{e.model or e.adapter}}</label>{% endfor %}</div>
+<textarea name="user_instruction" rows="4" style="width:min(980px,96%)" placeholder="特别要求，例如：重点检查宜宾项目是否存在材料、劳务和设备成本异常；特别关注税负和完工利润。"></textarea><br>
+<button>启动项目体检</button>
+</form>
+<h2>最近体检</h2><table><tr><th>ID</th><th>项目</th><th>档位</th><th>状态</th><th>创建时间</th><th>完成时间</th></tr>
+{% for b in batches %}<tr><td><a href="/health-check/{{b.id}}">#{{b.id}}</a></td><td>{{project_map[b.project_id].name if b.project_id in project_map else b.project_id}}</td><td>{{b.profile}}</td><td class="{{'green' if b.status=='completed' else ('yellow' if b.status=='completed_with_errors' else ('red' if b.status=='failed' else ''))}}">{{b.status}}</td><td>{{b.created_at}}</td><td>{{b.finished_at}}</td></tr>{% endfor %}</table>
+{% endblock %}

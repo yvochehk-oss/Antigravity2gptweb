@@ -1,0 +1,57 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+.eggs/
+*.so
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual env
+.venv/
+venv/
+env/
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+
+# Logs & runtime
+logs/
+*.log
+nohup.out
+
+# IDE
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Local data / build artefacts
+data/uploads/
+data/parsed/
+data/chroma/
+data/benchmarks/
+data/backups/
+excel_preview.json
+*.bak
+*.tmp
+
+# MinerU cache
+.mineru/
+output/
+
+# Node (frontend)
+node_modules/
+dist/
+.next/
+
+# Coverage
+.coverage
+htmlcov/
+.tox/

@@ -1,0 +1,64 @@
+# sichuan 补全计划（四川省，3 份）
+regulations:
+  # === 1. 四川省增值税起征点（川财税〔2016〕13号）===
+  - frontmatter:
+      title: "关于明确我省增值税起征点的通知"
+      document_no: "川财税〔2016〕13号"
+      issuer: "四川省财政厅 四川省国家税务局"
+      legal_level: "规范性文件"
+      jurisdiction: "四川省"
+      tax_types: ["增值税"]
+      industries: ["全部行业"]
+      publish_date: "2016-04-15"
+      effective_date: "2016-05-01"
+      status: "现行有效"
+      source: "四川省财政厅"
+      note: "四川省增值税起征点标准（按月/按次）"
+    key_articles:
+      - "第一条"
+      - "第二条"
+    summary: |
+      四川省增值税起征点的具体数额，是判定小规模纳税人起征点
+      与个体工商户纳税义务的关键依据。
+
+  # === 2. 四川省残疾人就业保障金（川财规〔2021〕5号）===
+  - frontmatter:
+      title: "关于印发《四川省残疾人就业保障金征收使用管理实施办法》的通知"
+      document_no: "川财规〔2021〕5号"
+      issuer: "四川省财政厅 国家税务总局四川省税务局 四川省残疾人联合会"
+      legal_level: "规范性文件"
+      jurisdiction: "四川省"
+      tax_types: ["残疾人就业保障金"]
+      industries: ["全部行业"]
+      publish_date: "2021-12-30"
+      effective_date: "2022-01-01"
+      status: "现行有效"
+      source: "四川省财政厅"
+      note: "四川省残保金征收基数、比例、分级征收标准"
+    key_articles:
+      - "第一条"
+      - "第二条"
+      - "第三条"
+    summary: |
+      四川省残保金征收实操口径，是四类实体（总包/建材/劳务/设备）
+      都涉及的费用合规项。
+
+  # === 3. 四川省油气田企业增值税（川财规〔2025〕11号）===
+  - frontmatter:
+      title: "关于印发《四川省油气田企业增值税管理办法》的通知"
+      document_no: "川财规〔2025〕11号"
+      issuer: "四川省财政厅 国家税务总局四川省税务局"
+      legal_level: "规范性文件"
+      jurisdiction: "四川省"
+      tax_types: ["增值税"]
+      industries: ["能源", "建筑业"]
+      publish_date: "2025-11-15"
+      effective_date: "2025-12-01"
+      status: "现行有效"
+      source: "四川省财政厅"
+      note: "四川油气田企业增值税预征、申报、跨地区操作细则"
+    key_articles:
+      - "第一条"
+      - "第二条"
+    summary: |
+      四川省内油气田企业（与建筑施工、设备租赁相关）的增值税管理办法。

@@ -1,0 +1,6 @@
+{% extends 'base.html' %}{% block body %}
+<h1>经营驾驶舱</h1><p>系统内：A施工、B劳务、C商贸、D设备；系统外：甲劳务、乙设备、丙材料、丁专业分包/其他。</p>
+<div class="cards"><div class="card">确认收入<h2>{{'%.1f'|format(d.revenue/10000)}}万</h2></div><div class="card">真实成本<h2>{{'%.1f'|format(d.cost/10000)}}万</h2></div><div class="card">经营利润<h2>{{'%.1f'|format(d.profit/10000)}}万</h2></div><div class="card">未解决风险<h2>{{risk_count}}</h2></div></div>
+<table><tr><th>项目</th><th>收入</th><th>真实成本</th><th>利润</th><th>EAC成本</th><th>EAC利润</th></tr>
+{% for x in d.rows %}<tr><td><a href="/project/{{x.project.id}}">{{x.project.name}}</a></td><td>{{'%.1f'|format(x.revenue/10000)}}万</td><td>{{'%.1f'|format(x.real_cost/10000)}}万</td><td>{{'%.1f'|format(x.profit/10000)}}万</td><td>{{'%.1f'|format(x.eac/10000)}}万</td><td>{{'%.1f'|format(x.eac_profit/10000)}}万</td></tr>{% endfor %}</table>
+{% endblock %}

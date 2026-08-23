@@ -1,0 +1,8 @@
+{% extends 'base.html' %}{% block body %}
+<h1>整改任务中心</h1><div class="panel">AI只提出建议，整改任务由用户确认后建立。任务完成后可以直接用外部模型复检；复检结果不会自动关闭任务，仍需人工确认。</div>
+<table><tr><th>ID</th><th>项目</th><th>优先级</th><th>环节</th><th>任务</th><th>责任角色</th><th>状态</th><th>操作</th></tr>
+{% for x in rows %}<tr><td>#{{x.id}}</td><td>{{projects[x.project_id].name if x.project_id in projects else x.project_id}}</td><td>{{x.priority}}</td><td>{{scopes.get(x.scope,x.scope)}}</td><td style="text-align:left"><b>{{x.title}}</b><br><span class="muted">{{x.description}}</span>{% if x.recheck_job_id %}<br><a href="/ai-review/{{x.recheck_job_id}}">查看复检 #{{x.recheck_job_id}}</a>{% endif %}</td><td>{{x.owner_role}}</td><td>{{x.status}}</td><td>
+<form method="post" action="/tasks/{{x.id}}/status" style="box-shadow:none;padding:0;margin:2px"><select name="status"><option>open</option><option>in_progress</option><option>done</option><option>verified</option><option>closed</option></select><button>更新</button></form>
+<form method="post" action="/tasks/{{x.id}}/recheck" style="box-shadow:none;padding:0;margin:2px"><select name="endpoint_id">{% for e in endpoints %}<option value="{{e.id}}">{{e.name}}</option>{% endfor %}</select><button>整改后复检</button></form>
+</td></tr>{% endfor %}</table>
+{% endblock %}

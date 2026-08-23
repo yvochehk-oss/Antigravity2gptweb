@@ -1,0 +1,7 @@
+{
+  "name": "锐宝财税智控",
+  "description": "面向建筑工程投资与建设的智能化财务监管、多实体税务台账、成本穿透与合规风控平台",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+

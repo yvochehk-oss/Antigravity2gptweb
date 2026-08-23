@@ -1,0 +1,64 @@
+{
+  "mcpServers": {
+    "law_recognition": {
+      "url": "https://apim-gateway.pkulaw.com/law_recognition",
+      "headers": {
+        "Authorization": "Bearer 812b2c19-0781-36d4-8954-08de8ca87d6f"
+      }
+    },
+    "mcp-fatiao": {
+      "url": "https://apim-gateway.pkulaw.com/mcp-fatiao",
+      "headers": {
+        "Authorization": "Bearer 812b2c19-0781-36d4-8954-08de8ca87d6f"
+      }
+    },
+    "mcp-law": {
+      "url": "https://apim-gateway.pkulaw.com/mcp-law",
+      "headers": {
+        "Authorization": "Bearer 812b2c19-0781-36d4-8954-08de8ca87d6f"
+      }
+    },
+    "mcp-law-search-service": {
+      "url": "https://apim-gateway.pkulaw.com/mcp-law-search-service",
+      "headers": {
+        "Authorization": "Bearer 812b2c19-0781-36d4-8954-08de8ca87d6f"
+      }
+    },
+    "add-doc-link": {
+      "url": "https://apim-gateway.pkulaw.com/add-doc-link",
+      "headers": {
+        "Authorization": "Bearer 812b2c19-0781-36d4-8954-08de8ca87d6f"
+      }
+    },
+    "pku_citation_validator": {
+      "url": "https://apim-gateway.pkulaw.com/pku_citation_validator",
+      "headers": {
+        "Authorization": "Bearer 812b2c19-0781-36d4-8954-08de8ca87d6f"
+      }
+    },
+    "case_number_recognition": {
+      "url": "https://apim-gateway.pkulaw.com/case_number_recognition",
+      "headers": {
+        "Authorization": "Bearer 812b2c19-0781-36d4-8954-08de8ca87d6f"
+      }
+    },
+    "mcp-case": {
+      "url": "https://apim-gateway.pkulaw.com/mcp-case",
+      "headers": {
+        "Authorization": "Bearer 812b2c19-0781-36d4-8954-08de8ca87d6f"
+      }
+    },
+    "mcp-law-agg": {
+      "url": "https://apim-gateway.pkulaw.com/mcp-law-agg/mcp",
+      "headers": {
+        "Authorization": "Bearer 812b2c19-0781-36d4-8954-08de8ca87d6f"
+      }
+    },
+    "mcp-case-search-service": {
+      "url": "https://apim-gateway.pkulaw.com/mcp-case-search-service",
+      "headers": {
+        "Authorization": "Bearer 812b2c19-0781-36d4-8954-08de8ca87d6f"
+      }
+    }
+  }
+}

@@ -1,0 +1,17 @@
+{% extends 'base.html' %}{% block body %}
+<h1>AI检查 #{{job.id}} · {{scope_name}}</h1>
+<p>{{project.name}} · 模型端点：{{endpoint.name}} / {{endpoint.model or endpoint.adapter}} · 状态：<b>{{job.status}}</b>{% if prompt_template %} · Prompt：{{prompt_template.name}} v{{prompt_template.version}}{% endif %}{% if job.parent_job_id %} · 复检自 <a href="/ai-review/{{job.parent_job_id}}">#{{job.parent_job_id}}</a>{% endif %}</p>
+{% if job.user_instruction %}<div class="panel"><b>用户要求：</b>{{job.user_instruction}}</div>{% endif %}
+{% if job.status=='failed' %}<div class="warn"><b>调用失败：</b>{{job.error_message}}</div>{% endif %}
+{% if result %}
+<div class="cards"><div class="card">风险等级<h2>{{result.risk_level}}</h2></div><div class="card">评分<h2>{{'%.0f'|format(result.score)}} / 100</h2></div><div class="card">模型<h3>{{result.provider_name}}</h3></div><div class="card">输入摘要哈希<h3 style="font-size:12px">{{job.input_digest[:16]}}...</h3></div></div>
+<div class="panel"><h2>总体判断</h2><p>{{result.summary}}</p></div>
+<h2>发现的问题</h2><table><tr><th>级别</th><th>环节</th><th>问题</th><th>数据依据</th><th>影响</th></tr>
+{% for x in findings %}<tr><td>{{x.severity}}</td><td>{{x.area}}</td><td>{{x.issue}}</td><td>{{x.evidence}}</td><td>{{x.impact}}</td></tr>{% endfor %}</table>
+<h2>建议</h2><table><tr><th>优先级</th><th>建议动作</th><th>原因</th><th>责任角色</th><th></th></tr>
+{% for x in recommendations %}<tr><td>{{x.priority}}</td><td>{{x.action}}</td><td>{{x.reason}}</td><td>{{x.owner}}</td><td><form method="post" action="/tasks/create" style="box-shadow:none;padding:0;margin:0"><input type="hidden" name="project_id" value="{{project.id}}"><input type="hidden" name="scope" value="{{job.scope}}"><input type="hidden" name="title" value="{{x.action}}"><input type="hidden" name="description" value="{{x.reason}}"><input type="hidden" name="priority" value="{{x.priority}}"><input type="hidden" name="owner_role" value="{{x.owner}}"><input type="hidden" name="source_job_id" value="{{job.id}}"><button>生成整改任务</button></form></td></tr>{% endfor %}</table>
+{% if gaps %}<div class="panel"><h2>需要补充的数据</h2><ul>{% for x in gaps %}<li>{{x}}</li>{% endfor %}</ul></div>{% endif %}
+<details class="panel"><summary><b>查看发送给模型的数据预览</b></summary><pre style="white-space:pre-wrap;max-height:500px;overflow:auto">{{job.input_preview}}</pre></details>
+<details class="panel"><summary><b>查看模型原始响应</b></summary><pre style="white-space:pre-wrap;max-height:500px;overflow:auto">{{result.raw_response}}</pre></details>
+{% endif %}
+{% endblock %}

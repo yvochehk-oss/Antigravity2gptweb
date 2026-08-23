@@ -1,0 +1,944 @@
+{% extends 'base.html' %}
+
+{% block breadcrumbs %}
+<span class="current">涉税法律法规库</span>
+{% endblock %}
+
+{% block body %}
+<!-- 头部标题与操作栏 (左侧标题，右侧大按钮与统计徽章) -->
+<div style="width: 100%; display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; gap: 20px;">
+  <div style="flex: 1; min-width: 320px;">
+    <h1 style="margin: 0;">⚖️ 涉税法律法规与实操指引知识库</h1>
+  </div>
+
+  <!-- 右侧并列操作区：AI 录入按钮 + 统计徽章 (强制右浮动对齐) -->
+  <div style="display: flex; align-items: center; gap: 14px; flex-shrink: 0;">
+    <button onclick="openCustomRegModal()" class="btn btn-primary" style="display: inline-flex; align-items: center; gap: 8px; padding: 10px 22px; font-size: 15px; font-weight: 700; border-radius: 8px; box-shadow: 0 4px 20px rgba(56, 189, 248, 0.35); background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%); border: 1px solid rgba(56, 189, 248, 0.5); cursor: pointer; transition: all 0.2s ease;">
+      <span style="font-size: 18px; line-height: 1;">➕</span>
+      <span>AI 录入与联网核验法规</span>
+    </button>
+    
+    <span class="badge badge-emerald" style="font-size: 13px; padding: 9px 16px; font-weight: 600; border-radius: 8px; border: 1px solid rgba(16, 185, 129, 0.3); display: inline-flex; align-items: center; gap: 6px;">
+      <span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #10b981;"></span>
+      <span>已收录 {{ counts.all }} 份涉税法规与指引（100% 结构化入库）</span>
+    </span>
+  </div>
+</div>
+
+<!-- 顶部多维快捷筛选控制台 (Filter Console) -->
+<div class="glass-panel-elevated" style="padding: 18px 20px; margin-bottom: 20px; display: flex; flex-direction: column; gap: 14px;">
+  
+  <!-- 维度 1: 适用业务角色 -->
+  <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+    <span style="font-size: 12px; font-weight: 700; color: var(--text-muted); width: 85px; flex-shrink: 0;">
+      🏢 业务角色:
+    </span>
+    <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+      <a href="/regulations?jurisdiction={{ jurisdiction }}&level={{ level }}&status={{ status }}&q={{ q }}" 
+         class="btn btn-sm {% if not business_role %}btn-primary{% else %}btn-secondary{% endif %}">
+        <span>全部业务角色</span>
+        <span class="badge badge-muted font-mono" style="margin-left: 4px;">{{ counts.all }}</span>
+      </a>
+      <a href="/regulations?business_role=construction&jurisdiction={{ jurisdiction }}&level={{ level }}&status={{ status }}&q={{ q }}" 
+         class="btn btn-sm {% if business_role == 'construction' %}btn-primary{% else %}btn-secondary{% endif %}">
+        <span>🏢 建筑施工</span>
+        <span class="badge badge-muted font-mono" style="margin-left: 4px;">{{ counts.construction }}</span>
+      </a>
+      <a href="/regulations?business_role=trade&jurisdiction={{ jurisdiction }}&level={{ level }}&status={{ status }}&q={{ q }}" 
+         class="btn btn-sm {% if business_role == 'trade' %}btn-primary{% else %}btn-secondary{% endif %}">
+        <span>📦 商贸物资</span>
+        <span class="badge badge-muted font-mono" style="margin-left: 4px;">{{ counts.trade }}</span>
+      </a>
+      <a href="/regulations?business_role=labor&jurisdiction={{ jurisdiction }}&level={{ level }}&status={{ status }}&q={{ q }}" 
+         class="btn btn-sm {% if business_role == 'labor' %}btn-primary{% else %}btn-secondary{% endif %}">
+        <span>👷 建筑劳务</span>
+        <span class="badge badge-muted font-mono" style="margin-left: 4px;">{{ counts.labor }}</span>
+      </a>
+      <a href="/regulations?business_role=equipment&jurisdiction={{ jurisdiction }}&level={{ level }}&status={{ status }}&q={{ q }}" 
+         class="btn btn-sm {% if business_role == 'equipment' %}btn-primary{% else %}btn-secondary{% endif %}">
+        <span>🚜 工程设备</span>
+        <span class="badge badge-muted font-mono" style="margin-left: 4px;">{{ counts.equipment }}</span>
+      </a>
+    </div>
+  </div>
+
+  <!-- 维度 2: 管辖区域与效力位阶 (地域范围 + 法规层级) -->
+  <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap; border-top: 1px solid var(--border-subtle); padding-top: 12px;">
+    <span style="font-size: 12px; font-weight: 700; color: var(--text-muted); width: 85px; flex-shrink: 0;">
+      🌐 区域与位阶:
+    </span>
+    <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+      <!-- 管辖区域 -->
+      <a href="/regulations?business_role={{ business_role }}&level={{ level }}&status={{ status }}&q={{ q }}" 
+         class="btn btn-sm {% if not jurisdiction %}btn-primary{% else %}btn-secondary{% endif %}">
+        全部地域
+      </a>
+      <a href="/regulations?business_role={{ business_role }}&jurisdiction=全国&level={{ level }}&status={{ status }}&q={{ q }}" 
+         class="btn btn-sm {% if jurisdiction == '全国' %}btn-primary{% else %}btn-secondary{% endif %}">
+        <span>🇨🇳 全国级法规</span>
+      </a>
+      <a href="/regulations?business_role={{ business_role }}&jurisdiction=四川省&level={{ level }}&status={{ status }}&q={{ q }}" 
+         class="btn btn-sm {% if jurisdiction == '四川省' %}btn-primary{% else %}btn-secondary{% endif %}">
+        <span>🏔️ 四川省级规定</span>
+      </a>
+      <a href="/regulations?business_role={{ business_role }}&jurisdiction=成都市&level={{ level }}&status={{ status }}&q={{ q }}" 
+         class="btn btn-sm {% if jurisdiction == '成都市' %}btn-primary{% else %}btn-secondary{% endif %}">
+        <span>🏙️ 成都市级公告</span>
+      </a>
+
+      <span style="color: var(--border-subtle); margin: 0 4px;">|</span>
+
+      <!-- 效力位阶 -->
+      <a href="/regulations?business_role={{ business_role }}&jurisdiction={{ jurisdiction }}&status={{ status }}&q={{ q }}" 
+         class="btn btn-sm {% if not level %}btn-primary{% else %}btn-secondary{% endif %}">
+        全效力位阶
+      </a>
+      {% for lvl in ['法律', '行政法规', '部门规章', '规范性文件', '地方规范性文件', '操作规程'] %}
+      <a href="/regulations?business_role={{ business_role }}&jurisdiction={{ jurisdiction }}&level={{ lvl }}&status={{ status }}&q={{ q }}" 
+         class="btn btn-sm {% if level == lvl %}btn-primary{% else %}btn-secondary{% endif %}">
+        {{ lvl }}
+      </a>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- 维度 3: 实时关键词检索与时效快捷勾选 (Checkboxes & Live Search) -->
+  <div style="display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; border-top: 1px solid var(--border-subtle); padding-top: 12px;">
+    <!-- 快捷单选时效过滤 -->
+    <div style="display: flex; align-items: center; gap: 16px; font-size: 13px;">
+      <span style="font-weight: 700; color: var(--text-muted);">⚡ 时效状态:</span>
+      <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+        <input type="radio" name="status_radio" value="" {% if not status %}checked{% endif %} 
+               onchange="location.href='/regulations?business_role={{ business_role }}&jurisdiction={{ jurisdiction }}&level={{ level }}&q={{ q }}'">
+        <span style="color: var(--text-primary);">全部</span>
+      </label>
+      <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+        <input type="radio" name="status_radio" value="有效" {% if status == '有效' %}checked{% endif %} 
+               onchange="location.href='/regulations?business_role={{ business_role }}&jurisdiction={{ jurisdiction }}&level={{ level }}&status=有效&q={{ q }}'">
+        <span style="color: #34d399;">🟢 现行有效</span>
+      </label>
+      <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+        <input type="radio" name="status_radio" value="部分" {% if status == '部分' %}checked{% endif %} 
+               onchange="location.href='/regulations?business_role={{ business_role }}&jurisdiction={{ jurisdiction }}&level={{ level }}&status=部分&q={{ q }}'">
+        <span style="color: #fbbf24;">🟡 部分失效/衔接</span>
+      </label>
+    </div>
+
+    <!-- 搜索框 -->
+    <form method="get" action="/regulations" style="display: flex; gap: 8px; flex: 1; max-width: 450px;">
+      <input type="hidden" name="business_role" value="{{ business_role }}">
+      <input type="hidden" name="jurisdiction" value="{{ jurisdiction }}">
+      <input type="hidden" name="level" value="{{ level }}">
+      <input type="hidden" name="status" value="{{ status }}">
+      <input 
+        id="reg-search-input" 
+        class="form-input" 
+        name="q" 
+        value="{{ q }}" 
+        placeholder="搜索法规标题、发文字号或条款内容..." 
+        style="flex: 1; padding: 6px 12px;"
+        oninput="filterTableLive(this.value)"
+      >
+      <button type="submit" class="btn btn-sm btn-primary" style="padding: 0 16px;">搜索</button>
+      {% if q or business_role or jurisdiction or level or status %}
+      <a href="/regulations" class="btn btn-sm btn-secondary" title="重置所有筛选">重置</a>
+      {% endif %}
+    </form>
+  </div>
+</div>
+
+<!-- 法规列表 (表格排版) -->
+<div class="glass-panel" style="padding: 20px; margin-bottom: 24px;">
+  <div class="toolbar" style="margin-bottom: 12px;">
+    <h2>
+      <span>📑 涉税法规与指引总表</span>
+      <span class="badge badge-cyan" id="reg-count-badge">{{ regulations|length }} 份匹配法规</span>
+    </h2>
+    <span style="font-size: 12px; color: var(--text-muted);">
+      点击任意行可滑出右侧条款全景抽屉并复制引用格式
+    </span>
+  </div>
+
+  <div class="table-container">
+    <table id="regulations-table">
+      <thead>
+        <tr>
+          <th style="width: 220px; cursor: pointer; user-select: none; white-space: nowrap;" class="sortable-col" onclick="handleSort('category', this)" title="点击按主体排序">主体 / 发文字号 <span class="sort-icon" style="color: var(--text-muted); font-size: 12px; padding-left: 2px;">⇅</span></th>
+          <th style="min-width: 320px;">法规与指引标题</th>
+          <th style="width: 110px; text-align: center; cursor: pointer; user-select: none; white-space: nowrap;" class="sortable-col" onclick="handleSort('level', this)" title="点击按效力位阶排序">效力位阶 <span class="sort-icon" style="color: var(--text-muted); font-size: 12px; padding-left: 2px;">⇅</span></th>
+          <th style="width: 95px; text-align: center; cursor: pointer; user-select: none; white-space: nowrap;" class="sortable-col" onclick="handleSort('jurisdiction', this)" title="点击按管辖区域排序">管辖区域 <span class="sort-icon" style="color: var(--text-muted); font-size: 12px; padding-left: 2px;">⇅</span></th>
+          <th style="width: 140px; cursor: pointer; user-select: none; white-space: nowrap;" class="sortable-col" onclick="handleSort('tax', this)" title="点击按涉及税种排序">涉及税种 <span class="sort-icon" style="color: var(--text-muted); font-size: 12px; padding-left: 2px;">⇅</span></th>
+          <th style="width: 115px; text-align: center; cursor: pointer; user-select: none; white-space: nowrap;" class="sortable-col" onclick="handleSort('status', this)" title="点击按时效状态排序">时效状态 <span class="sort-icon" style="color: var(--text-muted); font-size: 12px; padding-left: 2px;">⇅</span></th>
+          <th style="width: 115px; text-align: center; cursor: pointer; user-select: none; white-space: nowrap;" class="sortable-col" onclick="handleSort('date', this)" title="点击按发布日期排序">发布日期 <span class="sort-icon" style="color: var(--text-muted); font-size: 12px; padding-left: 2px;">⇅</span></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in regulations %}
+        <tr class="reg-row" 
+            data-title="{{ r.title }}" 
+            data-docno="{{ r.document_no }}" 
+            data-category="{{ r.category_label }}"
+            data-tax="{{ r.tax_type }}"
+            data-level="{{ r.legal_level }}"
+            data-date="{{ r.publish_date }}"
+            data-jurisdiction="{{ r.jurisdiction }}"
+            data-status="{{ r.status }}"
+            data-original-index="{{ loop.index0 }}"
+            onclick="openDrawer({{ loop.index0 }})"
+            style="cursor: pointer;">
+          <!-- 主体 / 发文字号 -->
+          <td>
+            <div style="display: flex; flex-direction: column; gap: 8px; align-items: flex-start;">
+              <span class="badge {{ r.category_badge }}" style="font-size: 11px; white-space: nowrap;">
+                {{ r.category_label }}
+              </span>
+              <span class="project-code font-mono" style="font-size: 11px; white-space: normal; word-break: break-all; line-height: 1.3;">
+                {{ r.document_no }}
+              </span>
+            </div>
+          </td>
+
+          <!-- 法规标题 -->
+          <td>
+            <div style="font-weight: 600; color: #fff; line-height: 1.4;">
+              {{ r.title }}
+            </div>
+            <div style="font-size: 11px; color: var(--text-muted); margin-top: 3px;">
+              发布机关: <span style="color: var(--text-secondary)">{{ r.issuer or '国家税务总局' }}</span>
+            </div>
+          </td>
+
+          <!-- 效力位阶 -->
+          <td style="text-align: center;">
+            <span class="badge badge-muted" style="font-size: 11px; white-space: nowrap;">
+              {{ r.legal_level }}
+            </span>
+          </td>
+
+          <!-- 管辖区域 -->
+          <td style="text-align: center;">
+            <span style="font-size: 12px; color: var(--text-secondary); white-space: nowrap;">
+              {{ r.jurisdiction }}
+            </span>
+          </td>
+
+          <!-- 涉及税种 -->
+          <td>
+            <span style="font-size: 11px; color: var(--accent-cyan); line-height: 1.3; display: inline-block;">
+              {{ r.tax_type }}
+            </span>
+          </td>
+
+          <!-- 时效状态 (水平居中、单行对齐、固定最小宽度) -->
+          <td style="text-align: center; vertical-align: middle;">
+            {% if '部分' in r.status %}
+            <span class="badge badge-amber" style="white-space: nowrap; display: inline-flex; align-items: center; justify-content: center; min-width: 82px; font-size: 11px;">
+              🟡 部分失效
+            </span>
+            {% else %}
+            <span class="badge badge-emerald" style="white-space: nowrap; display: inline-flex; align-items: center; justify-content: center; min-width: 82px; font-size: 11px;">
+              🟢 现行有效
+            </span>
+            {% endif %}
+          </td>
+
+          <!-- 发布日期 (居中等宽) -->
+          <td class="font-mono" style="font-size: 12px; text-align: center; color: var(--text-secondary); white-space: nowrap;">
+            {{ r.publish_date }}
+          </td>
+
+          
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="8" style="text-align: center; padding: 40px; color: var(--text-muted);">
+            未找到符合条件的涉税法规。请调整上方筛选条件或点击“重置”。
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- 右侧滑出抽屉 (Slide-over Full-Text Drawer) -->
+<div id="drawer-backdrop" 
+     style="position: fixed; inset: 0; background: rgba(6,14,32,0.7); backdrop-filter: blur(6px); z-index: 150; opacity: 0; visibility: hidden; transition: all 0.25s ease;"
+     onclick="closeDrawer()">
+</div>
+
+<div id="reg-drawer" 
+     class="glass-panel-elevated"
+     style="position: fixed; right: -650px; top: 0; bottom: 0; width: 640px; max-width: 95vw; background: rgba(11, 19, 38, 0.96); backdrop-filter: blur(24px); border-left: 1px solid var(--border-cyan-bright); z-index: 160; display: flex; flex-direction: column; transition: right 0.3s cubic-bezier(0.16, 1, 0.3, 1); box-shadow: -10px 0 40px rgba(0,0,0,0.6);">
+  
+  <!-- 抽屉头部 -->
+  <div style="padding: 20px 24px; border-bottom: 1px solid var(--border-subtle); display: flex; align-items: flex-start; justify-content: space-between; gap: 16px;">
+    <div style="flex: 1;">
+      <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
+        <span id="drawer-category" class="badge badge-cyan">分类</span>
+        <span id="drawer-docno" class="project-code font-mono">发文字号</span>
+        <span id="drawer-status" class="badge badge-emerald">现行有效</span>
+      </div>
+      <h2 id="drawer-title" style="font-size: 16px; color: #fff; line-height: 1.4; margin: 0;">
+        法规标题
+      </h2>
+    </div>
+    <button onclick="closeDrawer()" class="modal-close" style="font-size: 24px; line-height: 1;">&times;</button>
+  </div>
+
+  <!-- 抽屉属性条 -->
+  <div style="padding: 12px 24px; background: rgba(6,14,32,0.5); border-bottom: 1px solid var(--border-subtle); font-size: 12px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+    <div>发布机关: <span id="drawer-issuer" style="color: #fff;">-</span></div>
+    <div>效力位阶: <span id="drawer-level" class="badge badge-muted">-</span></div>
+    <div>管辖区域: <span id="drawer-jurisdiction" style="color: var(--accent-cyan);">-</span></div>
+    <div>发布日期: <span id="drawer-date" class="font-mono" style="color: var(--text-secondary);">-</span></div>
+    <div style="grid-column: 1 / -1;">适用税种: <span id="drawer-tax" style="color: var(--accent-cyan); font-weight: 600;">-</span></div>
+  </div>
+
+  <!-- 快捷工具条 -->
+  <div style="padding: 10px 24px; border-bottom: 1px solid var(--border-subtle); display: flex; align-items: center; justify-content: space-between; background: rgba(15,23,42,0.4);">
+    <span style="font-size: 12px; color: var(--text-muted);">📜 条款与全文内容预览</span>
+    <div style="display: flex; gap: 8px;">
+      <button id="btn-copy-cite" onclick="copyCitation()" class="btn btn-sm btn-secondary">
+        <span>📋 复制标准引用</span>
+      </button>
+      <a id="drawer-json-link" href="#" target="_blank" class="btn btn-sm btn-primary">
+        <span>⚡ 查看 JSON</span>
+      </a>
+    </div>
+  </div>
+
+  <!-- 抽屉正文内容 -->
+  <div id="drawer-content" 
+       style="flex: 1; padding: 20px 24px; overflow-y: auto; font-size: 13px; line-height: 1.8; color: var(--text-primary); white-space: pre-wrap; font-family: system-ui, -apple-system, sans-serif; background: rgba(11, 19, 38, 0.4);">
+    正文载入中...
+  </div>
+</div>
+
+<!-- 纯前端即时交互脚本 -->
+<script>
+  // 注入法规数据对象供抽屉与客户端即时检索
+  const REG_DATA = [
+    {% for r in regulations %}
+    {
+      id: {{ r.id }},
+      docNo: {{ r.document_no|tojson }},
+      title: {{ r.title|tojson }},
+      issuer: {{ r.issuer|tojson }},
+      level: {{ r.legal_level|tojson }},
+      jurisdiction: {{ r.jurisdiction|tojson }},
+      taxType: {{ r.tax_type|tojson }},
+      status: {{ r.status|tojson }},
+      publishDate: {{ r.publish_date|tojson }},
+      categoryLabel: {{ r.category_label|tojson }},
+      categoryBadge: {{ r.category_badge|tojson }},
+      fullText: {{ r.full_text|tojson }}
+    },
+    {% endfor %}
+  ];
+
+  let currentActiveReg = null;
+
+  function openDrawer(index) {
+    const reg = REG_DATA[index];
+    if (!reg) return;
+    currentActiveReg = reg;
+
+    document.getElementById('drawer-title').innerText = reg.title;
+    document.getElementById('drawer-docno').innerText = reg.docNo;
+    document.getElementById('drawer-category').innerText = reg.categoryLabel;
+    document.getElementById('drawer-category').className = 'badge ' + reg.categoryBadge;
+    document.getElementById('drawer-issuer').innerText = reg.issuer || '-';
+    document.getElementById('drawer-level').innerText = reg.level;
+    document.getElementById('drawer-jurisdiction').innerText = reg.jurisdiction;
+    document.getElementById('drawer-date').innerText = reg.publishDate || '-';
+    document.getElementById('drawer-tax').innerText = reg.taxType;
+    document.getElementById('drawer-content').innerText = reg.fullText || '暂无法规正文';
+    document.getElementById('drawer-json-link').href = '/api/v1/regulations/' + reg.id;
+
+    const statusEl = document.getElementById('drawer-status');
+    if (reg.status.includes('部分')) {
+      statusEl.className = 'badge badge-amber';
+      statusEl.innerText = '🟡 ' + reg.status;
+    } else {
+      statusEl.className = 'badge badge-emerald';
+      statusEl.innerText = '🟢 ' + reg.status;
+    }
+
+    document.getElementById('drawer-backdrop').style.opacity = '1';
+    document.getElementById('drawer-backdrop').style.visibility = 'visible';
+    document.getElementById('reg-drawer').style.right = '0';
+  }
+
+  function closeDrawer() {
+    document.getElementById('drawer-backdrop').style.opacity = '0';
+    document.getElementById('drawer-backdrop').style.visibility = 'hidden';
+    document.getElementById('reg-drawer').style.right = '-650px';
+  }
+
+  function copyCitation() {
+    if (!currentActiveReg) return;
+    const citeText = `《${currentActiveReg.title}》（${currentActiveReg.docNo}）`;
+    navigator.clipboard.writeText(citeText).then(() => {
+      const btn = document.getElementById('btn-copy-cite');
+      const originalHtml = btn.innerHTML;
+      btn.innerHTML = '<span>✅ 已复制引用!</span>';
+      setTimeout(() => { btn.innerHTML = originalHtml; }, 2000);
+    });
+  }
+
+  // 客户端毫秒级实时表格内容过滤
+  function filterTableLive(query) {
+    const q = query.trim().toLowerCase();
+    const rows = document.querySelectorAll('.reg-row');
+    let visibleCount = 0;
+
+    rows.forEach(row => {
+      const title = (row.getAttribute('data-title') || '').toLowerCase();
+      const docNo = (row.getAttribute('data-docno') || '').toLowerCase();
+      const category = (row.getAttribute('data-category') || '').toLowerCase();
+      const tax = (row.getAttribute('data-tax') || '').toLowerCase();
+      const level = (row.getAttribute('data-level') || '').toLowerCase();
+
+      if (!q || title.includes(q) || docNo.includes(q) || category.includes(q) || tax.includes(q) || level.includes(q)) {
+        row.style.display = '';
+        visibleCount++;
+      } else {
+        row.style.display = 'none';
+      }
+    });
+
+    const badge = document.getElementById('reg-count-badge');
+    if (badge) {
+      badge.innerText = visibleCount + ' 份匹配法规';
+    }
+  }
+
+
+
+  // 点击表头进行列排序
+  let currentSort = { key: null, order: 'desc' };
+  
+  function handleSort(key, thElement) {
+    if (currentSort.key === key) {
+      currentSort.order = currentSort.order === 'asc' ? 'desc' : 'asc';
+    } else {
+      currentSort.key = key;
+      currentSort.order = 'desc';
+    }
+    
+    // 重置所有列的样式
+    document.querySelectorAll('.sortable-col').forEach(th => {
+      th.style.color = '';
+      th.querySelector('.sort-icon').innerText = '⇅';
+      th.querySelector('.sort-icon').style.color = 'var(--text-muted)';
+    });
+    
+    // 高亮当前列
+    thElement.style.color = 'var(--accent-cyan)';
+    const icon = thElement.querySelector('.sort-icon');
+    icon.innerText = currentSort.order === 'asc' ? '↑' : '↓';
+    icon.style.color = 'var(--accent-cyan)';
+    
+    const tableBody = document.querySelector('#regulations-table tbody');
+    const rows = Array.from(tableBody.querySelectorAll('tr.reg-row'));
+    if (!rows.length) return;
+    
+    const levelWeight = {
+      '法律': 50,
+      '行政法规': 40,
+      '部门规章': 30,
+      '规范性文件': 20,
+      '地方规范性文件': 15,
+      '操作指引': 10
+    };
+    
+    rows.sort((a, b) => {
+      let valA, valB;
+      if (key === 'date') {
+        valA = a.getAttribute('data-date') || '1970-01-01';
+        valB = b.getAttribute('data-date') || '1970-01-01';
+        return currentSort.order === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA);
+      } else if (key === 'level') {
+        valA = levelWeight[a.getAttribute('data-level')] || 0;
+        valB = levelWeight[b.getAttribute('data-level')] || 0;
+        if (valA === valB) {
+          const dateA = a.getAttribute('data-date') || '1970-01-01';
+          const dateB = b.getAttribute('data-date') || '1970-01-01';
+          return currentSort.order === 'asc' ? dateA.localeCompare(dateB) : dateB.localeCompare(dateA);
+        }
+        return currentSort.order === 'asc' ? valA - valB : valB - valA;
+      } else if (key === 'jurisdiction') {
+        valA = a.getAttribute('data-jurisdiction') || '';
+        valB = b.getAttribute('data-jurisdiction') || '';
+        return currentSort.order === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA);
+      } else if (key === 'tax') {
+        valA = a.getAttribute('data-tax') || '';
+        valB = b.getAttribute('data-tax') || '';
+        return currentSort.order === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA);
+      } else if (key === 'status') {
+        valA = a.getAttribute('data-status') || '';
+        valB = b.getAttribute('data-status') || '';
+        return currentSort.order === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA);
+      } else if (key === 'category') {
+        valA = a.getAttribute('data-category') || '';
+        valB = b.getAttribute('data-category') || '';
+        if (valA === valB) {
+          const docA = a.getAttribute('data-docno') || '';
+          const docB = b.getAttribute('data-docno') || '';
+          return currentSort.order === 'asc' ? docA.localeCompare(docB) : docB.localeCompare(docA);
+        }
+        return currentSort.order === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA);
+      }
+      return 0;
+    });
+    
+    rows.forEach(row => tableBody.appendChild(row));
+  }
+
+
+  // 按 ESC 键快速关闭抽屉
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+      closeDrawer();
+      closeCustomRegModal();
+    }
+  });
+
+  // ==================== 手工录入与联网核验逻辑 ====================
+  function openCustomRegModal() {
+    document.getElementById('customRegModal').style.display = 'flex';
+    document.getElementById('verifyResultPanel').style.display = 'none';
+  }
+
+  function closeCustomRegModal() {
+    document.getElementById('customRegModal').style.display = 'none';
+  }
+
+  async function triggerOnlineVerify() {
+    const title = document.getElementById('cr_title').value.trim();
+    const docNo = document.getElementById('cr_docno').value.trim();
+    const text = document.getElementById('cr_text').value.trim();
+
+    if (!title && !docNo && !text) {
+      alert('请至少输入法规标题、发文字号或法规条款正文！');
+      return;
+    }
+
+    const btn = document.getElementById('btnVerifyOnline');
+    const panel = document.getElementById('verifyResultPanel');
+    btn.disabled = true;
+    btn.innerHTML = '<span>⏳ 联网核验与条款比对中...</span>';
+
+    try {
+      const resp = await fetch('/api/v1/regulations/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: title, document_no: docNo, full_text: text })
+      });
+      const data = await resp.json();
+      if (!resp.ok) {
+        throw new Error(data.detail || '核验服务异常');
+      }
+
+      panel.style.display = 'block';
+      const statusHtml = data.is_authentic 
+        ? `<span class="badge badge-emerald" style="font-size: 13px;">🟢 真实性可信度: ${(data.confidence_score * 100).toFixed(0)}% (高度可信)</span>`
+        : `<span class="badge badge-amber" style="font-size: 13px;">🟡 待复核/参考存疑: ${(data.confidence_score * 100).toFixed(0)}%</span>`;
+
+      const continuousHtml = data.is_continuous
+        ? `<span class="badge badge-cyan">✓ 条款序号连贯 (${data.detected_articles_count} 条)</span>`
+        : `<span class="badge badge-rose">⚠️ 条款疑似缺失第 ${data.missing_articles.join(', ')} 条</span>`;
+
+      let notesHtml = data.verification_notes.map(n => `<li style="margin-bottom: 4px;">${n}</li>`).join('');
+      let sourcesHtml = data.official_sources.map(s => `
+        <div style="background: rgba(255,255,255,0.05); padding: 6px 10px; border-radius: 4px; font-size: 12px; margin-top: 4px;">
+          <span style="color: var(--accent-cyan); font-weight: 600;">${s.source_name}</span> (${s.domain}): ${s.status}
+        </div>
+      `).join('');
+
+      panel.innerHTML = `
+        <div style="border-left: 3px solid var(--accent-cyan); padding-left: 12px; margin-bottom: 12px;">
+          <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 6px;">
+            ${statusHtml}
+            ${continuousHtml}
+          </div>
+          <div style="font-size: 12px; color: var(--text-muted);">${data.structure_summary}</div>
+        </div>
+        <div style="font-size: 12px; line-height: 1.6; color: var(--text-secondary); margin-bottom: 8px;">
+          <ul style="margin: 0; padding-left: 18px;">${notesHtml}</ul>
+        </div>
+        ${sourcesHtml ? `<div style="font-size: 12px; color: var(--text-muted); margin-top: 6px;">官方比对渠道:</div>${sourcesHtml}` : ''}
+      `;
+    } catch (err) {
+      alert('核验失败: ' + err.message);
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '<span>🌐 联网核验真实性与条款完整性</span>';
+    }
+  }
+
+  async function submitCustomRegulation() {
+    const title = document.getElementById('cr_title').value.trim();
+    const docNo = document.getElementById('cr_docno').value.trim();
+    const issuer = document.getElementById('cr_issuer').value.trim();
+    const legalLevel = document.getElementById('cr_level').value;
+    const jurisdiction = document.getElementById('cr_jurisdiction').value;
+    const taxType = document.getElementById('cr_tax_type').value.trim();
+    const status = document.getElementById('cr_status').value;
+    const businessRole = document.getElementById('cr_role').value;
+    const fullText = document.getElementById('cr_text').value.trim();
+
+    if (!title || !docNo || !fullText) {
+      alert('请完整填写法规标题、发文字号以及法规正文/条款内容！');
+      return;
+    }
+
+    const btn = document.getElementById('btnSaveCustomReg');
+    btn.disabled = true;
+    btn.innerHTML = '<span>💾 正在保存并向量化切块...</span>';
+
+    try {
+      const resp = await fetch('/api/v1/regulations/save-custom', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title,
+          document_no: docNo,
+          issuer,
+          legal_level: legalLevel,
+          jurisdiction,
+          tax_type: taxType || '全部税种',
+          industry: '建筑业',
+          status,
+          business_role: businessRole,
+          full_text: fullText
+        })
+      });
+      const data = await resp.json();
+      if (!resp.ok) {
+        throw new Error(data.detail || '保存失败');
+      }
+
+      alert(`🎉 录入成功！法规【${data.title}】已入库并生成 ${data.chunk_count} 个语义切块。`);
+      location.reload();
+    } catch (err) {
+      alert('保存失败: ' + err.message);
+      btn.disabled = false;
+      btn.innerHTML = '<span>💾 确认并结构化入库</span>';
+    }
+  }
+</script>
+
+<!-- 现代 AI 多模态智能法规摄入 Studio Modal -->
+<div id="customRegModal" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.8); z-index: 1000; align-items: center; justify-content: center; backdrop-filter: blur(8px);">
+  <div class="glass-panel-elevated" style="width: 860px; max-width: 95vw; max-height: 92vh; overflow-y: auto; padding: 24px 28px; border: 1px solid var(--border-subtle); box-shadow: 0 15px 50px rgba(0,0,0,0.7); position: relative;">
+    
+    <!-- 头部 -->
+    <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-subtle); padding-bottom: 14px; margin-bottom: 16px;">
+      <div>
+        <h2 style="margin: 0; font-size: 18px; display: flex; align-items: center; gap: 8px;">
+          <span>🤖</span> 现代 AI 涉税法律法规智能摄入工作台
+        </h2>
+        <div style="font-size: 12px; color: var(--text-muted); margin-top: 3px;">
+          支持上传 PDF / 图片 / 扫描件 / 网页网址，由 AI 自动解析、条款完整性比对、生成标准 MD 并向量化入库
+        </div>
+      </div>
+      <button onclick="closeCustomRegModal()" class="btn btn-sm btn-secondary" style="font-size: 14px;">✕</button>
+    </div>
+
+    <!-- 摄入模式 Tab 切换 -->
+    <div style="display: flex; gap: 10px; margin-bottom: 18px; background: rgba(255,255,255,0.03); padding: 4px; border-radius: 8px; border: 1px solid var(--border-subtle);">
+      <button onclick="switchIntakeTab('file')" id="tab_btn_file" class="btn btn-sm btn-primary" style="flex: 1; justify-content: center;">
+        📄 上传 PDF / 图片 / 扫描件文件
+      </button>
+      <button onclick="switchIntakeTab('url')" id="tab_btn_url" class="btn btn-sm btn-secondary" style="flex: 1; justify-content: center;">
+        🌐 抓取政务公示网页 URL
+      </button>
+      <button onclick="switchIntakeTab('text')" id="tab_btn_text" class="btn btn-sm btn-secondary" style="flex: 1; justify-content: center;">
+        ✍️ 直接粘贴 / 手工精细录入
+      </button>
+    </div>
+
+    <!-- 模式 A：文件上传区 -->
+    <div id="panel_intake_file" style="margin-bottom: 18px;">
+      <div style="border: 2px dashed var(--border-subtle); border-radius: 8px; padding: 26px; text-align: center; background: rgba(255,255,255,0.01); transition: all 0.2s;" id="drop_zone">
+        <div style="font-size: 32px; margin-bottom: 8px;">📑</div>
+        <div style="font-size: 14px; font-weight: 600; color: var(--text-primary); margin-bottom: 4px;">
+          点击选择或拖拽法规文件至此处
+        </div>
+        <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 12px;">
+          支持 PDF (红头文件/政策汇编)、JPG/PNG (法规扫描件/公告截图)、TXT / Word
+        </div>
+        <input type="file" id="reg_file_input" accept=".pdf,.png,.jpg,.jpeg,.txt,.md,.docx" style="display: none;" onchange="handleFileSelect(this)">
+        <button onclick="document.getElementById('reg_file_input').click()" class="btn btn-sm btn-secondary">
+          选择本地文件
+        </button>
+        <div id="selected_file_name" style="font-size: 12px; color: var(--accent-cyan); font-weight: 600; margin-top: 10px; display: none;"></div>
+      </div>
+      <div style="margin-top: 10px; text-align: right;">
+        <button id="btnAiParseFile" onclick="triggerAiParseFile()" class="btn btn-sm btn-primary" style="display: none;">
+          ⚡ 开始 AI 解析与条款完整性核验 ➔
+        </button>
+      </div>
+    </div>
+
+    <!-- 模式 B：网页 URL 抓取区 -->
+    <div id="panel_intake_url" style="display: none; margin-bottom: 18px;">
+      <div style="display: flex; gap: 8px;">
+        <input id="reg_url_input" class="form-input" style="flex: 1;" placeholder="请输入国家税务总局、财政部或省市级税务局政务公开法规网址 (如 https://www.chinatax.gov.cn/...)">
+        <button id="btnAiParseUrl" onclick="triggerAiParseUrl()" class="btn btn-sm btn-primary" style="padding: 0 16px;">
+          ⚡ AI 抓取并核验
+        </button>
+      </div>
+      <div style="font-size: 11px; color: var(--text-muted); margin-top: 6px;">
+        系统将自动提取正文、清洗 HTML、识别发文字号与发布部门，并进行法条序号连续性自检。
+      </div>
+    </div>
+
+    <!-- 智能提取出的结构化元数据表单 (AI 解析完成后自动回填) -->
+    <div id="aiExtractedMetaSection" style="display: block; border-top: 1px solid var(--border-subtle); padding-top: 16px;">
+      
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+        <div style="font-size: 13px; font-weight: 700; color: var(--accent-cyan); display: flex; align-items: center; gap: 6px;">
+          <span>🎯</span> AI 结构化元数据识别结果 (支持校对与微调)
+        </div>
+        <span id="ai_status_tag" class="badge badge-muted" style="font-size: 11px;">待解析输入</span>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px;">
+        <div>
+          <label style="font-size: 12px; color: var(--text-muted); display: block; margin-bottom: 4px;">法规与指引标题 <span style="color:#ef4444;">*</span></label>
+          <input id="cr_title" class="form-input" style="width: 100%;" placeholder="例如：中华人民共和国印花税法">
+        </div>
+        <div>
+          <label style="font-size: 12px; color: var(--text-muted); display: block; margin-bottom: 4px;">发文字号 / 标准编号 <span style="color:#ef4444;">*</span></label>
+          <input id="cr_docno" class="form-input font-mono" style="width: 100%;" placeholder="例如：主席令第八十九号 / 财税〔2024〕10号">
+        </div>
+      </div>
+
+      <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 14px;">
+        <div>
+          <label style="font-size: 12px; color: var(--text-muted); display: block; margin-bottom: 4px;">适用业务角色</label>
+          <select id="cr_role" class="form-input" style="width: 100%;">
+            <option value="construction">🏗️ A 建筑施工</option>
+            <option value="trade">📦 B 商贸物资</option>
+            <option value="labor">👷 C 建筑劳务</option>
+            <option value="equipment">🚜 D 机械租赁</option>
+            <option value="national_vat">🇨🇳 国家增值税通用</option>
+          </select>
+        </div>
+        <div>
+          <label style="font-size: 12px; color: var(--text-muted); display: block; margin-bottom: 4px;">管辖区域</label>
+          <select id="cr_jurisdiction" class="form-input" style="width: 100%;">
+            <option value="全国">🇨🇳 全国</option>
+            <option value="四川省">🏔️ 四川省</option>
+            <option value="成都市">🏙️ 成都市</option>
+          </select>
+        </div>
+        <div>
+          <label style="font-size: 12px; color: var(--text-muted); display: block; margin-bottom: 4px;">效力位阶</label>
+          <select id="cr_level" class="form-input" style="width: 100%;">
+            <option value="法律">法律</option>
+            <option value="行政法规">行政法规</option>
+            <option value="部门规章">部门规章</option>
+            <option value="规范性文件" selected>规范性文件</option>
+            <option value="地方规范性文件">地方规范性文件</option>
+            <option value="操作指引">操作指引</option>
+          </select>
+        </div>
+        <div>
+          <label style="font-size: 12px; color: var(--text-muted); display: block; margin-bottom: 4px;">时效状态</label>
+          <select id="cr_status" class="form-input" style="width: 100%;">
+            <option value="现行有效" selected>🟢 现行有效</option>
+            <option value="部分失效/衔接">🟡 部分失效/衔接</option>
+          </select>
+        </div>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 14px;">
+        <div>
+          <label style="font-size: 12px; color: var(--text-muted); display: block; margin-bottom: 4px;">发文机关 / 发布部门</label>
+          <input id="cr_issuer" class="form-input" style="width: 100%;" placeholder="例如：全国人民代表大会常务委员会 / 财政部 国家税务总局">
+        </div>
+        <div>
+          <label style="font-size: 12px; color: var(--text-muted); display: block; margin-bottom: 4px;">涉及税种</label>
+          <input id="cr_tax_type" class="form-input" style="width: 100%;" placeholder="例如：增值税、印花税、企业所得税">
+        </div>
+      </div>
+
+      <div style="margin-bottom: 16px;">
+        <label style="font-size: 12px; color: var(--text-muted); display: block; margin-bottom: 4px;">法规条款全文内容 (AI 提取 / 自动清洗) <span style="color:#ef4444;">*</span></label>
+        <textarea id="cr_text" class="form-input" style="width: 100%; height: 160px; font-family: monospace; font-size: 13px; line-height: 1.5;" placeholder="输入或由 AI 自动填充法规正文内容，系统支持第1条、第2条...等自动结构化拆分切块与缺失条款校验。"></textarea>
+      </div>
+
+      <!-- 联网核验与条款完整性报告 -->
+      <div id="verifyResultPanel" style="display: none; background: rgba(0,0,0,0.3); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 14px; margin-bottom: 16px;">
+      </div>
+
+    </div>
+
+    <!-- 底部操作区 -->
+    <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--border-subtle); padding-top: 16px; margin-top: 10px;">
+      <button id="btnVerifyOnline" type="button" onclick="triggerOnlineVerify()" class="btn btn-secondary" style="display: flex; align-items: center; gap: 6px; border-color: var(--accent-cyan); color: var(--accent-cyan);">
+        <span>🌐</span>
+        <span>联网核验真实性与条款完整性</span>
+      </button>
+      <div style="display: flex; gap: 8px;">
+        <button onclick="closeCustomRegModal()" type="button" class="btn btn-secondary">取消</button>
+        <button id="btnSaveCustomReg" onclick="submitCustomRegulation()" type="button" class="btn btn-primary" style="padding: 0 24px; box-shadow: 0 0 15px rgba(56, 189, 248, 0.3);">
+          <span>💾 生成 MD 并 BGE 向量化入库</span>
+        </button>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+  let currentIntakeTab = 'file';
+
+  function switchIntakeTab(tab) {
+    currentIntakeTab = tab;
+    ['file', 'url', 'text'].forEach(t => {
+      const btn = document.getElementById(`tab_btn_${t}`);
+      const panel = document.getElementById(`panel_intake_${t}`);
+      if (t === tab) {
+        btn.classList.remove('btn-secondary');
+        btn.classList.add('btn-primary');
+        if (panel) panel.style.display = 'block';
+      } else {
+        btn.classList.remove('btn-primary');
+        btn.classList.add('btn-secondary');
+        if (panel) panel.style.display = 'none';
+      }
+    });
+  }
+
+  function handleFileSelect(input) {
+    if (input.files && input.files[0]) {
+      const file = input.files[0];
+      const nameDiv = document.getElementById('selected_file_name');
+      nameDiv.style.display = 'block';
+      nameDiv.textContent = `已选择文件: ${file.name} (${(file.size / 1024).toFixed(1)} KB)`;
+      document.getElementById('btnAiParseFile').style.display = 'inline-flex';
+    }
+  }
+
+  function renderVerificationResult(data) {
+    const panel = document.getElementById('verifyResultPanel');
+    panel.style.display = 'block';
+
+    const statusHtml = data.is_authentic 
+      ? `<span class="badge badge-emerald" style="font-size: 13px;">🟢 真实性可信度: ${(data.confidence_score * 100).toFixed(0)}% (高度可信)</span>`
+      : `<span class="badge badge-amber" style="font-size: 13px;">🟡 待复核/参考存疑: ${(data.confidence_score * 100).toFixed(0)}%</span>`;
+
+    const continuousHtml = data.is_continuous
+      ? `<span class="badge badge-cyan">✓ 条款序号连贯 (${data.detected_articles_count} 条)</span>`
+      : `<span class="badge badge-rose">⚠️ 条款疑似缺失第 ${data.missing_articles.join(', ')} 条</span>`;
+
+    let notesHtml = (data.verification_notes || []).map(n => `<li style="margin-bottom: 4px;">${n}</li>`).join('');
+    let sourcesHtml = (data.official_sources || []).map(s => `
+      <div style="background: rgba(255,255,255,0.05); padding: 6px 10px; border-radius: 4px; font-size: 12px; margin-top: 4px;">
+        <span style="color: var(--accent-cyan); font-weight: 600;">${s.source_name}</span> (${s.domain}): ${s.status}
+      </div>
+    `).join('');
+
+    panel.innerHTML = `
+      <div style="border-left: 3px solid var(--accent-cyan); padding-left: 12px; margin-bottom: 12px;">
+        <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 6px;">
+          ${statusHtml}
+          ${continuousHtml}
+        </div>
+        <div style="font-size: 12px; color: var(--text-muted);">${data.structure_summary || ''}</div>
+      </div>
+      <div style="font-size: 12px; line-height: 1.6; color: var(--text-secondary); margin-bottom: 8px;">
+        <ul style="margin: 0; padding-left: 18px;">${notesHtml}</ul>
+      </div>
+      ${sourcesHtml ? `<div style="font-size: 12px; color: var(--text-muted); margin-top: 6px;">官方政务比对渠道:</div>${sourcesHtml}` : ''}
+    `;
+  }
+
+  function fillMetaFields(meta, fullText) {
+    if (meta.title) document.getElementById('cr_title').value = meta.title;
+    if (meta.document_no) document.getElementById('cr_docno').value = meta.document_no;
+    if (meta.issuer) document.getElementById('cr_issuer').value = meta.issuer;
+    if (meta.legal_level) document.getElementById('cr_level').value = meta.legal_level;
+    if (meta.jurisdiction) document.getElementById('cr_jurisdiction').value = meta.jurisdiction;
+    if (meta.tax_type) document.getElementById('cr_tax_type').value = meta.tax_type;
+    if (meta.status) document.getElementById('cr_status').value = meta.status;
+    if (meta.business_role) document.getElementById('cr_role').value = meta.business_role;
+    if (fullText) document.getElementById('cr_text').value = fullText;
+
+    const tag = document.getElementById('ai_status_tag');
+    tag.className = 'badge badge-emerald';
+    tag.textContent = '✨ AI 智能提取成功';
+  }
+
+  async function triggerAiParseFile() {
+    const fileInput = document.getElementById('reg_file_input');
+    if (!fileInput.files || !fileInput.files[0]) {
+      alert('请先选择要上传解析的法规文件！');
+      return;
+    }
+
+    const btn = document.getElementById('btnAiParseFile');
+    btn.disabled = true;
+    btn.innerHTML = '<span>⏳ AI 正在解析文件并比对法条...</span>';
+
+    const formData = new FormData();
+    formData.append('file', fileInput.files[0]);
+
+    try {
+      const resp = await fetch('/api/v1/regulations/ai-parse-file', {
+        method: 'POST',
+        body: formData
+      });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.detail || '文件解析失败');
+
+      fillMetaFields(data.meta, data.full_text);
+      if (data.verification) {
+        renderVerificationResult(data.verification);
+      }
+    } catch (err) {
+      alert('AI 文件解析失败: ' + err.message);
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '<span>⚡ 重新解析</span>';
+    }
+  }
+
+  async function triggerAiParseUrl() {
+    const url = document.getElementById('reg_url_input').value.trim();
+    if (!url) {
+      alert('请输入法规政务公示网页 URL！');
+      return;
+    }
+
+    const btn = document.getElementById('btnAiParseUrl');
+    btn.disabled = true;
+    btn.innerHTML = '<span>⏳ 抓取并解析中...</span>';
+
+    try {
+      const resp = await fetch('/api/v1/regulations/ai-parse-url', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url })
+      });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.detail || '网页解析失败');
+
+      fillMetaFields(data.meta, data.full_text);
+      if (data.verification) {
+        renderVerificationResult(data.verification);
+      }
+    } catch (err) {
+      alert('AI 网页抓取失败: ' + err.message);
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '<span>⚡ AI 抓取并核验</span>';
+    }
+  }
+</script>
+{% endblock %}

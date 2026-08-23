@@ -1,0 +1,16 @@
+{% extends 'base.html' %}{% block body %}
+<h1>{{s.project.name}}</h1><p>{{s.project.code}} · {{s.project.city}} · {{s.project.tax_method}}</p>
+<div class="panel"><b>随时检查：</b><a href="/health-check?project_id={{s.project.id}}"><b>一键综合体检</b></a> · 
+<a href="/ai-review?project_id={{s.project.id}}&scope=whole_project">整个项目</a> ·
+<a href="/ai-review?project_id={{s.project.id}}&scope=cost">真实成本</a> ·
+<a href="/ai-review?project_id={{s.project.id}}&scope=eac">EAC</a> ·
+<a href="/ai-review?project_id={{s.project.id}}&scope=material">材料</a> ·
+<a href="/ai-review?project_id={{s.project.id}}&scope=labor">劳务</a> ·
+<a href="/ai-review?project_id={{s.project.id}}&scope=equipment">设备</a> ·
+<a href="/ai-review?project_id={{s.project.id}}&scope=subcontract">专业分包</a> ·
+<a href="/ai-review?project_id={{s.project.id}}&scope=tax">税务</a>
+</div>
+<div class="cards"><div class="card">确认收入<h2>{{'%.1f'|format(s.revenue/10000)}}万</h2></div><div class="card">真实成本<h2>{{'%.1f'|format(s.real_cost/10000)}}万</h2></div><div class="card">经营利润<h2>{{'%.1f'|format(s.profit/10000)}}万</h2></div><div class="card">EAC利润<h2>{{'%.1f'|format(s.eac_profit/10000)}}万</h2></div></div>
+<h2>成本科目汇总</h2><table><tr><th>一级</th><th>二级</th><th>金额</th></tr>{% for cat,subs in tree.items() %}{% for sub,amt in subs.items() %}<tr><td>{{cat}}</td><td>{{sub}}</td><td>{{'%.1f'|format(amt/10000)}}万</td></tr>{% endfor %}{% endfor %}</table>
+<h2>真实成本穿透明细</h2><table><tr><th>成本承担法人</th><th>来源/交易对手</th><th>类别</th><th>子科目</th><th>金额</th><th>说明</th></tr>{% for c in costs %}<tr><td>{{c.entity_code}}</td><td>{{c.counterparty_code or "-"}}</td><td>{{c.category}}</td><td>{{c.subcategory}}</td><td>{{'%.1f'|format(c.amount/10000)}}万</td><td>{{c.note}}</td></tr>{% endfor %}</table>
+{% endblock %}

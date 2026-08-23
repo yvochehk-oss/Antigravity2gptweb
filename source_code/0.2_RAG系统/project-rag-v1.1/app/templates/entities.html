@@ -1,0 +1,202 @@
+{% extends 'base.html' %}
+
+{% block breadcrumbs %}
+<span class="current">往来涉税主体穿透</span>
+{% endblock %}
+
+{% block body %}
+<!-- 头部标头 -->
+<div class="toolbar" style="margin-bottom: 20px;">
+  <div>
+    <h1>👥 实际经营单位与涉税主体穿透大盘</h1>
+    <p class="subtitle">
+      包含系统内企业 {{ entity_summary.internal }} 家与系统外合作单位 {{ entity_summary.external }} 家（共 {{ entity_summary.total }} 家），支持四流合一风控与穿透追溯。
+    </p>
+  </div>
+  <div class="toolbar-right" style="display: flex; gap: 10px; align-items: center;">
+    <span class="badge badge-cyan" style="font-size: 12px; padding: 6px 12px;">
+      ● 系统内 {{ entity_summary.internal }} 家
+    </span>
+    <span class="badge badge-purple" style="font-size: 12px; padding: 6px 12px;">
+      ● 系统外 {{ entity_summary.external }} 家
+    </span>
+  </div>
+</div>
+
+<!-- 快捷筛选器 -->
+<div class="glass-panel" style="padding: 16px 20px; margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
+  <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+    <span style="font-size: 12px; font-weight: 700; color: var(--text-muted);">筛选范围:</span>
+    <button onclick="filterScope('all')" class="btn btn-sm btn-primary filter-scope-btn" data-scope="all">全部单位 ({{ entity_summary.total }})</button>
+    <button onclick="filterScope('internal')" class="btn btn-sm btn-secondary filter-scope-btn" data-scope="internal">🏢 系统内企业 ({{ entity_summary.internal }})</button>
+    <button onclick="filterScope('external')" class="btn btn-sm btn-secondary filter-scope-btn" data-scope="external">🌐 系统外合作单位 ({{ entity_summary.external }})</button>
+  </div>
+
+  <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+    <span style="font-size: 12px; font-weight: 700; color: var(--text-muted);">业务角色:</span>
+    <button onclick="filterRole('all')" class="btn btn-sm btn-primary filter-role-btn" data-role="all">全部角色</button>
+    <button onclick="filterRole('construction')" class="btn btn-sm btn-secondary filter-role-btn" data-role="construction">🏗️ A 建筑施工</button>
+    <button onclick="filterRole('trade')" class="btn btn-sm btn-secondary filter-role-btn" data-role="trade">📦 B 商贸物资</button>
+    <button onclick="filterRole('labor')" class="btn btn-sm btn-secondary filter-role-btn" data-role="labor">👷 C 建筑劳务</button>
+    <button onclick="filterRole('equipment')" class="btn btn-sm btn-secondary filter-role-btn" data-role="equipment">🚜 D 机械租赁</button>
+  </div>
+</div>
+
+<!-- 结构化主体表格 -->
+<div class="glass-panel" style="padding: 0; overflow: hidden; margin-bottom: 30px;">
+  <table id="entity-table" class="table" style="width: 100%; border-collapse: collapse; text-align: left; font-size: 13px;">
+    <thead>
+      <tr style="background: rgba(255, 255, 255, 0.03); border-bottom: 1px solid var(--border-subtle); color: var(--text-muted); font-weight: 600; user-select: none;">
+        <th style="padding: 14px 16px; width: 110px; cursor: pointer;" onclick="sortTable(0)" title="点击按主体代码排序">代码 <span class="ent-sort-icon" id="e-sort-0">↕</span></th>
+        <th style="padding: 14px 16px; width: 130px; cursor: pointer;" onclick="sortTable(1)" title="点击按来源属性排序">来源属性 <span class="ent-sort-icon" id="e-sort-1">↕</span></th>
+        <th style="padding: 14px 16px; width: 140px; cursor: pointer;" onclick="sortTable(2)" title="点击按业务角色排序">业务角色 <span class="ent-sort-icon" id="e-sort-2">↕</span></th>
+        <th style="padding: 14px 16px; min-width: 280px; cursor: pointer;" onclick="sortTable(3)" title="点击按单位全称排序">单位全称 (点击查看参与项目与往来详情) <span class="ent-sort-icon" id="e-sort-3">↕</span></th>
+        <th style="padding: 14px 16px;">业务说明 / 往来定位</th>
+        <th style="padding: 14px 16px; width: 120px; text-align: center;">操作</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for entity in entities %}
+      <tr class="entity-row" 
+          data-scope="{% if entity.is_external %}external{% else %}internal{% endif %}"
+          data-role="{{ entity.business_role }}"
+          style="border-bottom: 1px solid var(--border-subtle); transition: background 0.15s;">
+        <!-- 代码 (可点击) -->
+        <td style="padding: 14px 16px;">
+          <a href="/entities/{{ entity.entity_code }}" class="project-code font-mono" style="font-weight: 700; text-decoration: none; display: inline-block;">
+            {{ entity.entity_code }}
+          </a>
+        </td>
+        <!-- 来源属性 -->
+        <td style="padding: 14px 16px;">
+          {% if entity.is_external %}
+            <span class="badge badge-purple" style="font-size: 11px;">系统外单位</span>
+          {% else %}
+            <span class="badge badge-cyan" style="font-size: 11px;">系统内关联</span>
+          {% endif %}
+        </td>
+        <!-- 业务角色 -->
+        <td style="padding: 14px 16px;">
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <span class="badge {{ entity.business_role_badge }}" style="font-size: 11px;">
+              {{ entity.business_role_label }}
+            </span>
+            {% if not entity.legal_entity %}
+            <span class="badge badge-amber" style="font-size: 10px;">分公司</span>
+            {% endif %}
+          </div>
+        </td>
+        <!-- 单位全称 (可点击) -->
+        <td style="padding: 14px 16px;">
+          <a href="/entities/{{ entity.entity_code }}" style="font-weight: 600; font-size: 14px; color: var(--accent-cyan); text-decoration: none; display: flex; align-items: center; gap: 6px;">
+            <span>🏢</span>
+            <span>{{ entity.name }}</span>
+          </a>
+          {% if entity.parent_entity_code %}
+          <div style="font-size: 11px; color: var(--text-muted); margin-top: 3px;">
+            上级法人: <a href="/entities/{{ entity.parent_entity_code }}" class="font-mono" style="color: var(--text-secondary); text-decoration: underline;">{{ entity.parent_entity_code }}</a>
+          </div>
+          {% endif %}
+        </td>
+        <!-- 业务说明 -->
+        <td style="padding: 14px 16px; font-size: 12px; color: var(--text-muted); line-height: 1.4;">
+          {{ entity.note or entity.business_role_description }}
+        </td>
+        <!-- 穿透按钮 -->
+        <td style="padding: 14px 16px; text-align: center;">
+          <a href="/entities/{{ entity.entity_code }}" class="btn btn-sm btn-secondary" style="font-size: 11px; padding: 4px 10px;">
+            穿透详情 ➔
+          </a>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<script>
+let currentScope = 'all';
+let currentRole = 'all';
+
+const roleAliasMap = {
+  'A': 'construction', 'construction': 'construction',
+  'B': 'trade', 'trade': 'trade',
+  'C': 'labor', 'labor': 'labor',
+  'D': 'equipment', 'equipment': 'equipment'
+};
+
+function filterScope(scope) {
+  currentScope = scope;
+  document.querySelectorAll('.filter-scope-btn').forEach(btn => {
+    if (btn.dataset.scope === scope) {
+      btn.classList.remove('btn-secondary');
+      btn.classList.add('btn-primary');
+    } else {
+      btn.classList.remove('btn-primary');
+      btn.classList.add('btn-secondary');
+    }
+  });
+  applyFilters();
+}
+
+function filterRole(role) {
+  currentRole = role;
+  document.querySelectorAll('.filter-role-btn').forEach(btn => {
+    if (btn.dataset.role === role) {
+      btn.classList.remove('btn-secondary');
+      btn.classList.add('btn-primary');
+    } else {
+      btn.classList.remove('btn-primary');
+      btn.classList.add('btn-secondary');
+    }
+  });
+  applyFilters();
+}
+
+function applyFilters() {
+  const rows = document.querySelectorAll('.entity-row');
+  rows.forEach(row => {
+    const rowScope = row.dataset.scope;
+    const rowRawRole = row.dataset.role;
+    const normalizedRole = roleAliasMap[rowRawRole] || rowRawRole;
+
+    const matchScope = (currentScope === 'all' || rowScope === currentScope);
+    const matchRole = (currentRole === 'all' || normalizedRole === currentRole || rowRawRole === currentRole);
+    if (matchScope && matchRole) {
+      row.style.display = '';
+    } else {
+      row.style.display = 'none';
+    }
+  });
+}
+
+function sortTable(columnIndex) {
+  const table = document.getElementById("entity-table");
+  const tbody = table.querySelector("tbody");
+  const rows = Array.from(tbody.querySelectorAll("tr"));
+  
+  const isAsc = table.dataset.sortCol == columnIndex && table.dataset.sortOrder == "asc";
+  const newOrder = isAsc ? "desc" : "asc";
+  table.dataset.sortCol = columnIndex;
+  table.dataset.sortOrder = newOrder;
+
+  document.querySelectorAll('.ent-sort-icon').forEach((el, idx) => {
+    if (idx === columnIndex) {
+      el.textContent = newOrder === 'asc' ? '↑' : '↓';
+      el.style.color = 'var(--accent-cyan)';
+    } else {
+      el.textContent = '↕';
+      el.style.color = 'inherit';
+    }
+  });
+
+  rows.sort((a, b) => {
+    const aText = a.cells[columnIndex].innerText.trim();
+    const bText = b.cells[columnIndex].innerText.trim();
+    return newOrder === 'asc' ? aText.localeCompare(bText, 'zh-CN') : bText.localeCompare(aText, 'zh-CN');
+  });
+
+  rows.forEach(r => tbody.appendChild(r));
+}
+</script>
+{% endblock %}

@@ -1,0 +1,11 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{{title or '建筑项目经营与税务统筹'}}</title>
+<style>
+body{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;margin:0;background:#f3f5f8;color:#172033}
+nav{background:#111827;color:#fff;padding:14px 4%;display:flex;gap:20px;align-items:center;flex-wrap:wrap}nav a{color:#fff;text-decoration:none;font-size:14px}.brand{font-weight:700;margin-right:10px}
+.w{max-width:1250px;margin:26px auto;padding:0 18px}.cards{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}.card,table,.panel,form{background:white;border-radius:12px;box-shadow:0 1px 5px #dde1e8}.card{padding:18px}.panel,form{padding:18px;margin:16px 0}
+table{width:100%;border-collapse:collapse;margin:16px 0;overflow:hidden}th,td{padding:10px 12px;border-bottom:1px solid #edf0f4;text-align:right;font-size:14px}th:first-child,td:first-child{text-align:left}th{background:#fafbfc}
+input,select,textarea{padding:9px;margin:4px;border:1px solid #cfd5df;border-radius:7px;max-width:100%}button{padding:9px 15px;background:#111827;color:white;border:0;border-radius:7px}
+.red{color:#c92a2a;font-weight:600}.yellow{color:#b26a00;font-weight:600}.green{color:#087f5b;font-weight:600}.muted{color:#667085}.warn{padding:12px;background:#fff4e6;border-radius:8px}
+@media(max-width:850px){.cards{grid-template-columns:1fr 1fr}}
+</style></head><body><nav><span class="brand">建筑项目经营与税务统筹 V0.1</span><a href="/">驾驶舱</a><a href="/manage">业务录入</a><a href="/matching">四流匹配</a><a href="/tax-ledger">法人税务</a><a href="/risks">风险</a><a href="/imports">导入</a><a href="/ai-review">AI检查</a><a href="/health-check">一键体检</a><a href="/tasks">整改任务</a><a href="/ai-prompts">Prompt</a><a href="/ai-models">模型API</a><a href="/audit">审计</a><a href="/docs">API</a></nav><div class="w">{% block body %}{% endblock %}</div></body></html>

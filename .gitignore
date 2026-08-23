@@ -1,0 +1,28 @@
+# Virtual Environments & Dependencies
+.venv/
+node_modules/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.playwright-cli/
+
+# Large Model Binary Weights (to stay within GitHub size limits)
+models/bge-m3/onnx/*.onnx_data
+models/bge-m3/*.bin
+models/bge-reranker-v2-m3/*.safetensors
+models/bge-reranker-v2-m3/*.bin
+*.bin
+*.safetensors
+*.onnx_data
+
+# Local sensitive env
+.env
+.env.local
+
+# Builds & logs
+dist/
+dist_apk/
+*.log
+*.pid
+.DS_Store

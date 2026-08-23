@@ -1,0 +1,18 @@
+{% extends 'base.html' %}{% block body %}
+<p><a href="/projects/{{project.id}}">← {{project.name}}</a></p><h1>{{doc.filename}}</h1>
+<div class="grid"><div class="panel"><b>文档编码</b><p>{{doc.document_code}}</p><b>状态</b><p>{{doc.parse_status}}</p><b>消息</b><p>{{doc.parse_message or '-'}}</p></div><div class="panel"><b>类型</b><p>{{doc.document_type}}</p><b>主体</b><p>{{doc.entity_code or '-'}} / {{doc.counterparty_code or '-'}}</p><b>业务</b><p>{{doc.business_category or '-'}}</p><b>税务</b><p>{{doc.tax_category or '-'}}</p></div></div>
+{% if doc.tax_vat_paid > 0 or doc.tax_income_paid > 0 or doc.invoice_no %}
+<div class="panel" style="margin-top:1em"><h3>税务信息</h3>
+<p><b>发票号码:</b> {{doc.invoice_no or '-'}} <b>发票代码:</b> {{doc.invoice_code or '-'}} <b>发票类型:</b> {{doc.invoice_type or '-'}}</p>
+<p><b>已勾选抵扣:</b> {{'是' if doc.invoice_deductible else '否'}} <b>开票日期:</b> {{doc.invoice_date or '-'}}</p>
+<p><b>增值税税率:</b> {{doc.tax_vat_rate}}% <b>进项税额:</b> ¥{{doc.tax_vat_input}} <b>销项税额:</b> ¥{{doc.tax_vat_output}} <b>已交增值税:</b> ¥{{doc.tax_vat_paid}}</p>
+<p><b>企业所得税税率:</b> {{doc.tax_income_rate}}% <b>应纳所得税:</b> ¥{{doc.tax_income_amount}} <b>已预缴:</b> ¥{{doc.tax_income_paid}}</p>
+<p><b>个人所得税:</b> ¥{{doc.tax_individual_amount}} (已缴 ¥{{doc.tax_individual_paid}})</p>
+<p><b>城建税:</b> ¥{{doc.tax_surtax_urban}} <b>教育费附加:</b> ¥{{doc.tax_surtax_edu}} <b>地方教育附加:</b> ¥{{doc.tax_surtax_local_edu}}</p>
+<p><b>印花税:</b> ¥{{doc.tax_stamp_duty}} <b>土地增值税:</b> ¥{{doc.tax_land}} <b>环境保护税:</b> ¥{{doc.tax_environmental}}</p>
+<p><b>税金合计:</b> ¥{{doc.tax_total}}</p>
+</div>
+{% endif %}
+<p><a class="button" href="/api/v1/documents/{{doc.id}}/original">打开原件</a>{% if not doc.duplicate_of_id %}<form class="inline" method="post" action="/documents/{{doc.id}}/parse"><button>重新入队解析/索引</button></form>{% endif %}</p>
+<h2>索引片段预览</h2>{% for c in chunks %}<div class="chunk"><div class="citation">#{{c.chunk_index}} · {{c.heading_path or '正文'}} · {% if c.page_start %}P{{c.page_start}}{% if c.page_end and c.page_end!=c.page_start %}-{{c.page_end}}{% endif %}{% else %}页码待MinerU结构化输出{% endif %}</div><pre>{{c.content[:2500]}}</pre></div>{% endfor %}
+{% endblock %}

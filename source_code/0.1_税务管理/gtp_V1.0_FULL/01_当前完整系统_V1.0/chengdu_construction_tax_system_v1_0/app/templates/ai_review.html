@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+<h2>单环节 AI 检查</h2>
+<form method="post" action="/ai-review/run" class="row">
+<input type="hidden" name="_csrf" value="{{ csrf_token }}">
+<select name="project_id">{% for p in projects %}<option value="{{ p.id }}" {% if selected_project_id == p.id %}selected{% endif %}>{{ p.code }}</option>{% endfor %}</select>
+<select name="scope">{% for k,v in scopes.items() %}<option value="{{ k }}" {% if selected_scope == k %}selected{% endif %}>{{ v }}</option>{% endfor %}</select>
+<select name="endpoint_id">{% for e in endpoints %}<option value="{{ e.id }}">{{ e.name }}</option>{% endfor %}</select>
+<input name="user_instruction" placeholder="特别要求（可选）">
+<button>启动检查</button>
+</form>
+</div>
+
+<div class="card">
+<h3>最近 50 次检查</h3>
+<table>
+<thead><tr><th>#</th><th>项目</th><th>范围</th><th>模型</th><th>状态</th><th>时间</th><th>详情</th></tr></thead>
+<tbody>
+{% for j in jobs %}
+<tr>
+<td>{{ j.id }}</td>
+<td>{{ project_map[j.project_id].code if j.project_id in project_map else "—" }}</td>
+<td>{{ scopes.get(j.scope, j.scope) }}</td>
+<td>{{ endpoint_map[j.endpoint_id].name if j.endpoint_id in endpoint_map else j.endpoint_id }}</td>
+<td><span class="tag {% if j.status == 'completed' %}green{% elif j.status == 'failed' %}red{% else %}gray{% endif %}">{% if j.status == 'completed' %}已完成{% elif j.status == 'failed' %}失败{% else %}进行中{% endif %}</span></td>
+<td>{{ j.created_at }}</td>
+<td><a href="/ai-review/{{ j.id }}">查看</a></td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+</div>
+{% endblock %}

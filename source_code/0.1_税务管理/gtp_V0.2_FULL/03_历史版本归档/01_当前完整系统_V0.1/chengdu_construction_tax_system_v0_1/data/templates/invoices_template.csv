@@ -1,0 +1,2 @@
+﻿invoice_no,period,entity_code,direction,counterparty_code,category,net,vat,rate,deductible,note
+INV-001,2026-08,A,in,丙,material,1000000,130000,0.13,1,材料进项示例

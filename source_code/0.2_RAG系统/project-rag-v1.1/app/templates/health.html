@@ -1,0 +1,121 @@
+{% extends "base.html" %}
+
+{% block title %}系统健康体检与运行状态{% endblock %}
+
+{% block breadcrumbs %}
+<span class="current">系统健康体检</span>
+{% endblock %}
+
+{% block body %}
+<div class="content-header">
+  <div>
+    <h1>🩺 系统健康体检与运行状态</h1>
+    <p style="color: var(--text-muted); margin-top: 8px;">
+      实时监测 PostgreSQL 数据库连接、pgvector 向量引擎、MinerU OCR 解析队列及大模型运行状态。
+    </p>
+  </div>
+  <div style="display: flex; gap: 10px;">
+    <a href="/api/v1/health" target="_blank" class="btn btn-secondary" style="display: flex; align-items: center; gap: 6px;">
+      <span>🔗</span> 查看原始 JSON
+    </a>
+    <button onclick="window.location.reload()" class="btn btn-primary" style="display: flex; align-items: center; gap: 6px;">
+      <span>🔄</span> 立即刷新体检
+    </button>
+  </div>
+</div>
+
+<!-- 总体健康卡片 -->
+<div class="glass-panel" style="padding: 20px 24px; margin-bottom: 24px; display: flex; align-items: center; justify-content: space-between; border-left: 4px solid {% if health_data.database.ok %}var(--accent-cyan, #00d4ff){% else %}#ef4444{% endif %};">
+  <div style="display: flex; align-items: center; gap: 16px;">
+    <div style="font-size: 32px;">
+      {% if health_data.database.ok %}🟢{% else %}🔴{% endif %}
+    </div>
+    <div>
+      <div style="font-size: 18px; font-weight: 600; color: var(--text-primary);">
+        {% if health_data.database.ok %}系统核心运行正常 (PostgreSQL 联机就绪){% else %}核心数据库异常{% endif %}
+      </div>
+      <div style="font-size: 13px; color: var(--text-secondary); margin-top: 4px;">
+        服务版本: v{{ health_data.version }} · 响应延迟: {{ health_data.checked_in_ms }}ms · Request ID: <code style="font-size: 11px; color: var(--accent-cyan);">{{ health_data.request_id }}</code>
+      </div>
+    </div>
+  </div>
+  <span class="badge {% if health_data.database.ok %}badge-cyan{% else %}badge-secondary{% endif %}" style="padding: 6px 14px; font-size: 13px;">
+    {% if health_data.database.ok %}ONLINE · 正常服务中{% else %}OFFLINE{% endif %}
+  </span>
+</div>
+
+<!-- 各组件体检详情网格 -->
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px;">
+
+  <!-- 1. PostgreSQL 数据库 -->
+  <div class="glass-panel" style="padding: 20px;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
+      <div style="font-weight: 600; font-size: 15px; display: flex; align-items: center; gap: 8px;">
+        <span>🗄️</span> 关系型数据库 (PostgreSQL)
+      </div>
+      <span class="badge {% if health_data.database.ok %}badge-cyan{% else %}badge-secondary{% endif %}">
+        {% if health_data.database.ok %}正常 (OK){% else %}异常{% endif %}
+      </span>
+    </div>
+    <div style="font-size: 13px; color: var(--text-secondary); line-height: 1.8;">
+      <div>• 数据库引擎: <strong style="color: var(--text-primary);">{{ health_data.database.backend | upper }}</strong></div>
+      <div>• pgvector 扩展版本: <strong style="color: var(--accent-cyan);">{{ health_data.database.pgvector }}</strong></div>
+      <div>• 连接池容量: {{ health_data.database.pool_size }} (活跃占用: {{ health_data.database.pool_checked_out }})</div>
+      <div>• 数据库响应延迟: <span style="color: #10b981;">{{ health_data.components.db.latency_ms }} ms</span></div>
+    </div>
+  </div>
+
+  <!-- 2. 后台异步解析 Worker -->
+  <div class="glass-panel" style="padding: 20px;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
+      <div style="font-weight: 600; font-size: 15px; display: flex; align-items: center; gap: 8px;">
+        <span>⚙️</span> 后台异步解析 Worker
+      </div>
+      <span class="badge {% if health_data.worker.running %}badge-cyan{% else %}badge-secondary{% endif %}">
+        {% if health_data.worker.running %}运行中 (ACTIVE){% else %}已停止{% endif %}
+      </span>
+    </div>
+    <div style="font-size: 13px; color: var(--text-secondary); line-height: 1.8;">
+      <div>• 线程名称: <code style="color: var(--accent-cyan);">{{ health_data.worker.thread_name }}</code></div>
+      <div>• 线程 ID: {{ health_data.worker.thread_id }}</div>
+      <div>• 自启动状态: {{ '已启用' if health_data.worker_auto_start else '未启用' }}</div>
+      <div>• 职责: 自动消费待解析文档，执行 OCR、切块与向量嵌入</div>
+    </div>
+  </div>
+
+  <!-- 3. AI 结构化抽取与 DeepSeek -->
+  <div class="glass-panel" style="padding: 20px;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
+      <div style="font-weight: 600; font-size: 15px; display: flex; align-items: center; gap: 8px;">
+        <span>🤖</span> 大模型结构化抽取 (LLM)
+      </div>
+      <span class="badge {% if health_data.llm_extraction %}badge-cyan{% else %}badge-secondary{% endif %}">
+        {% if health_data.llm_extraction %}已就绪 (READY){% else %}降级模式{% endif %}
+      </span>
+    </div>
+    <div style="font-size: 13px; color: var(--text-secondary); line-height: 1.8;">
+      <div>• 智能元数据识别: <span style="color: #10b981;">支持自动识别合同/发票/凭证</span></div>
+      <div>• MinerU 高精度 OCR: {{ '已加载' if health_data.mineru_available else '轻量内置解析器' }}</div>
+      <div>• 四流合一核验: 自动提取收付款双方、税率与金额</div>
+    </div>
+  </div>
+
+  <!-- 4. 向量检索与重排引擎 -->
+  <div class="glass-panel" style="padding: 20px;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
+      <div style="font-weight: 600; font-size: 15px; display: flex; align-items: center; gap: 8px;">
+        <span>🧠</span> 语义检索与重排引擎
+      </div>
+      <span class="badge badge-cyan">
+        按需加载 (LAZY READY)
+      </span>
+    </div>
+    <div style="font-size: 13px; color: var(--text-secondary); line-height: 1.8;">
+      <div>• 嵌入模型 (Embedding): <code style="color: var(--accent-cyan);">{{ health_data.embedding.backend }}</code> ({{ health_data.embedding.dimension }} 维)</div>
+      <div>• 重排模型 (Reranker): <code style="color: var(--accent-cyan);">{{ health_data.reranker.backend }}</code></div>
+      <div>• 显存策略: 启动时按需唤醒，节约系统资源</div>
+    </div>
+  </div>
+
+</div>
+{% endblock %}

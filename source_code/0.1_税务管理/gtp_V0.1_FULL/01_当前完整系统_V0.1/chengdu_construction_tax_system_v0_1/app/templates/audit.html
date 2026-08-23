@@ -1,0 +1,3 @@
+{% extends 'base.html' %}{% block body %}
+<h1>操作审计日志</h1><table><tr><th>ID</th><th>动作</th><th>对象</th><th>对象ID</th><th>内容</th></tr>{% for x in rows %}<tr><td>{{x.id}}</td><td>{{x.action}}</td><td>{{x.object_type}}</td><td>{{x.object_id}}</td><td>{{x.message}}</td></tr>{% endfor %}</table>
+{% endblock %}

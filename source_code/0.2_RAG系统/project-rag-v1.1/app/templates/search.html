@@ -1,0 +1,161 @@
+{% extends 'base.html' %}
+
+{% block breadcrumbs %}
+<span class="current">智能证据多路检索</span>
+{% endblock %}
+
+{% block body %}
+<!-- 搜索控制台 -->
+<div class="glass-panel-elevated" style="padding: 24px; margin-bottom: 24px;">
+  <div style="margin-bottom: 16px;">
+    <h1>🔍 智能证据多路检索控制台</h1>
+    <p class="subtitle" style="margin-bottom: 0;">
+      集成 BM25 关键词匹配 + pgvector 语义嵌入 + BGE-Reranker-v2 深度重排的三路融合检索架构
+    </p>
+  </div>
+
+  <form method="get" action="/search">
+    <div style="display: flex; flex-direction: column; gap: 14px;">
+      <!-- 搜索主输入行 -->
+      <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+        <select class="form-select" name="project_id" required style="min-width: 220px; font-weight: 600;">
+          <option value="">-- 选择检索项目空间 --</option>
+          {% for p in projects %}
+          <option value="{{ p.id }}" {% if p.id == project_id %}selected{% endif %}>
+            {{ p.project_code }} · {{ p.name }}
+          </option>
+          {% endfor %}
+        </select>
+
+        <div style="flex: 1; min-width: 300px; position: relative;">
+          <input 
+            class="form-input" 
+            name="q" 
+            value="{{ q }}" 
+            placeholder="输入自然语言问题或关键词，例如：塔吊机械租赁台班签证、甲供材简易计税扣除凭证..." 
+            style="width: 100%; padding-left: 14px; font-size: 14px;"
+            required
+          >
+        </div>
+
+        <button type="submit" class="btn btn-primary" style="padding: 0 24px; font-size: 14px;">
+          <span>检索证据</span>
+        </button>
+      </div>
+
+      <!-- 过滤芯片行 -->
+      <div style="display: flex; align-items: center; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--text-muted); border-top: 1px solid var(--border-subtle); padding-top: 12px;">
+        <span style="font-weight: 600; color: var(--text-secondary);">精准过滤:</span>
+
+        <div style="display: flex; align-items: center; gap: 6px;">
+          <span>业务类别:</span>
+          <select class="form-select" name="business_category" style="padding: 4px 8px; font-size: 12px;">
+            <option value="">全部业务</option>
+            {% for x in ['material','labor','equipment','subcontract','tax'] %}
+            <option value="{{ x }}" {% if x == business_category %}selected{% endif %}>
+              {% if x == 'material' %}材料采购
+              {% elif x == 'labor' %}劳务作业
+              {% elif x == 'equipment' %}机械租赁
+              {% elif x == 'subcontract' %}专业分包
+              {% elif x == 'tax' %}税务发票
+              {% else %}{{ x }}{% endif %}
+            </option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div style="display: flex; align-items: center; gap: 6px;">
+          <span>涉税主体:</span>
+          <select class="form-select" name="entity_code" style="padding: 4px 8px; font-size: 12px;">
+            <option value="">全部实际单位</option>
+            {% for entity in canonical_entities %}
+            <option value="{{ entity.entity_code }}" {% if entity.entity_code == entity_code %}selected{% endif %}>
+              {{ entity.entity_code }} · {{ entity.name }}{% if not entity.legal_entity %}（分公司）{% endif %}
+            </option>
+            {% endfor %}
+          </select>
+        </div>
+        {% if business_role %}
+        <span class="badge badge-muted">兼容角色过滤：{{ business_role }}</span>
+        {% endif %}
+        {% if entity_filter_error %}
+        <span class="badge badge-amber">{{ entity_filter_error }}</span>
+        {% endif %}
+      </div>
+    </div>
+  </form>
+</div>
+
+<!-- 检索结果区 -->
+{% if q %}
+<div class="glass-panel" style="padding: 20px;">
+  <div class="toolbar">
+    <h2>
+      <span>📑 检索证据结果</span>
+      <span class="badge badge-emerald">{{ results|length }} 条匹配片段</span>
+    </h2>
+    <div style="font-size: 12px; color: var(--text-muted);">
+      融合得分已按 pgvector 语义距离与 Reranker 得分加权归一化
+    </div>
+  </div>
+
+  {% for x in results %}
+  <div class="glass-panel result-card">
+    <div class="result-card-header">
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <span class="badge badge-cyan font-mono">#{{ loop.index }}</span>
+        <a href="/documents/{{ x.document_id }}" style="font-size: 15px; font-weight: 700; color: #fff;">
+          {{ x.filename }}
+        </a>
+      </div>
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <span class="badge badge-emerald font-mono">融合得分: {{ '%.3f'|format(x.score) }}</span>
+        {% if x.rerank_score is defined %}
+        <span class="badge badge-purple font-mono">精排得分: {{ '%.3f'|format(x.rerank_score) }}</span>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="citation-meta">
+      <span class="badge badge-muted">{{ x.document_type }}</span>
+      <span>归属单位: <b style="color: var(--text-secondary)">{% if x.entity_code and entity_by_code.get(x.entity_code) %}{{ x.entity_code }} · {{ entity_by_code.get(x.entity_code).name }}{% else %}待核实{% endif %}</b> / 交易方: <b style="color: var(--text-secondary)">{{ x.counterparty_code or '未解析外部单位' }}</b></span>
+      <span>分类: <b style="color: var(--text-secondary)">{{ x.business_category or '-' }}</b></span>
+      <span class="badge badge-purple font-mono">
+        {% if x.page_start %}
+        第 {{ x.page_start }}{% if x.page_end and x.page_end != x.page_start %}-{{ x.page_end }}{% endif %} 页
+        {% else %}
+        正文页
+        {% endif %}
+      </span>
+      <span style="color: var(--accent-cyan); font-weight: 600;">{{ x.heading_path or '正文内容' }}</span>
+    </div>
+
+    <div class="citation-text">
+      {{ x.text[:1200] }}
+    </div>
+
+    <div style="display: flex; justify-content: flex-end;">
+      <a href="/documents/{{ x.document_id }}" class="btn btn-sm btn-secondary">
+        <span>查看完整文档与上下文 →</span>
+      </a>
+    </div>
+  </div>
+  {% else %}
+  <div class="glass-panel" style="padding: 40px; text-align: center; color: var(--text-muted);">
+    <div style="font-size: 32px; margin-bottom: 10px;">🔍</div>
+    <div style="font-size: 15px; color: var(--text-primary); font-weight: 600;">未检索到符合条件的切块</div>
+    <p style="margin-top: 6px; font-size: 13px;">请尝试精简关键词、更换业务分类或检查该项目是否已完成资料向量化解析。</p>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="glass-panel" style="padding: 40px; text-align: center; color: var(--text-muted);">
+  <div style="font-size: 36px; margin-bottom: 12px;">💡</div>
+  <div style="font-size: 16px; color: var(--text-primary); font-weight: 600;">准备好开始检索了吗？</div>
+  <p style="margin-top: 6px; max-width: 500px; margin-left: auto; margin-right: auto; font-size: 13px;">
+    选择目标项目并输入查询词，系统将自动穿透所有已解析合同、清单、结算单及税务凭证，毫秒级定位关键证据条款。
+  </p>
+</div>
+{% endif %}
+
+{% endblock %}

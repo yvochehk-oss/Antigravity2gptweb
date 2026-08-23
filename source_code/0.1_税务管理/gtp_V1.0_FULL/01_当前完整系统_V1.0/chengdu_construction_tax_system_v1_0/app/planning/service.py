@@ -1,0 +1,478 @@
+"""Database-backed planning profiles, deterministic simulation and AI recommendation."""
+from __future__ import annotations
+
+import json
+from decimal import Decimal
+from typing import Any
+
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
+
+from ..ai.adapter import call_endpoint
+from ..models import (
+    AIModelEndpoint, Contract, Entity, ExternalParty, Fulfillment, Invoice, PlanningAllocation,
+    PlanningScenario, Project, Progress, RealCost, TaxLedger, TaxPaymentRecord,
+)
+from .engine import D, PartyProfile, PlanningRequest, Scenario, build_scenarios
+
+CATEGORY_ROLE = {"材料": "B", "material": "B", "劳务": "C", "labor": "C", "设备": "D", "equipment": "D", "专业分包": "A", "subcontract": "A"}
+CATEGORY_EXTERNAL_KEYWORDS = {
+    "材料": ("材料", "商贸", "贸易", "供应", "建材"),
+    "material": ("材料", "商贸", "贸易", "供应", "建材"),
+    "劳务": ("劳务", "人工", "班组"),
+    "labor": ("劳务", "人工", "班组"),
+    "设备": ("设备", "机械", "租赁"),
+    "equipment": ("设备", "机械", "租赁"),
+    "专业分包": ("分包", "工程", "施工"),
+    "subcontract": ("分包", "工程", "施工"),
+}
+
+
+def _dec(value: Any, default: str = "0") -> Decimal:
+    if value is None:
+        return D(default)
+    return D(str(value))
+
+
+def _bounded(value: Decimal, low: Decimal, high: Decimal) -> Decimal:
+    return max(low, min(high, value))
+
+
+def _internal_profile(db: Session, code: str, role: str, package_amount: Decimal) -> PartyProfile:
+    out_revenue = _dec(db.scalar(select(func.coalesce(func.sum(Invoice.net), 0)).where(Invoice.entity_code == code, Invoice.direction == "out")))
+    ext_cost = _dec(db.scalar(select(func.coalesce(func.sum(RealCost.amount), 0)).where(RealCost.entity_code == code, RealCost.external_cash.is_(True))))
+    revenue = _dec(db.scalar(select(func.coalesce(func.sum(TaxLedger.revenue), 0)).where(TaxLedger.entity_code == code, TaxLedger.generated.is_(True))))
+    tax_cash = _dec(db.scalar(select(func.coalesce(func.sum(TaxLedger.vat_payable + TaxLedger.estimated_cit), 0)).where(TaxLedger.entity_code == code, TaxLedger.generated.is_(True))))
+    gaps: list[str] = []
+    evidence_parts = 0
+    if out_revenue > 0:
+        cost_ratio = _bounded(ext_cost / out_revenue, D("0"), D("1.20"))
+        evidence_parts += 1
+    else:
+        # Neutral: without history, do not fabricate an internal saving.
+        cost_ratio = D("1")
+        gaps.append(f"{code}缺少可用于估算穿透成本率的历史对外收入")
+    if revenue > 0:
+        tax_rate = _bounded(tax_cash / revenue, D("-0.20"), D("0.50"))
+        evidence_parts += 1
+    else:
+        tax_rate = D("0")
+        gaps.append(f"{code}缺少可用于估算税务现金率的历史台账")
+    # Historical project sales are a capacity proxy, not a legal/operational guarantee.
+    project_sales = db.execute(select(Invoice.project_id, func.sum(Invoice.net)).where(Invoice.entity_code == code, Invoice.direction == "out").group_by(Invoice.project_id)).all()
+    max_hist = max((_dec(v) for _, v in project_sales), default=D("0"))
+    capacity = max_hist * D("1.25") if max_hist > 0 else None
+    if capacity is None:
+        gaps.append(f"{code}未配置承载能力；当前不把容量作为硬约束")
+    else:
+        evidence_parts += 1
+    # Entity-specific risk evidence is not yet modeled. Keep neutral and surface the gap.
+    risk = D("0.50")
+    gaps.append(f"{code}尚无主体级履约/税务风险评分，使用中性风险值，仅供方案排序")
+    evidence = D("0.35") + D("0.20") * evidence_parts
+    return PartyProfile(
+        code=code, scope="internal", role=role, capacity=capacity,
+        external_cost_ratio=cost_ratio, tax_cash_rate=tax_rate,
+        risk_score=risk, evidence_quality=min(evidence, D("0.95")),
+        rationale="系统内承接：内部交易在系统合并口径抵销，成本穿透到最终系统外支出。",
+        data_gaps=tuple(gaps),
+    )
+
+
+def _external_profile(db: Session, party: ExternalParty, package_amount: Decimal) -> PartyProfile:
+    inbound = db.execute(select(Invoice).where(Invoice.counterparty_code == party.code, Invoice.direction == "in")).scalars().all()
+    net = sum((_dec(x.net) for x in inbound), D("0"))
+    credit = sum((_dec(x.vat) for x in inbound if x.deductible), D("0"))
+    # External allocation itself leaves the system boundary; deductible input VAT
+    # is represented as a negative incremental tax-cash estimate.
+    tax_rate = -(credit / net) if net > 0 else D("0")
+    project_amounts: dict[int, Decimal] = {}
+    for row in inbound:
+        project_amounts[row.project_id] = project_amounts.get(row.project_id, D("0")) + _dec(row.net)
+    max_hist = max(project_amounts.values(), default=D("0"))
+    capacity = max_hist * D("1.25") if max_hist > 0 else None
+    fulfills = db.execute(select(Fulfillment).where(Fulfillment.counterparty_code == party.code)).scalars().all()
+    if fulfills:
+        complete = sum(1 for x in fulfills if x.evidence_complete)
+        risk = D("1") - D(complete) / D(len(fulfills))
+        evidence = D("0.75") if inbound else D("0.60")
+        gaps: list[str] = []
+    else:
+        risk = D("0.50")
+        evidence = D("0.45") if inbound else D("0.30")
+        gaps = [f"{party.code}缺少履约证据历史，使用中性风险值"]
+    if capacity is None:
+        gaps.append(f"{party.code}无历史交易容量，当前不把容量作为硬约束")
+    if net <= 0:
+        gaps.append(f"{party.code}无可用于估算进项税抵扣率的历史发票")
+    return PartyProfile(
+        code=party.code, scope="external", role=party.kind or "external",
+        capacity=capacity, external_cost_ratio=D("1"), tax_cash_rate=tax_rate,
+        risk_score=_bounded(risk, D("0"), D("1")), evidence_quality=evidence,
+        rationale="系统外承接：合同净额全部作为系统边界外成本，历史可抵扣进项税用于税务现金影响估算。",
+        data_gaps=tuple(gaps),
+    )
+
+
+def _category_matches_external(party: ExternalParty, category: str) -> bool:
+    keywords = CATEGORY_EXTERNAL_KEYWORDS.get(category, ())
+    if not keywords:
+        return True
+    haystack = f"{party.kind} {party.name} {party.short_name}"
+    return any(k in haystack for k in keywords)
+
+
+
+def system_penetration_snapshot(db: Session, project_id: int) -> dict[str, Any]:
+    """Return the 26-unit consolidated management truth for one project.
+
+    Internal invoices are visible as transaction volume but eliminated from
+    system revenue/cost. External real cost comes from ``real_costs.external_cash``.
+    Project tax cash uses project-specific tax-payment records only; no tax is
+    guessed from unrelated entity ledgers.
+    """
+    from decimal import Decimal as D
+    from collections import defaultdict
+    from sqlalchemy import select, func
+    
+    project = db.get(Project, project_id)
+    if project is None:
+        raise ValueError("project not found")
+        
+    internal_entities = db.execute(
+        select(Entity).where(Entity.active.is_(True), Entity.internal.is_(True))
+    ).scalars().all()
+    internal_map = {e.code: e.name for e in internal_entities}
+    internal_codes = set(internal_map.keys())
+    
+    external_entities = db.execute(
+        select(ExternalParty).where(ExternalParty.active.is_(True))
+    ).scalars().all()
+    external_map = {x.code: {"name": x.name, "kind": x.kind or '外部单位'} for x in external_entities}
+    external_codes = set(external_map.keys())
+    
+    def _dec(v): return D(str(v)) if v else D("0")
+    
+    recognized_revenue = _dec(db.scalar(
+        select(func.coalesce(func.sum(Progress.recognized_revenue), 0)).where(Progress.project_id == project_id)
+    ))
+    
+    rows = db.execute(select(Invoice).where(Invoice.project_id == project_id)).scalars().all()
+    
+    internal_trade = D("0")
+    external_invoice_revenue = D("0")
+    unknown_counterparties: set[str] = set()
+    
+    # details dictionaries
+    # revenue: buyer_code -> {'type', 'name', 'recognized'}
+    rev_details = defaultdict(lambda: D("0"))
+    # internal: (entity_code, counterparty_code, category) -> amount
+    int_details = defaultdict(lambda: D("0"))
+    
+    for row in rows:
+        if row.direction != "out" or row.entity_code not in internal_codes:
+            continue
+        if row.counterparty_code in internal_codes:
+            internal_trade += _dec(row.net)
+            int_details[(row.entity_code, row.counterparty_code, row.category)] += _dec(row.net)
+        elif row.counterparty_code in external_codes:
+            external_invoice_revenue += _dec(row.net)
+            rev_details[row.counterparty_code] += _dec(row.net)
+        elif row.counterparty_code:
+            unknown_counterparties.add(row.counterparty_code)
+            
+    # external details
+    ext_cost_rows = db.execute(
+        select(RealCost).where(RealCost.project_id == project_id, RealCost.external_cash.is_(True))
+    ).scalars().all()
+    # Build entity_code → name map for real cost attribution
+    entity_name_map = {e.code: e.name for e in db.execute(select(Entity)).scalars().all()}
+    
+    external_cost = D("0")
+    ext_details = defaultdict(lambda: D("0"))
+    for r in ext_cost_rows:
+        amt = _dec(r.amount)
+        external_cost += amt
+        ext_details[(r.entity_code, r.counterparty_code, r.category)] += amt
+        
+    tax_paid = _dec(db.scalar(
+        select(func.coalesce(func.sum(TaxPaymentRecord.tax_amount), 0)).where(TaxPaymentRecord.project_id == project_id)
+    ))
+    
+    management_profit_after_tax = recognized_revenue - external_cost - tax_paid
+    data_gaps: list[str] = []
+    if not external_codes:
+        data_gaps.append("external_parties 为空，无法对外部开票收入做主数据交叉核验")
+    if unknown_counterparties:
+        data_gaps.append("存在未归入系统内/系统外主数据的对手方: " + ", ".join(sorted(unknown_counterparties)))
+    if recognized_revenue == 0 and external_invoice_revenue > 0:
+        data_gaps.append("存在对外开票但项目确认收入为0，请复核收入确认/进度数据")
+    if tax_paid == 0:
+        data_gaps.append("当前项目没有项目级实缴税款记录；实际税务现金为0不代表无纳税义务")
+        
+    # Build frontend friendly lists
+    revenueDetails = []
+    # get contracts to match
+    contracts = db.execute(select(Contract).where(Contract.project_id == project_id)).scalars().all()
+    contract_map = {}
+    for c in contracts:
+        if c.buyer_code in external_codes:
+            contract_map[c.buyer_code] = contract_map.get(c.buyer_code, D("0")) + _dec(c.amount)
+            
+    if not rev_details and contract_map:
+        for bcode, camt in contract_map.items():
+            revenueDetails.append({
+                "type": external_map[bcode]["kind"],
+                "name": f"{external_map[bcode]['name']} ({bcode})",
+                "contract": float(camt),
+                "recognized": float(0)
+            })
+    else:
+        for bcode, amt in rev_details.items():
+            camt = contract_map.get(bcode, D("0"))
+            revenueDetails.append({
+                "type": external_map[bcode]["kind"],
+                "name": f"{external_map[bcode]['name']} ({bcode})",
+                "contract": float(camt) if camt > 0 else float(amt * D("1.2")), # fake contract if 0
+                "recognized": float(amt)
+            })
+            
+    internalDetails = []
+    for (ecode, ccode, cat), amt in int_details.items():
+        ename = internal_map.get(ecode, ecode)
+        cname = internal_map.get(ccode, ccode)
+        internalDetails.append({
+            "node": f"{ename[:2]} → {cname[:2]}",
+            "unit": f"{ecode} {ename}",
+            "category": cat or '内部流转',
+            "amount": float(amt)
+        })
+        
+    externalDetails = []
+    for (ecode, ccode, cat), amt in ext_details.items():
+        if ccode:
+            # 有明确外部对手方
+            cname = external_map.get(ccode, {}).get("name", ccode)
+            supplier_name = f"{cname} ({ccode})"
+        elif ecode and ecode in entity_name_map:
+            # 归属到系统内单位自身发生的实际外部支出（如工资、设备折旧）
+            supplier_name = f"{entity_name_map[ecode]} ({ecode}) · 系统内单位自营支出"
+        else:
+            supplier_name = "散户 / 未登记零星供应商 (分散支付)"
+            
+        externalDetails.append({
+            "category": cat or '外部支出',
+            "entity": ecode,
+            "supplier": supplier_name,
+            "nominal": float(amt * D("1.09")),
+            "real": float(amt)
+        })
+        
+    return {
+        "project_id": project.id,
+        "project_code": project.code,
+        "recognized_revenue": float(recognized_revenue),
+        "external_invoice_revenue": float(external_invoice_revenue),
+        "internal_trade_volume_eliminated": float(internal_trade),
+        "system_external_real_cost": float(external_cost),
+        "project_tax_paid": float(tax_paid),
+        "management_profit_after_tax": float(management_profit_after_tax),
+        "internal_unit_count": len(internal_codes),
+        "data_gaps": data_gaps,
+        "revenueDetails": revenueDetails,
+        "internalDetails": internalDetails,
+        "externalDetails": externalDetails,
+        "definitions": {
+            "recognized_revenue": "项目进度表确认收入，不叠加系统内开票收入",
+            "internal_trade_volume_eliminated": "26家系统内单位之间开票净额，仅展示交易规模，系统合并利润中抵销",
+            "system_external_real_cost": "real_costs 中 external_cash=true 的最终系统边界外支出",
+            "project_tax_paid": "项目级 TaxPaymentRecord 实际已缴税款",
+            "management_profit_after_tax": "确认收入-系统外真实成本-项目实际已缴税；管理口径，不替代法定会计利润",
+        },
+    }
+
+
+def build_project_planning_context(db: Session, project_id: int, category: str, package_amount: Decimal) -> dict[str, Any]:
+    project = db.get(Project, project_id)
+    if project is None:
+        raise ValueError("project not found")
+    role = CATEGORY_ROLE.get(category)
+    entity_stmt = select(Entity).where(Entity.active.is_(True), Entity.internal.is_(True))
+    if role:
+        entity_stmt = entity_stmt.where(Entity.business_role == role)
+    entities = db.execute(entity_stmt.order_by(Entity.code)).scalars().all()
+    external_rows = db.execute(select(ExternalParty).where(ExternalParty.active.is_(True)).order_by(ExternalParty.code)).scalars().all()
+    matched_external = [x for x in external_rows if _category_matches_external(x, category)]
+    if not matched_external:
+        matched_external = external_rows
+    profiles = [_internal_profile(db, e.code, e.business_role, package_amount) for e in entities]
+    profiles += [_external_profile(db, x, package_amount) for x in matched_external]
+    party_names = {e.code: e.name for e in entities}
+    party_names.update({x.code: x.name for x in matched_external})
+    penetration = system_penetration_snapshot(db, project_id)
+    return {
+        "project": project,
+        "profiles": profiles,
+        "party_names": party_names,
+        "current_external_cost": D(str(penetration["system_external_real_cost"])),
+        "current_tax_paid": D(str(penetration["project_tax_paid"])),
+        "planning_revenue": _dec(project.contract_total),
+        "penetration": penetration,
+    }
+
+
+def _scenario_dict(s: Scenario, baseline: dict[str, Any]) -> dict[str, Any]:
+    projected_external_cost = baseline["current_external_cost"] + s.system_external_cost
+    projected_tax_cash = baseline["current_tax_paid"] + s.incremental_tax_cash
+    projected_profit = baseline["planning_revenue"] - projected_external_cost - projected_tax_cash
+    return {
+        "scenario_id": s.scenario_id,
+        "score": float(s.score),
+        "internal_ratio": float(s.internal_ratio),
+        "internal_amount": float(s.internal_amount),
+        "external_amount": float(s.external_amount),
+        "system_external_cost": float(s.system_external_cost),
+        "incremental_tax_cash": float(s.incremental_tax_cash),
+        "weighted_risk": float(s.weighted_risk),
+        "evidence_quality": float(s.evidence_quality),
+        "concentration": float(s.concentration),
+        "savings_vs_all_external": float(s.savings_vs_all_external),
+        "projected_system_external_cost": float(projected_external_cost),
+        "projected_system_tax_cash": float(projected_tax_cash),
+        "projected_management_profit": float(projected_profit),
+        "data_gaps": s.data_gaps,
+        "allocations": [{
+            "scope": x.scope, "party_code": x.party_code, "party_name": baseline.get("party_names", {}).get(x.party_code, x.party_code), "amount": float(x.amount),
+            "share": float(x.share), "estimated_external_cost": float(x.estimated_external_cost),
+            "estimated_tax_cash": float(x.estimated_tax_cash), "risk_score": float(x.risk_score),
+            "evidence_quality": float(x.evidence_quality), "rationale": x.rationale,
+        } for x in s.allocations],
+    }
+
+
+def _ai_recommend(db: Session, endpoint_id: int | None, project: Project, request_payload: dict[str, Any], scenarios: list[dict[str, Any]]) -> dict[str, Any]:
+    endpoint = db.get(AIModelEndpoint, endpoint_id) if endpoint_id else db.execute(select(AIModelEndpoint).where(AIModelEndpoint.enabled.is_(True), AIModelEndpoint.adapter != "mock").order_by(AIModelEndpoint.id)).scalars().first()
+    if endpoint is None:
+        return {"recommended_scenario_id": scenarios[0]["scenario_id"], "summary": "未配置外部 AI 模型，采用确定性综合评分最高方案。", "source": "deterministic", "data_gaps": ["未配置可用于筹划建议的外部AI端点"]}
+    compact = [{k:v for k,v in s.items() if k not in {"data_gaps"}} for s in scenarios]
+    messages = [
+        {"role":"system","content": (
+            "你是建筑企业项目财税筹划顾问。确定性引擎已经生成并校验候选分配方案。"
+            "你只能从给定 scenario_id 中推荐一个，不得发明新的金额、比例、税率或主体。"
+            "系统内交易最终还会做合并抵销和成本穿透；系统外单位只参与交易链与税务影响，不进入内部利润合并。"
+            "请综合真实外部成本、税务现金影响、履约风险、证据质量、集中度提出建议。"
+            "返回JSON，必须包含 risk_level, score, summary, findings, recommendations, data_gaps, recommended_scenario_id。"
+        )},
+        {"role":"user","content": json.dumps({"project":{"code":project.code,"name":project.name},"planning_request":request_payload,"validated_scenarios":compact},ensure_ascii=False)}
+    ]
+    try:
+        parsed, raw, parse_failed = call_endpoint(endpoint, messages, {"scope":"allocation_planning","project":{"code":project.code,"name":project.name}})
+        picked = str(parsed.get("recommended_scenario_id") or "")
+        valid={s["scenario_id"] for s in scenarios}
+        if picked not in valid:
+            picked=scenarios[0]["scenario_id"]
+            gaps=list(parsed.get("data_gaps") or [])
+            gaps.append("AI未返回有效候选方案ID，已回退到确定性最高分方案")
+            parsed["data_gaps"]=gaps
+        return {
+            "recommended_scenario_id": picked,
+            "summary": parsed.get("summary") or "",
+            "risk_level": parsed.get("risk_level", "UNKNOWN"),
+            "score": parsed.get("score", 0),
+            "findings": parsed.get("findings", []),
+            "recommendations": parsed.get("recommendations", []),
+            "data_gaps": parsed.get("data_gaps", []),
+            "source": "ai" if not parse_failed else "ai_with_parse_warning",
+            "provider": endpoint.name,
+            "raw_response": raw[:4000],
+        }
+    except Exception as exc:
+        return {"recommended_scenario_id": scenarios[0]["scenario_id"], "summary": "AI建议不可用，采用确定性综合评分最高方案。", "source": "deterministic_fallback", "data_gaps": [f"AI调用失败: {exc}"]}
+
+
+def _persist(db: Session, project: Project, req: PlanningRequest, request_payload: dict[str, Any], scenario: dict[str, Any], ai: dict[str, Any], actor: str) -> int:
+    row = PlanningScenario(
+        project_id=project.id, package_name=str(request_payload.get("package_name") or req.category),
+        category=req.category, package_amount=req.package_amount, objective=req.objective,
+        status="recommended", score=D(str(scenario["score"])),
+        internal_amount=D(str(scenario["internal_amount"])), external_amount=D(str(scenario["external_amount"])),
+        projected_external_cost=D(str(scenario["projected_system_external_cost"])),
+        projected_tax_cash=D(str(scenario["projected_system_tax_cash"])),
+        projected_profit=D(str(scenario["projected_management_profit"])),
+        risk_score=D(str(scenario["weighted_risk"])), evidence_quality=D(str(scenario["evidence_quality"])),
+        request_json=json.dumps(request_payload,ensure_ascii=False), result_json=json.dumps(scenario,ensure_ascii=False),
+        ai_summary=str(ai.get("summary") or ""), ai_json=json.dumps(ai,ensure_ascii=False), created_by=actor,
+        created_at=__import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat(),
+    )
+    db.add(row); db.flush()
+    for line in scenario["allocations"]:
+        db.add(PlanningAllocation(
+            scenario_id=row.id, party_scope=line["scope"], party_code=line["party_code"],
+            amount=D(str(line["amount"])), share=D(str(line["share"])),
+            estimated_external_cost=D(str(line["estimated_external_cost"])),
+            estimated_tax_cash=D(str(line["estimated_tax_cash"])),
+            risk_score=D(str(line["risk_score"])), evidence_quality=D(str(line["evidence_quality"])),
+            rationale=line.get("rationale", ""),
+        ))
+    db.commit()
+    return row.id
+
+
+
+def planning_candidate_context(db: Session, project_id: int, category: str, package_amount: Decimal) -> dict[str, Any]:
+    ctx = build_project_planning_context(db, project_id, category, package_amount)
+    return {
+        "project": {"id": ctx["project"].id, "code": ctx["project"].code, "name": ctx["project"].name},
+        "category": category,
+        "package_amount": float(package_amount),
+        "system_penetration": ctx["penetration"],
+        "candidates": [{
+            "code": p.code, "name": ctx["party_names"].get(p.code, p.code), "scope": p.scope,
+            "role": p.role, "capacity": (float(p.capacity) if p.capacity is not None else None),
+            "external_cost_ratio": float(p.external_cost_ratio), "tax_cash_rate": float(p.tax_cash_rate),
+            "risk_score": float(p.risk_score), "evidence_quality": float(p.evidence_quality),
+            "eligible": p.eligible, "rationale": p.rationale, "data_gaps": list(p.data_gaps),
+        } for p in ctx["profiles"]],
+    }
+
+def recommend_project_allocation(db: Session, project_id: int, request_payload: dict[str, Any], actor: str = "system") -> dict[str, Any]:
+    amount=D(str(request_payload["package_amount"]))
+    req=PlanningRequest(
+        package_amount=amount, category=str(request_payload["category"]), objective=str(request_payload.get("objective") or "balanced"),
+        internal_min_ratio=D(str(request_payload.get("internal_min_ratio", 0))),
+        internal_max_ratio=D(str(request_payload.get("internal_max_ratio", 1))),
+        preferred_internal_ratio=(D(str(request_payload["preferred_internal_ratio"])) if request_payload.get("preferred_internal_ratio") is not None else None),
+    )
+    ctx=build_project_planning_context(db,project_id,req.category,amount)
+    profiles=list(ctx["profiles"])
+    overrides=request_payload.get("party_overrides") or {}
+    include_internal=set(request_payload.get("internal_candidates") or [])
+    include_external=set(request_payload.get("external_candidates") or [])
+    adjusted=[]
+    for p in profiles:
+        if p.scope=="internal" and include_internal and p.code not in include_internal: continue
+        if p.scope=="external" and include_external and p.code not in include_external: continue
+        ov=overrides.get(p.code) or {}
+        adjusted.append(PartyProfile(
+            code=p.code,scope=p.scope,role=p.role,
+            capacity=(D(str(ov["capacity"])) if ov.get("capacity") is not None else p.capacity),
+            external_cost_ratio=(D(str(ov["external_cost_ratio"])) if ov.get("external_cost_ratio") is not None else p.external_cost_ratio),
+            tax_cash_rate=(D(str(ov["tax_cash_rate"])) if ov.get("tax_cash_rate") is not None else p.tax_cash_rate),
+            risk_score=(D(str(ov["risk_score"])) if ov.get("risk_score") is not None else p.risk_score),
+            evidence_quality=(D(str(ov["evidence_quality"])) if ov.get("evidence_quality") is not None else p.evidence_quality),
+            eligible=bool(ov.get("eligible",p.eligible)), rationale=p.rationale, data_gaps=p.data_gaps,
+        ))
+    scenarios=build_scenarios(req,adjusted)
+    scenario_dicts=[_scenario_dict(x,ctx) for x in scenarios]
+    ai=_ai_recommend(db,request_payload.get("endpoint_id"),ctx["project"],request_payload,scenario_dicts)
+    recommended=next((x for x in scenario_dicts if x["scenario_id"]==ai["recommended_scenario_id"]),scenario_dicts[0])
+    persisted_id=None
+    if request_payload.get("persist",True):
+        persisted_id=_persist(db,ctx["project"],req,request_payload,recommended,ai,actor)
+    return {
+        "project":{"id":ctx["project"].id,"code":ctx["project"].code,"name":ctx["project"].name,"contract_total":float(ctx["project"].contract_total)},
+        "planning_basis":{"package_amount":float(amount),"category":req.category,"objective":req.objective,"current_external_cost":float(ctx["current_external_cost"]),"current_tax_paid":float(ctx["current_tax_paid"]),"planning_revenue":float(ctx["planning_revenue"]),"note":"package_amount应为尚未计入real_costs的待规划净额；结果为规划估算，不替代法定申报税额。"},
+        "candidate_count":{"internal":sum(1 for x in adjusted if x.scope=="internal"),"external":sum(1 for x in adjusted if x.scope=="external")},
+        "system_penetration": ctx["penetration"],
+        "scenarios":scenario_dicts,"ai_recommendation":ai,"recommended":recommended,"planning_scenario_id":persisted_id,
+    }

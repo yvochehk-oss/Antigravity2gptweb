@@ -1,0 +1,351 @@
+{% extends 'base.html' %}
+
+{% block breadcrumbs %}
+<a href="/">项目空间</a>
+<span>/</span>
+<span class="current">{{ project.name }} ({{ project.project_code }})</span>
+{% endblock %}
+
+{% block body %}
+<!-- 顶部项目信息条 -->
+<div class="glass-panel-elevated" style="padding: 20px 24px; margin-bottom: 24px;">
+  <div class="toolbar" style="margin-bottom: 0;">
+    <div>
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <span class="project-code" style="font-size: 13px; padding: 4px 8px;">{{ project.project_code }}</span>
+        <h1 style="font-size: 20px; margin: 0;">{{ project.name }}</h1>
+        <span class="badge badge-emerald">{{ project.status or '运行中' }}</span>
+      </div>
+      <div style="font-size: 12px; color: var(--text-muted); margin-top: 6px; display: flex; gap: 16px;">
+        <span>外部系统: <b style="color: var(--text-secondary)">{{ project.external_system or '未绑定' }}</b></span>
+        <span>外部项目ID: <b style="color: var(--text-secondary)">{{ project.external_project_id or '-' }}</b></span>
+        {% if project.entity_code and entity_by_code.get(project.entity_code) %}
+        {% set project_entity = entity_by_code.get(project.entity_code) %}
+        <span>归属单位: <b style="color: var(--accent-cyan)">{{ project_entity.entity_code }} · {{ project_entity.name }}</b></span>
+        {% endif %}
+        <span>已归档资料: <b style="color: var(--accent-cyan)">{{ documents|length }} 份</b></span>
+      </div>
+    </div>
+    
+    <div class="toolbar-right">
+      <a href="/search?project_id={{ project.id }}" class="btn btn-primary">
+        <span>🔍 智能证据检索</span>
+      </a>
+      <a href="/projects/{{ project.id }}/audit" class="btn btn-secondary">
+        <span>📑 资料合规体检</span>
+      </a>
+      <button onclick="document.getElementById('modal-upload').classList.add('active')" class="btn btn-secondary">
+        <span>📤 上传资料</span>
+      </button>
+      <button onclick="document.getElementById('modal-import-folder').classList.add('active')" class="btn btn-secondary">
+        <span>📁 扫描文件夹</span>
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- 资料资产列表 -->
+<div class="glass-panel" style="padding: 20px; margin-bottom: 24px;">
+  <div class="toolbar">
+    <h2>
+      <span>📑 资料文件资产库</span>
+      <span class="badge badge-cyan">{{ documents|length }} 份文件</span>
+    </h2>
+    <div class="toolbar-right">
+      <span style="font-size: 12px; color: var(--text-muted);">
+        支持 PDF / DOCX / XLSX / 扫描件 / 发票 OCR / 智能去重
+      </span>
+    </div>
+  </div>
+
+  <div class="table-container">
+    <table id="projectDocsTable">
+      <thead>
+        <tr style="user-select: none;">
+          <th onclick="sortProjectTable(0, 'text')" style="cursor: pointer;" title="点击按文件名称排序">
+            文件名称 / 编号 <span class="sort-icon-p" id="p-sort-0">↕</span>
+          </th>
+          <th onclick="sortProjectTable(1, 'text')" style="cursor: pointer;" title="点击按资料类型排序">
+            资料类型 <span class="sort-icon-p" id="p-sort-1">↕</span>
+          </th>
+          <th onclick="sortProjectTable(2, 'text')" style="cursor: pointer;" title="点击按归属单位排序">
+            归属单位 <span class="sort-icon-p" id="p-sort-2">↕</span>
+          </th>
+          <th onclick="sortProjectTable(3, 'text')" style="cursor: pointer;" title="点击按业务分类排序">
+            业务分类 <span class="sort-icon-p" id="p-sort-3">↕</span>
+          </th>
+          <th onclick="sortProjectTable(4, 'text')" style="cursor: pointer;" title="点击按业务期间排序">
+            业务期间 <span class="sort-icon-p" id="p-sort-4">↕</span>
+          </th>
+          <th onclick="sortProjectTable(5, 'text')" style="cursor: pointer;" title="点击按解析状态排序">
+            解析状态 <span class="sort-icon-p" id="p-sort-5">↕</span>
+          </th>
+          <th>操作</th>
+        </tr>
+      </thead>
+      <tbody id="projectDocsTableBody">
+        {% for d in documents %}
+        <tr class="project-doc-row"
+            data-filename="{{ d.filename }}"
+            data-type="{{ d.document_type or '' }}"
+            data-entity="{{ d.entity_code or '' }}"
+            data-category="{{ d.business_category or '' }}"
+            data-period="{{ d.period or '' }}"
+            data-status="{{ d.parse_status }}">
+          <td>
+            <div style="font-weight: 600;">
+              <a href="/documents/{{ d.id }}">{{ d.filename }}</a>
+              {% if d.duplicate_of_id %}
+              <span class="badge badge-rose" style="margin-left: 6px;" title="检测到内容指纹完全一致的重复文件">重复件</span>
+              {% endif %}
+              {% if d.invoice_no %}
+              <span class="badge badge-emerald" style="margin-left: 4px;" title="发票号码: {{ d.invoice_no }}">含发票</span>
+              {% endif %}
+            </div>
+            <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;" class="font-mono">
+              {{ d.document_code or '-' }}
+            </div>
+          </td>
+          <td>
+            <span class="badge badge-cyan">{{ d.document_type or '未指定' }}</span>
+          </td>
+          <td>
+            {% if d.entity_code %}
+            {% set document_entity = entity_by_code.get(d.entity_code) %}
+            {% if document_entity %}
+            <span class="badge {{ document_entity.business_role_badge }}">{{ document_entity.entity_code }} · {{ document_entity.name }}</span>
+            {% else %}
+            <span class="badge badge-muted">待核实实际单位</span>
+            {% endif %}
+            {% else %}
+            <span style="color: var(--text-muted);">-</span>
+            {% endif %}
+            {% if d.counterparty_code %}
+            <span style="color: var(--text-muted);">/ 对手 {{ d.counterparty_code }}</span>
+            {% endif %}
+          </td>
+          <td>
+            <span class="badge badge-muted">{{ d.business_category or '-' }}</span>
+          </td>
+          <td class="font-mono" style="font-size: 12px;">
+            {{ d.period or '-' }}
+          </td>
+          <td>
+            {% if d.parse_status == 'INDEXED' %}
+            <span class="badge badge-emerald">● 已索引</span>
+            {% elif d.parse_status == 'QUEUED' or d.parse_status == 'WAITING_MINERU' %}
+            <span class="badge badge-amber">● 解析中</span>
+            {% elif d.parse_status == 'PARSE_FAILED' %}
+            <span class="badge badge-rose">● 解析失败</span>
+            {% else %}
+            <span class="badge badge-muted">待处理</span>
+            {% endif %}
+          </td>
+          <td>
+            <div style="display: flex; gap: 6px;">
+              <a href="/documents/{{ d.id }}" class="btn btn-sm btn-secondary">查看切块</a>
+              <a href="/api/v1/documents/{{ d.id }}/original" target="_blank" class="btn btn-sm btn-secondary" title="下载原件">原件</a>
+            </div>
+          </td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="7" style="text-align: center; padding: 30px; color: var(--text-muted);">
+            该项目空间下暂无资料文件。请点击右上角“上传资料”或“扫描文件夹”导入工程合同与发票。
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+let pSortDirections = {};
+
+function sortProjectTable(colIndex, type) {
+  const tbody = document.getElementById('projectDocsTableBody');
+  const rows = Array.from(tbody.querySelectorAll('.project-doc-row'));
+  if (rows.length === 0) return;
+
+  const currentDir = pSortDirections[colIndex] === 'asc' ? 'desc' : 'asc';
+  pSortDirections = {};
+  pSortDirections[colIndex] = currentDir;
+
+  document.querySelectorAll('.sort-icon-p').forEach((el, idx) => {
+    if (idx === colIndex) {
+      el.textContent = currentDir === 'asc' ? '↑' : '↓';
+      el.style.color = 'var(--accent-cyan)';
+    } else {
+      el.textContent = '↕';
+      el.style.color = 'inherit';
+    }
+  });
+
+  const keys = ['filename', 'type', 'entity', 'category', 'period', 'status'];
+  const key = keys[colIndex];
+
+  rows.sort((a, b) => {
+    const valA = a.dataset[key] || '';
+    const valB = b.dataset[key] || '';
+    return currentDir === 'asc'
+      ? valA.localeCompare(valB, 'zh-CN')
+      : valB.localeCompare(valA, 'zh-CN');
+  });
+
+  rows.forEach(row => tbody.appendChild(row));
+}
+</script>
+
+<!-- 异步解析任务队列监控 -->
+<div class="glass-panel" style="padding: 20px;">
+  <div class="toolbar">
+    <h2>
+      <span>⚡ 异步解析与切块任务队列</span>
+      <span class="badge badge-muted">{{ jobs|length }} 条记录</span>
+    </h2>
+  </div>
+
+  <div class="table-container">
+    <table>
+      <thead>
+        <tr>
+          <th>任务ID</th>
+          <th>关联文档ID</th>
+          <th>任务状态</th>
+          <th>重试次数</th>
+          <th>处理信息</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for j in jobs %}
+        <tr>
+          <td class="font-mono" style="color: var(--accent-cyan);">#{{ j.id }}</td>
+          <td class="font-mono">
+            <a href="/documents/{{ j.document_id }}">资料 #{{ j.document_id }}</a>
+          </td>
+          <td>
+            {% if j.status == 'SUCCESS' or j.status == 'INDEXED' %}
+            <span class="badge badge-emerald">已完成</span>
+            {% elif j.status == 'RUNNING' or j.status == 'QUEUED' %}
+            <span class="badge badge-amber">{% if j.status == 'RUNNING' %}处理中{% else %}排队中{% endif %}</span>
+            {% elif j.status == 'FAILED' or j.status == 'PARSE_FAILED' %}
+            <span class="badge badge-rose">解析失败</span>
+            {% else %}
+            <span class="badge badge-rose">异常</span>
+            {% endif %}
+          </td>
+          <td class="font-mono">{{ j.attempts or 0 }}</td>
+          <td style="color: var(--text-secondary); font-size: 12px;">{{ j.error_message or '处理完成' }}</td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="5" style="text-align: center; padding: 20px; color: var(--text-muted);">
+            暂无后台解析任务记录
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- 上传资料弹窗 (Modal) -->
+<div id="modal-upload" class="modal-overlay">
+  <div class="glass-panel-elevated modal-content">
+    <div class="modal-header">
+      <h3 style="color: #fff; font-size: 16px;">📤 上传工程资料文件</h3>
+      <button class="modal-close" onclick="document.getElementById('modal-upload').classList.remove('active')">&times;</button>
+    </div>
+    <form method="post" action="/projects/{{ project.id }}/upload" enctype="multipart/form-data">
+      <div style="display: flex; flex-direction: column; gap: 14px;">
+        <div>
+          <label style="font-size: 12px; color: var(--text-muted); display: block; margin-bottom: 6px;">选择文件 (PDF / Word / Excel / 扫描件)</label>
+          <input class="form-input" type="file" name="file" required style="width: 100%;">
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+          <div>
+            <label style="font-size: 12px; color: var(--text-muted); display: block; margin-bottom: 6px;">资料类型</label>
+            <select class="form-select" name="document_type" style="width: 100%;">
+              <option value="">自动判断类型</option>
+              <option value="main_contract">总包主合同</option>
+              <option value="supplementary_agreement">补充协议</option>
+              <option value="material_contract">材料采购合同</option>
+              <option value="labor_contract">劳务分包合同</option>
+              <option value="equipment_contract">机械设备租赁合同</option>
+              <option value="subcontract_contract">专业分包合同</option>
+              <option value="settlement_document">结算审定单</option>
+              <option value="tax_document">完税凭证与发票</option>
+            </select>
+          </div>
+          <div>
+            <label style="font-size: 12px; color: var(--text-muted); display: block; margin-bottom: 6px;">归属单位（实际公司）</label>
+            <select class="form-select" name="entity_code" style="width: 100%;">
+              <option value="">自动识别</option>
+              {% for entity in canonical_entities %}
+              <option value="{{ entity.entity_code }}" {% if entity.entity_code == project.entity_code %}selected{% endif %}>
+                {{ entity.entity_code }} · {{ entity.name }}{% if not entity.legal_entity %}（分公司）{% endif %}
+              </option>
+              {% endfor %}
+            </select>
+            {% if not canonical_entities %}
+            <div style="font-size: 11px; color: var(--accent-amber); margin-top: 5px;">尚未加载实际单位主数据；暂不能手工指定归属单位。</div>
+            {% endif %}
+          </div>
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+          <div>
+            <label style="font-size: 12px; color: var(--text-muted); display: block; margin-bottom: 6px;">业务分类</label>
+            <select class="form-select" name="business_category" style="width: 100%;">
+              <option value="">全部/通用</option>
+              <option value="material">材料采购</option>
+              <option value="labor">劳务作业</option>
+              <option value="equipment">机械租赁</option>
+              <option value="subcontract">专业分包</option>
+              <option value="tax">税务发票</option>
+            </select>
+          </div>
+          <div>
+            <label style="font-size: 12px; color: var(--text-muted); display: block; margin-bottom: 6px;">业务期间 (例: 2026-08)</label>
+            <input class="form-input" name="period" placeholder="2026-08" style="width: 100%;">
+          </div>
+        </div>
+        <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 10px;">
+          <button type="button" class="btn btn-secondary" onclick="document.getElementById('modal-upload').classList.remove('active')">取消</button>
+          <button type="submit" class="btn btn-primary">上传并提交解析</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- 批量扫描文件夹弹窗 (Modal) -->
+<div id="modal-import-folder" class="modal-overlay">
+  <div class="glass-panel-elevated modal-content">
+    <div class="modal-header">
+      <h3 style="color: #fff; font-size: 16px;">📁 批量扫描本机资料目录</h3>
+      <button class="modal-close" onclick="document.getElementById('modal-import-folder').classList.remove('active')">&times;</button>
+    </div>
+    <form method="post" action="/projects/{{ project.id }}/import-folder">
+      <div style="display: flex; flex-direction: column; gap: 14px;">
+        <div>
+          <label style="font-size: 12px; color: var(--text-muted); display: block; margin-bottom: 6px;">本机绝对路径 (安全沙箱内路径)</label>
+          <input class="form-input" name="path" placeholder="/Users/yvoche/AI开发/073_成都建工/0.1 税务管理/..." required style="width: 100%;">
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <input type="checkbox" name="recursive" id="chk-rec" value="true" checked>
+          <label for="chk-rec" style="font-size: 13px; color: var(--text-secondary);">递归扫描所有子文件夹</label>
+        </div>
+        <div style="font-size: 11px; color: var(--text-muted); background: rgba(11,19,38,0.6); padding: 10px; border-radius: 6px;">
+          ℹ️ 扫描引擎会自动根据 SHA256 哈希进行去重，并将新文件推入后台 MinerU 异步解析与 BGE-M3 向量化管道。
+        </div>
+        <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 10px;">
+          <button type="button" class="btn btn-secondary" onclick="document.getElementById('modal-import-folder').classList.remove('active')">取消</button>
+          <button type="submit" class="btn btn-primary">开始扫描并入队</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% endblock %}

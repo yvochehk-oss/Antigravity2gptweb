@@ -1,0 +1,24 @@
+{% extends 'base.html' %}{% block body %}
+<h1>AI 检查编排中心</h1><p><a href="/health-check"><b>→ 需要多环节、多模型？进入项目一键综合体检</b></a></p>
+<div class="panel">
+<b>运行逻辑：</b>本地确定性规则/计算 → 按检查范围构造最小化项目检查包 → 脱敏 → 外部模型分析 → 结构化建议 → 保存审计记录。
+<br><span class="muted">模型不能覆盖税务引擎和项目利润数字；它负责检查、解释、发现遗漏和提出建议。</span>
+</div>
+<h2>发起一次检查</h2>
+<form method="post" action="/ai-review/run">
+<select name="project_id">{% for p in projects %}<option value="{{p.id}}" {{'selected' if p.id==selected_project_id else ''}}>{{p.code}} · {{p.name}}</option>{% endfor %}</select>
+<select name="scope">{% for code,name in scopes.items() %}<option value="{{code}}" {% if code==selected_scope %}selected{% endif %}>{{name}}</option>{% endfor %}</select>
+<select name="endpoint_id">{% for e in endpoints %}<option value="{{e.id}}">{{e.name}} · {{e.model or e.adapter}}</option>{% endfor %}</select>
+<br><textarea name="user_instruction" rows="4" style="width:min(900px,95%);padding:10px" placeholder="用户额外要求，例如：重点检查C商贸材料价格和履约合理性；或者检查设备租赁是否存在税率和台班证据问题。"></textarea><br>
+<button>立即启动检查</button>
+</form>
+<h2>最近检查历史</h2>
+<table><tr><th>ID</th><th>项目</th><th>范围</th><th>模型</th><th>状态</th><th>创建时间</th></tr>
+{% for j in jobs %}<tr>
+<td><a href="/ai-review/{{j.id}}">#{{j.id}}</a></td>
+<td>{{project_map[j.project_id].name if j.project_id in project_map else j.project_id}}</td>
+<td>{{scopes.get(j.scope,j.scope)}}</td>
+<td>{{endpoint_map[j.endpoint_id].name if j.endpoint_id in endpoint_map else j.endpoint_id}}</td>
+<td class="{{'green' if j.status=='completed' else ('red' if j.status=='failed' else 'yellow')}}">{{j.status}}</td><td>{{j.created_at}}</td>
+</tr>{% endfor %}</table>
+{% endblock %}

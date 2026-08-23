@@ -1,0 +1,66 @@
+# labor business_role 补全计划（劳务分包，3 份）
+regulations:
+  # === 1. 进一步明确全面推开营改增试点有关劳务派遣服务等政策的通知 ===
+  - frontmatter:
+      title: "关于进一步明确全面推开营改增试点有关劳务派遣服务、收费公路通行费抵扣等政策的通知"
+      business_role: labor
+      document_no: "财税〔2016〕47号"
+      issuer: "财政部 国家税务总局"
+      legal_level: "规范性文件"
+      jurisdiction: "全国"
+      tax_types: ["增值税"]
+      industries: ["劳务派遣", "建筑业"]
+      publish_date: "2016-04-30"
+      effective_date: "2016-05-01"
+      status: "现行有效"
+      source: "财政部"
+      note: "劳务派遣可选择差额纳税（扣除工资/社保/公积金后按 5% 简易计税）"
+    key_articles:
+      - "第一条"
+      - "第二条"
+    summary: |
+      劳务派遣公司核心政策：可选择一般计税或差额纳税。
+      建筑劳务分包参照执行。
+
+  # === 2. 建筑业工伤保险工作（人社部发〔2014〕103号）===
+  - frontmatter:
+      title: "关于进一步做好建筑业工伤保险工作的意见"
+      business_role: labor
+      document_no: "人社部发〔2014〕103号"
+      issuer: "人力资源社会保障部 住房城乡建设部 安监总局 全国总工会"
+      legal_level: "规范性文件"
+      jurisdiction: "全国"
+      tax_types: ["社保费"]
+      industries: ["建筑业", "劳务"]
+      publish_date: "2014-12-30"
+      effective_date: "2015-01-01"
+      status: "现行有效"
+      source: "人力资源社会保障部"
+      note: "建筑企业工伤保险按项目参保，覆盖农民工"
+    key_articles:
+      - "第一条"
+      - "第二条"
+    summary: |
+      建筑业工伤保险按建设项目参保，是劳务分包企业必须落实的核心政策。
+
+  # === 3. 社保费入税征收（国务院令第710号）===
+  - frontmatter:
+      title: "社会保险费征缴暂行条例(2019修订)"
+      business_role: labor
+      document_no: "国务院令第710号"
+      issuer: "国务院"
+      legal_level: "行政法规"
+      jurisdiction: "全国"
+      tax_types: ["社保费"]
+      industries: ["全部行业"]
+      publish_date: "2019-03-24"
+      effective_date: "2019-03-24"
+      status: "现行有效"
+      source: "国务院"
+      note: "社保费由税务部门统一征收，是社保入税的法律基础"
+    key_articles:
+      - "第一条"
+      - "第二条"
+      - "第三条"
+    summary: |
+      社保费入税征收的法规依据。劳务公司需规范社保缴费基数与申报。

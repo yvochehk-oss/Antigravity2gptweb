@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+<h2>项目一键综合体检</h2>
+<form method="post" action="/health-check/run" class="row">
+<input type="hidden" name="_csrf" value="{{ csrf_token }}">
+<select name="project_id">{% for p in projects %}<option value="{{ p.id }}" {% if selected_project_id == p.id %}selected{% endif %}>{{ p.code }}</option>{% endfor %}</select>
+<select name="profile">{% for k,v in profiles.items() %}<option value="{{ k }}">{% if k == 'quick' %}快速{% elif k == 'standard' %}标准{% elif k == 'deep' %}深度{% else %}{{ k }}{% endif %}</option>{% endfor %}</select>
+<label>模型（可多选 Ctrl/Cmd）</label>
+<select name="endpoint_ids" multiple size="3" title="按住 Ctrl（Windows）或 Cmd（Mac）多选">{% for e in endpoints %}<option value="{{ e.id }}">{{ e.name }}</option>{% endfor %}</select>
+<input name="user_instruction" placeholder="特别要求（可选）">
+<button>启动体检</button>
+</form>
+</div>
+
+<div class="card">
+<h3>最近 30 次体检</h3>
+<table>
+<thead><tr><th>#</th><th>项目</th><th>档位</th><th>状态</th><th>时间</th><th>详情</th></tr></thead>
+<tbody>
+{% for b in batches %}
+<tr>
+<td>{{ b.id }}</td>
+<td>{{ project_map[b.project_id].code if b.project_id in project_map else "—" }}</td>
+<td>{{ profile_labels.get(b.profile, b.profile) }}</td>
+<td><span class="tag {% if b.status == 'completed' %}green{% elif b.status == 'failed' %}red{% else %}gray{% endif %}">{% if b.status == 'completed' %}已完成{% elif b.status == 'failed' %}失败{% else %}进行中{% endif %}</span></td>
+<td>{{ b.created_at }}</td>
+<td><a href="/health-check/{{ b.id }}">查看</a></td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+</div>
+{% endblock %}

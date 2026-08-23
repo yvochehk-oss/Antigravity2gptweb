@@ -1,0 +1,64 @@
+# chengdu 补全计划（成都市，3 份）
+regulations:
+  # === 1. 市内跨区域涉税事项报验管理（成都市税务局公告2018年第7号）===
+  - frontmatter:
+      title: "国家税务总局成都市税务局关于市内跨区域涉税事项报验管理相关事项的公告"
+      document_no: "国家税务总局成都市税务局公告2018年第7号"
+      issuer: "国家税务总局成都市税务局"
+      legal_level: "规范性文件"
+      jurisdiction: "成都市"
+      tax_types: ["全部税种"]
+      industries: ["建筑业", "全部行业"]
+      publish_date: "2018-08-15"
+      effective_date: "2018-09-01"
+      status: "现行有效"
+      source: "国家税务总局成都市税务局"
+      note: "成都市建筑企业跨区（市）县施工的报验、预缴、核销操作"
+    key_articles:
+      - "第一条"
+      - "第二条"
+    summary: |
+      成都市建筑企业跨区（市）县施工时，需在项目所在地税务机关
+      报验并预缴增值税，回机构所在地核销。
+
+  # === 2. 成都市城镇土地使用税（成府规〔2026〕2号）===
+  - frontmatter:
+      title: "成都市人民政府关于印发《成都市城镇土地使用税征税范围和税额标准》的通知"
+      document_no: "成府规〔2026〕2号"
+      issuer: "成都市人民政府"
+      legal_level: "规范性文件"
+      jurisdiction: "成都市"
+      tax_types: ["城镇土地使用税"]
+      industries: ["全部行业"]
+      publish_date: "2026-01-15"
+      effective_date: "2026-02-01"
+      status: "现行有效"
+      source: "成都市人民政府"
+      note: "成都市城镇土地使用税征税范围、税额等级划分"
+    key_articles:
+      - "第一条"
+      - "第二条"
+    summary: |
+      成都市城镇土地使用税的征税范围和税额标准，
+      对建筑施工项目部临时占地的城镇土地使用税有直接影响。
+
+  # === 3. 成都市地方税务局税收规范性文件清理结果（成都市地方税务局公告2014年第2号）===
+  - frontmatter:
+      title: "成都市地方税务局关于税收规范性文件清理结果的公告"
+      document_no: "成都市地方税务局公告2014年第2号"
+      issuer: "成都市地方税务局"
+      legal_level: "规范性文件"
+      jurisdiction: "成都市"
+      tax_types: ["全部税种"]
+      industries: ["全部行业"]
+      publish_date: "2014-08-15"
+      effective_date: "2014-09-01"
+      status: "部分失效"
+      source: "成都市地方税务局"
+      note: "成都市地方税规范清理结果（含继续执行/废止/失效/全文废止部分条款）"
+    key_articles:
+      - "第一条"
+      - "第二条"
+    summary: |
+      成都市地方税规范性文件清理结果，是查询成都市地方税规范
+      有效性状态的依据。

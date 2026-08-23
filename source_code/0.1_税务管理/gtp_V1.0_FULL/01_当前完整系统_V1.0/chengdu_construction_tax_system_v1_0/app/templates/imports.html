@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+<h2>发票 / 合同 / 付款数据</h2>
+{% if message %}<div class="flash">{{ message }}</div>{% endif %}
+<p class="muted">发票、合同、付款数据已强制改为从 RAG 知识库抽取，禁止手工录入。</p>
+<p class="muted">请前往 <strong>驾驶舱 → RAG 同步</strong> 入口配置知识库连接并执行数据抽取。</p>
+<p class="muted">完税凭证如有变化，请在对应纸质档案更新后重新执行 RAG 抽取。</p>
+</div>
+{% endblock %}

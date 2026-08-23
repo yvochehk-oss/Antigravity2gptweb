@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block content %}
+<a href="/manager/project/{{ project.id }}" class="back-link">← 返回项目详情</a>
+<div class="section-title">🧭 项目财税筹划沙盘</div>
+<p class="muted">输入“尚未执行、尚未计入 real_costs 的待规划净额”。系统先由确定性引擎生成可行方案，再由 AI 从验证通过的方案中提出推荐。AI 不得自行编造金额或税率。</p>
+<div class="card" style="padding:18px;margin-bottom:18px">
+  <div style="display:grid;grid-template-columns:repeat(3,minmax(180px,1fr));gap:12px">
+    <label>业务包名称<input id="package_name" value="待规划业务包" class="input"></label>
+    <label>业务类型<select id="category" class="input"><option>劳务</option><option>材料</option><option>设备</option><option>专业分包</option></select></label>
+    <label>净额（元）<input id="package_amount" type="number" min="1" step="10000" value="30000000" class="input"></label>
+    <label>目标<select id="objective" class="input"><option value="balanced">综合最优</option><option value="profit">真实利润优先</option><option value="tax">税务现金优先</option><option value="risk">风险优先</option></select></label>
+    <label>系统内最低比例<input id="min_ratio" type="number" min="0" max="100" value="0" class="input"></label>
+    <label>系统内最高比例<input id="max_ratio" type="number" min="0" max="100" value="100" class="input"></label>
+    <label>希望系统内比例（可空）<input id="preferred_ratio" type="number" min="0" max="100" placeholder="例如 65" class="input"></label>
+    <label>AI模型<select id="endpoint_id" class="input"><option value="">自动选择</option>{% for e in endpoints %}<option value="{{e.id}}">{{e.name}} / {{e.model}}</option>{% endfor %}</select></label>
+  </div>
+  <button class="btn btn-primary" style="margin-top:14px" onclick="runPlan()">生成并推荐方案</button>
+</div>
+<div id="status"></div><div id="result"></div>
+<script>
+const money=x=>Number(x||0).toLocaleString('zh-CN',{maximumFractionDigits:0});
+const pct=x=>(Number(x||0)*100).toFixed(1)+'%';
+function esc(x){return String(x??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));}
+async function runPlan(){
+ const status=document.getElementById('status'), result=document.getElementById('result'); status.innerHTML='<p>正在计算候选方案并请求 AI 选择...</p>'; result.innerHTML='';
+ const pref=document.getElementById('preferred_ratio').value;
+ const eid=document.getElementById('endpoint_id').value;
+ const body={package_name:package_name.value,category:category.value,package_amount:Number(package_amount.value),objective:objective.value,internal_min_ratio:Number(min_ratio.value)/100,internal_max_ratio:Number(max_ratio.value)/100,persist:true};
+ if(pref!=='') body.preferred_internal_ratio=Number(pref)/100; if(eid!=='') body.endpoint_id=Number(eid);
+ try{const r=await fetch('/api/projects/{{project.id}}/allocation-planning/recommend',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}); const d=await r.json(); if(!r.ok) throw new Error(d.detail||'计算失败');
+  status.innerHTML=''; const rec=d.recommended, ai=d.ai_recommendation;
+  let html=`<div class="card" style="padding:18px"><h3>推荐：${esc(rec.scenario_id)}｜系统内 ${pct(rec.internal_ratio)} / 系统外 ${pct(1-rec.internal_ratio)}</h3><p>${esc(ai.summary||'')}</p><div class="kpi-grid"><div><b>系统内</b><br>${money(rec.internal_amount)}</div><div><b>系统外</b><br>${money(rec.external_amount)}</div><div><b>穿透外部成本</b><br>${money(rec.system_external_cost)}</div><div><b>增量税务现金估算</b><br>${money(rec.incremental_tax_cash)}</div><div><b>规划管理利润</b><br>${money(rec.projected_management_profit)}</div><div><b>综合评分</b><br>${rec.score}</div></div>`;
+  html+='<h4>推荐方案分配</h4><table><thead><tr><th>范围</th><th>单位</th><th>金额</th><th>占比</th><th>穿透外部成本</th><th>税务现金估算</th></tr></thead><tbody>'+rec.allocations.map(x=>`<tr><td>${x.scope==='internal'?'系统内':'系统外'}</td><td>${esc(x.party_name||x.party_code)}<br><small>${esc(x.party_code)}</small></td><td>${money(x.amount)}</td><td>${pct(x.share)}</td><td>${money(x.estimated_external_cost)}</td><td>${money(x.estimated_tax_cash)}</td></tr>`).join('')+'</tbody></table>';
+  html+='<h4>全部候选方案</h4><table><thead><tr><th>方案</th><th>系统内</th><th>系统外</th><th>外部真实成本</th><th>税务现金估算</th><th>风险</th><th>证据质量</th><th>评分</th></tr></thead><tbody>'+d.scenarios.map(x=>`<tr><td>${x.scenario_id}</td><td>${pct(x.internal_ratio)}</td><td>${pct(1-x.internal_ratio)}</td><td>${money(x.system_external_cost)}</td><td>${money(x.incremental_tax_cash)}</td><td>${pct(x.weighted_risk)}</td><td>${pct(x.evidence_quality)}</td><td>${x.score}</td></tr>`).join('')+'</tbody></table>';
+  if(rec.data_gaps?.length) html+='<h4>数据缺口 / 风险提示</h4><ul>'+rec.data_gaps.map(x=>`<li>${esc(x)}</li>`).join('')+'</ul>'; html+='</div>'; result.innerHTML=html;
+ }catch(e){status.innerHTML=`<p style="color:var(--red)">${esc(e.message)}</p>`;}
+}
+</script>
+{% endblock %}

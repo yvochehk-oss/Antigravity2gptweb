@@ -1,0 +1,4 @@
+invoice_no,period,entity_code,direction,counterparty_code,category,net,vat,rate,deductible,note
+INV-2026-08-001,2026-08,A08,out,EXT-TF,construction,1000000,90000,0.09,0,
+INV-2026-08-002,2026-08,A08,in,B01,劳务,500000,45000,0.09,1,
+INV-2026-08-003,2026-08,A08,in,C01,材料,800000,104000,0.13,1,

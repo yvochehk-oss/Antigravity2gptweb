@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+<h2>操作审计（最近 200 条）</h2>
+<table>
+<thead><tr><th>#</th><th>动作</th><th>对象</th><th>对象ID</th><th>操作人</th><th>IP</th><th>消息</th></tr></thead>
+<tbody>
+{% for r in rows %}
+<tr>
+<td>{{ r.id }}</td><td>{{ r.action }}{% if r.action == 'CREATE' %} 创建{% elif r.action == 'UPDATE' %} 更新{% elif r.action == 'IMPORT' %} 导入{% elif r.action == 'AI_REVIEW_START' %} AI检查开始{% elif r.action == 'AI_REVIEW_COMPLETE' %} AI检查完成{% elif r.action == 'AI_REVIEW_FAILED' %} AI检查失败{% elif r.action == 'AI_HEALTH_START' %} 体检开始{% elif r.action == 'AI_HEALTH_COMPLETE' %} 体检完成{% elif r.action == 'AI_HEALTH_FAILED' %} 体检失败{% elif r.action == 'AI_RECHECK' %} 复检{% elif r.action == 'AI_RECHECK_FAILED' %} 复检失败{% endif %}</td>
+<td>{{ r.object_type }}</td><td>{{ r.object_id }}</td>
+<td>{{ r.actor }}</td><td>{{ r.ip }}</td>
+<td>{{ r.message }}</td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+</div>
+{% endblock %}

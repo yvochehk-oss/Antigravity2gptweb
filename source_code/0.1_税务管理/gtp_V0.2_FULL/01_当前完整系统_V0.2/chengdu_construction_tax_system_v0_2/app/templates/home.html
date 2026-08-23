@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+<h2>经营驾驶舱</h2>
+<div class="kpi"><div class="v">{{ d.rows|length }}</div><div class="l">在建项目</div></div>
+<div class="kpi"><div class="v">{{ "%.0f"|format(d.revenue) }}</div><div class="l">累计确认收入</div></div>
+<div class="kpi"><div class="v">{{ "%.0f"|format(d.cost) }}</div><div class="l">真实底层成本</div></div>
+<div class="kpi"><div class="v">{{ "%.0f"|format(d.profit) }}</div><div class="l">项目利润</div></div>
+<div class="kpi"><div class="v">{{ "%.0f"|format(d.vat) }}</div><div class="l">增值税管理测算</div></div>
+<div class="kpi"><div class="v tag {% if risk_count == 0 %}green{% else %}yellow{% endif %}">{{ risk_count }}</div><div class="l">未关闭风险</div></div>
+</div>
+
+<div class="card">
+<h3>项目列表</h3>
+<table>
+<thead><tr><th>编码</th><th>名称</th><th>城市</th><th>合同额</th><th>收入</th><th>成本</th><th>利润</th><th>EAC</th><th>操作</th></tr></thead>
+<tbody>
+{% for r in d.rows %}
+<tr>
+<td>{{ r.project.code }}</td>
+<td>{{ r.project.name }}</td>
+<td>{{ r.project.city }}</td>
+<td>{{ "%.0f"|format(r.project.contract_total) }}</td>
+<td>{{ "%.0f"|format(r.revenue) }}</td>
+<td>{{ "%.0f"|format(r.real_cost) }}</td>
+<td>{{ "%.0f"|format(r.profit) }}</td>
+<td>{{ "%.0f"|format(r.eac) }}</td>
+<td><a href="/project/{{ r.project.id }}">详情</a></td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+</div>
+{% endblock %}

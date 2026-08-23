@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+<h2>Prompt 模板版本库</h2>
+<form method="post" action="/ai-prompts" class="row">
+<input type="hidden" name="_csrf" value="{{ csrf_token }}">
+<input name="name" placeholder="模板名">
+<select name="scope">{% for k,v in scopes.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select>
+<textarea name="system_addendum" placeholder="系统提示补充"></textarea>
+<textarea name="review_focus" placeholder="审查重点"></textarea>
+<button>新增版本</button>
+</form>
+</div>
+
+<div class="card">
+<table>
+<thead><tr><th>#</th><th>范围</th><th>模板名</th><th>版本</th><th>启用</th><th>创建时间</th><th>操作</th></tr></thead>
+<tbody>
+{% for r in rows %}
+<tr>
+<td>{{ r.id }}</td>
+<td>{{ scopes.get(r.scope, r.scope) }}</td>
+<td>{{ r.name }}</td>
+<td>第 {{ r.version }} 版</td>
+<td><span class="tag {% if r.enabled %}green{% else %}gray{% endif %}">{{ "✓" if r.enabled else "✗" }}</span></td>
+<td>{{ r.created_at }}</td>
+<td>
+<form method="post" action="/ai-prompts/{{ r.id }}/toggle" class="inline">
+<input type="hidden" name="_csrf" value="{{ csrf_token }}">
+<button class="secondary">{{ "禁用" if r.enabled else "启用" }}</button>
+</form>
+</td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+</div>
+{% endblock %}

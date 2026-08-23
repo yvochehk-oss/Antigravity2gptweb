@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>{% block title %}{{ title or "V0.2 建筑项目经营与税务统筹系统" }}{% endblock %}</title>
+<style>
+:root{--bg:#f5f7fa;--card:#fff;--line:#e1e6ed;--text:#1f2937;--muted:#6b7280;--accent:#2563eb;--red:#dc2626;--yellow:#d97706;--green:#16a34a}
+*{box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif;margin:0;background:var(--bg);color:var(--text)}
+header{background:#1f2937;color:#fff;padding:12px 24px;display:flex;align-items:center;gap:24px}
+header h1{font-size:18px;margin:0}
+nav a{color:#cbd5e1;text-decoration:none;padding:6px 10px;border-radius:4px;font-size:14px}
+nav a:hover,nav a.active{background:#374151;color:#fff}
+main{padding:24px;max-width:1400px;margin:0 auto}
+.card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:16px;margin-bottom:16px}
+table{width:100%;border-collapse:collapse;margin:8px 0}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);font-size:14px}
+th{background:#f9fafb;font-weight:600}
+.tag{display:inline-block;padding:2px 8px;border-radius:4px;font-size:12px;font-weight:600}
+.tag.red{background:#fee2e2;color:#991b1b}
+.tag.yellow{background:#fef3c7;color:#92400e}
+.tag.green{background:#d1fae5;color:#065f46}
+.tag.gray{background:#e5e7eb;color:#374151}
+.muted{color:var(--muted);font-size:13px}
+form.inline{display:inline-block}
+button,.btn{background:var(--accent);color:#fff;border:none;padding:8px 16px;border-radius:4px;cursor:pointer;font-size:14px}
+button.secondary{background:#6b7280}
+button.danger{background:var(--red)}
+input,select,textarea{padding:6px 10px;border:1px solid var(--line);border-radius:4px;font-size:14px;font-family:inherit}
+.row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.kpi{display:inline-block;margin-right:24px}
+.kpi .v{font-size:24px;font-weight:600}
+.kpi .l{font-size:13px;color:var(--muted)}
+pre{background:#1f2937;color:#e5e7eb;padding:12px;border-radius:4px;overflow:auto;font-size:12px}
+.flash{background:#fef3c7;border-left:4px solid var(--yellow);padding:10px 14px;margin-bottom:12px;border-radius:4px}
+/* 风险中心行底色 */
+tr.risk-red td{background:#fff5f5}
+tr.risk-yellow td{background:#fffbeb}
+tr.risk-gray td{background:#f9fafb}
+</style>
+</head>
+<body>
+<header>
+<h1>建筑项目经营与税务统筹系统 V0.2</h1>
+<nav>
+<a href="/" class="{% if request.url.path == '/' %}active{% endif %}">驾驶舱</a>
+<a href="/manage" class="{% if request.url.path.startswith('/manage') %}active{% endif %}">主数据</a>
+<a href="/matching" class="{% if request.url.path.startswith('/matching') %}active{% endif %}">四流匹配</a>
+<a href="/tax-ledger" class="{% if request.url.path.startswith('/tax-ledger') %}active{% endif %}">税务台账</a>
+<a href="/risks" class="{% if request.url.path.startswith('/risks') %}active{% endif %}">风险中心</a>
+<a href="/imports" class="{% if request.url.path.startswith('/imports') %}active{% endif %}">导入</a>
+<a href="/ai-review" class="{% if request.url.path.startswith('/ai-review') %}active{% endif %}">AI 单环节</a>
+<a href="/health-check" class="{% if request.url.path.startswith('/health-check') %}active{% endif %}">AI 体检</a>
+<a href="/tasks" class="{% if request.url.path.startswith('/tasks') %}active{% endif %}">整改任务</a>
+<a href="/ai-prompts" class="{% if request.url.path.startswith('/ai-prompts') %}active{% endif %}">Prompt</a>
+<a href="/ai-models" class="{% if request.url.path.startswith('/ai-models') %}active{% endif %}">模型</a>
+<a href="/audit" class="{% if request.url.path.startswith('/audit') %}active{% endif %}">审计</a>
+</nav>
+</header>
+<main>
+{% block content %}{% endblock %}
+</main>
+</body>
+</html>
