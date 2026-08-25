@@ -12,7 +12,14 @@ from ..auth import (
     require_web_or_service_read,
     require_web_or_service_role,
 )
-from ..config import SAFE_ORIGIN_DIRS
+from ..config import (
+    DATA_DIR,
+    IMPORT_ROOT,
+    PROJECT_ARCHIVES_DIR,
+    PROJECT_MATERIALS_DIR,
+    SAFE_ORIGIN_DIRS,
+    V2_ROOT,
+)
 from ..db import SessionLocal
 from ..logging_config import get_logger
 from ..models import MountConfig
@@ -157,12 +164,20 @@ def browse_fs(path: str = "", principal=Depends(require_web_or_service_read)):
 
         # Build quick_access shortcuts (only existing paths)
         quick = []
+        labels_map = {
+            str(PROJECT_ARCHIVES_DIR): "📁 项目存档资料 (6大工程)",
+            str(PROJECT_MATERIALS_DIR): "📁 项目材料 (project_materials)",
+            str(V2_ROOT.resolve()): "📁 V2.0 根目录",
+            str(IMPORT_ROOT): "📁 导入目录 (imports)",
+            str(DATA_DIR.resolve()): "📁 系统数据 (data)",
+        }
         for root in SAFE_ORIGIN_DIRS:
             try:
                 safe_root = validate_safe_directory(root)
             except (StorageError, PathTraversalError):
                 continue
-            quick.append({"label": f"安全导入根目录: {safe_root.name or safe_root}", "path": str(safe_root)})
+            lbl = labels_map.get(str(safe_root), f"📁 {safe_root.name or safe_root}")
+            quick.append({"label": lbl, "path": str(safe_root)})
 
         return {"current": str(current_path), "items": items, "quick_access": quick}
     except Exception as e:

@@ -95,12 +95,20 @@ IMPORT_ROOT = Path(
     os.getenv("PROJECT_RAG_IMPORT_ROOT", str(DATA_DIR / "imports")),
 ).expanduser().resolve()
 
-# File imports are constrained to the application data directory plus one
-# explicit operator-configured import root.  Home, /tmp and macOS process
-# folders are intentionally not trusted roots.
+# File imports are constrained to the application data directory plus trusted
+# V2.0 root and project archives / materials directories.
 SAFE_ORIGIN_DIRS = [DATA_DIR.resolve()]
 if IMPORT_ROOT not in SAFE_ORIGIN_DIRS:
     SAFE_ORIGIN_DIRS.append(IMPORT_ROOT)
+if V2_ROOT.resolve() not in SAFE_ORIGIN_DIRS:
+    SAFE_ORIGIN_DIRS.append(V2_ROOT.resolve())
+if PROJECT_MATERIALS_DIR not in SAFE_ORIGIN_DIRS:
+    SAFE_ORIGIN_DIRS.append(PROJECT_MATERIALS_DIR)
+PROJECT_ARCHIVES_DIR = Path(
+    os.getenv("PROJECT_RAG_PROJECT_ARCHIVES_ROOT", str(V2_ROOT / "项目存档资料"))
+).expanduser().resolve()
+if PROJECT_ARCHIVES_DIR.exists() and PROJECT_ARCHIVES_DIR not in SAFE_ORIGIN_DIRS:
+    SAFE_ORIGIN_DIRS.append(PROJECT_ARCHIVES_DIR)
 
 # Extra import roots: each path must be explicitly listed here (empty list disables import).
 # Paths are resolved and validated at import time.
