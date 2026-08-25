@@ -1,0 +1,2 @@
+# pg_restore-generated manifests may contain semantically significant trailing spaces.
+database/backups/**/*.dump.list whitespace=-trailing-space

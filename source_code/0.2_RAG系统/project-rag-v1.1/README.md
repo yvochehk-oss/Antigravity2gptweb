@@ -184,3 +184,36 @@ pytest tests/ -v                     # smoke + 桥接
 ## PostgreSQL-only 架构
 
 当前正式架构仅支持 PostgreSQL；数据库结构由 Alembic 管理。详见 `docs/POSTGRESQL_ONLY_ARCHITECTURE.md`。
+
+## 密钥管理
+
+`RAG_SHARED_API_KEY` 是 Tax ↔ RAG 之间唯一的服务器侧共享 bearer 凭据，
+任何持有者即可调用 RAG 的受保护接口。请按下列方式提供，禁止硬编码或提交。
+
+### 生产 / 预发布
+
+- 通过进程环境变量注入 `RAG_SHARED_API_KEY=<secret>`，由 systemd / launchd
+  / 容器平台从 secret manager 读取后注入；或使用
+  `RAG_SHARED_API_KEY_FILE=/absolute/path/to/secrets/rag_shared.key` 指向一个
+  由 secret manager 写入的密钥文件，进程启动时会读取该文件。
+- 同一密钥必须**同时**注入到 Tax 与 RAG 两端，否则跨服务鉴权会失败；
+  详见上文 "Tax ↔ RAG 认证环境注入"。
+- 任何非 loopback 绑定、`AUTH_REQUIRED=1` 或显式认证模式下，若
+  `RAG_SHARED_API_KEY` 为空，进程会 fail fast（见 `app/config.py`）。
+
+### 本地开发
+
+- 复制 `.env.example` 为 `.env`：`cp .env.example .env`。
+- 在本地 `.env` 中填入由 secret manager / 团队口令分发的
+  `RAG_SHARED_API_KEY=<your-local-key>`。`.env` 仅本机使用，不要外发。
+- 若已有 `RAG_SHARED_API_KEY_FILE`，把密钥文件放在仓库外（如
+  `~/secrets/projectrag/rag_shared.key`），并确保 `.env` 中只保留 `FILE`
+  路径而不放明文。
+
+### 永不提交
+
+- 仓库根目录的 `.gitignore` 已覆盖 `.env`、`.env.local`、`*.key`、`secrets/`，
+  任何明文密钥都不应被 `git add` 拾起。
+- 历史已泄露的密钥必须视为已失效：轮换新密钥并替换部署，绝不可仅靠
+  `.gitignore` 继续使用。
+- 若发现密钥泄露，立即在 secret manager 中吊销并轮换，不要等清理脚本。

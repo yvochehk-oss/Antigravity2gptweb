@@ -1,9 +1,9 @@
 """Pydantic schemas for API request/response validation."""
-from decimal import Decimal
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from decimal import Decimal
 from typing import Optional
 
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 # Canonical entity validation is shared by every RAG entry point.
 from .domain.entities import (
@@ -12,14 +12,22 @@ from .domain.entities import (
     normalize_entity_code,
 )
 
+# These role labels are not legal entities and must never be accepted as a
+# document counterparty.  Keep the schema-level set in one place so request
+# validation cannot fail at runtime with an undefined name.
+_VIRTUAL_ENTITY_CODES = frozenset({"A", "B", "C", "D", "甲", "乙", "丙", "丁"})
+
 
 class ProjectCreate(BaseModel):
     """Create a business project in the shared Tax/RAG PostgreSQL master."""
+
     project_code: str = Field(min_length=1, max_length=64)
     name: str = Field(min_length=1, max_length=160)
     contract_amount: Decimal = Field(gt=0, description="Contract amount in CNY; must be an explicit business fact")
     location: str = Field(min_length=1, max_length=200)
-    entity_code: Optional[str] = Field(default=None, description="Optional lead entity; multi-entity participation lives in transaction facts")
+    entity_code: Optional[str] = Field(
+        default=None, description="Optional lead entity; multi-entity participation lives in transaction facts"
+    )
     external_system: str = ""
     external_project_id: str = ""
     status: str = "ACTIVE"
@@ -41,11 +49,13 @@ class ProjectCreate(BaseModel):
 
 class ProjectSync(ProjectCreate):
     """Idempotently sync a project from an external business system."""
+
     pass
 
 
 class ProjectResponse(BaseModel):
     """Schema for project response."""
+
     id: int
     project_code: str
     name: str
@@ -57,6 +67,7 @@ class ProjectResponse(BaseModel):
 
 class DocumentMetadataPatch(BaseModel):
     """Schema for updating document metadata."""
+
     document_type: Optional[str] = None
     entity_code: Optional[str] = None
     counterparty_code: Optional[str] = None
@@ -126,6 +137,7 @@ class DocumentMetadataPatch(BaseModel):
 
 class RetrieveRequest(BaseModel):
     """Schema for retrieval request."""
+
     project_id: Optional[int] = None
     project_code: Optional[str] = None
     query: str
@@ -136,6 +148,7 @@ class RetrieveRequest(BaseModel):
 
 class QueryRequest(RetrieveRequest):
     """Schema for query request with optional LLM answer."""
+
     answer: bool = True
 
 
@@ -143,17 +156,31 @@ class QueryRequest(RetrieveRequest):
 # V0.3 Retrieval Schemas
 # ============================================
 
+
 class QueryRequestV3(QueryRequest):
     """V3 query request with rewrite / hyde / deep mode."""
+
     rewrite: Optional[bool] = None  # None = use config default
     hyde: Optional[bool] = None
     deep: bool = False
     stream: bool = False
     history: list[dict] = Field(default_factory=list)
 
+    @field_validator("query")
+    @classmethod
+    def validate_adaptive_query(cls, value: str) -> str:
+        """Reject blank queries before they reach the retrieval service."""
+        normalized = str(value or "").strip()
+        if not normalized:
+            raise ValueError("query must not be blank")
+        return normalized
+
 
 class RewriteResult(BaseModel):
     """Output of query rewrite step."""
+
+    model_config = ConfigDict(extra="allow")
+
     intent: str = ""
     rewritten_query: str = ""
     filters: dict = Field(default_factory=dict)
@@ -163,12 +190,18 @@ class RewriteResult(BaseModel):
 
 class HyDEResult(BaseModel):
     """Output of HyDE step."""
+
+    model_config = ConfigDict(extra="allow")
+
     hypothetical_text: str = ""
     helper_used: bool = False
 
 
 class QualityGate(BaseModel):
     """Retrieval quality gate result."""
+
+    model_config = ConfigDict(extra="allow")
+
     status: str = "UNKNOWN"  # GOOD | PARTIAL | LOW_CONFIDENCE | INSUFFICIENT_EVIDENCE
     score: float = 0.0
     top1_score: float = 0.0
@@ -181,6 +214,7 @@ class QualityGate(BaseModel):
 
 class Evidence(BaseModel):
     """Single evidence unit returned to LLM."""
+
     chunk_id: int
     document_id: int
     document_code: str = ""
@@ -199,6 +233,7 @@ class Evidence(BaseModel):
 
 class EvidencePack(BaseModel):
     """Complete evidence package for an answer."""
+
     query: str
     project_id: int
     rewrite_used: bool = False
@@ -215,12 +250,14 @@ class EvidencePack(BaseModel):
 
 class DeepRetrievalRequest(QueryRequestV3):
     """Deep retrieval request — executes full V0.3 pipeline."""
+
     answer: bool = True
     generate_answer: bool = True
 
 
 class RetrievalExplainItem(BaseModel):
     """Per-result explanation."""
+
     chunk_id: int
     document_id: int
     filename: str = ""
@@ -235,24 +272,67 @@ class RetrievalExplainItem(BaseModel):
 
 class RetrievalExplainResponse(BaseModel):
     """Explain response."""
+
+    model_config = ConfigDict(extra="allow")
+
     query: str
     project_id: int
     items: list[RetrievalExplainItem] = Field(default_factory=list)
     quality_gate: Optional[QualityGate] = None
+    status: str = "UNKNOWN"
+    retrieval_status: str = "UNKNOWN"
+    pipeline_errors: list[dict] = Field(default_factory=list)
+    latency_ms: int = 0
+
+
+class AdaptiveRetrievalResponse(BaseModel):
+    """Stable HTTP response for the V0.3 adaptive retrieval pipeline.
+
+    ``retrieval_status`` and ``pipeline_errors`` are deliberately returned in
+    the response rather than hidden behind an empty result list.  ``extra`` is
+    allowed so diagnostics added by the service remain observable without
+    breaking older clients.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    project_id: int
+    query: str
+    results: list[dict] = Field(default_factory=list)
+    rewrite_used: bool = False
+    hyde_used: bool = False
+    deep_mode: bool = False
+    rewrite_result: Optional[dict] = None
+    hyde_result: Optional[dict] = None
+    quality_gate: Optional[dict] = None
+    pipeline_errors: list[dict] = Field(default_factory=list)
+    reranker_status: str = "UNKNOWN"
+    retrieval_status: str = "UNKNOWN"
+    status: str = "UNKNOWN"
+    search_diagnostics: dict = Field(default_factory=dict)
+    effective_filters: dict = Field(default_factory=dict)
+    latency_ms: int = 0
+    bm25_candidates: list[int] = Field(default_factory=list)
+    vector_candidates: list[int] = Field(default_factory=list)
+    answer: Optional[str] = None
+    citations: list[dict] = Field(default_factory=list)
 
 
 # ============================================
 # V0.3 Document / Chunk schemas
 # ============================================
 
+
 class RechunkRequest(BaseModel):
     """Trigger re-chunk of a single document."""
+
     chunk_version: str = "v0.3_structured"
     semantic_type: Optional[str] = None  # override classification
 
 
 class RechunkResponse(BaseModel):
     """Rechunk operation result."""
+
     document_id: int
     chunk_version: str
     semantic_type: str = "plain"
@@ -266,8 +346,10 @@ class RechunkResponse(BaseModel):
 # V0.3 Feedback / Benchmark / Backup schemas
 # ============================================
 
+
 class FeedbackRequest(BaseModel):
     """User feedback for a query."""
+
     query_log_id: int
     helpful: bool = True
     reason: str = ""
@@ -285,6 +367,7 @@ class FeedbackResponse(BaseModel):
 
 class BenchmarkRunRequest(BaseModel):
     """Run a benchmark against current config."""
+
     project_id: Optional[int] = None
     question_ids: Optional[list[int]] = None  # None = all
     category: Optional[str] = None
@@ -295,6 +378,7 @@ class BenchmarkRunRequest(BaseModel):
 
 class BenchmarkMetrics(BaseModel):
     """Computed metrics for a benchmark run."""
+
     recall_at_5: float = 0.0
     recall_at_10: float = 0.0
     mrr: float = 0.0
@@ -319,6 +403,7 @@ class BenchmarkRunResponse(BaseModel):
 
 class BackupRequest(BaseModel):
     """Backup creation request."""
+
     backup_types: list[str] = Field(default_factory=lambda: ["postgres", "files"])
     note: str = ""
 
@@ -335,6 +420,7 @@ class BackupResponse(BaseModel):
 
 class KnowledgeAuditResult(BaseModel):
     """Knowledge audit 2.0 result."""
+
     project_id: int
     counts: dict
     coverage: dict
@@ -349,6 +435,7 @@ class KnowledgeAuditResult(BaseModel):
 
 class FolderImportRequest(BaseModel):
     """Schema for folder import request."""
+
     project_id: Optional[int] = None
     project_code: Optional[str] = None
     path: str
@@ -360,14 +447,17 @@ class FolderImportRequest(BaseModel):
 # NEW: Pagination schemas
 # ============================================
 
+
 class PaginationParams(BaseModel):
     """Common pagination parameters."""
+
     page: int = Field(default=1, ge=1, description="Page number")
     page_size: int = Field(default=50, ge=1, le=200, description="Items per page")
 
 
 class PaginatedResponse(BaseModel):
     """Base paginated response wrapper."""
+
     page: int
     page_size: int
     total_items: int
@@ -378,11 +468,13 @@ class PaginatedResponse(BaseModel):
 
 class DocumentListResponse(PaginatedResponse):
     """Paginated document list response."""
+
     items: list[dict]
 
 
 class JobListResponse(PaginatedResponse):
     """Paginated job list response."""
+
     items: list[dict]
 
 
@@ -390,8 +482,10 @@ class JobListResponse(PaginatedResponse):
 # NEW: Audit and health schemas
 # ============================================
 
+
 class HealthResponse(BaseModel):
     """Extended health check response."""
+
     status: str
     service: str
     version: str
@@ -405,6 +499,7 @@ class HealthResponse(BaseModel):
 
 class AuditResponse(BaseModel):
     """Project audit response with coverage analysis."""
+
     project_id: int
     project_code: str
     counts: dict
@@ -417,8 +512,10 @@ class AuditResponse(BaseModel):
 # NEW: Error response schemas
 # ============================================
 
+
 class ErrorResponse(BaseModel):
     """Standard error response."""
+
     error: str
     detail: Optional[str] = None
     code: Optional[str] = None
@@ -426,6 +523,7 @@ class ErrorResponse(BaseModel):
 
 class ValidationErrorResponse(BaseModel):
     """Validation error response."""
+
     error: str
     field: str
     message: str
@@ -435,8 +533,10 @@ class ValidationErrorResponse(BaseModel):
 # Entity (往来单位) schemas
 # ============================================
 
+
 class EntityCreate(BaseModel):
     """Schema for creating an entity."""
+
     entity_code: str = Field(description="Canonical internal master code; external counterparties use external_parties")
     name: str
     short_name: str = ""
@@ -507,6 +607,7 @@ class EntityCreate(BaseModel):
 
 class EntityPatch(BaseModel):
     """Schema for updating an entity."""
+
     entity_code: Optional[str] = None
     short_name: Optional[str] = None
     entity_type: Optional[str] = None
@@ -543,9 +644,7 @@ class EntityPatch(BaseModel):
             return None
         code = normalize_entity_code(value)
         if not is_canonical_entity_code(code):
-            raise ValueError(
-                f"entity references must use a canonical code: {CANONICAL_ENTITY_RANGE_TEXT}"
-            )
+            raise ValueError(f"entity references must use a canonical code: {CANONICAL_ENTITY_RANGE_TEXT}")
         return code
 
     @model_validator(mode="after")
@@ -569,7 +668,7 @@ class ExternalPartyCreate(BaseModel):
     @field_validator("code")
     @classmethod
     def reject_internal_codes(cls, value: str) -> str:
-        code=value.strip().upper()
+        code = value.strip().upper()
         if is_canonical_entity_code(code):
             raise ValueError("canonical internal codes belong in entities, not external_parties")
         return code
@@ -585,6 +684,7 @@ class ExternalPartyPatch(BaseModel):
 
 class EntityResponse(BaseModel):
     """Schema for entity response."""
+
     id: int
     entity_code: Optional[str] = None
     name: str
@@ -621,10 +721,12 @@ class EntityResponse(BaseModel):
 
 class EntityListResponse(PaginatedResponse):
     """Paginated entity list response."""
+
     items: list[dict]
 
 
 # === V1.1: Regulation schemas (ported from v0.2 base) =======================
+
 
 class RegulationCreate(BaseModel):
     title: str

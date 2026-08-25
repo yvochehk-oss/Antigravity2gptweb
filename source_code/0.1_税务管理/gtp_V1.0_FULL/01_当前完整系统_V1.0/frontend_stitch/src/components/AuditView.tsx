@@ -14,17 +14,19 @@ import {
   ArrowUp,
   ArrowDown
 } from 'lucide-react';
-import { AuditTrailRecord } from '../types';
+import { AuditTrailRecord, DataStatus } from '../types';
+import { DataStatusCard } from './DataStatusCard';
 
 type AuditSortField = 'timestamp' | 'operator' | 'targetSubject' | 'actionType' | null;
 type SortOrder = 'asc' | 'desc';
 
 interface AuditViewProps {
   auditLogs: AuditTrailRecord[];
+  dataStatus: DataStatus;
   onOpenExportModal: () => void;
 }
 
-export function AuditView({ auditLogs, onOpenExportModal }: AuditViewProps) {
+export function AuditView({ auditLogs, dataStatus, onOpenExportModal }: AuditViewProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [sortField, setSortField] = useState<AuditSortField>('timestamp');
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
@@ -61,6 +63,15 @@ export function AuditView({ auditLogs, onOpenExportModal }: AuditViewProps) {
 
     return sortOrder === 'asc' ? res : -res;
   });
+
+  if (dataStatus !== 'READY' || auditLogs.length === 0) {
+    return (
+      <div className="space-y-6">
+        <h2 className="text-[28px] font-bold text-[#dae2fd]">合规审计追溯</h2>
+        <DataStatusCard status={dataStatus} title="审计日志不可用" message="当前 Tax 后端没有审计日志集合 JSON 接口，页面不会显示本地生成的假日志。" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

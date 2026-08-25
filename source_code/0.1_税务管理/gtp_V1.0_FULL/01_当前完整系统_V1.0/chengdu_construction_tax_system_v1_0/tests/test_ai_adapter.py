@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 
 def _endpoint(adapter: str = "mock"):
     from app.models import AIModelEndpoint
@@ -49,9 +51,24 @@ def test_missing_risk_level_is_unknown_and_marks_data_gap():
     assert result["data_gaps"] == ["模型未返回可用风险等级，需人工复核"]
 
 
-def test_mock_result_uses_contextual_deterministic_risk():
+def test_mock_endpoint_requires_test_environment_and_explicit_opt_in(monkeypatch):
+    from app.ai.adapter import AIEndpointUnavailable, call_endpoint
+
+    monkeypatch.setenv("APP_ENV", "development")
+    monkeypatch.delenv("AI_ALLOW_MOCK_ENDPOINTS", raising=False)
+    with pytest.raises(AIEndpointUnavailable):
+        call_endpoint(_endpoint(), messages=[], ctx={})
+
+    monkeypatch.setenv("APP_ENV", "test")
+    with pytest.raises(AIEndpointUnavailable):
+        call_endpoint(_endpoint(), messages=[], ctx={})
+
+
+def test_mock_result_uses_contextual_deterministic_risk(monkeypatch):
     from app.ai.adapter import call_endpoint
 
+    monkeypatch.setenv("APP_ENV", "test")
+    monkeypatch.setenv("AI_ALLOW_MOCK_ENDPOINTS", "1")
     result, raw, parse_failed = call_endpoint(
         _endpoint(),
         messages=[],
@@ -98,6 +115,7 @@ def test_valid_external_risk_level_is_normalized_without_default(monkeypatch):
             return FakeResponse()
 
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("AI_ALLOWED_HOSTS", "ai.example.test")
     monkeypatch.setattr(adapter.httpx, "Client", FakeClient)
 
     result, _raw, parse_failed = adapter.call_endpoint(
@@ -143,6 +161,7 @@ def test_invalid_external_risk_level_is_unknown_and_surfaces_contract_failure(mo
             return FakeResponse()
 
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("AI_ALLOWED_HOSTS", "ai.example.test")
     monkeypatch.setattr(adapter.httpx, "Client", FakeClient)
 
     result, _raw, parse_failed = adapter.call_endpoint(
@@ -169,3 +188,73 @@ def test_missing_endpoint_configuration_fails_explicitly():
         assert "未配置 base_url" in str(exc)
     else:  # pragma: no cover - assertion documents the explicit failure contract
         raise AssertionError("missing endpoint configuration must not look successful")
+
+
+def _patch_text_response(monkeypatch, content: str):
+    from app.ai import adapter
+
+    class FakeResponse:
+        status_code = 200
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"choices": [{"message": {"content": content}}]}
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def post(self, *args, **kwargs):
+            return FakeResponse()
+
+    monkeypatch.setenv("AI_ALLOWED_HOSTS", "ai.example.test")
+    monkeypatch.setattr(adapter.httpx, "Client", FakeClient)
+
+
+def test_text_endpoint_accepts_plain_assistant_text_without_json_contract(
+    monkeypatch,
+):
+    from app.ai.adapter import call_text_endpoint
+
+    _patch_text_response(monkeypatch, "项目毛利率为 12%，请结合合同资料复核。")
+
+    answer = call_text_endpoint(
+        _endpoint("openai_compatible"),
+        messages=[{"role": "user", "content": "项目毛利率？"}],
+        ctx={},
+    )
+
+    assert answer == "项目毛利率为 12%，请结合合同资料复核。"
+
+
+def test_text_endpoint_rejects_empty_assistant_text(monkeypatch):
+    from app.ai.adapter import AIResponseContractError, call_text_endpoint
+
+    _patch_text_response(monkeypatch, " \n\t")
+
+    with pytest.raises(AIResponseContractError, match="非空 assistant 文本"):
+        call_text_endpoint(_endpoint("openai_compatible"), messages=[], ctx={})
+
+
+def test_structured_endpoint_keeps_rejecting_plain_text(monkeypatch):
+    from app.ai.adapter import call_endpoint
+
+    _patch_text_response(monkeypatch, "这是一段自然语言，而不是 Review JSON。")
+
+    result, raw, parse_failed = call_endpoint(
+        _endpoint("openai_compatible"),
+        messages=[],
+        ctx={},
+    )
+
+    assert raw == "这是一段自然语言，而不是 Review JSON。"
+    assert result["risk_level"] == "UNKNOWN"
+    assert parse_failed is True

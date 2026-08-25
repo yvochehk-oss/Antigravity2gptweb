@@ -7,10 +7,10 @@ from typing import Optional
 from fastapi import APIRouter, Query
 from pydantic import BaseModel, ConfigDict, Field
 
-from .facts_provider import FactsResponse as DomainFactsResponse
-from .facts_provider import get_facts_provider
 from app.config import FACTS_CACHE_TTL_SECONDS
 
+from .facts_provider import FactsResponse as DomainFactsResponse
+from .facts_provider import get_facts_provider
 
 router = APIRouter(prefix="/api/v1/facts", tags=["facts"])
 
@@ -53,6 +53,10 @@ class FactsResponse(BaseModel):
     facts_available: bool = True
     reason: Optional[str] = None
     source: str = "analytics_project_full"
+    entity_code: Optional[str] = None
+    entity_mapping_status: Optional[str] = None
+    entity_mapping_reason: Optional[str] = None
+    entity_mapping_valid: Optional[bool] = None
     metrics: dict[str, MetricValueResponse] = Field(default_factory=dict)
 
     @classmethod

@@ -1,17 +1,31 @@
 """Database-backed planning profiles, deterministic simulation and AI recommendation."""
 from __future__ import annotations
 
+import hashlib
 import json
+import threading
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from ..ai.adapter import call_endpoint
+from ..ai.failover import call_with_failover
 from ..models import (
-    AIModelEndpoint, Contract, Entity, ExternalParty, Fulfillment, Invoice, PlanningAllocation,
-    PlanningScenario, Project, Progress, RealCost, TaxLedger, TaxPaymentRecord,
+    AIModelEndpoint,
+    Contract,
+    Entity,
+    ExternalParty,
+    Fulfillment,
+    Invoice,
+    PlanningAllocation,
+    PlanningScenario,
+    Progress,
+    Project,
+    RealCost,
+    TaxLedger,
+    TaxPaymentRecord,
 )
 from .engine import D, PartyProfile, PlanningRequest, Scenario, build_scenarios
 
@@ -26,6 +40,13 @@ CATEGORY_EXTERNAL_KEYWORDS = {
     "专业分包": ("分包", "工程", "施工"),
     "subcontract": ("分包", "工程", "施工"),
 }
+
+# Planning recommendations are persisted as one scenario plus its allocation
+# rows.  Serialize the small critical section so two browser retries in the
+# same process cannot both pass the idempotency lookup before either commits.
+# The database transaction remains the source of truth for atomicity.
+_PERSIST_LOCK = threading.RLock()
+_AUTO_IDEMPOTENCY_WINDOW = timedelta(minutes=5)
 
 
 def _dec(value: Any, default: str = "0") -> Decimal:
@@ -131,9 +152,10 @@ def system_penetration_snapshot(db: Session, project_id: int) -> dict[str, Any]:
     Project tax cash uses project-specific tax-payment records only; no tax is
     guessed from unrelated entity ledgers.
     """
-    from decimal import Decimal as D
     from collections import defaultdict
-    from sqlalchemy import select, func
+    from decimal import Decimal as D
+
+    from sqlalchemy import func, select
     
     project = db.get(Project, project_id)
     if project is None:
@@ -351,9 +373,16 @@ def _scenario_dict(s: Scenario, baseline: dict[str, Any]) -> dict[str, Any]:
 
 
 def _ai_recommend(db: Session, endpoint_id: int | None, project: Project, request_payload: dict[str, Any], scenarios: list[dict[str, Any]]) -> dict[str, Any]:
-    endpoint = db.get(AIModelEndpoint, endpoint_id) if endpoint_id else db.execute(select(AIModelEndpoint).where(AIModelEndpoint.enabled.is_(True), AIModelEndpoint.adapter != "mock").order_by(AIModelEndpoint.id)).scalars().first()
-    if endpoint is None:
-        return {"recommended_scenario_id": scenarios[0]["scenario_id"], "summary": "未配置外部 AI 模型，采用确定性综合评分最高方案。", "source": "deterministic", "data_gaps": ["未配置可用于筹划建议的外部AI端点"]}
+    endpoint = db.get(AIModelEndpoint, endpoint_id) if endpoint_id else None
+    if endpoint_id is not None and endpoint is None:
+        return {
+            "recommended_scenario_id": scenarios[0]["scenario_id"],
+            "summary": "指定 AI 模型不存在，采用确定性综合评分最高方案。",
+            "source": "deterministic",
+            "status": "UNAVAILABLE",
+            "requires_manual_review": True,
+            "data_gaps": ["指定 AI 端点不存在，未生成 AI 筹划建议"],
+        }
     compact = [{k:v for k,v in s.items() if k not in {"data_gaps"}} for s in scenarios]
     messages = [
         {"role":"system","content": (
@@ -366,7 +395,14 @@ def _ai_recommend(db: Session, endpoint_id: int | None, project: Project, reques
         {"role":"user","content": json.dumps({"project":{"code":project.code,"name":project.name},"planning_request":request_payload,"validated_scenarios":compact},ensure_ascii=False)}
     ]
     try:
-        parsed, raw, parse_failed = call_endpoint(endpoint, messages, {"scope":"allocation_planning","project":{"code":project.code,"name":project.name}})
+        parsed, raw, parse_failed, route_meta = call_with_failover(
+            db,
+            messages,
+            {"scope": "allocation_planning", "project": {
+                "code": project.code, "name": project.name,
+            }},
+            endpoint_id=endpoint_id,
+        )
         picked = str(parsed.get("recommended_scenario_id") or "")
         valid={s["scenario_id"] for s in scenarios}
         if picked not in valid:
@@ -374,6 +410,12 @@ def _ai_recommend(db: Session, endpoint_id: int | None, project: Project, reques
             gaps=list(parsed.get("data_gaps") or [])
             gaps.append("AI未返回有效候选方案ID，已回退到确定性最高分方案")
             parsed["data_gaps"]=gaps
+        data_gaps = list(parsed.get("data_gaps", []) or [])
+        fallback_used = bool(route_meta.get("fallback_used"))
+        if fallback_used:
+            data_gaps.append(
+                "首选 AI 端点失败，已切换同路由组后备端点；本结果状态为 DEGRADED",
+            )
         return {
             "recommended_scenario_id": picked,
             "summary": parsed.get("summary") or "",
@@ -381,41 +423,165 @@ def _ai_recommend(db: Session, endpoint_id: int | None, project: Project, reques
             "score": parsed.get("score", 0),
             "findings": parsed.get("findings", []),
             "recommendations": parsed.get("recommendations", []),
-            "data_gaps": parsed.get("data_gaps", []),
-            "source": "ai" if not parse_failed else "ai_with_parse_warning",
-            "provider": endpoint.name,
+            "data_gaps": data_gaps,
+            "source": (
+                "ai_with_fallback" if fallback_used
+                else ("ai" if not parse_failed else "ai_with_parse_warning")
+            ),
+            "status": "DEGRADED" if parse_failed or fallback_used else "READY",
+            "requires_manual_review": bool(parse_failed or fallback_used),
+            "provider": route_meta.get("endpoint_name", ""),
+            "endpoint_id": route_meta.get("endpoint_id"),
+            "model": route_meta.get("model", ""),
+            "fallback_used": fallback_used,
             "raw_response": raw[:4000],
         }
     except Exception as exc:
-        return {"recommended_scenario_id": scenarios[0]["scenario_id"], "summary": "AI建议不可用，采用确定性综合评分最高方案。", "source": "deterministic_fallback", "data_gaps": [f"AI调用失败: {exc}"]}
+        ai_status = str(getattr(exc, "status", "DEGRADED") or "DEGRADED")
+        return {
+            "recommended_scenario_id": scenarios[0]["scenario_id"],
+            "summary": "AI建议不可用，采用确定性综合评分最高方案。",
+            "source": "deterministic_fallback",
+            "status": ai_status if ai_status in {"DEGRADED", "UNAVAILABLE"} else "DEGRADED",
+            "requires_manual_review": True,
+            "data_gaps": [f"AI调用失败: {exc}"],
+        }
 
 
-def _persist(db: Session, project: Project, req: PlanningRequest, request_payload: dict[str, Any], scenario: dict[str, Any], ai: dict[str, Any], actor: str) -> int:
-    row = PlanningScenario(
-        project_id=project.id, package_name=str(request_payload.get("package_name") or req.category),
-        category=req.category, package_amount=req.package_amount, objective=req.objective,
-        status="recommended", score=D(str(scenario["score"])),
-        internal_amount=D(str(scenario["internal_amount"])), external_amount=D(str(scenario["external_amount"])),
-        projected_external_cost=D(str(scenario["projected_system_external_cost"])),
-        projected_tax_cash=D(str(scenario["projected_system_tax_cash"])),
-        projected_profit=D(str(scenario["projected_management_profit"])),
-        risk_score=D(str(scenario["weighted_risk"])), evidence_quality=D(str(scenario["evidence_quality"])),
-        request_json=json.dumps(request_payload,ensure_ascii=False), result_json=json.dumps(scenario,ensure_ascii=False),
-        ai_summary=str(ai.get("summary") or ""), ai_json=json.dumps(ai,ensure_ascii=False), created_by=actor,
-        created_at=__import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat(),
+def _request_fingerprint(request_payload: dict[str, Any]) -> str:
+    """Hash the user request, excluding transport/idempotency metadata."""
+    comparable = {
+        key: value
+        for key, value in request_payload.items()
+        if not key.startswith("_")
+    }
+    canonical = json.dumps(
+        comparable,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
     )
-    db.add(row); db.flush()
-    for line in scenario["allocations"]:
-        db.add(PlanningAllocation(
-            scenario_id=row.id, party_scope=line["scope"], party_code=line["party_code"],
-            amount=D(str(line["amount"])), share=D(str(line["share"])),
-            estimated_external_cost=D(str(line["estimated_external_cost"])),
-            estimated_tax_cash=D(str(line["estimated_tax_cash"])),
-            risk_score=D(str(line["risk_score"])), evidence_quality=D(str(line["evidence_quality"])),
-            rationale=line.get("rationale", ""),
-        ))
-    db.commit()
-    return row.id
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _find_existing_persisted(
+    db: Session,
+    *,
+    project_id: int,
+    actor: str,
+    request_fingerprint: str,
+    idempotency_key: str | None,
+    now: datetime,
+) -> PlanningScenario | None:
+    """Find a replay without relying on a schema change or a fake actor.
+
+    Explicit ``Idempotency-Key`` values are durable.  Requests without that
+    header use a short fingerprint window to absorb accidental double-clicks
+    while still allowing a later, intentional re-run after the source data has
+    changed.
+    """
+    rows = db.execute(
+        select(PlanningScenario)
+        .where(
+            PlanningScenario.project_id == project_id,
+            PlanningScenario.created_by == actor,
+        )
+        .order_by(PlanningScenario.id.desc())
+    ).scalars()
+    cutoff = now - _AUTO_IDEMPOTENCY_WINDOW
+    for row in rows:
+        try:
+            stored = json.loads(row.request_json or "{}")
+        except (TypeError, ValueError):
+            continue
+        stored_key = str(stored.get("_idempotency_key") or "").strip()
+        if idempotency_key:
+            if stored_key == idempotency_key:
+                if stored.get("_request_fingerprint") != request_fingerprint:
+                    raise ValueError("Idempotency-Key was already used with a different request")
+                return row
+            continue
+        if stored.get("_request_fingerprint") != request_fingerprint:
+            continue
+        if stored_key:
+            continue
+        try:
+            created_at = datetime.fromisoformat(str(row.created_at))
+            if created_at.tzinfo is None:
+                created_at = created_at.replace(tzinfo=timezone.utc)
+        except (TypeError, ValueError):
+            continue
+        if created_at >= cutoff:
+            return row
+    return None
+
+
+def _persist(
+    db: Session,
+    project: Project,
+    req: PlanningRequest,
+    request_payload: dict[str, Any],
+    scenario: dict[str, Any],
+    ai: dict[str, Any],
+    actor: str,
+    *,
+    idempotency_key: str | None = None,
+) -> int:
+    """Persist one planning scenario atomically and safely replay retries."""
+    idempotency_key = idempotency_key.strip() if idempotency_key else None
+    now = datetime.now(timezone.utc)
+    fingerprint = _request_fingerprint(request_payload)
+    stored_request = dict(request_payload)
+    stored_request["_request_fingerprint"] = fingerprint
+    if idempotency_key:
+        stored_request["_idempotency_key"] = idempotency_key
+
+    with _PERSIST_LOCK:
+        try:
+            existing = _find_existing_persisted(
+                db,
+                project_id=project.id,
+                actor=actor,
+                request_fingerprint=fingerprint,
+                idempotency_key=idempotency_key,
+                now=now,
+            )
+            if existing is not None:
+                return existing.id
+
+            row = PlanningScenario(
+                project_id=project.id, package_name=str(request_payload.get("package_name") or req.category),
+                category=req.category, package_amount=req.package_amount, objective=req.objective,
+                status="recommended", score=D(str(scenario["score"])),
+                internal_amount=D(str(scenario["internal_amount"])), external_amount=D(str(scenario["external_amount"])),
+                projected_external_cost=D(str(scenario["projected_system_external_cost"])),
+                projected_tax_cash=D(str(scenario["projected_system_tax_cash"])),
+                projected_profit=D(str(scenario["projected_management_profit"])),
+                risk_score=D(str(scenario["weighted_risk"])), evidence_quality=D(str(scenario["evidence_quality"])),
+                request_json=json.dumps(stored_request, ensure_ascii=False, sort_keys=True),
+                result_json=json.dumps(scenario, ensure_ascii=False),
+                ai_summary=str(ai.get("summary") or ""), ai_json=json.dumps(ai, ensure_ascii=False),
+                created_by=actor, created_at=now.isoformat(),
+            )
+            db.add(row)
+            db.flush()
+            for line in scenario["allocations"]:
+                db.add(PlanningAllocation(
+                    scenario_id=row.id, party_scope=line["scope"], party_code=line["party_code"],
+                    amount=D(str(line["amount"])), share=D(str(line["share"])),
+                    estimated_external_cost=D(str(line["estimated_external_cost"])),
+                    estimated_tax_cash=D(str(line["estimated_tax_cash"])),
+                    risk_score=D(str(line["risk_score"])), evidence_quality=D(str(line["evidence_quality"])),
+                    rationale=line.get("rationale", ""),
+                ))
+            db.commit()
+            return row.id
+        except Exception:
+            # Keep direct service callers safe as well as the HTTP route.  A
+            # failed allocation row must never leave the Session poisoned or
+            # a parent scenario visible without its children.
+            db.rollback()
+            raise
 
 
 
@@ -435,7 +601,14 @@ def planning_candidate_context(db: Session, project_id: int, category: str, pack
         } for p in ctx["profiles"]],
     }
 
-def recommend_project_allocation(db: Session, project_id: int, request_payload: dict[str, Any], actor: str = "system") -> dict[str, Any]:
+def recommend_project_allocation(
+    db: Session,
+    project_id: int,
+    request_payload: dict[str, Any],
+    actor: str = "system",
+    *,
+    idempotency_key: str | None = None,
+) -> dict[str, Any]:
     amount=D(str(request_payload["package_amount"]))
     req=PlanningRequest(
         package_amount=amount, category=str(request_payload["category"]), objective=str(request_payload.get("objective") or "balanced"),
@@ -450,8 +623,10 @@ def recommend_project_allocation(db: Session, project_id: int, request_payload: 
     include_external=set(request_payload.get("external_candidates") or [])
     adjusted=[]
     for p in profiles:
-        if p.scope=="internal" and include_internal and p.code not in include_internal: continue
-        if p.scope=="external" and include_external and p.code not in include_external: continue
+        if p.scope=="internal" and include_internal and p.code not in include_internal:
+            continue
+        if p.scope=="external" and include_external and p.code not in include_external:
+            continue
         ov=overrides.get(p.code) or {}
         adjusted.append(PartyProfile(
             code=p.code,scope=p.scope,role=p.role,
@@ -468,7 +643,10 @@ def recommend_project_allocation(db: Session, project_id: int, request_payload: 
     recommended=next((x for x in scenario_dicts if x["scenario_id"]==ai["recommended_scenario_id"]),scenario_dicts[0])
     persisted_id=None
     if request_payload.get("persist",True):
-        persisted_id=_persist(db,ctx["project"],req,request_payload,recommended,ai,actor)
+        persisted_id=_persist(
+            db, ctx["project"], req, request_payload, recommended, ai, actor,
+            idempotency_key=idempotency_key,
+        )
     return {
         "project":{"id":ctx["project"].id,"code":ctx["project"].code,"name":ctx["project"].name,"contract_total":float(ctx["project"].contract_total)},
         "planning_basis":{"package_amount":float(amount),"category":req.category,"objective":req.objective,"current_external_cost":float(ctx["current_external_cost"]),"current_tax_paid":float(ctx["current_tax_paid"]),"planning_revenue":float(ctx["planning_revenue"]),"note":"package_amount应为尚未计入real_costs的待规划净额；结果为规划估算，不替代法定申报税额。"},

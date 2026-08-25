@@ -1,9 +1,13 @@
 """V0.2: SQLAlchemy ORM 模型。金额统一使用 Numeric(18, 2)。"""
 from __future__ import annotations
 
+import json
+import uuid
+from datetime import datetime, timezone
 from decimal import Decimal
 
 from sqlalchemy import (
+    JSON,
     Boolean,
     CheckConstraint,
     ForeignKey,
@@ -12,6 +16,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -345,10 +350,38 @@ class AIModelEndpoint(Base):
     base_url: Mapped[str] = mapped_column(String(300), default="")
     chat_path: Mapped[str] = mapped_column(String(200), default="/v1/chat/completions")
     model: Mapped[str] = mapped_column(String(120), default="")
+    # ``api_key_env`` remains for backwards-compatible deployments that resolve
+    # an operator-provided environment variable.  New UI-managed credentials
+    # are represented by an opaque reference only; the secret itself is never
+    # persisted in this table.
     api_key_env: Mapped[str] = mapped_column(String(120), default="")
+    credential_ref: Mapped[str | None] = mapped_column(
+        String(64), nullable=True, unique=True,
+    )
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
     timeout_seconds: Mapped[int] = mapped_column(Integer, default=90)
     note: Mapped[str] = mapped_column(String(300), default="")
+    # Lower priority values are attempted first.  ``id`` is the deterministic
+    # tie-breaker used by the routing service, so no separate default flag is
+    # needed in the schema.
+    priority: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=100, server_default=text("100"),
+    )
+    routing_group: Mapped[str] = mapped_column(
+        String(40), nullable=False, default="default",
+        server_default=text("'default'"),
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "priority >= 0",
+            name="ck_ai_model_endpoints_priority_nonnegative",
+        ),
+        CheckConstraint(
+            "routing_group ~ '^[a-z0-9][a-z0-9_/-]{0,39}$'",
+            name="ck_ai_model_endpoints_routing_group_format",
+        ),
+    )
 
 
 class AIReviewJob(Base):
@@ -413,7 +446,7 @@ class AIReviewBatch(Base):
     scopes_json: Mapped[str] = mapped_column(Text, default="[]")
     endpoint_ids_json: Mapped[str] = mapped_column(Text, default="[]")
     user_instruction: Mapped[str] = mapped_column(Text, default="")
-    status: Mapped[str] = mapped_column(String(20), default="pending", index=True)
+    status: Mapped[str] = mapped_column(String(40), default="pending", index=True)
     created_at: Mapped[str] = mapped_column(String(30), default="")
     finished_at: Mapped[str] = mapped_column(String(30), default="")
     error_message: Mapped[str] = mapped_column(Text, default="")
@@ -468,6 +501,31 @@ class ProjectRAGMap(Base):
     created_at: Mapped[str] = mapped_column(String(30), default="")
 
 
+class RagServiceEndpoint(Base):
+    """Administrator-approved Tax -> RAG service endpoint.
+
+    There is deliberately one row (``id=1``).  ``resolved_addresses_json``
+    stores the DNS result observed at approval time, not a credential.  The
+    outbound validator compares a fresh resolution with this exact set before
+    every request so a hostname cannot silently rebind to another network.
+    """
+
+    __tablename__ = "rag_service_endpoints"
+    id: Mapped[int] = mapped_column(primary_key=True, default=1)
+    base_url: Mapped[str] = mapped_column(String(300), nullable=False)
+    host: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    scheme: Mapped[str] = mapped_column(String(8), nullable=False)
+    port: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    approved_private: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    resolved_addresses_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, index=True)
+    approved_at: Mapped[str] = mapped_column(String(40), nullable=False, default="")
+    approved_by: Mapped[str] = mapped_column(String(80), nullable=False, default="")
+    last_tested_at: Mapped[str] = mapped_column(String(40), nullable=False, default="")
+    created_at: Mapped[str] = mapped_column(String(40), nullable=False, default="")
+    updated_at: Mapped[str] = mapped_column(String(40), nullable=False, default="")
+
+
 class SyncLog(Base):
     """RAG 同步记录，跟踪从知识库抽取数据的每次同步操作。"""
     __tablename__ = "sync_logs"
@@ -510,25 +568,139 @@ class SyncPending(Base):
 
 
 class FactsSnapshot(Base):
-    """RAG V1.0 Facts Provider 响应快照。
+    """Canonical Facts snapshot shared by Tax and ProjectRAG.
 
-    每次税务系统向 Facts Provider 拉取指标时保存一份快照，
-    保证后续审计/复核能还原当时的口径与版本（as_of + facts_version）。
+    ``facts_snapshots`` is owned by the Tax migration chain because Tax is
+    migrated first, but the physical contract is shared with ProjectRAG:
+    UUID text identifiers, one JSON payload, explicit analytics-contract
+    versioning, and creation metadata.  The old Tax facts client used
+    ``metrics_json``/``raw_response_json`` constructor arguments.  Those
+    arguments remain accepted as a compatibility adapter, while they are
+    normalised into the canonical ``facts_data`` JSON field and are not
+    persisted as a second source of truth.
     """
     __tablename__ = "facts_snapshots"
-    id: Mapped[int] = mapped_column(primary_key=True)
+
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
+    )
     project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"), index=True)
-    project_code: Mapped[str] = mapped_column(String(30), index=True)
-    as_of: Mapped[str] = mapped_column(String(40), index=True)  # 数据截止时间
-    facts_version: Mapped[str] = mapped_column(String(40), index=True)  # RAG 返回的事实版本
-    metrics_json: Mapped[str] = mapped_column(Text, default="{}")  # 全部指标快照
-    raw_response_json: Mapped[str] = mapped_column(Text, default="{}")  # 原始响应
-    source: Mapped[str] = mapped_column(String(20), default="rag_v1")  # rag_v1 / manual
-    require_fresh: Mapped[bool] = mapped_column(Boolean, default=False)
-    max_age: Mapped[int] = mapped_column(Integer, default=60)
-    requested_at: Mapped[str] = mapped_column(String(30), default="", index=True)
-    requested_by: Mapped[str] = mapped_column(String(80), default="system")
-    note: Mapped[str] = mapped_column(String(300), default="")
+    project_code: Mapped[str] = mapped_column(String(64), index=True)
+    facts_data: Mapped[dict] = mapped_column(JSON, nullable=False)
+    as_of: Mapped[str] = mapped_column(String(40), index=True)
+    facts_version: Mapped[str] = mapped_column(String(64), index=True)
+    analytics_contract_version: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="1.0"
+    )
+    created_at: Mapped[str] = mapped_column(
+        String(40), nullable=False,
+        default=lambda: datetime.now(timezone.utc).isoformat(),
+        index=True,
+    )
+    created_by: Mapped[str | None] = mapped_column(String(80), nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "project_code", "facts_version",
+            name="uq_facts_snapshots_project_facts_version",
+        ),
+    )
+
+    @staticmethod
+    def _decode_legacy_json(value, default):
+        if isinstance(value, dict):
+            return dict(value)
+        if isinstance(value, str) and value.strip():
+            try:
+                parsed = json.loads(value)
+            except (TypeError, ValueError, json.JSONDecodeError):
+                return default
+            return parsed if isinstance(parsed, dict) else default
+        return default
+
+    def __init__(self, **kwargs):
+        """Accept the pre-canonical Tax client shape without dual columns.
+
+        This adapter is intentionally kept at the ORM boundary so the
+        existing Tax service can be upgraded atomically with the database
+        migration.  New code should pass ``facts_data`` directly.
+        """
+        legacy_metrics = kwargs.pop("metrics_json", None)
+        legacy_raw = kwargs.pop("raw_response_json", None)
+        legacy_meta = {
+            "source": kwargs.pop("source", "rag_v1"),
+            "require_fresh": bool(kwargs.pop("require_fresh", False)),
+            "max_age": int(kwargs.pop("max_age", 60) or 60),
+            "requested_at": kwargs.pop("requested_at", ""),
+            "requested_by": kwargs.pop("requested_by", "system"),
+            "note": kwargs.pop("note", ""),
+        }
+
+        facts_data = kwargs.get("facts_data")
+        if facts_data is None:
+            raw_payload = self._decode_legacy_json(legacy_raw, {})
+            metrics = self._decode_legacy_json(legacy_metrics, {})
+            facts_data = dict(raw_payload)
+            facts_data.setdefault("metrics", metrics)
+            facts_data.setdefault("facts_available", True)
+            facts_data.setdefault("project_code", kwargs.get("project_code", ""))
+            facts_data.setdefault("as_of", kwargs.get("as_of", ""))
+            facts_data.setdefault("facts_version", kwargs.get("facts_version", ""))
+            # Retain non-canonical Tax request metadata inside the immutable
+            # payload instead of maintaining a second set of table columns.
+            facts_data.setdefault("_snapshot_metadata", legacy_meta)
+            kwargs["facts_data"] = facts_data
+
+        kwargs.setdefault(
+            "created_at",
+            legacy_meta["requested_at"] or datetime.now(timezone.utc).isoformat(),
+        )
+        kwargs.setdefault("created_by", legacy_meta["requested_by"] or "system")
+        super().__init__(**kwargs)
+
+    def _snapshot_metadata(self) -> dict:
+        data = self.facts_data if isinstance(self.facts_data, dict) else {}
+        metadata = data.get("_snapshot_metadata")
+        return metadata if isinstance(metadata, dict) else {}
+
+    # Compatibility read properties for existing Tax routes/services.  They
+    # deliberately derive from canonical facts_data rather than database
+    # columns, preventing metrics/raw response drift.
+    @property
+    def metrics_json(self) -> str:
+        data = self.facts_data if isinstance(self.facts_data, dict) else {}
+        return json.dumps(data.get("metrics", {}), ensure_ascii=False)
+
+    @property
+    def raw_response_json(self) -> str:
+        return json.dumps(self.facts_data or {}, ensure_ascii=False)
+
+    @property
+    def source(self) -> str:
+        return str(self._snapshot_metadata().get("source") or self.facts_data.get("source", "rag_v1"))
+
+    @property
+    def require_fresh(self) -> bool:
+        return bool(self._snapshot_metadata().get("require_fresh", False))
+
+    @property
+    def max_age(self) -> int:
+        try:
+            return int(self._snapshot_metadata().get("max_age", 60))
+        except (TypeError, ValueError):
+            return 60
+
+    @property
+    def requested_at(self) -> str:
+        return str(self._snapshot_metadata().get("requested_at") or self.created_at or "")
+
+    @property
+    def requested_by(self) -> str:
+        return str(self._snapshot_metadata().get("requested_by") or self.created_by or "system")
+
+    @property
+    def note(self) -> str:
+        return str(self._snapshot_metadata().get("note") or "")
 
 
 class FactsRequestLog(Base):
@@ -541,7 +713,9 @@ class FactsRequestLog(Base):
     max_age: Mapped[int] = mapped_column(Integer, default=60)
     as_of_param: Mapped[str] = mapped_column(String(40), default="")
     response_status: Mapped[int] = mapped_column(Integer, default=0)
-    facts_snapshot_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    facts_snapshot_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("facts_snapshots.id"), nullable=True, index=True
+    )
     latency_ms: Mapped[int] = mapped_column(Integer, default=0)
     error_message: Mapped[str] = mapped_column(Text, default="")
     actor: Mapped[str] = mapped_column(String(80), default="system", index=True)

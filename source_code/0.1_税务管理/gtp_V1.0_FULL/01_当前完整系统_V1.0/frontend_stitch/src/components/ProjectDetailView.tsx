@@ -100,13 +100,13 @@ export function ProjectDetailView({
             className="flex items-center gap-2 text-[13px] font-semibold text-[#4cd7f6] hover:text-[#dae2fd] transition-colors cursor-pointer bg-[#03b5d3]/10 px-3 py-1.5 rounded-lg border border-[#4cd7f6]/30"
           >
             <ArrowLeft className="w-4 h-4" />
-            <span>返回项目工程库 (5大标杆工程)</span>
+            <span>返回项目工程库</span>
           </button>
 
           {/* 工程快速切换选择器 */}
           {projects && projects.length > 0 && onSelectProject && (
             <div className="flex items-center gap-2 text-[12px]">
-              <span className="text-[#8e909f] hidden sm:inline">切换标段:</span>
+              <span className="text-[#8e909f] hidden sm:inline">切换项目:</span>
               <select
                 value={project.id}
                 onChange={e => onSelectProject(e.target.value)}

@@ -52,9 +52,18 @@
           <div class="min-w-0">
             <h3 id="profit-heading" class="text-[17px] font-bold leading-6 text-slate-50">本期动态真实净利润</h3>
           </div>
-          <span class="inline-flex items-center gap-1.5 rounded-full border border-emerald-400/40 bg-emerald-400/15 px-3 py-1 text-[12px] font-semibold text-emerald-300 shadow-sm">
-            <span class="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-ping" aria-hidden="true" />
-            稳健
+          <span
+            class="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[12px] font-semibold shadow-sm"
+            :class="cockpitAvailable
+              ? 'border-emerald-400/40 bg-emerald-400/15 text-emerald-300'
+              : 'border-slate-400/35 bg-slate-400/10 text-slate-300'"
+          >
+            <span
+              class="h-1.5 w-1.5 rounded-full"
+              :class="cockpitAvailable ? 'bg-emerald-400 animate-ping' : 'bg-slate-400'"
+              aria-hidden="true"
+            />
+            {{ cockpitAvailable ? '稳健' : '待同步' }}
           </span>
         </div>
 
@@ -149,7 +158,7 @@
         </div>
 
         <div v-else class="rounded-2xl border border-white/10 bg-[#0d1829] px-4 py-6 text-center text-[13px] leading-5 text-slate-400">
-          当前没有待处理风险，各工程指标运转平稳。
+          {{ cockpitAvailable ? '当前没有待处理风险，各工程指标运转平稳。' : '暂无可用风险数据，请联网刷新后重试。' }}
         </div>
 
         <p v-if="riskError" class="rounded-xl border border-rose-400/35 bg-rose-400/15 px-3.5 py-3 text-[13px] leading-5 text-rose-100" role="alert">
@@ -173,7 +182,7 @@
           </div>
         </div>
 
-        <div class="mt-6 grid min-w-0 grid-cols-6 items-end gap-2 border-b border-white/10 pb-3" role="img" aria-label="近六个月营收与净利润柱状趋势图">
+        <div v-if="trendPoints.length" class="mt-6 grid min-w-0 grid-cols-6 items-end gap-2 border-b border-white/10 pb-3" role="img" aria-label="近六个月营收与净利润柱状趋势图">
           <div v-for="point in trendPoints" :key="point.month" class="flex min-w-0 flex-col items-center gap-2">
             <div class="flex h-28 w-full min-w-0 items-end justify-center gap-1">
               <span
@@ -195,6 +204,9 @@
             </div>
             <span class="font-financial text-[12px] font-semibold text-slate-400">{{ point.month }}</span>
           </div>
+        </div>
+        <div v-else class="mt-6 rounded-xl border border-dashed border-white/10 px-4 py-6 text-center text-[13px] text-slate-400">
+          暂无可用趋势数据，请联网刷新后重试。
         </div>
         <div class="mt-3 flex items-center justify-between gap-2 text-[12px] leading-4 text-slate-400">
           <span>柱高自适应动态归一化</span>
@@ -218,7 +230,7 @@
           </RouterLink>
         </div>
 
-        <div class="mt-4 grid grid-cols-2 gap-3">
+        <div v-if="matrixSummary.length" class="mt-4 grid grid-cols-2 gap-3">
           <article v-for="item in matrixSummary" :key="item.code" class="group min-w-0 rounded-xl border border-white/10 bg-gradient-to-b from-[#14233a] to-[#0c1626] p-3.5 shadow-md transition-all hover:border-amber-400/40">
             <div class="flex items-center justify-between gap-2">
               <span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg font-financial text-[15px] font-bold shadow-sm" :class="item.badgeClass">{{ item.code }}</span>
@@ -228,6 +240,9 @@
             <p class="mt-1.5 break-words font-financial text-[22px] font-bold leading-7" :class="item.valueClass">{{ matrixValue(item) }}</p>
             <p class="mt-1 text-[12px] leading-4 text-slate-400">{{ item.detail }}</p>
           </article>
+        </div>
+        <div v-else class="mt-4 rounded-xl border border-dashed border-white/10 px-4 py-6 text-center text-[13px] text-slate-400">
+          暂无可用法人矩阵数据，请联网刷新后重试。
         </div>
       </section>
     </div>
@@ -244,10 +259,11 @@ import DataSourceBadge from '../../shared/components/DataSourceBadge.vue'
 
 const executive = useExecutiveStore()
 const ui = useUiStore()
-const { cockpit: rawCockpit, lastRefreshAt, partialFailure, _dataSource } = storeToRefs(executive)
+const { cockpit: rawCockpit, companies, lastRefreshAt, partialFailure, _dataSource } = storeToRefs(executive)
 const { privacyMode, loading, connectionStatus } = storeToRefs(ui)
 
 const dataSource = computed(() => _dataSource.value || 'unavailable')
+const cockpitAvailable = computed(() => Boolean(cockpit.value?.kpi))
 const snapshotTime = computed(() => {
   if (_dataSource.value === 'snapshot' && lastRefreshAt.value) {
     const d = new Date(lastRefreshAt.value)
@@ -268,8 +284,12 @@ const risks = computed(() => Array.isArray(cockpit.value.urgent_risks) ? cockpit
 const riskOpeningId = ref(null)
 const riskError = ref('')
 
-const money = value => formatMoney(value, privacyMode.value)
-const percent = value => formatPercent(value, privacyMode.value)
+const money = value => value === undefined || value === null
+  ? '—'
+  : formatMoney(value, privacyMode.value)
+const percent = value => value === undefined || value === null
+  ? '—'
+  : formatPercent(value, privacyMode.value)
 
 const secondaryMetrics = computed(() => [
   {
@@ -280,22 +300,25 @@ const secondaryMetrics = computed(() => [
   },
   {
     label: '增值税综合税负',
-    value: percent(cockpit.value.kpi?.tax_burden_rate || '1.94'),
+    value: percent(cockpit.value.kpi?.tax_burden_rate),
     note: `应纳税 ${money(cockpit.value.kpi?.net_tax_liability)}`,
     valueClass: 'text-amber-200'
   },
   {
     label: '资金池净头寸（30 日）',
     value: money(cockpit.value.kpi?.net_cashflow),
-    note: `回款率 ${percent(cockpit.value.kpi?.collection_rate || '74.5')}`,
+    note: `回款率 ${percent(cockpit.value.kpi?.collection_rate)}`,
     valueClass: 'text-emerald-300'
   }
 ])
 
 const trendPoints = computed(() => {
-  const months = cockpit.value.trends?.months || ['3月', '4月', '5月', '6月', '7月', '8月']
-  const revenueValues = months.map((_, index) => Number(cockpit.value.trends?.revenue?.[index]) || 0)
-  const profitValues = months.map((_, index) => Number(cockpit.value.trends?.profit?.[index]) || 0)
+  const months = cockpit.value.trends?.months
+  const revenues = cockpit.value.trends?.revenue
+  const profits = cockpit.value.trends?.profit
+  if (!Array.isArray(months) || !Array.isArray(revenues) || !Array.isArray(profits) || !months.length) return []
+  const revenueValues = months.map((_, index) => Number(revenues[index]) || 0)
+  const profitValues = months.map((_, index) => Number(profits[index]) || 0)
   const revenueMax = Math.max(...revenueValues, 1)
   const profitMax = Math.max(...profitValues, 1)
 
@@ -308,12 +331,31 @@ const trendPoints = computed(() => {
   }))
 })
 
-const matrixSummary = [
-  { code: 'A', title: '施工总承包', count: '11 家', value: 85.4, kind: 'percent', detail: '产值贡献', valueClass: 'text-amber-300', badgeClass: 'bg-amber-400/20 text-amber-300 border border-amber-400/35' },
-  { code: 'B', title: '物资商贸', count: '10 家', value: 12_880_000, kind: 'money', detail: '进项抵扣池', valueClass: 'text-sky-300', badgeClass: 'bg-sky-400/20 text-sky-300 border border-sky-400/35' },
-  { code: 'C', title: '建筑劳务', count: '2 家', value: 100, kind: 'percent', detail: '用工合规', valueClass: 'text-emerald-300', badgeClass: 'bg-emerald-400/20 text-emerald-300 border border-emerald-400/35' },
-  { code: 'D', title: '机械租赁', count: '3 家', value: 88.5, kind: 'percent', detail: '设备出租率', valueClass: 'text-violet-300', badgeClass: 'bg-violet-400/20 text-violet-300 border border-violet-400/35' }
-]
+const matrixSummary = computed(() => {
+  const matrix = companies.value?.matrix
+  if (!matrix || typeof matrix !== 'object') return []
+  const styles = {
+    A: ['text-amber-300', 'bg-amber-400/20 text-amber-300 border border-amber-400/35'],
+    B: ['text-sky-300', 'bg-sky-400/20 text-sky-300 border border-sky-400/35'],
+    C: ['text-emerald-300', 'bg-emerald-400/20 text-emerald-300 border border-emerald-400/35'],
+    D: ['text-violet-300', 'bg-violet-400/20 text-violet-300 border border-violet-400/35']
+  }
+  return ['A', 'B', 'C', 'D'].flatMap(code => {
+    const group = matrix[code]
+    if (!group || typeof group !== 'object') return []
+    const entities = Array.isArray(group.entities) ? group.entities : []
+    const [valueClass, badgeClass] = styles[code]
+    return [{
+      code,
+      title: group.title || `${code} 类主体`,
+      count: `${entities.length} 家`,
+      value: '—',
+      detail: '主体数量',
+      valueClass,
+      badgeClass
+    }]
+  })
+})
 
 const connectionLabel = computed(() => {
   if (loading.value || connectionStatus.value === 'connecting') return '同步中'
@@ -343,7 +385,7 @@ const refreshLabel = computed(() => {
 })
 
 function matrixValue(item) {
-  return item.kind === 'money' ? money(item.value) : percent(item.value)
+  return item.value ?? '—'
 }
 
 function trendLabel(point, kind) {

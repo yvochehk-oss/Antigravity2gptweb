@@ -22,6 +22,7 @@ from .observability import (
     reset_request_id,
     set_request_id,
 )
+from .security import validate_ai_endpoint_url
 from .structured_logging import (
     bind_request_context,
     get_logger,
@@ -35,6 +36,19 @@ _HEALTH_TIMEOUT_SECONDS = min(
     max(float(os.getenv("HEALTH_CHECK_TIMEOUT_SECONDS", "1.5")), 0.1),
     5.0,
 )
+
+
+def _ai_health_deadline_seconds() -> float:
+    """Return a bounded total budget for one synchronous AI health pass."""
+    raw = os.getenv(
+        "AI_HEALTH_ENDPOINT_DEADLINE_SECONDS",
+        str(_HEALTH_TIMEOUT_SECONDS),
+    )
+    try:
+        configured = float(raw)
+    except (TypeError, ValueError):
+        configured = _HEALTH_TIMEOUT_SECONDS
+    return min(max(configured, 0.1), 5.0)
 
 
 def _health_headers(request_id: str | None = None, *, facts: bool = False) -> dict[str, str]:
@@ -129,11 +143,20 @@ def _check_facts() -> dict[str, object]:
 
 
 def _check_ai() -> dict[str, object]:
-    """Return AI endpoint reachability without actually invoking a model."""
+    """Probe each enabled AI chat endpoint with a bounded minimal request.
+
+    ``HEAD(base_url)`` is not an OpenAI-compatible contract: many providers
+    reject HEAD or expose no useful root route.  A one-token, non-streaming
+    chat request against the configured ``chat_path`` verifies the endpoint
+    that the adapter actually uses, while the short total deadline prevents a
+    health request from becoming a model-generation job.
+    """
     started = time.monotonic()
     endpoints: list[dict[str, object]] = []
     overall = "ok"
+    deadline = started + _ai_health_deadline_seconds()
     try:
+        from .ai.adapter import _resolve_endpoint_key, endpoint_is_allowed
         from .db import SessionLocal
         from .models import AIModelEndpoint
 
@@ -143,6 +166,7 @@ def _check_ai() -> dict[str, object]:
                 .filter(AIModelEndpoint.enabled.is_(True))
                 .all()
             )
+        rows = [row for row in rows if endpoint_is_allowed(row)]
         if not rows:
             return {
                 "status": "degraded",
@@ -161,12 +185,63 @@ def _check_ai() -> dict[str, object]:
                 overall = "degraded"
                 endpoints.append(entry)
                 continue
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                entry["status"] = "down"
+                entry["error"] = "ai_health_deadline_exceeded"
+                overall = "degraded"
+                endpoints.append(entry)
+                continue
             try:
-                with httpx.Client(timeout=_HEALTH_TIMEOUT_SECONDS, follow_redirects=False) as client:
-                    probe = client.head(base_url)
-                entry["status"] = "ok" if probe.status_code < 400 else "degraded"
-                if probe.status_code >= 400:
+                chat_path = str(row.chat_path or "")
+                validated_base_url = validate_ai_endpoint_url(
+                    base_url,
+                    chat_path,
+                )
+                url = validated_base_url + "/" + chat_path.lstrip("/")
+                headers = {
+                    "Content-Type": "application/json",
+                    "Accept": "application/json",
+                }
+                try:
+                    # Resolve only this endpoint's credential.  A generic
+                    # provider-key fallback can send provider A's secret to
+                    # provider B and is therefore forbidden.
+                    key = _resolve_endpoint_key(row)
+                except RuntimeError:
+                    entry["status"] = "degraded"
+                    entry["error"] = "ai_credential_unavailable"
                     overall = "degraded"
+                    endpoints.append(entry)
+                    continue
+                if key:
+                    headers["Authorization"] = f"Bearer {key}"
+                payload = {
+                    "model": row.model,
+                    "messages": [{"role": "user", "content": "health check"}],
+                    "temperature": 0,
+                    "max_tokens": 1,
+                    "stream": False,
+                }
+                with httpx.Client(
+                    timeout=min(_HEALTH_TIMEOUT_SECONDS, remaining),
+                    follow_redirects=False,
+                ) as client:
+                    probe = client.post(url, headers=headers, json=payload)
+                entry["status"] = (
+                    "ok" if 200 <= probe.status_code < 300 else "degraded"
+                )
+                if not 200 <= probe.status_code < 300:
+                    overall = "degraded"
+                    entry["error"] = "ai_probe_rejected"
+            except ValueError:
+                entry["status"] = "degraded"
+                entry["error"] = "ai_endpoint_configuration_invalid"
+                overall = "degraded"
+            except httpx.TimeoutException:
+                entry["status"] = "down"
+                entry["error"] = "ai_probe_timeout"
+                overall = "degraded"
             except Exception:
                 entry["status"] = "down"
                 entry["error"] = "ai_unreachable"

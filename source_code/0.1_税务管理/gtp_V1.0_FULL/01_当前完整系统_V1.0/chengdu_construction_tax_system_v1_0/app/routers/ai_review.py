@@ -2,12 +2,14 @@
 from __future__ import annotations
 
 import json
+from contextlib import suppress
 
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
-from sqlalchemy import case, select
+from sqlalchemy import select
 
 from ..ai import SCOPES, run_review
+from ..ai.adapter import endpoint_is_allowed
 from ..audit import audit_from_request, current_actor
 from ..db import SessionLocal
 from ..models import (
@@ -33,13 +35,19 @@ def ai_review_home(
     endpoints = db.execute(
         select(AIModelEndpoint)
         .where(AIModelEndpoint.enabled == True)  # noqa: E712
-        .order_by(case((AIModelEndpoint.adapter == "mock", 1), else_=0), AIModelEndpoint.id)
+        .order_by(AIModelEndpoint.id)
     ).scalars().all()
+    endpoints = [e for e in endpoints if endpoint_is_allowed(e)]
     jobs = db.execute(
         select(AIReviewJob).order_by(AIReviewJob.id.desc()).limit(50)
     ).scalars().all()
     project_map = {p.id: p for p in projects}
-    endpoint_map = {e.id: e for e in db.execute(select(AIModelEndpoint).order_by(case((AIModelEndpoint.adapter == "mock", 1), else_=0), AIModelEndpoint.id)).scalars().all()}
+    endpoint_map = {
+        e.id: e for e in db.execute(
+            select(AIModelEndpoint).order_by(AIModelEndpoint.id)
+        ).scalars().all()
+        if endpoint_is_allowed(e)
+    }
     db.close()
     return templates.TemplateResponse(
         request,
@@ -75,7 +83,8 @@ def ai_review_run(
         ).isoformat(timespec="seconds"),
         actor=current_actor(request),
     )
-    db.add(job); db.flush()
+    db.add(job)
+    db.flush()
     audit_from_request(
         db, request, "AI_REVIEW_START", "AIReviewJob", job.id,
         f"project={project_id}, scope={scope}, endpoint={endpoint_id}",
@@ -89,11 +98,13 @@ def ai_review_run(
         )
         db.commit()
     except Exception as e:
+        db.rollback()
         audit_from_request(
             db, request, "AI_REVIEW_FAILED", "AIReviewJob", job.id, str(e),
         )
         db.commit()
-    jid = job.id; db.close()
+    jid = job.id
+    db.close()
     return RedirectResponse(f"/ai-review/{jid}", status_code=303)
 
 
@@ -113,17 +124,17 @@ def ai_review_detail(request: Request, job_id: int):
     result = db.scalar(
         select(AIReviewResult).where(AIReviewResult.job_id == job.id)
     )
-    findings: list = []; recommendations: list = []; gaps: list = []
+    findings: list = []
+    recommendations: list = []
+    gaps: list = []
     if result:
         for key, target in (
             ("findings_json", findings),
             ("recommendations_json", recommendations),
             ("data_gaps_json", gaps),
         ):
-            try:
+            with suppress(Exception):
                 target.extend(json.loads(getattr(result, key) or "[]"))
-            except Exception:
-                pass
     db.close()
     return templates.TemplateResponse(
         request,
@@ -149,6 +160,23 @@ def api_ai_review(job_id: int):
     result = db.scalar(
         select(AIReviewResult).where(AIReviewResult.job_id == job.id)
     )
+    endpoint = db.get(AIModelEndpoint, job.endpoint_id)
+    if job.status == "completed":
+        status = (
+            "DEGRADED"
+            if job.parse_failed or (result is not None and result.risk_level == "UNKNOWN")
+            else "READY"
+        )
+    elif endpoint is None or not endpoint.enabled or not endpoint_is_allowed(endpoint):
+        status = "UNAVAILABLE"
+    else:
+        status = "DEGRADED"
+    data_gaps: list[str] = []
+    if result:
+        with suppress(Exception):
+            data_gaps.extend(json.loads(result.data_gaps_json or "[]"))
+    if job.error_message and job.error_message not in data_gaps:
+        data_gaps.append(job.error_message)
     out = {"job": {
         "id": job.id, "project_id": job.project_id, "scope": job.scope,
         "status": job.status, "created_at": job.created_at,
@@ -156,16 +184,27 @@ def api_ai_review(job_id: int):
         "input_digest": job.input_digest,
         "error_message": job.error_message,
         "parse_failed": job.parse_failed,
-    }}
+    }, "status": status,
+        "requires_manual_review": status != "READY",
+        "data_gaps": data_gaps,
+    }
     if result:
+        actual_endpoint = db.scalar(
+            select(AIModelEndpoint).where(
+                AIModelEndpoint.name == result.provider_name,
+            ),
+        ) if result.provider_name else None
+        result_gaps = json.loads(result.data_gaps_json or "[]")
         out["result"] = {
             "risk_level": result.risk_level, "score": float(result.score),
             "summary": result.summary,
             "findings": json.loads(result.findings_json or "[]"),
             "recommendations": json.loads(result.recommendations_json or "[]"),
-            "data_gaps": json.loads(result.data_gaps_json or "[]"),
+            "data_gaps": result_gaps,
             "provider_name": result.provider_name,
             "model_name": result.model_name,
+            "actual_endpoint_id": actual_endpoint.id if actual_endpoint else None,
+            "fallback_used": any("后备端点" in str(gap) for gap in result_gaps),
         }
     db.close()
     return out

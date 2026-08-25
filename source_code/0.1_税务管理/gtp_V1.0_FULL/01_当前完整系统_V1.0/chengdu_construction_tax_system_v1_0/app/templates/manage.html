@@ -22,6 +22,19 @@
 </form>
 </div>
 
+{% set branch_entities = entities | selectattr("legal_entity", "equalto", false) | list %}
+{% if branch_entities %}
+<div class="card" aria-label="非独立法人分支机构">
+<h3>非独立法人分支机构</h3>
+<p class="muted">分支机构仍使用 canonical 主体代码；税务台账按主数据中的归集关系并入上级法人，不复制计税金额。</p>
+<ul>
+  {% for branch in branch_entities %}
+  <li><code>{{ branch.code }}</code> · {{ branch.name }} · 税务归集至 <code>{{ branch.parent_entity_code }}</code></li>
+  {% endfor %}
+</ul>
+</div>
+{% endif %}
+
 <div class="card">
 <h3>发票 / 合同 / 付款</h3>
 <p class="muted">

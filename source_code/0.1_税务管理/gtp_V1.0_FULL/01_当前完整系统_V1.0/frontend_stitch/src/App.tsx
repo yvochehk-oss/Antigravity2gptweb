@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
 import { DashboardView } from './components/DashboardView';
@@ -12,270 +12,327 @@ import { AuditView } from './components/AuditView';
 import { AiAssistantDrawer } from './components/AiAssistantDrawer';
 import { NewTaxRecordModal } from './components/NewTaxRecordModal';
 import { ExportReportModal } from './components/ExportReportModal';
-import { 
-  initialProjects, 
-  initialRiskEvents, 
-  initialAuditLogs, 
-  initialAssistantMessages 
-} from './data/mockData';
-import { ProjectItem, RiskEvent, AuditTrailRecord, AssistantMessage, TaxLedgerRecord, SystemSettings } from './types';
+import { DataStatusCard } from './components/DataStatusCard';
 import { DEFAULT_SETTINGS } from './components/SettingsModal';
+import { askProjectAi, ApiError, fetchAiModelStatus, fetchConfiguredProjects, fetchRiskEvents, fetchTaxLedger } from './api';
+import {
+  AssistantMessage,
+  AiModelStatus,
+  AuditTrailRecord,
+  DataStatus,
+  ProjectItem,
+  RiskEvent,
+  SystemSettings,
+} from './types';
+
+function nowLabel(): string {
+  return new Date().toLocaleString('zh-CN', { hour12: false });
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : 'Tax 服务暂时不可用。';
+}
 
 export default function App() {
   const [currentTab, setCurrentTab] = useState<string>('dashboard');
   const [projectSubView, setProjectSubView] = useState<'list' | 'detail'>('list');
-  const [selectedProjectId, setSelectedProjectId] = useState<string>('proj-02');
+  const [selectedProjectId, setSelectedProjectId] = useState<string>('');
   const [isAiOpen, setIsAiOpen] = useState<boolean>(true);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>('');
 
-  // 全局系统配置与风控阈值
   const [systemSettings, setSystemSettings] = useState<SystemSettings>(() => {
     try {
       const saved = localStorage.getItem('ruibao_system_settings');
-      if (saved) {
-        return { ...DEFAULT_SETTINGS, ...JSON.parse(saved) };
-      }
-    } catch (e) {
-      console.error(e);
+      return saved ? { ...DEFAULT_SETTINGS, ...JSON.parse(saved) } : { ...DEFAULT_SETTINGS };
+    } catch {
+      return { ...DEFAULT_SETTINGS };
     }
-    return DEFAULT_SETTINGS;
   });
 
-  // 核心业务状态
-  const [projects, setProjects] = useState<ProjectItem[]>(initialProjects);
-  const [riskEvents, setRiskEvents] = useState<RiskEvent[]>(initialRiskEvents);
-  const [auditLogs, setAuditLogs] = useState<AuditTrailRecord[]>(initialAuditLogs);
-  const [assistantMessages, setAssistantMessages] = useState<AssistantMessage[]>(initialAssistantMessages);
-  const [isAiThinking, setIsAiThinking] = useState<boolean>(false);
+  // 真实项目数据只能来自 Tax API。后端当前没有项目集合接口，必须由 VITE_PROJECT_IDS 显式提供待加载 ID。
+  const [projects, setProjects] = useState<ProjectItem[]>([]);
+  const [projectStatus, setProjectStatus] = useState<DataStatus>('LOADING');
+  const [projectStatusMessage, setProjectStatusMessage] = useState('正在从 Tax 服务加载项目数据…');
+  const [aiModelStatus, setAiModelStatus] = useState<AiModelStatus>({
+    state: 'LOADING',
+    message: '正在读取 AI 模型状态…',
+    endpoints: [],
+  });
 
-  // 弹窗状态
+  const [riskEvents, setRiskEvents] = useState<RiskEvent[]>([]);
+  const [riskStatus, setRiskStatus] = useState<DataStatus>('LOADING');
+  const [riskStatusMessage, setRiskStatusMessage] = useState('正在从 Tax 服务加载风险集合…');
+  const [taxLedgerStatus, setTaxLedgerStatus] = useState<DataStatus>('LOADING');
+  const [taxLedgerStatusMessage, setTaxLedgerStatusMessage] = useState('正在从 Tax 服务加载台账集合…');
+  const [auditLogs] = useState<AuditTrailRecord[]>([]);
+  const auditStatus: DataStatus = 'UNAVAILABLE';
+  const [assistantMessages, setAssistantMessages] = useState<AssistantMessage[]>([]);
+  const [isAiThinking, setIsAiThinking] = useState<boolean>(false);
+  const [actionNotice, setActionNotice] = useState<string>('');
+  const projectAbortRef = useRef<AbortController | null>(null);
+  const assistantAbortRef = useRef<AbortController | null>(null);
+
   const [isNewRecordModalOpen, setIsNewRecordModalOpen] = useState<boolean>(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState<boolean>(false);
 
-  const currentProject = projects.find(p => p.id === selectedProjectId) || projects[0];
-  const unresolvedRiskCount = riskEvents.filter(r => r.status !== '已闭环').length;
+  const loadProjects = useCallback(async (signal?: AbortSignal) => {
+    const ownedController = signal ? null : new AbortController();
+    if (ownedController) {
+      projectAbortRef.current?.abort();
+      projectAbortRef.current = ownedController;
+    }
+    const requestSignal = signal ?? ownedController?.signal;
+    setProjectStatus('LOADING');
+    setProjectStatusMessage('正在从 Tax 服务加载项目数据…');
+    setRiskStatus('LOADING');
+    setRiskStatusMessage('正在从 Tax 服务加载风险集合…');
+    setTaxLedgerStatus('LOADING');
+    setTaxLedgerStatusMessage('正在从 Tax 服务加载台账集合…');
+    try {
+      const loadedProjects = await fetchConfiguredProjects(requestSignal);
+      // Project summaries, the deterministic Tax ledger, and risk events have
+      // separate contracts. Each collection is retained independently so one
+      // unavailable project does not fabricate or hide another project's data.
+      const [ledgerResults, riskResults] = await Promise.all([
+        Promise.allSettled(loadedProjects.map(project => fetchTaxLedger(project.numericId, requestSignal))),
+        Promise.allSettled(loadedProjects.map(project => fetchRiskEvents(project.numericId, requestSignal))),
+      ]);
+      if (requestSignal?.aborted) return;
+      const ledgerUnavailable = ledgerResults.some(result => result.status === 'rejected');
+      const ledgerFulfilled = ledgerResults.filter(result => result.status === 'fulfilled');
+      const ledgerBackendDegraded = ledgerResults.some(result => result.status === 'fulfilled' && result.value.status !== 'READY');
+      const ledgerAllFailed = ledgerFulfilled.length === 0;
+      const projectsWithLedger = loadedProjects.map((project, index) => {
+        const ledger = ledgerResults[index];
+        return ledger?.status === 'fulfilled'
+          ? { ...project, taxRecords: ledger.value.items }
+          : project;
+      });
+      const successfulRiskResults = riskResults.filter(result => result.status === 'fulfilled');
+      const riskRequestFailed = riskResults.some(result => result.status === 'rejected');
+      const riskAllFailed = successfulRiskResults.length === 0;
+      const riskBackendDegraded = riskResults.some(result => result.status === 'fulfilled' && result.value.status !== 'READY');
+      const loadedRiskEvents = riskResults.flatMap(result => result.status === 'fulfilled' ? result.value.items : []);
+      setProjects(projectsWithLedger);
+      setSelectedProjectId(current => projectsWithLedger.some(project => project.id === current) ? current : projectsWithLedger[0].id);
+      setRiskEvents(loadedRiskEvents);
+      const nextRiskStatus: DataStatus = riskAllFailed
+        ? 'UNAVAILABLE'
+        : riskRequestFailed || riskBackendDegraded ? 'DEGRADED' : 'READY';
+      setRiskStatus(nextRiskStatus);
+      const riskMessages = riskResults
+        .filter((result): result is PromiseFulfilledResult<Awaited<ReturnType<typeof fetchRiskEvents>>> => result.status === 'fulfilled')
+        .map(result => result.value.message.trim())
+        .filter(Boolean);
+      setRiskStatusMessage(
+        nextRiskStatus === 'UNAVAILABLE'
+          ? '风险集合请求全部失败，未使用本地数据填充。'
+          : riskMessages[0] || (loadedRiskEvents.length > 0 ? `已加载 ${loadedRiskEvents.length} 条真实风险事件。` : '暂无已识别风险事件。'),
+      );
+      const nextLedgerStatus: DataStatus = ledgerAllFailed
+        ? 'UNAVAILABLE'
+        : ledgerUnavailable || ledgerBackendDegraded ? 'DEGRADED' : 'READY';
+      setTaxLedgerStatus(nextLedgerStatus);
+      const ledgerMessages = ledgerResults
+        .filter((result): result is PromiseFulfilledResult<Awaited<ReturnType<typeof fetchTaxLedger>>> => result.status === 'fulfilled')
+        .map(result => result.value.message.trim())
+        .filter(Boolean);
+      setTaxLedgerStatusMessage(
+        nextLedgerStatus === 'UNAVAILABLE'
+          ? '台账集合请求全部失败，未使用本地数据填充。'
+          : ledgerMessages[0] || (nextLedgerStatus === 'DEGRADED' ? '部分台账集合数据不可用。' : '已加载 Tax API 台账集合数据。'),
+      );
+      setProjectStatus('READY');
+      setProjectStatusMessage(
+        ledgerUnavailable || ledgerBackendDegraded
+          ? `已加载 ${projectsWithLedger.length} 个项目；部分 Tax 台账接口暂不可用，未使用本地数据填充。`
+          : `已加载 ${projectsWithLedger.length} 个项目及其 Tax API 台账数据。`,
+      );
+    } catch (error) {
+      if (requestSignal?.aborted) return;
+      setProjects([]);
+      setRiskEvents([]);
+      setRiskStatus('UNAVAILABLE');
+      setRiskStatusMessage('项目数据不可用，未读取风险集合。');
+      setTaxLedgerStatus('UNAVAILABLE');
+      setTaxLedgerStatusMessage('项目数据不可用，未读取台账集合。');
+      setProjectStatus(error instanceof ApiError && error.status > 0 ? 'DEGRADED' : 'UNAVAILABLE');
+      setProjectStatusMessage(errorMessage(error));
+    } finally {
+      if (ownedController && projectAbortRef.current === ownedController) projectAbortRef.current = null;
+    }
+  }, []);
 
-  // 更新并应用系统运行参数配置
+  useEffect(() => {
+    void loadProjects();
+    return () => projectAbortRef.current?.abort();
+  }, [loadProjects]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setAiModelStatus({ state: 'LOADING', message: '正在读取 AI 模型状态…', endpoints: [] });
+    void fetchAiModelStatus(controller.signal)
+      .then(status => {
+        if (!controller.signal.aborted) setAiModelStatus(status);
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) {
+          // A failed health request is not evidence that a model is loaded.
+          setAiModelStatus({ state: 'UNAVAILABLE', message: '状态暂不可用', endpoints: [] });
+        }
+      });
+    return () => controller.abort();
+  }, []);
+
+  useEffect(() => () => {
+    projectAbortRef.current?.abort();
+    assistantAbortRef.current?.abort();
+  }, []);
+
+  const currentProject = projects.find(project => project.id === selectedProjectId);
+  const unresolvedRiskCount = riskEvents.filter(risk => risk.status !== '已闭环').length;
+
   const handleSaveSettings = (newSettings: SystemSettings) => {
     setSystemSettings(newSettings);
     try {
       localStorage.setItem('ruibao_system_settings', JSON.stringify(newSettings));
-    } catch (e) {
-      console.error(e);
+    } catch {
+      setActionNotice('本机浏览器不允许保存设置；本次设置只在当前页面生效。');
     }
-
-    // 记录审计日志
-    const newLog: AuditTrailRecord = {
-      id: `aud-${Date.now()}`,
-      timestamp: '2026-08-17 15:02:10',
-      operator: '总会计师 / 系统管理员',
-      role: '高级审计权限',
-      targetSubject: '全局风控与预算参数配置',
-      actionType: '系统设置变更',
-      details: `更新系统参数：跨区预缴偏差阈值调整至 ${newSettings.crossRegionTaxThreshold}%，超概算止付令阈值调整至 ${newSettings.budgetOverrunStopPayThreshold}%，四流合一自动比对: ${newSettings.autoFourFlowsMatch ? '开启' : '关闭'}。`,
-      integrityHash: `哈希校验-${Math.random().toString(36).substring(2, 10)}`,
-    };
-    setAuditLogs(prev => [newLog, ...prev]);
+    setActionNotice('Tax 风控参数已应用；RAG 地址由管理员测试后保存至 Tax 后端。');
   };
 
-  // 切换选项卡
   const handleSelectTab = (tab: string) => {
     setCurrentTab(tab);
-    if (tab === 'projects') {
-      setProjectSubView('list');
-    }
+    if (tab === 'projects') setProjectSubView('list');
     setIsMobileMenuOpen(false);
   };
 
-  // 切换项目详情
-  const handleSelectProject = (projId: string) => {
-    setSelectedProjectId(projId);
+  const handleSelectProject = (projectId: string) => {
+    if (!projects.some(project => project.id === projectId)) {
+      setActionNotice('该项目不在当前 Tax API 返回结果中，未执行页面切换。');
+      return;
+    }
+    setSelectedProjectId(projectId);
     setCurrentTab('projects');
     setProjectSubView('detail');
     setIsMobileMenuOpen(false);
   };
 
-  // 解决闭环单项风险
-  const handleResolveRisk = (riskId: string) => {
-    setRiskEvents(prev => prev.map(r => {
-      if (r.id === riskId) {
-        return { ...r, status: '已闭环' };
-      }
-      return r;
-    }));
-
-    // 记录审计底稿日志
-    const newLog: AuditTrailRecord = {
-      id: `aud-${Date.now()}`,
-      timestamp: '2026-08-17 14:45:00',
-      operator: '首席财务风控总监',
-      role: '高级审计签批人',
-      targetSubject: '风险处置闭环',
-      actionType: '合规复核',
-      details: `人工复核确认风险事件 [编号:${riskId}] 整改措施落实，签署闭环归档底稿。`,
-      integrityHash: `哈希校验-${Math.random().toString(36).substring(2, 10)}`,
-    };
-    setAuditLogs(prev => [newLog, ...prev]);
+  const handleResolveRisk = () => {
+    setActionNotice('风险处置接口尚未接通，未在浏览器本地修改风险状态。');
   };
 
-  // 从 RAG 知识湖同步新凭证并启动智能查账
-  const handleAddTaxRecord = (newRecordData: Omit<TaxLedgerRecord, 'id' | 'updateTime'>) => {
-    const newRecord: TaxLedgerRecord = {
-      ...newRecordData,
-      id: `tax-${Date.now()}`,
-      updateTime: '2026-08-17 14:46',
+  const handleRagSyncCompleted = () => {
+    setActionNotice('RAG 同步已完成，正在重新读取 Tax 项目与确定性台账数据。');
+    void loadProjects();
+  };
+
+  const handleSendAiMessage = async (query: string) => {
+    const trimmed = query.trim();
+    if (!trimmed || isAiThinking) return;
+    const userMessage: AssistantMessage = {
+      id: `user-${Date.now()}`,
+      sender: 'user',
+      content: trimmed,
+      timestamp: nowLabel(),
     };
+    setAssistantMessages(previous => [...previous, userMessage]);
 
-    setProjects(prev => prev.map(p => {
-      if (p.id === selectedProjectId) {
-        return {
-          ...p,
-          taxRecords: [newRecord, ...p.taxRecords],
-          spentAmount: p.spentAmount + newRecord.declareAmount,
-          remainingBudget: p.totalBudget - (p.spentAmount + newRecord.declareAmount),
-        };
-      }
-      return p;
-    }));
-
-    // 若存在疑点，自动联动至风控事件中心
-    if (newRecord.riskLevel === '预警' || newRecord.riskLevel === '高危') {
-      const newRisk: RiskEvent = {
-        id: `risk-${Date.now()}`,
-        projectName: currentProject.name,
-        entityName: newRecord.entityName,
-        riskType: newRecord.riskLevel === '高危' ? '预提所得税争议' : '合同四流背离',
-        severity: newRecord.riskLevel === '高危' ? '高危' : '中度',
-        triggerTime: '刚刚 (RAG智能穿透发现)',
-        description: newRecord.riskDescription || 'RAG 向量比对发现多源票据四流存在背离，已自动触发初筛警报。',
-        auditSuggestions: '调阅 RAG 溯源凭证中枢，要求施工分包单位提供原始过磅单、发票底账与银行公户付款单复印件。',
-        status: '待处置',
-        handler: '系统智能分配-现场稽核组',
-      };
-      setRiskEvents(prev => [newRisk, ...prev]);
+    if (!currentProject) {
+      setAssistantMessages(previous => [...previous, {
+        id: `system-${Date.now()}`,
+        sender: 'system',
+        content: 'AI 问答不可用：当前没有已加载的真实项目数据。',
+        timestamp: nowLabel(),
+      }]);
+      return;
     }
 
-    // 记录审计日志
-    const newLog: AuditTrailRecord = {
-      id: `aud-${Date.now()}`,
-      timestamp: '2026-08-17 14:46:12',
-      operator: 'RAG 业财智能同步引擎',
-      role: '向量知识湖自动调度',
-      targetSubject: newRecord.entityName,
-      actionType: 'RAG底账同步',
-      details: `成功从 RAG 知识湖检索并同步凭证（金额 ¥${newRecord.declareAmount.toLocaleString('zh-CN')} 元），已完成四流自动交叉核验并生成防篡改存证。`,
-      integrityHash: `哈希校验-${Math.random().toString(36).substring(2, 10)}`,
-    };
-    setAuditLogs(prev => [newLog, ...prev]);
-  };
-
-  // 向 AI 发送提问或执行指令
-  const handleSendAiMessage = (query: string) => {
-    const userMsg: AssistantMessage = {
-      id: `msg-${Date.now()}`,
-      sender: 'user',
-      content: query,
-      timestamp: '刚刚',
-    };
-
-    setAssistantMessages(prev => [...prev, userMsg]);
+    assistantAbortRef.current?.abort();
+    const controller = new AbortController();
+    assistantAbortRef.current = controller;
     setIsAiThinking(true);
-
-    // 智能决策模型回复逻辑 (全中文专业领域分析)
-    setTimeout(() => {
-      let aiResponse = '';
-      let suggestedActions: string[] = [];
-
-      if (query.includes('建筑劳务') || query.includes('本盛劳务') || query.includes('税务稽查') || query.includes('跨区') || query.includes('个税')) {
-        aiResponse = `【锐宝智能助手 · 建筑劳务跨区用工涉税风险深度研判】：\n\n1. 【核心涉税事实】：根据国家税务总局关于跨区域建筑服务税收征管办法及个人所得税法规定，建筑劳务公司在项目所在地（成都市天府新区）未足额核销 2% 预缴增值税及附加，且现场全员全额个税申报人数与农民工实名制考勤流水存在 81.2 万元申报差额；\n\n2. 【税款调整模型】：主管税务机关发起跨区涉税事项专项比对，要求补正预缴完税凭证并核实个税代扣代缴明细（预估应补缴税费及滞纳金约 40.6 万至 81.2 万元）；\n\n3. 【三步合规化解策略】：\n   ① 启动现场劳务实名制通道数据与银行代发工资流水一致性穿透核查；\n   ② 调取跨地市完税分割凭证，向天府新区主管税务机关提交《跨区域建筑施工税费清算核销报告》；\n   ③ 限期 5 个工作日内补齐个税全员明细申报并完成税款核销。`;
-        suggestedActions = ['一键生成税局专项沟通说明底稿', '查看跨区施工税费就地预缴法规分析', '重新测算分包工程税负分摊模型'];
-      } else if (query.includes('成本超支') || query.includes('下季度') || query.includes('预算')) {
-        aiResponse = `【锐宝智能助手 · 工程造价与成本超支趋势预测】：\n\n1. 【高风险超支预警工程】：【宜宾三江口长江特大桥防腐工程】（当前超支率已达 41.6%，超出概算 3.2 亿元）；【成都天府国际金融中心·01.2场地平整】（超支 5.6%）；\n\n2. 【动因归因分析】：耐候防腐新材料价格波动与长江复杂汛期水上水下作业投入超预期 + 汛期暴雨基坑应急强排水设施投入超额；\n\n3. 【管控建议】：全面启动【工程造价红黄灯限额支付机制】，对超出概算 5% 以上的分项立即暂缓非紧急款项拨付，启动全过程跟踪审计实物量核验。`;
-        suggestedActions = ['下发超概算分项工程止付令', '发起宜宾大桥现场实物量复核', '调取大宗材料调差补偿合同'];
-      } else if (query.includes('合规报告') || query.includes('进销项') || query.includes('增值税')) {
-        aiResponse = `【锐宝智能助手 · 全省项目增值税进销项与留抵税额简报】：\n\n• 本月销项税额总计：¥ 6,180 万元；\n• 认证抵扣进项税额总计：¥ 4,610 万元；\n• 预计当期净缴纳增值税：¥ 1,570 万元；\n• 四川本盛劳务有限公司（建筑劳务）形成留抵税额：-¥ 1,500 万元，增值税留抵退税已进入国库审批终审通道；\n• 全流程发票电子底账查验通过率达 99.4%。`;
-        suggestedActions = ['查看各实体增值税基准对比', '导出留抵退税全套申请资料', '下载本月增值税测算底稿'];
-      } else if (query.includes('四流合一') || query.includes('异常清单') || query.includes('发票')) {
-        aiResponse = `【锐宝智能助手 · 发票四流合一背离风险清单】：\n\n当前检测到 2 处潜在不匹配：\n1. 【成都天府国际金融中心·商贸物资钢材采购】：进项发票开具金额与现场电子过磅单存在 18.4% 跨期暂估时间差，建议补齐过磅签收联；\n2. 【绵阳科技城地下综合管廊二标段】：存在第三方账户代收工程款背离现象，需限期重构公对公银行清算结算凭证链。`;
-        suggestedActions = ['跳转至智能审单复核工作台', '发送物资过磅单催补通知', '查看代收代付法律风险条款'];
-      } else {
-        aiResponse = `【锐宝智能助手 · 智能研判回复】：\n\n已为您检索分析四川工程财税数仓中与“${query}”相关的台账凭据与政策规定：\n\n• 当前四川省内 142 个受控工程财务稳健度评分维持在 92.5 分（优良）；\n• 建议重点关注跨地市异地施工税费就地预缴及全员个税代扣代缴合规；\n• 如需进一步穿透某项具体凭证或工程科目，可随时向我下达进一步指令。`;
-        suggestedActions = ['分析建筑劳务税务稽查风险详情', '预测下季度工程成本超支趋势', '查看四流合一不匹配异常清单'];
-      }
-
-      const aiMsg: AssistantMessage = {
-        id: `msg-${Date.now()}`,
+    try {
+      const answer = await askProjectAi(currentProject.numericId, trimmed, undefined, controller.signal);
+      setAssistantMessages(previous => [...previous, {
+        id: `ai-${Date.now()}`,
         sender: 'ai',
-        content: aiResponse,
-        timestamp: '刚刚',
-        suggestedActions,
-      };
-
-      setAssistantMessages(prev => [...prev, aiMsg]);
-      setIsAiThinking(false);
-    }, 1000);
+        content: answer.answer,
+        timestamp: nowLabel(),
+        aiMetadata: answer.metadata,
+      }]);
+    } catch (error) {
+      if (!controller.signal.aborted) {
+        setAssistantMessages(previous => [...previous, {
+          id: `system-${Date.now()}`,
+          sender: 'system',
+          content: `AI 问答 DEGRADED：${errorMessage(error)}`,
+          timestamp: nowLabel(),
+        }]);
+      }
+    } finally {
+      if (!controller.signal.aborted) setIsAiThinking(false);
+    }
   };
 
-  // 快捷从单条表格项呼叫 AI
   const handleAskAiAboutRisk = (entityName: string) => {
     setIsAiOpen(true);
-    handleSendAiMessage(`深入穿透核查【${entityName}】的涉税稽查风险与四流合一凭据，给出税局合规化解应对策略。`);
+    void handleSendAiMessage(`请基于真实项目数据核查 ${entityName} 的涉税风险，并列出需要补充的证据。`);
   };
 
   return (
     <div className="fixed inset-0 h-screen w-screen bg-[#0b1326] text-[#dae2fd] flex flex-col md:flex-row antialiased overflow-hidden font-sans">
-      {/* 桌面端侧边导航 */}
-      <Sidebar
-        currentTab={currentTab}
-        onSelectTab={handleSelectTab}
-        unresolvedRiskCount={unresolvedRiskCount}
-      />
+      <Sidebar currentTab={currentTab} onSelectTab={handleSelectTab} unresolvedRiskCount={unresolvedRiskCount} aiModelStatus={aiModelStatus} />
 
-      {/* 移动端侧边抽屉菜单 */}
       {isMobileMenuOpen && (
         <div className="fixed inset-0 z-50 md:hidden flex">
-          <div 
-            className="fixed inset-0 bg-black/70 backdrop-blur-sm"
-            onClick={() => setIsMobileMenuOpen(false)}
-          ></div>
+          <div className="fixed inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setIsMobileMenuOpen(false)} />
           <div className="relative w-64 h-full bg-[#0b1326] z-10 flex flex-col shadow-2xl">
-            <Sidebar
-              isMobile={true}
-              onCloseMobile={() => setIsMobileMenuOpen(false)}
-              currentTab={currentTab}
-              onSelectTab={handleSelectTab}
-              unresolvedRiskCount={unresolvedRiskCount}
-            />
+            <Sidebar isMobile onCloseMobile={() => setIsMobileMenuOpen(false)} currentTab={currentTab} onSelectTab={handleSelectTab} unresolvedRiskCount={unresolvedRiskCount} aiModelStatus={aiModelStatus} />
           </div>
         </div>
       )}
 
-      {/* 主工作区 */}
       <div className="flex-1 flex flex-col md:ml-48 min-w-0 h-full overflow-hidden relative">
-        {/* 顶部导航栏 */}
         <Header
-          onToggleAi={() => setIsAiOpen(!isAiOpen)}
+          onToggleAi={() => setIsAiOpen(open => !open)}
           isAiOpen={isAiOpen}
           onOpenExportModal={() => setIsExportModalOpen(true)}
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
-          onToggleMobileMenu={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+          onToggleMobileMenu={() => setIsMobileMenuOpen(open => !open)}
           settings={systemSettings}
           onSaveSettings={handleSaveSettings}
+          riskStatus={riskStatus}
+          unresolvedRiskCount={unresolvedRiskCount}
         />
 
-        {/* 主内容展示区与右侧 AI 助手独立分栏布局（物理隔离互不干扰） */}
         <div className="flex-1 flex pt-16 h-full w-full overflow-hidden">
-          {/* 左侧可滚动内容画布：独立滚动，不影响右侧助手 */}
           <main className="flex-1 min-w-0 h-full overflow-y-auto overscroll-contain p-3.5 md:p-5 lg:p-6 scrollbar-hide bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-[#171f33]/40 via-[#0b1326] to-[#0b1326]">
             <div className="w-full mx-auto pb-16">
+              {actionNotice && (
+                <div className="mb-4 flex items-start justify-between gap-3 rounded-lg border border-[#F59E0B]/30 bg-[#F59E0B]/5 px-3 py-2 text-[12px] text-[#ffd0a8]" role="status">
+                  <span>{actionNotice}</span>
+                  <button type="button" onClick={() => setActionNotice('')} className="text-[#8e909f] hover:text-[#dae2fd]">关闭</button>
+                </div>
+              )}
+
               {currentTab === 'dashboard' && (
                 <DashboardView
                   projects={projects}
+                  dataStatus={projectStatus}
+                  dataStatusMessage={projectStatusMessage}
+                  onRetry={() => void loadProjects()}
                   onSelectProject={handleSelectProject}
                   onOpenRiskCenter={() => setCurrentTab('risk-center')}
                   onOpenExportModal={() => setIsExportModalOpen(true)}
+                  riskEvents={riskEvents}
+                  riskStatus={riskStatus}
+                  riskStatusMessage={riskStatusMessage}
+                  taxLedgerStatus={taxLedgerStatus}
+                  taxLedgerStatusMessage={taxLedgerStatusMessage}
                   settings={systemSettings}
                 />
               )}
@@ -283,103 +340,65 @@ export default function App() {
               {currentTab === 'projects' && projectSubView === 'list' && (
                 <ProjectRepositoryView
                   projects={projects}
+                  dataStatus={projectStatus}
+                  dataStatusMessage={projectStatusMessage}
+                  onRetry={() => void loadProjects()}
                   onSelectProject={handleSelectProject}
                   onOpenNewRecordModal={() => setIsNewRecordModalOpen(true)}
                   onOpenExportModal={() => setIsExportModalOpen(true)}
-                  onNavigateToAiReview={(projId) => {
-                    setSelectedProjectId(projId);
-                    setCurrentTab('ai-review');
-                  }}
+                  onNavigateToAiReview={projectId => { setSelectedProjectId(projectId); setCurrentTab('ai-review'); }}
                   settings={systemSettings}
                 />
               )}
 
-              {currentTab === 'projects' && projectSubView === 'detail' && (
+              {currentTab === 'projects' && projectSubView === 'detail' && currentProject && (
                 <ProjectDetailView
                   project={currentProject}
                   projects={projects}
-                  onSelectProject={(projId) => setSelectedProjectId(projId)}
+                  onSelectProject={projectId => setSelectedProjectId(projectId)}
                   onBack={() => setProjectSubView('list')}
                   onOpenNewRecordModal={() => setIsNewRecordModalOpen(true)}
                   onOpenExportModal={() => setIsExportModalOpen(true)}
                   onAskAiAboutRisk={handleAskAiAboutRisk}
-                  onGoToPlanning={() => {
-                    setCurrentTab('tax-planning');
-                  }}
+                  onGoToPlanning={() => setCurrentTab('tax-planning')}
                   settings={systemSettings}
                 />
+              )}
+
+              {currentTab === 'projects' && projectSubView === 'detail' && !currentProject && (
+                <DataStatusCard status={projectStatus} title="项目详情不可用" message={projectStatusMessage} onRetry={() => void loadProjects()} />
               )}
 
               {currentTab === 'tax-ledger' && (
-                <TaxLedgerView
-                  projects={projects}
-                  onOpenNewRecordModal={() => setIsNewRecordModalOpen(true)}
-                  onOpenExportModal={() => setIsExportModalOpen(true)}
-                  onAskAiAboutRisk={handleAskAiAboutRisk}
-                  settings={systemSettings}
-                />
+                <TaxLedgerView projects={projects} dataStatus={projectStatus} onOpenNewRecordModal={() => setIsNewRecordModalOpen(true)} onOpenExportModal={() => setIsExportModalOpen(true)} onAskAiAboutRisk={handleAskAiAboutRisk} settings={systemSettings} />
               )}
-
               {currentTab === 'tax-planning' && (
-                <TaxPlanningView
-                  projects={projects}
-                  selectedProjectId={selectedProjectId}
-                  onSelectProject={(projId) => setSelectedProjectId(projId)}
-                  onAskAiAboutRisk={handleAskAiAboutRisk}
-                />
+                <TaxPlanningView projects={projects} selectedProjectId={selectedProjectId} onSelectProject={setSelectedProjectId} onAskAiAboutRisk={handleAskAiAboutRisk} />
               )}
-
               {currentTab === 'risk-center' && (
-                <RiskCenterView
-                  riskEvents={riskEvents}
-                  onResolveRisk={handleResolveRisk}
-                  onAskAiAboutRisk={handleAskAiAboutRisk}
-                  settings={systemSettings}
-                />
+                <RiskCenterView riskEvents={riskEvents} dataStatus={riskStatus} dataStatusMessage={riskStatusMessage} onResolveRisk={handleResolveRisk} onAskAiAboutRisk={handleAskAiAboutRisk} settings={systemSettings} />
               )}
-
-              {currentTab === 'ai-review' && (
-                <AiReviewView
-                  projects={projects}
-                  onAskAiAboutRisk={handleAskAiAboutRisk}
-                />
-              )}
-
-              {currentTab === 'audit' && (
-                <AuditView
-                  auditLogs={auditLogs}
-                  onOpenExportModal={() => setIsExportModalOpen(true)}
-                />
-              )}
+              {currentTab === 'ai-review' && <AiReviewView projects={projects} dataStatus={projectStatus} onAskAiAboutRisk={handleAskAiAboutRisk} />}
+              {currentTab === 'audit' && <AuditView auditLogs={auditLogs} dataStatus={auditStatus} onOpenExportModal={() => setIsExportModalOpen(true)} />}
             </div>
           </main>
 
-          {/* 右侧常驻智能助手抽屉 */}
-          <AiAssistantDrawer
-            isOpen={isAiOpen}
-            onClose={() => setIsAiOpen(false)}
-            messages={assistantMessages}
-            onSendMessage={handleSendAiMessage}
-            isAiThinking={isAiThinking}
-            settings={systemSettings}
-          />
+          <AiAssistantDrawer isOpen={isAiOpen} onClose={() => setIsAiOpen(false)} messages={assistantMessages} onSendMessage={query => void handleSendAiMessage(query)} isAiThinking={isAiThinking} settings={systemSettings} />
         </div>
       </div>
 
-      {/* 弹窗：RAG 知识湖凭证智能检索与查账同步 */}
-      <NewTaxRecordModal
-        isOpen={isNewRecordModalOpen}
-        onClose={() => setIsNewRecordModalOpen(false)}
-        onAddRecord={handleAddTaxRecord}
-        defaultProjectName={currentProject.name}
-      />
-
-      {/* 弹窗：导出综合财务报告 */}
-      <ExportReportModal
-        isOpen={isExportModalOpen}
-        onClose={() => setIsExportModalOpen(false)}
-        projects={projects}
-      />
+      {isNewRecordModalOpen && (
+        <NewTaxRecordModal
+          isOpen
+          onClose={() => setIsNewRecordModalOpen(false)}
+          projects={projects}
+          projectId={currentProject?.numericId}
+          defaultProjectCode={currentProject?.projectCode}
+          defaultProjectName={currentProject?.name}
+          onSyncCompleted={handleRagSyncCompleted}
+        />
+      )}
+      <ExportReportModal isOpen={isExportModalOpen} onClose={() => setIsExportModalOpen(false)} projects={projects} />
     </div>
   );
 }

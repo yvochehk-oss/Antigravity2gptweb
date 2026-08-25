@@ -1,7 +1,0 @@
-{% extends 'base.html' %}{% block body %}
-<h1>项目资料智能知识库</h1><p class="muted">独立运行 · MinerU · PostgreSQL/pgvector · BGE-M3 · Reranker · REST API</p>
-<div class="cards"><div class="card"><b>项目</b><h2>{{projects|length}}</h2></div><div class="card"><b>资料</b><h2>{{docs}}</h2></div><div class="card"><b>已索引</b><h2>{{indexed}}</h2></div><div class="card"><b>待处理</b><h2>{{waiting}}</h2></div></div>
-<div class="notice {{'ok' if mineru else 'warn'}}">数据库：{{'PostgreSQL + pgvector' if postgres else 'SQLite兼容测试模式'}} · MinerU：{{'可用' if mineru else '未检测到'}}</div>
-<h2>项目空间</h2><table><tr><th>代码</th><th>项目</th><th>外部系统</th><th>状态</th></tr>{% for p in projects %}<tr><td><a href="/projects/{{p.id}}">{{p.project_code}}</a></td><td>{{p.name}}</td><td>{{p.external_system}} {{p.external_project_id}}</td><td>{{p.status}}</td></tr>{% endfor %}</table>
-<h2>新建项目空间</h2><form method="post" action="/projects"><input name="project_code" placeholder="YB001" required><input name="name" placeholder="项目名称" required><input name="external_system" placeholder="construction-tax"><input name="external_project_id" placeholder="外部项目ID"><button>创建</button></form>
-{% endblock %}

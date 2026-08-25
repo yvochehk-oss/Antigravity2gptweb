@@ -1,88 +1,122 @@
-import os
-from pathlib import Path
+import hashlib
+import re
 from datetime import datetime, timezone
-from sqlalchemy import select, update
+from decimal import Decimal
+
+from sqlalchemy import select
 from sqlalchemy.orm import Session
-from ..models import MountConfig, Project, Document
-from .documents import register_local_path
-from .storage import SAFE_EXTS
+
 from ..logging_config import get_logger
+from ..models import Document, MountConfig, Project
+from .documents import register_local_path
+from .storage import SAFE_EXTS, PathTraversalError, StorageError, validate_safe_directory
 
 logger = get_logger(__name__)
 
 def sync_all_mounts(db: Session) -> dict:
     """Scan all active mount points and sync documents."""
-    mounts = db.execute(select(MountConfig).where(MountConfig.active == True)).scalars().all()
-    
+    mounts = db.execute(select(MountConfig).where(MountConfig.active.is_(True))).scalars().all()
+
     results = {"scanned": 0, "added": 0, "errors": 0, "projects_created": 0}
-    
+
     for mount in mounts:
-        root_path = Path(mount.path)
-        if not root_path.exists() or not root_path.is_dir():
-            logger.warning(f"Mount path not found or not a directory: {mount.path}")
+        try:
+            root_path = validate_safe_directory(mount.path)
+        except (StorageError, PathTraversalError) as exc:
+            logger.warning("Mount path rejected: %s (%s)", mount.path, exc)
             results["errors"] += 1
             continue
-            
+
         try:
             for item in root_path.iterdir():
                 if not item.is_dir():
                     continue
-                
+
                 # Each subdirectory is considered a project folder
+                if item.is_symlink() or not item.is_dir(follow_symlinks=False):
+                    continue
                 project_name = item.name
                 if project_name.startswith('.'):
                     continue
-                
+
                 # 1. Find or create Project
                 project = db.scalar(
                     select(Project).where(
                         (Project.name == project_name) | (Project.project_code == project_name)
                     )
                 )
-                
+
                 if not project:
                     # Create new project
+                    safe_slug = re.sub(r"[^A-Z0-9_-]+", "-", project_name.upper()).strip("-") or "PROJECT"
+                    suffix = hashlib.sha1(project_name.encode("utf-8")).hexdigest()[:8].upper()
                     project = Project(
-                        project_code=f"AUTO-{project_name[:20].upper()}",
+                        project_code=f"AUTO-{safe_slug[:45]}-{suffix}",
                         name=project_name,
                         status="planning",
-                        department="自动挂载",
+                        # A scanner cannot invent a contract value or site.
+                        # Keep the row importable with explicit placeholders;
+                        # business users must fill these facts before using
+                        # deterministic analytics.
+                        contract_amount=Decimal("0.00"),
+                        location="未填写",
+                        note="由安全挂载扫描自动创建；contract_amount/location 待业务补录",
                     )
                     db.add(project)
-                    db.commit()
-                    db.refresh(project)
+                    try:
+                        db.commit()
+                        db.refresh(project)
+                    except Exception:
+                        db.rollback()
+                        logger.exception("Failed to auto-create project %s", project_name)
+                        results["errors"] += 1
+                        continue
                     results["projects_created"] += 1
                     logger.info(f"Auto-created project: {project.name}")
-                
+
                 # 2. Scan files in project directory
-                for filepath in item.rglob('*'):
-                    if filepath.is_file() and filepath.suffix.lower().lstrip('.') in SAFE_EXTS:
-                        if filepath.name.startswith('.'):
-                            continue
-                            
-                        results["scanned"] += 1
-                        
-                        # Check if this exact file path already exists in documents
-                        abs_path_str = str(filepath.absolute())
-                        exists = db.scalar(
-                            select(Document).where(Document.original_path == abs_path_str).limit(1)
-                        )
-                        
-                        if not exists:
-                            try:
-                                register_local_path(db, project, filepath, auto_parse=True)
-                                results["added"] += 1
-                            except Exception as e:
-                                logger.error(f"Failed to register local file {filepath}: {e}")
-                                results["errors"] += 1
-                                
+                for filepath in item.rglob("*"):
+                    if filepath.is_symlink() or not filepath.is_file():
+                        continue
+                    if filepath.suffix.lower() not in SAFE_EXTS or filepath.name.startswith("."):
+                        continue
+
+                    results["scanned"] += 1
+
+                    # Check if this exact canonical path already exists in documents.
+                    try:
+                        resolved_file = filepath.resolve()
+                        validate_safe_directory(resolved_file.parent)
+                    except (StorageError, PathTraversalError, OSError) as exc:
+                        logger.warning("Skipping unsafe local file %s: %s", filepath, exc)
+                        results["errors"] += 1
+                        continue
+                    abs_path_str = str(resolved_file)
+                    exists = db.scalar(
+                        select(Document).where(Document.original_path == abs_path_str).limit(1)
+                    )
+
+                    if not exists:
+                        try:
+                            register_local_path(db, project, resolved_file, auto_parse=True)
+                            results["added"] += 1
+                        except Exception as exc:
+                            logger.error("Failed to register local file %s: %s", filepath, exc)
+                            db.rollback()
+                            results["errors"] += 1
+
         except Exception as e:
             logger.error(f"Error scanning mount {mount.path}: {e}")
+            db.rollback()
             results["errors"] += 1
-            
+
         # Update last scan time
         mount.last_scan_at = datetime.now(timezone.utc)
-        db.commit()
-        
-    return results
+        try:
+            db.commit()
+        except Exception:
+            db.rollback()
+            logger.exception("Failed to persist last scan time for mount %s", mount.id)
+            results["errors"] += 1
 
+    return results

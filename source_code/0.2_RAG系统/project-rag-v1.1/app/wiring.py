@@ -12,17 +12,25 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
-from .config import AUTO_START_WORKER, IS_POSTGRES, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
-from .logging_config import setup_logging, get_logger
+from .config import AUTO_START_WORKER
+from .logging_config import get_logger, setup_logging
 from .middleware import RateLimitMiddleware, RequestIdMiddleware
 from .security import RAGSecurityMiddleware
 from .services.jobs import start_worker, stop_worker
-from .services.documents import scan_folder
-from .services.retrieval import retrieve, get_query_stats
-from .services.llm import answer_with_llm
 
 setup_logging()
 logger = get_logger(__name__)
+
+
+def now() -> str:
+    """Return the UTC timestamp format used by the main application.
+
+    ``main.py`` imports this compatibility helper from the wiring module for
+    audit/request records.  Keep the helper here so application assembly and
+    the legacy entry point share one import path without reintroducing a
+    second clock implementation.
+    """
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 BUSINESS_ROLE_META = {
     "construction": {
@@ -80,15 +88,10 @@ def _entity_summary(entities):
     }
 
 
-def now() -> str:
-    """Get current UTC timestamp."""
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
-
-
 # V1.1: v1.0 legacy import with graceful fallback
 try:
-    from facts_provider import setup_facts_provider
     from ai_review.routes import router as ai_review_router
+    from facts_provider import setup_facts_provider
     _HAS_V1_LEGACY = True
 except Exception as _e:
     logger.warning(f"facts_provider / ai_review 接入失败（不影响 v0.2 路径）: {_e}")
@@ -102,46 +105,42 @@ async def lifespan(app: FastAPI):
     from .config_validator import ensure_directories
     ensure_directories()
 
-    from app import models
-    from ai_review import models as ai_review_models
-
-    from .db import init_db
-    init_db()
-    logger.info("All models registered and tables created")
+    # Import model modules for SQLAlchemy mapper/table registration. These
+    # imports are intentionally side-effect-only and must stay in lifespan so
+    # the PostgreSQL schema is complete before init_db() runs.
+    from ai_review import models as _ai_review_models  # noqa: F401
+    from app import models as _app_models  # noqa: F401
 
     from .config_validator import validate_config
     errors = validate_config()
     if errors:
-        logger.warning(f"Configuration warnings: {errors}")
+        raise RuntimeError(
+            "ProjectRAG configuration validation failed: "
+            + "; ".join(str(error) for error in errors)
+        )
 
-    from .session import get_db
-    from .models import Project as RAGProject
-    with get_db() as db:
-        if not db.query(RAGProject).count():
-            db.add(RAGProject(
-                project_code="YB-DEMO-001",
-                name="宜宾示范项目",
-                external_system="construction-tax",
-                external_project_id="1",
-                note="ProjectRAG V1.1 示范知识空间",
-                created_at=now(),
-                updated_at=now()
-            ))
-            db.commit()
-            logger.info("Created demo project YB-DEMO-001")
+    from .db import init_db
+    init_db()
+    logger.info("PostgreSQL schema and pgvector prerequisites validated")
 
     # 预热本地 BGE-M3 与 BGE-Reranker 模型至内存，确保后续网页检索瞬间响应
     try:
         from .services.embeddings import embed
         from .services.reranker import rerank
-        embed("预热系统")
-        rerank("预热系统", [{"text": "预热样本"}], top_k=1)
+
+        embed("预热系统", raise_on_error=True)
+        rerank("预热系统", [{"text": "预热样本"}], top_k=1, raise_on_error=True)
         logger.info("Local BGE-M3 & Reranker models pre-warmed successfully")
     except Exception as _e:
-        logger.warning(f"Model pre-warm warning: {_e}")
+        logger.exception("Local model pre-warm failed; refusing to start")
+        raise RuntimeError("Local embedding/reranker model pre-warm failed") from _e
 
     if AUTO_START_WORKER:
-        start_worker()
+        # Uvicorn owns SIGTERM/SIGINT and must receive those signals to enter
+        # the FastAPI lifespan shutdown.  The worker is stopped explicitly by
+        # the lifespan context below; registering a second process handler
+        # here would replace Uvicorn's handler and leave the server alive.
+        start_worker(install_signal_handlers=False)
         logger.info("Ingest worker auto-started")
 
     yield

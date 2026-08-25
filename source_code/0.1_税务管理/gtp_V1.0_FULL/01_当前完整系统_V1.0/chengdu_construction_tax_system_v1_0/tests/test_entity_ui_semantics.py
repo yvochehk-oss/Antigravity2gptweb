@@ -18,12 +18,24 @@ VIRTUAL_ENTITY_CODES = {"A", "B", "C", "D", "甲", "乙", "丙", "丁"}
 
 
 def _client(app) -> TestClient:
+    # Keep the integration login in lockstep with the seed contract.  The
+    # seed accepts an injected INITIAL_ADMIN_PASSWORD and intentionally uses
+    # ``888888`` only for non-production development/test environments.  A
+    # fixed test-only password made this UI regression look like an A04 data
+    # loss: the login failed, ``/manage`` redirected to /login, and the test
+    # then searched the login document for the branch name.
+    from app.seed import _get_initial_admin_password
+
     client = TestClient(app)
     response = client.post(
-        "/login", data={"username": "admin", "password": "TestPass12345!"},
+        "/login", data={
+            "username": "admin",
+            "password": _get_initial_admin_password(),
+        },
         follow_redirects=False,
     )
     assert response.status_code == 302
+    assert response.headers.get("location") == "/"
     return client
 
 
@@ -45,6 +57,8 @@ def test_manage_and_dashboard_use_canonical_entity_codes(seeded_app):
     assert manage.status_code == 200
     assert "四川屹明汇建设工程有限公司重庆分公司" in manage.text
     assert 'value="A04"' in manage.text
+    assert "非独立法人分支机构" in manage.text
+    assert "A04" in manage.text and "税务归集至" in manage.text and "A03" in manage.text
     assert not any(
         f'value="{code}"' in manage.text for code in VIRTUAL_ENTITY_CODES
     )
@@ -65,6 +79,27 @@ def test_manage_and_dashboard_use_canonical_entity_codes(seeded_app):
         ROOT / "app/templates/manager_dashboard.html"
     ).read_text(encoding="utf-8")
     assert "ABCD 法人" not in dashboard.text
+
+
+def test_seeded_master_keeps_a04_as_non_legal_canonical_branch(seeded_app):
+    """A04 remains visible in UI even though tax ledgers roll it to A03."""
+    from sqlalchemy import select
+
+    from app.db import SessionLocal
+    from app.models import Entity
+
+    db = SessionLocal()
+    try:
+        branch = db.scalar(select(Entity).where(Entity.code == "A04"))
+        assert branch is not None
+        assert branch.name == "四川屹明汇建设工程有限公司重庆分公司"
+        assert branch.business_role == "A"
+        assert branch.legal_entity is False
+        assert branch.parent_entity_code == "A03"
+        assert branch.active is True
+        assert branch.internal is True
+    finally:
+        db.close()
 
 
 def test_prompt_and_csv_samples_reject_virtual_entity_semantics():

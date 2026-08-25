@@ -20,7 +20,14 @@ def get_optional_user(request: Request) -> User | None:
 # ---------------------------------------------------------------------------
 def require_login(request: Request) -> User:
     """用于需要登录的路由。未登录返回 401 重定向。"""
-    user = current_user_from_request(request)
+    # AuthMiddleware has already resolved the session for normal requests.
+    # Reuse that principal to avoid a second DB lookup and keep downstream
+    # authorization and audit actor selection consistent.
+    user = getattr(request.state, "current_user", None)
+    if user is None:
+        user = current_user_from_request(request)
+        if user is not None:
+            request.state.current_user = user
     if user is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

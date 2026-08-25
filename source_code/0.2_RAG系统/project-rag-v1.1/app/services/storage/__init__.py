@@ -8,25 +8,28 @@ Provides re-exports from sub-modules for backward compatibility:
 
 For new code, import directly from the sub-modules.
 """
+
 from app.config import ORIGINAL_DIR, SAFE_ORIGIN_DIRS
-from .read import (
-    validate_stored_file,
-    file_exists,
-    get_file_size,
-    PathTraversalError,
-)
-from .write import (
-    save_original,
-    delete_file,
-    delete_directory,
-    sha256_bytes,
-    StorageError,
-    SAFE_EXTS,
-    _validate_safe_path,
-)
+
 from .health import (
     check_storage_health,
     get_storage_stats,
+)
+from .read import (
+    PathTraversalError,
+    file_exists,
+    get_file_size,
+    validate_stored_file,
+)
+from .write import (
+    SAFE_EXTS,
+    StorageError,
+    _validate_safe_path,
+    delete_directory,
+    delete_file,
+    save_original,
+    sha256_bytes,
+    validate_safe_directory,
 )
 
 __all__ = [
@@ -43,6 +46,7 @@ __all__ = [
     "get_storage_stats",
     "SAFE_EXTS",
     "_validate_safe_path",
+    "validate_safe_directory",
     "ORIGINAL_DIR",
     "SAFE_ORIGIN_DIRS",
 ]

@@ -7,7 +7,6 @@ Note: The SQL views use PostgreSQL-specific syntax (::NUMERIC, CURRENT_DATE, etc
 which is designed for production PostgreSQL deployment. The static contract tests
 already verify that NULL values are not fabricated when underlying data is missing.
 """
-import pytest
 
 
 def _read_sql(name: str) -> str:
@@ -31,7 +30,7 @@ def test_analytics_views_sql_files_exist():
     ]
     for view in required_views:
         sql = _read_sql(f"{view}.sql")
-        assert f"CREATE" in sql.upper(), f"View {view} has no CREATE statement"
+        assert "CREATE" in sql.upper(), f"View {view} has no CREATE statement"
         assert "AS" in sql.upper(), f"View {view} has no AS clause"
 
 
@@ -47,6 +46,19 @@ def test_analytics_project_full_contracts():
     assert "ELSE NULL" in sql, "health_score must use ELSE NULL, not fabricate defaults"
     # Must not use COALESCE to fabricate CPI
     assert "COALESCE(eac.cpi, 1.0)" not in sql, "Must not fabricate CPI with COALESCE"
+    assert "entity_mapping_status" in sql, "Facts view must expose entity mapping status"
+    assert "entity_mapping_reason" in sql, "Facts view must expose entity mapping reason"
+    assert "entity_mapping_valid" in sql, "Facts view must expose entity mapping validity"
+    assert "AND s.entity_mapping_valid" in sql, "Entity mapping must gate facts_available"
+
+def test_project_summary_uses_canonical_entity_master_and_keeps_gaps_visible():
+    sql = _read_sql("analytics_project_summary.sql")
+    assert "FROM entities" in sql
+    assert "LEFT JOIN entity_master" in sql
+    assert "entity_mapping_status" in sql
+    assert "entity_mapping_reason" in sql
+    assert "UNRESOLVED" in sql
+    assert "!~" in sql
 
 
 def test_analytics_tax_contracts():

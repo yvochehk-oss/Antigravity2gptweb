@@ -8,21 +8,23 @@ without leaving a job half-processed.  ``_stop`` is also exposed through
 :func:`request_stop` so tests and CLI tools can drive a graceful exit
 without raising signals from a worker thread.
 """
+
 import signal
 import threading
-import time
 from datetime import datetime, timezone
+
 from sqlalchemy import or_, select
-from ..db import SessionLocal
-from ..models import IngestJob, Document
+
 from ..config import (
-    WORKER_POLL_SECONDS,
-    PROCESS_JOBS_INLINE,
-    MAX_JOB_RETRIES,
     JOB_RETRY_BACKOFF_SECONDS,
+    MAX_JOB_RETRIES,
+    PROCESS_JOBS_INLINE,
+    WORKER_POLL_SECONDS,
     WORKER_SHUTDOWN_TIMEOUT_SECONDS,
 )
+from ..db import SessionLocal
 from ..logging_config import get_logger
+from ..models import Document, IngestJob
 from ..observability import get_request_id, request_scope
 from .ingest import parse_and_index
 
@@ -49,7 +51,7 @@ def _calculate_next_retry(attempts: int) -> str:
     Returns:
         ISO timestamp for next retry
     """
-    backoff_seconds = JOB_RETRY_BACKOFF_SECONDS * (2 ** attempts)
+    backoff_seconds = JOB_RETRY_BACKOFF_SECONDS * (2**attempts)
     next_time = datetime.now(timezone.utc).timestamp() + backoff_seconds
     return datetime.fromtimestamp(next_time, tz=timezone.utc).isoformat(timespec="seconds")
 
@@ -68,8 +70,7 @@ def enqueue_parse(db, document_id: int) -> IngestJob:
     """
     existing = db.scalar(
         select(IngestJob).where(
-            IngestJob.document_id == document_id,
-            IngestJob.status.in_(["QUEUED", "RUNNING", "RETRY"])
+            IngestJob.document_id == document_id, IngestJob.status.in_(["QUEUED", "RUNNING", "RETRY"])
         )
     )
     if existing:
@@ -80,12 +81,7 @@ def enqueue_parse(db, document_id: int) -> IngestJob:
         doc.parse_status = "QUEUED"
         doc.parse_attempts = 0
 
-    job = IngestJob(
-        document_id=document_id,
-        status="QUEUED",
-        created_at=now(),
-        max_attempts=MAX_JOB_RETRIES
-    )
+    job = IngestJob(document_id=document_id, status="QUEUED", created_at=now(), max_attempts=MAX_JOB_RETRIES)
     db.add(job)
     db.commit()
     db.refresh(job)
@@ -162,9 +158,7 @@ def process_job(job_id: int) -> bool:
             job.status = "RETRY"
             job.next_retry_at = _calculate_next_retry(job.attempts)
             job.message = f"Retry scheduled (attempt {job.attempts}/{job.max_attempts})"
-            logger.info(
-                f"Job {job_id} scheduled for retry at {job.next_retry_at}"
-            )
+            logger.info(f"Job {job_id} scheduled for retry at {job.next_retry_at}")
         else:
             job.status = "FAILED"
             job.message = f"Max retries ({job.max_attempts}) exceeded"
@@ -175,9 +169,7 @@ def process_job(job_id: int) -> bool:
                 doc.parse_status = "PARSE_FAILED"
                 doc.parse_message = f"Max retries exceeded: {error_msg}"
 
-            logger.warning(
-                f"Job {job_id} permanently failed after {job.attempts} attempts"
-            )
+            logger.warning(f"Job {job_id} permanently failed after {job.attempts} attempts")
 
         job.finished_at = now()
         db.commit()
@@ -214,12 +206,7 @@ def process_next() -> bool:
 
     # If no ready retry jobs, get a new QUEUED job
     if not job:
-        job = db.scalar(
-            select(IngestJob)
-            .where(IngestJob.status == "QUEUED")
-            .order_by(IngestJob.id.asc())
-            .limit(1)
-        )
+        job = db.scalar(select(IngestJob).where(IngestJob.status == "QUEUED").order_by(IngestJob.id.asc()).limit(1))
 
     jid = job.id if job else None
     db.close()
@@ -298,8 +285,15 @@ def request_stop() -> None:
     _stop.set()
 
 
-def start_worker():
-    """Start the background worker thread."""
+def start_worker(*, install_signal_handlers: bool = True):
+    """Start the background worker thread.
+
+    Uvicorn owns process-level ``SIGTERM``/``SIGINT`` handling when this
+    worker runs inside the FastAPI service.  Callers embedding the worker in a
+    standalone process may opt into the legacy handlers explicitly; the web
+    application disables them so they cannot replace Uvicorn's graceful
+    shutdown handler.
+    """
     global _thread, _shutdown_timed_out
     if _thread and _thread.is_alive():
         logger.warning("Worker already running, ignoring start request")
@@ -309,7 +303,8 @@ def start_worker():
     _shutdown_timed_out = False
     _thread = threading.Thread(target=_loop, name="projectrag-ingest-worker", daemon=True)
     _thread.start()
-    _install_signal_handlers()
+    if install_signal_handlers:
+        _install_signal_handlers()
     logger.info("Background worker thread started")
 
 

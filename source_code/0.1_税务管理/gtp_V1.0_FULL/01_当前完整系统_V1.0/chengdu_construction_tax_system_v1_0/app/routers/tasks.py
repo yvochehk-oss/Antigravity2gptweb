@@ -3,9 +3,10 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from sqlalchemy import case, select
+from sqlalchemy import select
 
 from ..ai import SCOPES, recheck_task
+from ..ai.adapter import endpoint_is_allowed
 from ..ai.timeutil import now_iso
 from ..audit import audit_from_request, current_actor
 from ..constants import TASK_STATUS_LABELS, TASK_STATUSES
@@ -26,8 +27,9 @@ def task_center(request: Request):
     endpoints = db.execute(
         select(AIModelEndpoint)
         .where(AIModelEndpoint.enabled == True)  # noqa: E712
-        .order_by(case((AIModelEndpoint.adapter == "mock", 1), else_=0), AIModelEndpoint.id)
+        .order_by(AIModelEndpoint.id)
     ).scalars().all()
+    endpoints = [e for e in endpoints if endpoint_is_allowed(e)]
     db.close()
     return templates.TemplateResponse(
         request,
@@ -63,12 +65,14 @@ def task_create(
         status="open", created_at=now_iso(),
         updated_at=now_iso(), actor=actor,
     )
-    db.add(x); db.flush()
+    db.add(x)
+    db.flush()
     audit_from_request(
         db, request, "CREATE", "RemediationTask", x.id,
         f"{priority}/{title[:100]}",
     )
-    db.commit(); db.close()
+    db.commit()
+    db.close()
     return RedirectResponse("/tasks", status_code=303)
 
 
@@ -104,13 +108,16 @@ def task_recheck(
             db, request, "AI_RECHECK", "RemediationTask", x.id,
             f"job={job.id}",
         )
-        db.commit(); jid = job.id
+        db.commit()
+        jid = job.id
     except Exception as e:
+        db.rollback()
         audit_from_request(
             db, request, "AI_RECHECK_FAILED", "RemediationTask", x.id,
             str(e),
         )
-        db.commit(); db.close()
+        db.commit()
+        db.close()
         return RedirectResponse("/tasks", status_code=303)
     db.close()
     return RedirectResponse(f"/ai-review/{jid}", status_code=303)

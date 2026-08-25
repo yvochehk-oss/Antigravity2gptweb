@@ -6,12 +6,83 @@ const SERVER_URL_KEY = 'cdjg_server_url'
 const SETTINGS_KEY = 'cdjg_executive_settings'
 const DEFAULT_SERVER_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8922'
 
+function readStorageValue(key) {
+  try {
+    return globalThis.localStorage?.getItem(key) ?? null
+  } catch {
+    return null
+  }
+}
+
+function writeStorageValue(key, value) {
+  try {
+    globalThis.localStorage?.setItem(key, value)
+  } catch {
+    // Safari private browsing and exhausted storage can reject Web Storage.
+    // The in-memory store remains usable when persistence is unavailable.
+  }
+}
+
 function readSettings() {
   try {
-    return JSON.parse(localStorage.getItem(SETTINGS_KEY)) || {}
+    return JSON.parse(readStorageValue(SETTINGS_KEY)) || {}
   } catch {
     return {}
   }
+}
+
+function getPageHostname() {
+  try {
+    return String(globalThis.location?.hostname || '').toLowerCase()
+  } catch {
+    return ''
+  }
+}
+
+function isLoopbackHostname(hostname) {
+  const value = String(hostname || '').trim().toLowerCase().replace(/^\[|\]$/g, '')
+  if (value === 'localhost' || value.endsWith('.localhost') || value === '::1') return true
+
+  const octets = value.split('.')
+  return octets.length === 4
+    && octets.every(octet => /^\d+$/.test(octet) && Number(octet) >= 0 && Number(octet) <= 255)
+    && Number(octets[0]) === 127
+}
+
+function isPrivateLanHostname(hostname) {
+  const value = String(hostname || '').trim().toLowerCase().replace(/^\[|\]$/g, '')
+  const octets = value.split('.')
+
+  if (octets.length === 4 && octets.every(octet => /^\d+$/.test(octet))) {
+    const numbers = octets.map(Number)
+    if (numbers.some(octet => octet < 0 || octet > 255)) return false
+
+    return numbers[0] === 10
+      || (numbers[0] === 172 && numbers[1] >= 16 && numbers[1] <= 31)
+      || (numbers[0] === 192 && numbers[1] === 168)
+      || (numbers[0] === 169 && numbers[1] === 254)
+  }
+
+  // RFC 4193 ULA and RFC 4291 link-local IPv6 addresses are local-network
+  // addresses too. URL.hostname may include brackets for IPv6 literals.
+  return /^f[cd][0-9a-f]{2}:/.test(value) || /^fe[89ab][0-9a-f]:/.test(value)
+}
+
+function isPrivateLanUrl(value) {
+  try {
+    return isPrivateLanHostname(new URL(value).hostname)
+  } catch {
+    return false
+  }
+}
+
+function shouldPreferDefaultServerUrl(storedUrl) {
+  return isLoopbackHostname(getPageHostname()) && isPrivateLanUrl(storedUrl)
+}
+
+function getInitialServerUrl(storedUrl) {
+  if (shouldPreferDefaultServerUrl(storedUrl)) return DEFAULT_SERVER_URL
+  return storedUrl || DEFAULT_SERVER_URL
 }
 
 export const useUiStore = defineStore('ui', () => {
@@ -19,14 +90,15 @@ export const useUiStore = defineStore('ui', () => {
   const privacyMode = ref(Boolean(settings.privacyMode))
   const loading = ref(false)
   const connectionStatus = ref('connecting')
-  const serverBaseUrl = ref(localStorage.getItem(SERVER_URL_KEY) || DEFAULT_SERVER_URL)
+  const storedServerUrl = readStorageValue(SERVER_URL_KEY)
+  const serverBaseUrl = ref(getInitialServerUrl(storedServerUrl))
   const offlineCacheEnabled = ref(settings.offlineCacheEnabled ?? true)
 
   // Tracks the last URL that passed the production whitelist check.
   // Reset to null on page load (only persisted URLs that were saved are valid).
   const lastAllowedServerUrl = ref(
-    localStorage.getItem(SERVER_URL_KEY) && isAllowedServerUrl(localStorage.getItem(SERVER_URL_KEY))
-      ? localStorage.getItem(SERVER_URL_KEY)
+    storedServerUrl && !shouldPreferDefaultServerUrl(storedServerUrl) && isAllowedServerUrl(storedServerUrl)
+      ? storedServerUrl
       : null
   )
 
@@ -80,8 +152,8 @@ export const useUiStore = defineStore('ui', () => {
       lastAllowedServerUrl.value = url
     }
 
-    localStorage.setItem(SERVER_URL_KEY, serverBaseUrl.value)
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify({
+    writeStorageValue(SERVER_URL_KEY, serverBaseUrl.value)
+    writeStorageValue(SETTINGS_KEY, JSON.stringify({
       offlineCacheEnabled: offlineCacheEnabled.value,
       privacyMode: privacyMode.value
     }))

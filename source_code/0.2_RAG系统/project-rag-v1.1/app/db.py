@@ -11,7 +11,7 @@ import os
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
-from .config import DB_URL
+from .config import DB_URL, EMBEDDING_DIM
 from .logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -41,7 +41,9 @@ def init_db() -> None:
         "chunks",
         "ingest_jobs",
         "ai_review_runs",
+        "rag_evidence_packs",
         "facts_snapshots",
+        "mount_configs",
     }
     required_views = {
         "analytics_project_summary",
@@ -70,6 +72,24 @@ def init_db() -> None:
                 "Missing tables: " + ", ".join(missing_tables)
             )
 
+        evidence_fk_exists = conn.execute(
+            text(
+                "SELECT EXISTS ("
+                "SELECT 1 FROM pg_constraint fk "
+                "JOIN pg_class child ON child.oid = fk.conrelid "
+                "JOIN pg_class parent ON parent.oid = fk.confrelid "
+                "WHERE fk.contype = 'f' "
+                "AND child.relname = 'ai_review_runs' "
+                "AND parent.relname = 'rag_evidence_packs'"
+                ")"
+            )
+        ).scalar_one()
+        if not evidence_fk_exists:
+            raise RuntimeError(
+                "ProjectRAG schema incomplete; run RAG migration 013_ai_review_evidence_pack_fk "
+                "to install the AI Review evidence-pack foreign key"
+            )
+
         views = set(
             conn.execute(
                 text(
@@ -90,6 +110,37 @@ def init_db() -> None:
         ).scalar_one_or_none()
         if not vector_version:
             raise RuntimeError("pgvector extension missing; run RAG Alembic migrations")
+
+        expected_vector_type = f"vector({EMBEDDING_DIM})"
+        missing_vector_columns = []
+        for table_name in (
+            "chunks",
+            "regulations",
+            "regulation_articles",
+            "regulation_chunks",
+        ):
+            vector_type = conn.execute(
+                text(
+                    "SELECT format_type(a.atttypid, a.atttypmod) "
+                    "FROM pg_catalog.pg_attribute a "
+                    "JOIN pg_catalog.pg_class c ON c.oid = a.attrelid "
+                    "JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace "
+                    "WHERE n.nspname = current_schema() "
+                    "AND c.relname = :table_name "
+                    "AND a.attname = 'embedding' "
+                    "AND a.attnum > 0 AND NOT a.attisdropped"
+                ),
+                {"table_name": table_name},
+            ).scalar_one_or_none()
+            if vector_type != expected_vector_type:
+                missing_vector_columns.append(
+                    f"{table_name}.embedding={vector_type or '<missing>'}"
+                )
+        if missing_vector_columns:
+            raise RuntimeError(
+                "ProjectRAG vector columns incomplete; run RAG Alembic migrations. "
+                + ", ".join(missing_vector_columns)
+            )
 
         indexes = set(
             conn.execute(

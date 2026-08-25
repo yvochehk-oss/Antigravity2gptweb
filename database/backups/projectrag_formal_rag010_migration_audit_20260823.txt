@@ -1,0 +1,73 @@
+成都建工 V2.0 正式 PostgreSQL 受控迁移审计
+================================================
+
+执行时间：2026-08-23 22:40（Asia/Shanghai）
+目标数据库：projectrag（localhost:5432）
+目标数据库用户：yvoche
+允许范围：仅 RAG 009_pgvector_embedding_contract -> 010_analytics_contract_views
+禁止范围：未执行 Tax migration；未连接或操作 projectrag_xianyu；未启动服务；未删除备份或正式数据。
+
+一、迁移前备份
+--------------
+
+备份文件：projectrag_formal_pre_rag010_20260823_224034+0800.dump
+备份路径：/Users/yvoche/AI开发/073_成都建工/V2.0/database/backups/projectrag_formal_pre_rag010_20260823_224034+0800.dump
+格式：PostgreSQL custom format（pg_dump --format=custom）
+SHA256：404cdb4fcc24d60cba21dd19f0bffc37c831a326d13b44f7173be4a219e6daf6
+校验文件：projectrag_formal_pre_rag010_20260823_224034+0800.dump.sha256
+可读性：pg_restore --list 成功，TOC Entries=599，列表文件共 610 行。
+迁移后复核：sha256sum -c 成功。
+原有 database/projectrag_v2_dump.sql 未修改、未删除。
+
+二、迁移前状态
+--------------
+
+Alembic：Tax=62_ai_review_batch_status；RAG=009_pgvector_embedding_contract。
+关键计数：entities=26，projects=6，documents=60，tax_ledgers=43，facts_snapshots=0，facts_request_logs=0。
+实体代码：A01-A11、B01-B10、C01-C02、D01-D03，共 26 条。
+向量列：chunks、regulations、regulation_articles、regulation_chunks 的 embedding 均已是 vector(1024)。
+
+预检时发现 8921/8922 仍有本 V2.0 进程组（22837、23092），与任务给出的“已停止”状态不一致。已对确认的两个进程组发送 SIGTERM，复核 8921/8922 均无 LISTEN 进程后才继续迁移。
+
+三、实际迁移
+------------
+
+执行目录：source_code/0.2_RAG系统/project-rag-v1.1
+环境变量：PROJECT_RAG_DB_URL=postgresql://yvoche@localhost:5432/projectrag
+执行命令：uv run alembic upgrade 010_analytics_contract_views
+结果：成功。日志显示 009_pgvector_embedding_contract -> 010_analytics_contract_views。
+Tax 版本未写入、RAG 009 之前的 migration 未重复执行。
+
+四、迁移后验证
+--------------
+
+Alembic：Tax=62_ai_review_batch_status；RAG=010_analytics_contract_views（head）。
+关键计数保持：entities=26，projects=6，documents=60，tax_ledgers=43，facts_snapshots=0，facts_request_logs=0。
+Facts 引用完整性：facts_request_logs -> facts_snapshots 孤儿引用=0；ai_review_runs -> facts_snapshots 孤儿引用=0。
+Facts 外键：facts_snapshots.project_id -> projects.id；facts_request_logs.facts_snapshot_id -> facts_snapshots.id；ai_review_runs.facts_snapshot_id -> facts_snapshots.id。
+
+010 源文件声明并实际刷新 7 个 analytics canonical views：
+analytics_project_summary、analytics_project_profit、analytics_cost、analytics_eac、analytics_cashflow、analytics_tax、analytics_project_full；另有 facts_provider_tables 元数据 view。
+这些 view 均可执行，且均返回 6 行项目结果。当前代码/迁移合同实际是 7 个 analytics views，不是 5 个；本次未擅自删除其中 2 个。如验收单要求“5 个”，需要另行明确具体 5 个名称。
+
+NULL/不可用语义：
+- analytics_project_full：6 行，facts_available=false 为 6，health_score=NULL 为 6，tax_burden_rate=NULL 为 6，cash_gap_30d=NULL 为 6；没有使用这些 NULL 字段伪造数值。
+- analytics_tax：income_tax_estimate、surcharge_estimate、total_tax_burden、tax_burden_rate 均为 NULL；VAT 来源列可正常计算。
+- analytics_cost：actual_cost、budget_cost、cost_variance 均有真实结果；可选 cost_variance_rate/cpi 有结果。
+- analytics_cashflow：cash_gap_30d 保持 NULL；现金来源列可正常读取。
+- 7 个 view 的关键列在 information_schema 中均可见，view 查询未报错。
+
+pgvector：4 个 embedding 列仍为 vector(1024)；chunks 的 HNSW cosine index ix_chunks_embedding_hnsw 存在，定义未被破坏。
+
+五、剩余观察项（本次未修改）
+--------------------------
+
+1. facts_snapshots 当前可见业务列为 9 个，但 PostgreSQL 物理列槽中仍保留历史 dropped columns（6-13、18）。历史 Facts 行数为 0；本次按授权只执行 009->010，未进行 Tax/Facts 表结构清理。
+2. 当前 6 个 projects 的 entity_code 均为空，因此 analytics_project_full 的 entity_code 及其通过 entity_code 的税务拼接结果为空；entities 主表本身 26 条且代码完整。这是正式数据主数据关联问题，不是 010 view 刷新失败，应另立数据修复任务。
+3. 迁移后服务仍保持停止状态；本任务未启动 8921/8922。服务冷启动与 HTTP E2E 应在其他验收步骤中执行。
+
+六、结论
+--------
+
+本次正式库 RAG 009->010 受控迁移 PASS：备份可恢复读取、迁移成功、RAG head 到 010、Tax 版本未变、关键数据计数保持、analytics views 可执行、Facts 外键和 pgvector 合同可核验。
+正式发布前仍需由主 Agent 对上述 Facts dropped columns、projects.entity_code 主数据关联和“7/5 views”口径做后续决策；本审计不将这些未授权修改伪装成已完成。

@@ -20,13 +20,15 @@ from decimal import Decimal
 from typing import Any
 
 import httpx
+from sqlalchemy.exc import IntegrityError
 
 from .. import config
 from ..audit import audit
 from ..cache import TTLCache
 from ..db import SessionLocal
-from ..models import FactsRequestLog, FactsSnapshot, Project
+from ..models import FactsRequestLog, FactsSnapshot, Project, RagServiceEndpoint
 from ..observability import get_request_id
+from ..security import validate_rag_service_url
 from ..structured_logging import resolve_request_id
 
 FACTS_URL: str = config.RAG_V1_FACTS_URL
@@ -64,6 +66,108 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+_SNAPSHOT_VOLATILE_KEYS = frozenset(
+    {"cache_status", "request_id", "_snapshot_metadata"}
+)
+
+
+def _snapshot_payload_for_storage(payload: dict[str, Any]) -> dict[str, Any]:
+    """Keep only the remote Facts response in the canonical snapshot.
+
+    ``cache_status`` and ``request_id`` are local/request-scoped metadata.  If
+    they are stored in ``facts_data``, the first cache miss and a later cache
+    hit look like two different payloads even though the remote Facts version
+    is identical.  Excluding them keeps the unique
+    ``(project_code, facts_version)`` snapshot contract deterministic.
+    """
+    return {
+        key: value
+        for key, value in dict(payload).items()
+        if key not in _SNAPSHOT_VOLATILE_KEYS
+    }
+
+
+def _same_snapshot_payload(left: Any, right: Any) -> bool:
+    """Compare canonical payloads while tolerating legacy volatile fields."""
+    if not isinstance(left, dict) or not isinstance(right, dict):
+        return left == right
+    return (
+        _snapshot_payload_for_storage(left)
+        == _snapshot_payload_for_storage(right)
+    )
+
+
+def _get_or_create_snapshot(
+    db,
+    *,
+    project_id: int,
+    project_code: str,
+    facts_version: str,
+    as_of: str,
+    payload: dict[str, Any],
+    actor: str,
+) -> FactsSnapshot:
+    """Return the canonical snapshot for one project/version.
+
+    The unique key makes repeated cache hits idempotent.  The nested
+    transaction also handles two concurrent requests racing to insert the
+    same version without rolling back the already-created request log.
+    A same-version/different-payload response is a data-integrity conflict,
+    never something to resolve by choosing ``.first()`` or overwriting data.
+    """
+    canonical_payload = _snapshot_payload_for_storage(payload)
+    existing = (
+        db.query(FactsSnapshot)
+        .filter(
+            FactsSnapshot.project_code == project_code,
+            FactsSnapshot.facts_version == facts_version,
+        )
+        .one_or_none()
+    )
+    if existing is not None:
+        if not _same_snapshot_payload(existing.facts_data, canonical_payload):
+            raise ValueError(
+                "Facts snapshot version already exists with a different payload"
+            )
+        return existing
+
+    snapshot = FactsSnapshot(
+        project_id=project_id,
+        project_code=project_code,
+        as_of=as_of,
+        facts_version=facts_version,
+        facts_data=canonical_payload,
+        analytics_contract_version=str(
+            payload.get("analytics_contract_version") or "1.0"
+        ),
+        created_at=_now(),
+        created_by=actor,
+    )
+    try:
+        with db.begin_nested():
+            db.add(snapshot)
+            db.flush()
+    except IntegrityError as exc:
+        # Another transaction may have committed this version after the
+        # pre-check.  The savepoint keeps the request log transaction alive.
+        existing = (
+            db.query(FactsSnapshot)
+            .filter(
+                FactsSnapshot.project_code == project_code,
+                FactsSnapshot.facts_version == facts_version,
+            )
+            .one_or_none()
+        )
+        if existing is None:
+            raise
+        if not _same_snapshot_payload(existing.facts_data, canonical_payload):
+            raise ValueError(
+                "Facts snapshot version already exists with a different payload"
+            ) from exc
+        return existing
+    return snapshot
+
+
 def _headers(*, request_id: str | None = None) -> dict[str, str]:
     """Return outbound HTTP headers, including ``X-Request-ID`` for cross-system tracing.
 
@@ -79,9 +183,41 @@ def _headers(*, request_id: str | None = None) -> dict[str, str]:
     return h
 
 
+def _configured_facts_base_url(db) -> str:
+    """Resolve the active RAG base URL and revalidate approved DNS state.
+
+    The administrator-managed endpoint is shared by Tax -> RAG sync and the
+    Facts Provider.  The process environment remains the compatibility
+    fallback until an endpoint is saved through ``/rag-sync/settings``.
+    """
+    endpoint = db.query(RagServiceEndpoint).filter(
+        RagServiceEndpoint.id == 1,
+        RagServiceEndpoint.enabled.is_(True),
+    ).first()
+    if endpoint is None:
+        return FACTS_URL.rstrip("/")
+
+    raw_snapshot = str(endpoint.resolved_addresses_json or "")
+    try:
+        snapshot = json.loads(raw_snapshot or "[]")
+    except (TypeError, ValueError, json.JSONDecodeError) as exc:
+        raise ValueError("RAG 服务批准记录的 DNS 地址快照无效") from exc
+    if not isinstance(snapshot, list) or not all(
+        isinstance(value, str) and value.strip() for value in snapshot
+    ):
+        raise ValueError("RAG 服务批准记录的 DNS 地址快照无效")
+
+    return validate_rag_service_url(
+        str(endpoint.base_url or "").strip().rstrip("/"),
+        allow_approved_private=bool(endpoint.approved_private),
+        approved_addresses=frozenset(snapshot),
+    )
+
+
 def _cache_key(
     project_code: str,
     *,
+    base_url: str | None = None,
     require_fresh: bool,
     max_age: int,
     as_of: str | None,
@@ -90,7 +226,7 @@ def _cache_key(
     key_fingerprint = hashlib.sha256(FACTS_API_KEY.encode("utf-8")).hexdigest()[:12]
     return "::".join(
         (
-            FACTS_URL,
+            (base_url or FACTS_URL).rstrip("/"),
             project_code,
             str(bool(require_fresh)),
             str(max_age),
@@ -202,8 +338,20 @@ def get_project_facts(
                 "request_id": resolved_request_id,
             }
 
+        try:
+            facts_base_url = _configured_facts_base_url(db)
+        except ValueError as exc:
+            return {
+                "error": f"RAG Facts 服务地址不安全: {exc}",
+                "status": "DEGRADED",
+                "facts_available": False,
+                "cache_status": "bypassed",
+                "project_code": project_code,
+                "request_id": resolved_request_id,
+            }
+
         endpoint = f"/api/v1/facts/projects/{project_code}"
-        url = f"{FACTS_URL}{endpoint}"
+        url = f"{facts_base_url}{endpoint}"
         params: dict[str, Any] = {}
         if require_fresh:
             params["require_fresh"] = "true"
@@ -230,6 +378,7 @@ def get_project_facts(
 
         key = _cache_key(
             project_code,
+            base_url=facts_base_url,
             require_fresh=False,
             max_age=max_age,
             as_of=as_of,
@@ -263,39 +412,53 @@ def get_project_facts(
         log.error_message = error_message
 
         if not error_message and response_payload:
+            snapshot_payload = _snapshot_payload_for_storage(response_payload)
             response_payload["cache_status"] = cache_status
-            metrics = response_payload.get("metrics") or {}
             as_of_ts = response_payload.get("as_of") or _now()
             facts_version = response_payload.get("facts_version") or ""
-            snapshot = FactsSnapshot(
-                project_id=project_id,
-                project_code=project_code,
-                as_of=as_of_ts,
-                facts_version=facts_version,
-                metrics_json=json.dumps(metrics, ensure_ascii=False),
-                raw_response_json=json.dumps(response_payload, ensure_ascii=False),
-                source="rag_v1",
-                require_fresh=require_fresh,
-                max_age=max_age,
-                requested_at=_now(),
-                requested_by=actor,
-            )
-            db.add(snapshot)
-            db.flush()
-            log.facts_snapshot_id = snapshot.id
-            audit(
-                db,
-                action="QUERY",
-                obj_type="Facts",
-                obj_id=snapshot.id,
-                message=(
-                    f"{project_code} as_of={as_of_ts} version={facts_version} "
-                    f"cache={cache_status} latency={latency_ms}ms"
-                ),
-                actor=actor,
-                ip=ip,
-                request_id=resolved_request_id,
-            )
+            try:
+                snapshot = _get_or_create_snapshot(
+                    db,
+                    project_id=project_id,
+                    project_code=project_code,
+                    as_of=as_of_ts,
+                    facts_version=facts_version,
+                    payload=snapshot_payload,
+                    actor=actor,
+                )
+            except ValueError as exc:
+                # A reused Facts version with a changed payload is a remote
+                # contract violation.  Keep the request/audit trail but do
+                # not promote the response to an available financial fact.
+                error_message = f"Facts snapshot conflict: {exc}"
+                response_status = 500
+                log.response_status = response_status
+                log.error_message = error_message
+                audit(
+                    db,
+                    action="QUERY_FAILED",
+                    obj_type="Facts",
+                    obj_id="conflict",
+                    message=f"{project_code} {error_message}",
+                    actor=actor,
+                    ip=ip,
+                    request_id=resolved_request_id,
+                )
+            else:
+                log.facts_snapshot_id = snapshot.id
+                audit(
+                    db,
+                    action="QUERY",
+                    obj_type="Facts",
+                    obj_id=snapshot.id,
+                    message=(
+                        f"{project_code} as_of={as_of_ts} version={facts_version} "
+                        f"cache={cache_status} latency={latency_ms}ms"
+                    ),
+                    actor=actor,
+                    ip=ip,
+                    request_id=resolved_request_id,
+                )
         else:
             audit(
                 db,
@@ -352,7 +515,20 @@ def invalidate_facts(
         removed = facts_cache.invalidate_where(
             lambda key: f"::{project_code}::" in key,
         )
-        url = f"{FACTS_URL}/api/v1/facts/invalidate"
+        try:
+            facts_base_url = _configured_facts_base_url(db)
+        except ValueError as exc:
+            return {
+                "error": f"RAG Facts 服务地址不安全: {exc}",
+                "status": "DEGRADED",
+                "facts_available": False,
+                "cache_status": "invalidated_local_only",
+                "local_cache_entries_removed": removed,
+                "project_code": project_code,
+                "request_id": resolved_request_id,
+            }
+
+        url = f"{facts_base_url}/api/v1/facts/invalidate"
         body = {"project_code": project_code}
         try:
             with httpx.Client(

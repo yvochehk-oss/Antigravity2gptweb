@@ -4,15 +4,16 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from pydantic import BaseModel
 
 from ..auth import (
     clear_session,
     create_session,
     issue_jwt,
-    login as auth_login,
     refresh_access_token,
     verify_jwt,
 )
+from ..auth import login as auth_login
 from ..templates import templates
 
 router = APIRouter()
@@ -62,22 +63,47 @@ def logout(request: Request) -> RedirectResponse:
 _api_router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
 
-@_api_router.post("/token")
-def api_token(
-    username: str,
-    password: str,
-) -> JSONResponse:
-    """移动端登录：验证用户名密码后签发 JWT access + refresh token。
+class TokenRequest(BaseModel):
+    username: str
+    password: str
 
-    返回格式:
-        {
-          "access_token": "<jwt>",
-          "refresh_token": "<jwt>",
-          "token_type": "Bearer",
-          "expires_in": 3600,
-          "user": {"id": 1, "username": "admin", "role": "admin", "display_name": "系统管理员"}
-        }
-    """
+@_api_router.post("/token")
+async def api_token(
+    request: Request,
+) -> JSONResponse:
+    """移动端登录：验证用户名密码后签发 JWT access + refresh token。"""
+    content_type = request.headers.get("content-type", "")
+    username = ""
+    password = ""
+    if "application/json" in content_type:
+        try:
+            body = await request.json()
+            username = body.get("username", "")
+            password = body.get("password", "")
+        except Exception:
+            pass
+    elif "application/x-www-form-urlencoded" in content_type or "multipart/form-data" in content_type:
+        form = await request.form()
+        username = form.get("username", "")
+        password = form.get("password", "")
+    else:
+        # Fallback to query params or json
+        username = request.query_params.get("username", "")
+        password = request.query_params.get("password", "")
+        if not username:
+            try:
+                body = await request.json()
+                username = body.get("username", "")
+                password = body.get("password", "")
+            except Exception:
+                pass
+
+    if not username or not password:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="缺少用户名或密码",
+        )
+
     user = auth_login(username, password)
     if user is None:
         raise HTTPException(

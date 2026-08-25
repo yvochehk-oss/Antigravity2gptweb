@@ -3,16 +3,11 @@ import {
   Search, 
   Bell, 
   Settings, 
-  HelpCircle, 
   Sparkles, 
   Menu, 
-  X,
   Radio,
-  CheckCircle2,
-  ShieldAlert,
-  Sliders
 } from 'lucide-react';
-import { SystemSettings } from '../types';
+import { DataStatus, SystemSettings } from '../types';
 import { SettingsModal } from './SettingsModal';
 
 interface HeaderProps {
@@ -24,6 +19,8 @@ interface HeaderProps {
   onToggleMobileMenu?: () => void;
   settings: SystemSettings;
   onSaveSettings: (newSettings: SystemSettings) => void;
+  riskStatus: DataStatus;
+  unresolvedRiskCount: number;
 }
 
 export function Header({
@@ -33,10 +30,13 @@ export function Header({
   onSearchChange,
   onToggleMobileMenu,
   settings,
-  onSaveSettings
+  onSaveSettings,
+  riskStatus,
+  unresolvedRiskCount,
 }: HeaderProps) {
   const [showNotificationList, setShowNotificationList] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const hasUnreadRisks = riskStatus === 'READY' && unresolvedRiskCount > 0;
 
   return (
     <header className="fixed top-0 right-0 left-0 md:left-48 h-16 bg-[#0b1326]/80 backdrop-blur-md border-b border-[#444653]/30 z-30 flex items-center justify-between px-4 md:px-6 gap-4">
@@ -92,9 +92,15 @@ export function Header({
             onClick={() => setShowNotificationList(!showNotificationList)}
             className="p-2 rounded-full text-[#c4c5d5] hover:text-[#dae2fd] hover:bg-[#222a3d] transition-colors relative cursor-pointer"
             title="预警通知"
+            aria-expanded={showNotificationList}
           >
             <Bell className="w-4 h-4" />
-            <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-[#EF4444] shadow-[0_0_6px_#EF4444]"></span>
+            {hasUnreadRisks && (
+              <span
+                className="absolute top-1 right-1 w-2 h-2 rounded-full bg-[#EF4444] shadow-[0_0_6px_#EF4444]"
+                aria-label={`${unresolvedRiskCount} 条未闭环风险`}
+              />
+            )}
           </button>
 
           {showNotificationList && (
@@ -103,15 +109,24 @@ export function Header({
                 <span className="text-[13px] font-bold text-[#dae2fd]">实时涉税与成本预警</span>
                 <span className="text-[11px] text-[#4cd7f6] cursor-pointer hover:underline" onClick={() => setShowNotificationList(false)}>全部已读</span>
               </div>
-              <div className="mt-2 space-y-2 text-[12px]">
-                <div className="p-2.5 rounded-lg bg-[#EF4444]/10 border border-[#EF4444]/30">
-                  <p className="font-semibold text-[#ffb4ab]">【高危】建筑劳务跨区施工税款核销预警</p>
-                  <p className="text-[11px] text-[#c4c5d5] mt-1">跨地市预缴与个税扣缴申报偏差已超设定阈值 ({settings.crossRegionTaxThreshold}%)。</p>
-                </div>
-                <div className="p-2.5 rounded-lg bg-[#F59E0B]/10 border border-[#F59E0B]/30">
-                  <p className="font-semibold text-[#ffa583]">【预警】宜宾长江大桥工程成本超支</p>
-                  <p className="text-[11px] text-[#c4c5d5] mt-1">超出预算止付令阈值 ({settings.budgetOverrunStopPayThreshold}%)，触发自动拦截。</p>
-                </div>
+              <div className="mt-2 space-y-2 text-[12px]" role="status" aria-live="polite">
+                {riskStatus === 'READY' ? (
+                  <div className="p-2.5 rounded-lg bg-[#10B981]/10 border border-[#10B981]/30">
+                    <p className="font-semibold text-[#10B981]">
+                      {unresolvedRiskCount > 0 ? `当前有 ${unresolvedRiskCount} 条未闭环风险` : '当前没有未闭环风险'}
+                    </p>
+                    <p className="text-[11px] text-[#c4c5d5] mt-1">
+                      进入“风控预警中心”查看后端返回的风险详情与处置状态。
+                    </p>
+                  </div>
+                ) : (
+                  <div className="p-2.5 rounded-lg bg-[#F59E0B]/10 border border-[#F59E0B]/30">
+                    <p className="font-semibold text-[#F59E0B]">风险集合 {riskStatus}</p>
+                    <p className="text-[11px] text-[#c4c5d5] mt-1">
+                      当前 Tax 后端未提供风险集合接口，页面未加载本地演示预警。
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -138,4 +153,3 @@ export function Header({
     </header>
   );
 }
-

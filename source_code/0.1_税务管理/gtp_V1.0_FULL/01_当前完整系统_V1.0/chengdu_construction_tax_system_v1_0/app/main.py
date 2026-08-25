@@ -14,17 +14,6 @@ from .wiring import create_app
 
 app = create_app()
 
-from fastapi.middleware.cors import CORSMiddleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-
-
 @app.get("/healthz", tags=["meta"])
 def healthz() -> dict[str, object]:
     """Return a bounded, non-sensitive dependency health aggregate.

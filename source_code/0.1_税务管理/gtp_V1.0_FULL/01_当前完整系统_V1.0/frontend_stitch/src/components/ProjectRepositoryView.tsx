@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { 
   Building2, 
   Search, 
@@ -12,10 +12,15 @@ import {
   Download,
   BrainCircuit,
 } from 'lucide-react';
-import { ProjectItem, SystemSettings } from '../types';
+import { DataStatus, MatchingCompletenessSummary, ProjectItem, SystemSettings } from '../types';
+import { DataStatusCard } from './DataStatusCard';
+import { fetchProjectMatchingCompleteness, summarizeMatchingCompleteness } from '../api';
 
 interface ProjectRepositoryViewProps {
   projects: ProjectItem[];
+  dataStatus: DataStatus;
+  dataStatusMessage: string;
+  onRetry: () => void;
   onSelectProject: (projectId: string) => void;
   onOpenNewRecordModal: () => void;
   onOpenExportModal: () => void;
@@ -25,6 +30,9 @@ interface ProjectRepositoryViewProps {
 
 export function ProjectRepositoryView({
   projects,
+  dataStatus,
+  dataStatusMessage,
+  onRetry,
   onSelectProject,
   onOpenNewRecordModal,
   onOpenExportModal,
@@ -35,12 +43,76 @@ export function ProjectRepositoryView({
   const [selectedRiskFilter, setSelectedRiskFilter] = useState('全部');
   const [selectedGradeFilter, setSelectedGradeFilter] = useState('全部');
   const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid');
+  const [flowCompleteness, setFlowCompleteness] = useState<MatchingCompletenessSummary & { loading: boolean }>({
+    status: 'UNAVAILABLE',
+    percentage: null,
+    dataGaps: [],
+    loading: true,
+  });
+
+  useEffect(() => {
+    const controller = new AbortController();
+    let active = true;
+    const projectIds = [...new Set(
+      projects
+        .map(project => project.numericId)
+        .filter(projectId => Number.isInteger(projectId) && projectId > 0),
+    )];
+
+    setFlowCompleteness(current => ({ ...current, loading: true }));
+    if (projectIds.length === 0) {
+      setFlowCompleteness({ status: 'UNAVAILABLE', percentage: null, dataGaps: [], loading: false });
+      return () => {
+        active = false;
+        controller.abort();
+      };
+    }
+
+    void Promise.allSettled(
+      projectIds.map(projectId => fetchProjectMatchingCompleteness(projectId, controller.signal)),
+    ).then(results => {
+      if (!active || controller.signal.aborted) return;
+      const responses = results
+        .filter((result): result is PromiseFulfilledResult<Awaited<ReturnType<typeof fetchProjectMatchingCompleteness>>> => result.status === 'fulfilled')
+        .map(result => result.value);
+      const summary = summarizeMatchingCompleteness(
+        responses,
+        results.filter(result => result.status === 'rejected').length,
+      );
+      setFlowCompleteness({ ...summary, loading: false });
+    });
+
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [projects]);
 
   // 计算工程库综合统计
   const totalBudget = projects.reduce((acc, p) => acc + p.totalBudget, 0);
   const totalSpent = projects.reduce((acc, p) => acc + p.spentAmount, 0);
   const totalRemaining = totalBudget - totalSpent;
-  const overallProgress = ((totalSpent / totalBudget) * 100).toFixed(1);
+  const overallProgress = totalBudget > 0 ? ((totalSpent / totalBudget) * 100).toFixed(1) : '—';
+
+  const formatPercentage = (value: number | null): string => {
+    if (value === null) return '—';
+    return Number.isInteger(value) ? String(value) : value.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
+  };
+  const flowStatusLabel = flowCompleteness.loading
+    ? '正在加载'
+    : flowCompleteness.status === 'AVAILABLE'
+      ? '证据完整'
+      : flowCompleteness.status === 'DEGRADED'
+        ? '证据不完整'
+        : '暂不可用';
+  const flowPercentage = flowCompleteness.loading || flowCompleteness.status === 'UNAVAILABLE'
+    ? '—'
+    : formatPercentage(flowCompleteness.percentage);
+  const flowStatusColor = flowCompleteness.loading || flowCompleteness.status === 'UNAVAILABLE'
+    ? '#8e909f'
+    : flowCompleteness.status === 'DEGRADED'
+      ? '#F59E0B'
+      : '#10B981';
 
   // 过滤工程
   const filteredProjects = projects.filter(p => {
@@ -52,7 +124,7 @@ export function ProjectRepositoryView({
 
     const matchesRisk = 
       selectedRiskFilter === '全部' || 
-      (selectedRiskFilter === '正常' && p.taxRiskGrade === '正常') ||
+      (selectedRiskFilter === '未知' && p.taxRiskGrade === '未知') ||
       (selectedRiskFilter === '中等偏高' && p.taxRiskGrade === '中等偏高') ||
       (selectedRiskFilter === '高危' && (p.taxRiskGrade === '高危' || p.isOverBudget));
 
@@ -64,6 +136,18 @@ export function ProjectRepositoryView({
     return matchesSearch && matchesRisk && matchesGrade;
   });
 
+  if (dataStatus !== 'READY' || projects.length === 0) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h2 className="text-[26px] font-bold text-[#dae2fd] tracking-tight">项目工程库</h2>
+          <p className="text-[13px] text-[#c4c5d5] mt-1">项目集合必须来自真实 Tax API，前端不保留项目演示快照。</p>
+        </div>
+        <DataStatusCard status={dataStatus} title="项目工程库不可用" message={dataStatusMessage} onRetry={onRetry} />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {/* 顶部标题与快速动作栏 */}
@@ -74,9 +158,9 @@ export function ProjectRepositoryView({
               <Building2 className="w-5 h-5 text-[#4cd7f6]" />
             </div>
             <div>
-              <h2 className="text-[26px] font-bold text-[#dae2fd] tracking-tight">标杆项目工程库全景</h2>
+              <h2 className="text-[26px] font-bold text-[#dae2fd] tracking-tight">项目工程库全景</h2>
               <p className="text-[13px] text-[#c4c5d5] mt-0.5">
-                全量穿透监管 26 家系统内独立法人关联企业承建的 5 大标杆示范工程业财履约全景。
+                仅展示 Tax API 已返回的项目及其项目级经营摘要，主体与税务台账需从对应真实接口加载。
               </p>
             </div>
           </div>
@@ -93,29 +177,29 @@ export function ProjectRepositoryView({
         </div>
       </div>
 
-      {/* 4 大工程库综合指标汇总 */}
+      {/* 项目级综合指标汇总 */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* 指标 1: 工程总量 */}
         <div className="glass-panel rounded-xl p-4 glow-cyan flex flex-col justify-between">
           <div className="flex justify-between items-center text-[12px] text-[#c4c5d5]">
-            <span className="font-semibold">在建标杆工程</span>
+            <span className="font-semibold">在建项目</span>
             <span className="font-mono-num text-[#4cd7f6] bg-[#03b5d3]/10 px-2 py-0.5 rounded border border-[#4cd7f6]/20">重点监管</span>
           </div>
           <div className="my-2">
             <p className="text-[26px] font-bold font-mono-num text-[#dae2fd]">
-              {projects.length} <span className="text-[14px] font-normal text-[#8e909f]">个示范标段</span>
+              {projects.length} <span className="text-[14px] font-normal text-[#8e909f]">个项目</span>
             </p>
           </div>
           <p className="text-[11px] text-[#8e909f] flex items-center gap-1">
-            <span>覆盖跨省及川内重点基建经济圈</span>
+            <span>按当前 Tax API 返回结果汇总</span>
           </p>
         </div>
 
-        {/* 指标 2: 总批复预算概算 */}
+        {/* 指标 2: 项目合同总额 */}
         <div className="glass-panel rounded-xl p-4 glow-blue flex flex-col justify-between">
           <div className="flex justify-between items-center text-[12px] text-[#c4c5d5]">
-            <span className="font-semibold">总批复预算概算</span>
-            <span className="font-mono-num text-[#b8c4ff] bg-[#1e40af]/20 px-2 py-0.5 rounded border border-[#b8c4ff]/20">概算总控</span>
+            <span className="font-semibold">项目合同总额</span>
+            <span className="font-mono-num text-[#b8c4ff] bg-[#1e40af]/20 px-2 py-0.5 rounded border border-[#b8c4ff]/20">接口口径</span>
           </div>
           <div className="my-2">
             <p className="text-[26px] font-bold font-mono-num text-[#dae2fd]">
@@ -123,15 +207,15 @@ export function ProjectRepositoryView({
             </p>
           </div>
           <p className="text-[11px] text-[#8e909f]">
-            <span>剩余可用概算：¥ {(totalRemaining / 100000000).toFixed(2)} 亿元</span>
+            <span>合同额减真实成本：¥ {(totalRemaining / 100000000).toFixed(2)} 亿元</span>
           </p>
         </div>
 
         {/* 指标 3: 累计发生支出与资金消耗 */}
         <div className="glass-panel rounded-xl p-4 glow-purple flex flex-col justify-between">
           <div className="flex justify-between items-center text-[12px] text-[#c4c5d5]">
-            <span className="font-semibold">累计发生支出 (已付)</span>
-            <span className="font-mono-num text-[#10B981] bg-[#10B981]/15 px-2 py-0.5 rounded border border-[#10B981]/30">消耗 {overallProgress}%</span>
+            <span className="font-semibold">真实成本</span>
+              <span className="font-mono-num text-[#10B981] bg-[#10B981]/15 px-2 py-0.5 rounded border border-[#10B981]/30">消耗 {overallProgress === '—' ? '—' : `${overallProgress}%`}</span>
           </div>
           <div className="my-2">
             <p className="text-[26px] font-bold font-mono-num text-[#dae2fd]">
@@ -139,23 +223,28 @@ export function ProjectRepositoryView({
             </p>
           </div>
           <div className="w-full bg-[#131b2e] rounded-full h-1.5 overflow-hidden border border-[#444653]/30">
-            <div className="bg-gradient-to-r from-[#10B981] to-[#4cd7f6] h-full" style={{ width: `${overallProgress}%` }}></div>
+            <div className="bg-gradient-to-r from-[#10B981] to-[#4cd7f6] h-full" style={{ width: overallProgress === '—' ? '0%' : `${overallProgress}%` }}></div>
           </div>
         </div>
 
         {/* 指标 4: 业财合规评级 */}
         <div className="glass-panel rounded-xl p-4 glow-green flex flex-col justify-between">
           <div className="flex justify-between items-center text-[12px] text-[#c4c5d5]">
-            <span className="font-semibold">履约健康度</span>
-            <span className="font-mono-num text-[#10B981] bg-[#10B981]/15 px-2 py-0.5 rounded border border-[#10B981]/30">综合甲级</span>
+            <span className="font-semibold">四流证据完整度</span>
+            <span
+              className="font-mono-num px-2 py-0.5 rounded border"
+              style={{ color: flowStatusColor, backgroundColor: `${flowStatusColor}26`, borderColor: `${flowStatusColor}4d` }}
+            >
+              {flowStatusLabel}
+            </span>
           </div>
           <div className="my-2">
-            <p className="text-[26px] font-bold font-mono-num text-[#10B981]">
-              92.5 <span className="text-[14px] font-normal text-[#8e909f]">分 · 优良</span>
+            <p className="text-[26px] font-bold font-mono-num" style={{ color: flowStatusColor }}>
+              {flowPercentage}<span className="text-[14px] font-normal text-[#8e909f]">{flowPercentage === '—' ? '' : '%'}</span>
             </p>
           </div>
           <p className="text-[11px] text-[#8e909f]">
-            <span>关联 26 家法人主体四流合一核查</span>
+            <span>合同、履约、发票、付款证据由 Tax 确定性匹配结果决定</span>
           </p>
         </div>
       </div>
@@ -168,7 +257,7 @@ export function ProjectRepositoryView({
             <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[#8e909f]" />
             <input
               type="text"
-              placeholder="搜索工程名称、编号 (如 CD-TF...)、负责人或地点..."
+              placeholder="搜索项目名称、编号、负责人或地点..."
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
               className="w-full pl-9 pr-3 py-1.5 bg-[#131b2e] border border-[#444653]/40 rounded-lg text-[13px] text-[#dae2fd] placeholder-[#8e909f] focus:outline-none focus:border-[#4cd7f6]/60 transition-colors font-mono-num"
@@ -180,7 +269,7 @@ export function ProjectRepositoryView({
             <span className="text-[#8e909f] flex items-center gap-1">
               <Filter className="w-3.5 h-3.5" /> 风险状态:
             </span>
-            {['全部', '正常', '中等偏高', '高危'].map(rf => (
+            {['全部', '未知', '中等偏高', '高危'].map(rf => (
               <button
                 key={rf}
                 onClick={() => setSelectedRiskFilter(rf)}
@@ -237,12 +326,13 @@ export function ProjectRepositoryView({
         </div>
       </div>
 
-      {/* 5 大工程展示区域 */}
+      {/* 项目展示区域 */}
       {viewMode === 'grid' ? (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
           {filteredProjects.map(proj => {
-            const isOverBudget = proj.spentAmount > proj.totalBudget;
-            const progress = ((proj.spentAmount / proj.totalBudget) * 100).toFixed(1);
+            const hasContractTotal = proj.totalBudget > 0;
+            const isOverBudget = proj.isOverBudget ?? (hasContractTotal ? proj.spentAmount > proj.totalBudget : false);
+            const progress = hasContractTotal ? ((proj.spentAmount / proj.totalBudget) * 100).toFixed(1) : '—';
             const highRiskCount = proj.taxRecords.filter(r => r.riskLevel === '高危').length;
             const warningCount = proj.taxRecords.filter(r => r.riskLevel === '预警').length;
 
@@ -284,13 +374,13 @@ export function ProjectRepositoryView({
                   {/* 核心财务指标三连 */}
                   <div className="grid grid-cols-3 gap-2 bg-[#131b2e]/60 p-2.5 rounded-lg border border-[#444653]/20 text-center">
                     <div>
-                      <p className="text-[10px] text-[#8e909f]">总批复预算</p>
+                      <p className="text-[10px] text-[#8e909f]">项目合同总额</p>
                       <p className="text-[13px] font-bold font-mono-num text-[#dae2fd] mt-0.5">
                         ¥ {(proj.totalBudget / 100000000).toFixed(2)}亿
                       </p>
                     </div>
                     <div>
-                      <p className="text-[10px] text-[#8e909f]">已付开支</p>
+                      <p className="text-[10px] text-[#8e909f]">真实成本</p>
                       <p className="text-[13px] font-bold font-mono-num text-[#ffa583] mt-0.5">
                         ¥ {(proj.spentAmount / 100000000).toFixed(2)}亿
                       </p>
@@ -308,7 +398,7 @@ export function ProjectRepositoryView({
                     <div className="flex justify-between text-[11px] font-mono-num mb-1">
                       <span className="text-[#8e909f]">预算执行进度</span>
                       <span className={`font-bold ${isOverBudget ? 'text-[#EF4444]' : 'text-[#4cd7f6]'}`}>
-                        {progress}% {isOverBudget ? '(超概算预警)' : ''}
+                        {progress === '—' ? '—' : `${progress}%`} {isOverBudget ? '(超合同额)' : ''}
                       </span>
                     </div>
                     <div className="w-full bg-[#131b2e] rounded-full h-2 overflow-hidden border border-[#444653]/30">
@@ -318,7 +408,7 @@ export function ProjectRepositoryView({
                             ? 'bg-[#EF4444]'
                             : 'bg-gradient-to-r from-[#1e40af] via-[#03b5d3] to-[#4cd7f6]'
                         }`}
-                        style={{ width: `${Math.min(parseFloat(progress), 100)}%` }}
+                        style={{ width: progress === '—' ? '0%' : `${Math.min(parseFloat(progress), 100)}%` }}
                       ></div>
                     </div>
                   </div>
@@ -326,8 +416,8 @@ export function ProjectRepositoryView({
                   {/* 涉及关联实体与风险统计 */}
                   <div className="flex items-center justify-between text-[11px] pt-1 text-[#8e909f] border-t border-[#444653]/20">
                     <div className="flex items-center gap-1.5">
-                      <span>关联实体:</span>
-                      <strong className="text-[#dae2fd] font-mono-num">{proj.taxRecords.length} 家</strong>
+                      <span>涉税凭证:</span>
+                      <strong className="text-[#dae2fd] font-mono-num">{proj.taxRecords.length > 0 ? `${proj.taxRecords.length} 笔` : '未加载'}</strong>
                     </div>
                     <div className="flex items-center gap-2 font-mono-num">
                       {highRiskCount > 0 && (
@@ -340,9 +430,9 @@ export function ProjectRepositoryView({
                           {warningCount} 预警
                         </span>
                       )}
-                      {highRiskCount === 0 && warningCount === 0 && (
+                      {highRiskCount === 0 && warningCount === 0 && proj.taxRecords.length === 0 && (
                         <span className="text-[#10B981] bg-[#10B981]/15 px-1.5 py-0.2 rounded border border-[#10B981]/30">
-                          台账合规
+                          台账未加载
                         </span>
                       )}
                     </div>
@@ -393,9 +483,9 @@ export function ProjectRepositoryView({
               <thead className="bg-[#171f33]/80 text-[#8e909f] border-b border-[#444653]/30 font-semibold select-none">
                 <tr>
                   <th className="p-3.5 pl-4">工程编号</th>
-                  <th className="p-3.5">示范工程名称</th>
+                  <th className="p-3.5">项目名称</th>
                   <th className="p-3.5">当前施工阶段</th>
-                  <th className="p-3.5 text-right">总批复概算</th>
+                  <th className="p-3.5 text-right">合同总额</th>
                   <th className="p-3.5 text-right">累计支出</th>
                   <th className="p-3.5 text-center">资金进度</th>
                   <th className="p-3.5 text-center">健康评级</th>
@@ -405,7 +495,7 @@ export function ProjectRepositoryView({
               </thead>
               <tbody className="divide-y divide-[#444653]/20">
                 {filteredProjects.map(proj => {
-                  const progress = ((proj.spentAmount / proj.totalBudget) * 100).toFixed(1);
+                  const progress = proj.totalBudget > 0 ? ((proj.spentAmount / proj.totalBudget) * 100).toFixed(1) : '—';
                   return (
                     <tr key={proj.id} className="hover:bg-[#1e40af]/10 transition-colors group">
                       <td className="p-3.5 pl-4 font-mono-num text-[#4cd7f6] font-semibold">
@@ -424,7 +514,7 @@ export function ProjectRepositoryView({
                         ¥ {(proj.spentAmount / 100000000).toFixed(2)} 亿
                       </td>
                       <td className="p-3.5 text-center font-mono-num text-[#4cd7f6] font-bold">
-                        {progress}%
+                        {progress === '—' ? '—' : `${progress}%`}
                       </td>
                       <td className="p-3.5 text-center">
                         <span className={`px-2 py-0.5 rounded text-[11px] font-bold border ${
@@ -436,7 +526,7 @@ export function ProjectRepositoryView({
                         </span>
                       </td>
                       <td className="p-3.5 text-center font-mono-num text-[#dae2fd]">
-                        {proj.taxRecords.length} 家
+                        {proj.taxRecords.length > 0 ? `${proj.taxRecords.length} 笔` : '—'}
                       </td>
                       <td className="p-3.5 text-center pr-4">
                         <button

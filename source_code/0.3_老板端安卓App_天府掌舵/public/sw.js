@@ -9,7 +9,7 @@
  * - On activate, old caches are purged so we don't serve stale JS.
  */
 
-const CACHE_NAME = 'cdjg-shell-v1'
+const CACHE_NAME = 'cdjg-shell-v3'
 const PRECACHE_URLS = [
   '/',
   '/index.html',
@@ -55,7 +55,19 @@ self.addEventListener('fetch', event => {
 
   event.respondWith(
     caches.match(event.request).then(cached => {
-      if (cached) return cached
+      // Force Network-First for index.html
+      if (event.request.mode === 'navigate' || event.request.url.includes('index.html')) {
+        return fetch(event.request).then(response => {
+          if (response && response.status === 200) {
+            const clone = response.clone();
+            caches.open(CACHE_NAME).then(c => c.put(event.request, clone));
+            return response;
+          }
+          return cached || new Response('Offline', { status: 503 });
+        }).catch(() => cached || caches.match('/index.html'));
+      }
+
+      if (cached) return cached;
       return fetch(event.request)
         .then(response => {
           if (!response || response.status !== 200 || response.type === 'opaque') {

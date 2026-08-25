@@ -1,139 +1,176 @@
 <template>
   <main class="app-page px-4 py-4 pb-8 space-y-4 max-w-[440px] mx-auto">
-    <section aria-labelledby="companies-title" class="space-y-1 flex items-center justify-between">
+    <section aria-labelledby="overview-title" class="space-y-1 flex items-center justify-between">
       <div>
-        <h1 id="companies-title" class="page-title text-slate-50 font-bold">法人全景矩阵</h1>
-        <p class="text-[13px] leading-5 text-slate-400">穿透 26 家法人及分支机构的底账风险与法定代表人穿透图谱。</p>
+        <h1 id="overview-title" class="page-title text-slate-50 font-bold">项目全览 (全生态底账)</h1>
+        <p class="text-[13px] leading-5 text-slate-400">穿透全盘各项目的参与单位、合同与进出金额明细。</p>
       </div>
       <DataSourceBadge :mode="dataSource" class="shrink-0" />
     </section>
 
-    <!-- ABCD 分类段落选择器：豪华药丸形切换器 -->
-    <div
-      class="grid grid-cols-4 gap-1.5 rounded-2xl border border-white/10 bg-black/40 p-1.5 shadow-inner"
-      role="tablist"
-      aria-label="法人主体分类"
-    >
-      <button
-        v-for="role in ['A', 'B', 'C', 'D']"
-        :key="role"
-        type="button"
-        role="tab"
-        :aria-selected="selectedRole === role"
-        class="min-h-12 rounded-xl px-1 text-center transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/80"
-        :class="selectedRole === role
-          ? 'bg-gradient-to-r from-amber-400 to-amber-300 text-slate-950 font-bold shadow-[0_4px_16px_rgba(226,185,99,0.35)]'
-          : 'text-slate-400 hover:bg-white/5 hover:text-slate-100 font-medium'"
-        @click="selectedRole = role"
-      >
-        <span class="block text-[14px] leading-tight">{{ role }} 类</span>
-        <span class="block text-[11px] leading-tight mt-0.5 opacity-80 font-normal">主体</span>
-      </button>
-    </div>
-
-    <!-- 当前分组概览卡 -->
-    <section
-      aria-labelledby="company-group-title"
-      class="surface-card rounded-2xl p-4 shadow-lg border-amber-400/25 bg-gradient-to-b from-[#162740] to-[#0d1828]"
-    >
-      <div class="flex items-start justify-between gap-3">
-        <div class="min-w-0 flex-1">
-          <p class="text-[12px] font-semibold text-amber-300 uppercase tracking-wide">当前主体分组</p>
-          <h2 id="company-group-title" class="mt-1 break-words text-[17px] leading-6 font-bold text-slate-50">
-            {{ currentGroup?.title || `${selectedRole} 类主体` }}
-          </h2>
-        </div>
-        <span class="shrink-0 rounded-full border border-amber-400/40 bg-amber-400/15 px-3 py-1 font-financial text-[13px] font-bold text-amber-200 shadow-sm">
-          {{ companyCount }} 家
-        </span>
-      </div>
-      <p class="mt-2.5 break-words text-[13px] leading-5 text-slate-300/90 border-t border-white/5 pt-2.5">
-        {{ currentGroup?.desc || '法人经营矩阵' }}
-      </p>
-    </section>
-
-    <!-- 法人主体列表 -->
-    <section aria-label="法人主体列表" aria-live="polite" class="space-y-3.5">
+    <!-- 项目全览列表 -->
+    <section aria-label="项目列表" class="space-y-4">
       <article
-        v-for="company in currentGroup?.entities || []"
-        :key="company.id"
-        class="surface-card rounded-2xl p-4 shadow-md transition-all hover:border-amber-400/40"
+        v-for="proj in allProjects360"
+        :key="proj.project.id"
+        class="surface-card rounded-2xl p-4 shadow-lg border-amber-400/25 bg-gradient-to-b from-[#162740] to-[#0d1828]"
       >
-        <div class="flex items-start justify-between gap-3">
+        <div class="flex items-start justify-between gap-3 border-b border-white/10 pb-3 mb-3">
           <div class="min-w-0 flex-1">
-            <div class="flex flex-wrap items-center gap-2">
+            <div class="flex items-center gap-2">
               <span class="rounded-md border border-amber-400/40 bg-amber-400/15 px-2 py-0.5 font-mono text-[12px] font-bold text-amber-200">
-                {{ company.entity_code }}
+                {{ proj.project.project_code }}
               </span>
               <span
-                class="rounded-md border px-2 py-0.5 text-[12px] font-medium"
-                :class="company.legal_entity
-                  ? 'border-emerald-400/40 bg-emerald-400/15 text-emerald-200'
-                  : 'border-slate-500/40 bg-slate-500/15 text-slate-300'"
+                class="rounded-md border px-2 py-0.5 text-[11px] font-medium border-emerald-400/40 bg-emerald-400/15 text-emerald-200"
               >
-                {{ company.legal_entity ? '独立法人' : '分支机构' }}
+                {{ proj.project.status === 'ACTIVE' ? '在建' : proj.project.status }}
               </span>
             </div>
-            <h3 class="mt-2.5 break-words text-[16px] leading-6 font-bold text-slate-50">
-              {{ company.name }}
+            <h3 class="mt-2 text-[17px] leading-6 font-bold text-slate-50">
+              {{ proj.project.name }}
             </h3>
           </div>
-          <span
-            class="shrink-0 rounded-full border border-emerald-400/35 bg-emerald-400/15 px-2.5 py-1 text-[12px] font-semibold text-emerald-200 shadow-sm"
-          >
-            {{ company.risk_status }}
-          </span>
         </div>
 
-        <dl class="mt-3.5 divide-y divide-white/10 rounded-xl border border-white/10 bg-black/25">
-          <div class="flex items-center justify-between gap-4 px-3.5 py-2.5">
-            <dt class="shrink-0 text-[12px] font-medium text-slate-400">法定代表人</dt>
-            <dd class="min-w-0 break-words text-right text-[14px] font-semibold text-slate-100">
-              {{ masked(company.legal_representative) }}
-            </dd>
+        <div class="space-y-3">
+          <!-- 核心财务指标 -->
+          <div class="grid grid-cols-2 gap-3">
+            <div class="rounded-xl border border-white/10 bg-black/25 p-3">
+              <p class="text-[11px] text-slate-400">已确认结算收入</p>
+              <p class="mt-1 text-[16px] font-financial font-bold text-emerald-300">
+                {{ money(proj.system_penetration.recognized_revenue) }}
+              </p>
+            </div>
+            <div class="rounded-xl border border-white/10 bg-black/25 p-3">
+              <p class="text-[11px] text-slate-400">穿透后真实成本</p>
+              <p class="mt-1 text-[16px] font-financial font-bold text-amber-300">
+                {{ money(proj.system_penetration.system_external_real_cost) }}
+              </p>
+            </div>
           </div>
-          <div class="flex items-center justify-between gap-4 px-3.5 py-2.5">
-            <dt class="shrink-0 text-[12px] font-medium text-slate-400">注册资本</dt>
-            <dd class="min-w-0 break-words text-right font-financial text-[15px] font-bold text-amber-300">
-              {{ masked(company.registered_capital) }}
-            </dd>
+
+          <!-- 各主体参与明细 (参与的各个单位，合同金额，进出金额等) -->
+          <div class="rounded-xl border border-white/10 bg-black/40 p-3 text-[12px]">
+            <h4 class="font-bold text-slate-200 border-b border-white/10 pb-2 mb-2 flex items-center justify-between">
+              <span>参与单位明细 (系统内资格 + 外部供应商)</span>
+              <span class="text-[10px] font-normal text-slate-400">包含合同/结算/流出金额</span>
+            </h4>
+
+            <div class="space-y-3">
+              <!-- 1. 发包方 (业主) -->
+              <div v-if="proj.system_penetration.revenueDetails?.length">
+                <p class="text-[11px] font-bold text-emerald-400 mb-1">▶ 资金源头 (发包方)</p>
+                <div v-for="(rev, idx) in proj.system_penetration.revenueDetails" :key="idx" class="flex items-center justify-between py-1.5 border-b border-white/5">
+                  <div class="min-w-0 pr-2 flex-1">
+                    <div class="font-medium text-slate-200 truncate">{{ rev.name }}</div>
+                    <div class="text-[10px] text-slate-400">合同: {{ money(rev.contract) }}</div>
+                  </div>
+                  <div class="shrink-0 text-right">
+                    <div class="text-[10px] text-emerald-400/80">已进账确认</div>
+                    <div class="font-financial font-bold text-emerald-300">{{ money(rev.recognized) }}</div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 2. 系统内流转单位 -->
+              <div v-if="proj.system_penetration.internalDetails?.length">
+                <p class="text-[11px] font-bold text-purple-400 mt-2 mb-1">▶ 系统内参与单位</p>
+                <div v-for="(item, idx) in proj.system_penetration.internalDetails" :key="idx" class="flex items-center justify-between py-1.5 border-b border-white/5">
+                  <div class="min-w-0 pr-2 flex-1">
+                    <div class="font-medium text-slate-200 truncate">{{ item.unit }}</div>
+                    <div class="text-[10px] text-purple-300/80">{{ item.category }}</div>
+                  </div>
+                  <div class="shrink-0 text-right">
+                    <div class="text-[10px] text-purple-400/80">内部分配流转</div>
+                    <div class="font-financial font-bold text-purple-200">{{ money(item.amount) }}</div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 3. 外部终端供应商 (穿透成本) -->
+              <div v-if="proj.system_penetration.externalDetails?.length">
+                <p class="text-[11px] font-bold text-amber-400 mt-2 mb-1">▶ 系统外合格供应商 (终端成本)</p>
+                <div v-for="(item, idx) in proj.system_penetration.externalDetails" :key="idx" class="flex items-center justify-between py-1.5 border-b border-white/5">
+                  <div class="min-w-0 pr-2 flex-1">
+                    <div class="font-medium text-slate-200 truncate">{{ item.supplier }}</div>
+                    <div class="text-[10px] text-amber-300/80">{{ item.category }} (名义合同: {{ money(item.nominal) }})</div>
+                  </div>
+                  <div class="shrink-0 text-right">
+                    <div class="text-[10px] text-amber-400/80">真实流出成本</div>
+                    <div class="font-financial font-bold text-amber-300">{{ money(item.real) }}</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div v-if="!proj.system_penetration.revenueDetails?.length && !proj.system_penetration.internalDetails?.length && !proj.system_penetration.externalDetails?.length" class="text-center py-4 text-slate-500">
+              暂无参与单位明细
+            </div>
           </div>
-        </dl>
-
-        <div class="mt-2.5 rounded-xl border border-white/10 bg-black/20 px-3.5 py-2.5">
-          <p class="text-[11px] font-medium text-slate-400">统一社会信用代码</p>
-          <p class="mt-0.5 break-all font-mono text-[13px] leading-5 font-semibold text-slate-200">
-            {{ masked(company.uscc) }}
-          </p>
-        </div>
-
-        <div v-if="company.note" class="mt-2.5 rounded-xl border border-amber-400/30 bg-amber-400/10 px-3.5 py-2.5">
-          <p class="text-[12px] font-semibold text-amber-200">关联说明</p>
-          <p class="mt-0.5 break-words text-[12px] leading-5 text-slate-200">
-            {{ company.note.replace(/\n/g, ' · ') }}
-          </p>
         </div>
       </article>
 
-      <div v-if="!currentGroup?.entities?.length" class="surface-card rounded-2xl border-dashed p-8 text-center text-[14px] text-slate-400">
-        暂无法人主体数据，请联网刷新后重试。
+      <!-- Loading state -->
+      <div v-if="isLoading" class="text-center py-8">
+        <div class="inline-block h-6 w-6 animate-spin rounded-full border-2 border-amber-300/30 border-t-amber-300 mb-2"></div>
+        <p class="text-[13px] text-slate-400">正在加载全盘项目底账...</p>
+      </div>
+
+      <div v-if="!isLoading && !allProjects360.length" class="surface-card rounded-2xl border-dashed p-8 text-center text-[14px] text-slate-400">
+        暂无项目数据，请刷新后重试。
       </div>
     </section>
   </main>
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 import { storeToRefs } from 'pinia'
-import { DEFAULT_COMPANIES, useExecutiveStore } from '../../stores/executive.store'
+import { useExecutiveStore } from '../../stores/executive.store'
+import { useAuthStore } from '../../stores/auth.store'
 import { useUiStore } from '../../stores/ui.store'
+import { getProject360 } from '../../api/projects.api'
+import { formatMoney } from '../../utils/formatters'
 import DataSourceBadge from '../../shared/components/DataSourceBadge.vue'
 
-const selectedRole = ref('A')
-const { companies, _dataSource } = storeToRefs(useExecutiveStore())
-const { privacyMode } = storeToRefs(useUiStore())
+const executive = useExecutiveStore()
+const auth = useAuthStore()
+const ui = useUiStore()
+const { projects, _dataSource } = storeToRefs(executive)
+const { privacyMode } = storeToRefs(ui)
+
 const dataSource = computed(() => _dataSource.value || 'unavailable')
-const currentGroup = computed(() => companies.value?.matrix?.[selectedRole.value] || DEFAULT_COMPANIES.matrix[selectedRole.value])
-const companyCount = computed(() => currentGroup.value?.entities?.length || 0)
-const masked = value => privacyMode.value ? '***' : (value || '—')
+const isLoading = ref(true)
+const allProjects360 = ref([])
+
+onMounted(async () => {
+  isLoading.value = true
+  try {
+    const rawProjects = projects.value || []
+    if (!rawProjects.length) {
+      await executive.refresh()
+    }
+
+    // Fetch 360 detail for all projects concurrently
+    const promises = (projects.value || []).map(p =>
+      getProject360(ui.serverBaseUrl, p.id, auth.session?.accessToken)
+    )
+    const results = await Promise.allSettled(promises)
+
+    const loadedData = []
+    for (const res of results) {
+      if (res.status === 'fulfilled' && res.value && res.value.status === 'success') {
+        loadedData.push(res.value)
+      }
+    }
+    allProjects360.value = loadedData
+  } catch (err) {
+    console.error("Failed to fetch project 360 overviews:", err)
+  } finally {
+    isLoading.value = false
+  }
+})
+
+const money = value => formatMoney(value, privacyMode.value)
 </script>

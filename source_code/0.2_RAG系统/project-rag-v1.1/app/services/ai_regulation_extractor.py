@@ -16,39 +16,70 @@ ai_regulation_extractor.py
 """
 
 import json
-import os
 import re
-import urllib.parse
 import urllib.request
-import httpx
-from pathlib import Path
-from typing import Dict, Any, Optional, Tuple
+from typing import Any, Dict, Tuple
 
-from ..config import LLM_BASE_URL, LLM_MODEL, LLM_API_KEY, DATA_DIR
+import httpx
+
+from ..config import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL, MAX_UPLOAD_SIZE
 from ..logging_config import get_logger
-from .regulation_verifier import verify_regulation_online, parse_article_numbers
-from .regulations_md_ingest import chunk_markdown, upsert_chunks
+from ..security import validate_llm_outbound_url, validate_outbound_url
 
 logger = get_logger(__name__)
+
+_MAX_FETCH_BYTES = min(MAX_UPLOAD_SIZE, 10 * 1024 * 1024)
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Reject redirects so every destination passes the SSRF policy itself."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: N802
+        raise ValueError("法规网页不允许重定向，请直接提供最终 HTTPS 地址")
+
+
+def _read_response_limited(response, *, limit: int | None = None) -> bytes:
+    """Read an HTTP response with a hard upper bound."""
+    limit = _MAX_FETCH_BYTES if limit is None else limit
+    content_length = response.headers.get("Content-Length") if getattr(response, "headers", None) else None
+    if content_length:
+        try:
+            declared_length = int(content_length)
+        except (TypeError, ValueError):
+            declared_length = None
+        if declared_length is not None and declared_length > limit:
+            raise ValueError(f"法规网页响应超过 {limit} 字节限制")
+    data = response.read(limit + 1)
+    if len(data) > limit:
+        raise ValueError(f"法规网页响应超过 {limit} 字节限制")
+    return data
 
 
 def fetch_url_content(url: str) -> str:
     """抓取网页 URL 内容并提取干净的正文文本"""
+    validated_url = validate_outbound_url(url)
     req = urllib.request.Request(
-        url,
+        validated_url,
         headers={
             "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         }
     )
-    with urllib.request.urlopen(req, timeout=10) as resp:
-        html = resp.read().decode("utf-8", errors="ignore")
-    
+    opener = urllib.request.build_opener(_NoRedirect())
+    with opener.open(req, timeout=10) as resp:
+        final_url = getattr(resp, "geturl", lambda: validated_url)()
+        # Some handlers expose a final URL even when they do not use the
+        # standard redirect exception.  Validate it before reading the body.
+        if final_url.rstrip("/") != validated_url.rstrip("/"):
+            validate_outbound_url(final_url)
+            raise ValueError("法规网页发生了未授权重定向")
+        html = _read_response_limited(resp).decode("utf-8", errors="ignore")
+
     # 移除 script, style, header, footer
     html = re.sub(r"<script[^>]*>[\s\S]*?</script>", "", html, flags=re.IGNORECASE)
     html = re.sub(r"<style[^>]*>[\s\S]*?</style>", "", html, flags=re.IGNORECASE)
     html = re.sub(r"<header[^>]*>[\s\S]*?</header>", "", html, flags=re.IGNORECASE)
     html = re.sub(r"<footer[^>]*>[\s\S]*?</footer>", "", html, flags=re.IGNORECASE)
-    
+
     # 转纯文本
     text = re.sub(r"<[^>]+>", "\n", html)
     lines = [line.strip() for line in text.splitlines() if line.strip()]
@@ -60,11 +91,12 @@ def extract_file_content(file_bytes: bytes, filename: str) -> str:
     fname = filename.lower()
     if fname.endswith(".txt") or fname.endswith(".md"):
         return file_bytes.decode("utf-8", errors="ignore")
-    
+
     if fname.endswith(".pdf"):
         try:
-            import pypdf
             import io
+
+            import pypdf
             reader = pypdf.PdfReader(io.BytesIO(file_bytes))
             pages_text = []
             for p in reader.pages:
@@ -75,7 +107,7 @@ def extract_file_content(file_bytes: bytes, filename: str) -> str:
                 return "\n\n".join(pages_text)
         except Exception as e:
             logger.warning(f"pypdf extraction failed for {filename}: {e}")
-            
+
     # 默认纯文本回退
     return file_bytes.decode("utf-8", errors="ignore")
 
@@ -83,7 +115,7 @@ def extract_file_content(file_bytes: bytes, filename: str) -> str:
 def ai_extract_regulation_metadata(raw_text: str) -> Dict[str, Any]:
     """使用 LLM 或增强规则智能提取法规的核心元数据"""
     preview_text = raw_text[:4000]
-    
+
     # 1. 尝试大模型解析
     if LLM_BASE_URL and LLM_MODEL:
         prompt = f"""你是一个专业的中国财税法律法规知识工程专家。请从以下法律法规正文片段中，提取结构化元数据。
@@ -106,15 +138,16 @@ def ai_extract_regulation_metadata(raw_text: str) -> Dict[str, Any]:
 请输出 JSON:"""
 
         try:
+            validated_llm_base = validate_llm_outbound_url(LLM_BASE_URL)
             client = httpx.Client(timeout=15.0)
-            url = f"{LLM_BASE_URL.rstrip('/')}/chat/completions"
+            url = f"{validated_llm_base.rstrip('/')}/chat/completions"
             if not url.endswith("/v1/chat/completions") and "/v1" not in url:
                 url = f"{LLM_BASE_URL.rstrip('/')}/v1/chat/completions"
-            
+
             headers = {"Content-Type": "application/json"}
             if LLM_API_KEY:
                 headers["Authorization"] = f"Bearer {LLM_API_KEY}"
-                
+
             payload = {
                 "model": LLM_MODEL,
                 "messages": [{"role": "user", "content": prompt}],
@@ -134,7 +167,7 @@ def ai_extract_regulation_metadata(raw_text: str) -> Dict[str, Any]:
             logger.warning(f"LLM extraction error: {e}, falling back to heuristic parser")
 
     # 2. 启发式智能规则抽取
-    lines = [l.strip() for l in raw_text.splitlines() if l.strip()]
+    lines = [line.strip() for line in raw_text.splitlines() if line.strip()]
     title = lines[0] if lines else "未命名涉税法规"
     if len(title) > 60 and len(lines) > 1:
         title = lines[1]
@@ -229,7 +262,7 @@ def generate_regulation_markdown(meta: Dict[str, Any], full_text: str) -> Tuple[
 
     summary_quote = f"> 💡 **核心要点**：{meta.get('summary', '')}\n\n" if meta.get('summary') else ""
     md_content = yaml_header + summary_quote + full_text.strip() + "\n"
-    
+
     # 文件名安全化
     safe_title = re.sub(r'[\\/*?:"<>|]', '_', meta.get("title", "custom_reg"))
     filename = f"{safe_title}.md"

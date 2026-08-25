@@ -1,17 +1,29 @@
-from fastapi.templating import Jinja2Templates
+import os
 from pathlib import Path
 
-templates = Jinja2Templates(directory=str(Path(__file__).resolve().parent.parent / "templates"))
-from fastapi import APIRouter, Request, Depends, HTTPException, Form
+from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+
+from ..auth import (
+    require_web_auth,
+    require_web_or_service_read,
+    require_web_or_service_role,
+)
+from ..config import SAFE_ORIGIN_DIRS
 from ..db import SessionLocal
-from ..models import MountConfig
-
-from ..services.scanner import sync_all_mounts
 from ..logging_config import get_logger
+from ..models import MountConfig
+from ..services.scanner import sync_all_mounts
+from ..services.storage import (
+    PathTraversalError,
+    StorageError,
+    validate_safe_directory,
+)
 
+templates = Jinja2Templates(directory=str(Path(__file__).resolve().parent.parent / "templates"))
 logger = get_logger(__name__)
 router = APIRouter()
 
@@ -22,86 +34,122 @@ def get_db():
     finally:
         db.close()
 
+
+def _safe_mount_directory(raw_path: str) -> Path:
+    """Return an existing directory under an explicitly trusted root."""
+    try:
+        return validate_safe_directory(raw_path)
+    except (StorageError, PathTraversalError) as exc:
+        raise HTTPException(400, f"挂载目录不在允许的导入根目录内: {exc}") from exc
+
+
+def _safe_browse_directory(raw_path: str | None) -> Path:
+    """Resolve a browser path without ever falling back to filesystem root."""
+    if not raw_path:
+        for root in SAFE_ORIGIN_DIRS:
+            try:
+                return validate_safe_directory(root)
+            except (StorageError, PathTraversalError):
+                continue
+        raise HTTPException(400, "没有可用的安全导入根目录")
+    return _safe_mount_directory(raw_path)
+
 @router.get("/mounts", response_class=HTMLResponse)
-def list_mounts(request: Request, db: Session = Depends(get_db)):
+def list_mounts(
+    request: Request,
+    principal=Depends(require_web_auth),
+    db: Session = Depends(get_db),
+):
     mounts = db.execute(select(MountConfig).order_by(MountConfig.id)).scalars().all()
     return templates.TemplateResponse(
-        request, 
-        "mounts.html", 
+        request,
+        "mounts.html",
         {"request": request, "mounts": mounts, "active_page": "mounts"}
     )
 
 @router.post("/api/v1/mounts")
-def add_mount(path: str = Form(...), db: Session = Depends(get_db)):
+def add_mount(
+    path: str = Form(...),
+    principal=Depends(require_web_or_service_role("admin")),
+    db: Session = Depends(get_db),
+):
     if not path.strip():
         raise HTTPException(400, "Path cannot be empty")
-        
-    exists = db.scalar(select(MountConfig).where(MountConfig.path == path.strip()))
+
+    safe_path = _safe_mount_directory(path.strip())
+    normalized = str(safe_path)
+    exists = db.scalar(select(MountConfig).where(MountConfig.path == normalized))
     if exists:
         raise HTTPException(400, "Mount path already exists")
-        
-    mount = MountConfig(path=path.strip(), active=True)
+
+    mount = MountConfig(path=normalized, active=True)
     db.add(mount)
-    db.commit()
-    
+    try:
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        logger.exception("Failed to create mount %s", normalized)
+        raise HTTPException(500, "挂载目录保存失败，事务已回滚") from exc
+
     return RedirectResponse(url="/mounts", status_code=303)
 
 @router.post("/api/v1/mounts/{mount_id}/delete")
-def delete_mount(mount_id: int, db: Session = Depends(get_db)):
+def delete_mount(
+    mount_id: int,
+    principal=Depends(require_web_or_service_role("admin")),
+    db: Session = Depends(get_db),
+):
     mount = db.get(MountConfig, mount_id)
     if mount:
         db.delete(mount)
-        db.commit()
+        try:
+            db.commit()
+        except Exception as exc:
+            db.rollback()
+            logger.exception("Failed to delete mount %s", mount_id)
+            raise HTTPException(500, "挂载目录删除失败，事务已回滚") from exc
     return RedirectResponse(url="/mounts", status_code=303)
 
 @router.post("/api/v1/mounts/scan")
-def trigger_scan(db: Session = Depends(get_db)):
+def trigger_scan(
+    principal=Depends(require_web_or_service_role("admin", "operator")),
+    db: Session = Depends(get_db),
+):
     results = sync_all_mounts(db)
     return results
 
-import os
-from pathlib import Path as _Path
-
-# Common macOS/Linux quick-access paths
-_QUICK_ACCESS = [
-    ("🏠 主目录 (Home)", str(_Path.home())),
-    ("🖥️ 桌面 (Desktop)", str(_Path.home() / "Desktop")),
-    ("📄 文稿 (Documents)", str(_Path.home() / "Documents")),
-    ("💾 下载 (Downloads)", str(_Path.home() / "Downloads")),
-    ("💿 外置磁盘 (/Volumes)", "/Volumes"),
-    ("📂 AI开发", str(_Path.home() / "AI开发")),
-]
-
 @router.get("/api/v1/mounts/fs")
-def browse_fs(path: str = ""):
-    # Default to home directory, not root
-    if not path:
-        path = str(_Path.home())
-
-    if not os.path.exists(path):
-        path = "/" if os.name != "nt" else "C:\\"
-        
+def browse_fs(path: str = "", principal=Depends(require_web_or_service_read)):
+    current_path = _safe_browse_directory(path)
     try:
         items = []
         # Add parent directory if not at root
-        parent = os.path.dirname(path)
-        if parent != path:
-            items.append({"name": "..", "path": parent, "is_dir": True})
+        parent = current_path.parent
+        if parent != current_path:
+            try:
+                parent = _safe_mount_directory(str(parent))
+            except HTTPException:
+                parent = None
+            if parent is not None:
+                items.append({"name": "..", "path": str(parent), "is_dir": True})
 
         try:
-            entries = list(os.scandir(path))
+            entries = list(os.scandir(current_path))
         except PermissionError:
             entries = []
 
         for entry in entries:
             try:
-                is_dir = entry.is_dir(follow_symlinks=True)
+                # Symlinked directories are intentionally invisible to the
+                # browser; accepting one here would let a later mount escape
+                # the configured import roots.
+                is_dir = entry.is_dir(follow_symlinks=False)
             except OSError:
                 continue
-            if is_dir and not entry.name.startswith("."):
+            if is_dir and not entry.name.startswith(".") and not entry.is_symlink():
                 items.append({
                     "name": entry.name,
-                    "path": os.path.abspath(entry.path),
+                    "path": str(Path(entry.path).absolute()),
                     "is_dir": True
                 })
 
@@ -109,10 +157,16 @@ def browse_fs(path: str = ""):
 
         # Build quick_access shortcuts (only existing paths)
         quick = []
-        for label, p in _QUICK_ACCESS:
-            if os.path.isdir(p):
-                quick.append({"label": label, "path": p})
+        for root in SAFE_ORIGIN_DIRS:
+            try:
+                safe_root = validate_safe_directory(root)
+            except (StorageError, PathTraversalError):
+                continue
+            quick.append({"label": f"安全导入根目录: {safe_root.name or safe_root}", "path": str(safe_root)})
 
-        return {"current": path, "items": items, "quick_access": quick}
+        return {"current": str(current_path), "items": items, "quick_access": quick}
     except Exception as e:
-        return {"current": path, "items": [], "quick_access": [], "error": str(e)}
+        # Do not reveal arbitrary filesystem errors or path contents to the
+        # browser.  A validated path can still disappear between checks.
+        logger.warning("Failed to browse safe mount directory %s: %s", current_path, e)
+        return {"current": str(current_path), "items": [], "quick_access": [], "error": "无法读取目录"}

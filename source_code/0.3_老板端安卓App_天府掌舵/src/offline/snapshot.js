@@ -4,35 +4,58 @@ export const DEFAULT_SNAPSHOT_MAX_AGE_MS = 24 * 60 * 60 * 1000
 const DEVICE_KEY_STORAGE_KEY = 'cdjg_snapshot_device_key'
 
 /**
- * 明确声明为非敏感的字段白名单。
- * 只快照此列表中的字段，核心财务数据（real_profit, net_cashflow,
- * revenue, tax_burden, contract_amount 等）不在此列表中。
+ * 快照采用“敏感字段拒绝列表”，而不是把后端新增的业务字段静默丢掉。
+ *
+ * 经营页面会随着 analytics contract 版本增加字段。允许普通字段递归
+ * 保存，配合明确的敏感字段规则，可以在不破坏离线页面的前提下，避免
+ * 身份证照、账户、凭证和认证材料进入 localStorage。
  */
-const SNAPSHOT_WHITELIST = [
-  'project_code',
-  'name',
-  'status',
-  'tax_method',
-  'progress_pct',
-  'collection_rate',
-  'region',
-  'industry',
-  'founded_year',
-  'employee_count',
-  'last_updated',
-  'version'
-]
+const SENSITIVE_SNAPSHOT_KEYS = new Set([
+  'access_token',
+  'api_key',
+  'authorization',
+  'bank_account',
+  'cookie',
+  'contract_amount',
+  'encrypted_password',
+  'invoice_amount',
+  'invoice_no',
+  'legal_phone',
+  'legal_representative',
+  'password',
+  'payer_account',
+  'private_key',
+  'refresh_token',
+  'registered_capital',
+  'secret',
+  'session_token',
+  'tax_id',
+  'tax_no',
+  'token',
+  'uscc'
+])
+
+function isSensitiveSnapshotKey(key) {
+  const normalized = String(key).trim().toLowerCase()
+  if (SENSITIVE_SNAPSHOT_KEYS.has(normalized)) return true
+  return /(?:^|_)(?:bank|phone|mobile|email|secret|password|token)(?:$|_)/.test(normalized)
+}
+
+function getCryptoProvider() {
+  const candidates = []
+  if (typeof window !== 'undefined' && window.crypto) candidates.push(window.crypto)
+  if (typeof globalThis !== 'undefined' && globalThis.crypto) candidates.push(globalThis.crypto)
+  return candidates.find(candidate => candidate?.subtle && candidate?.getRandomValues) ?? null
+}
 
 /**
  * 检查是否可以进行安全加密（WebCrypto 可用且密钥已初始化）。
  */
 function canUseSecureCrypto() {
-  if (typeof window === 'undefined') return false
-  if (!window.crypto?.subtle) return false
+  if (typeof window === 'undefined' || !getCryptoProvider()) return false
   try {
-    // 检查密钥是否已生成且可用
-    const stored = window.sessionStorage.getItem(DEVICE_KEY_STORAGE_KEY)
-    return Boolean(stored)
+    // 首次保存也应该能够初始化密钥；不能把“尚未有密钥”当成“不支持加密”。
+    return Boolean(getOrCreateDeviceKey())
   } catch {
     return false
   }
@@ -57,20 +80,6 @@ function base64ToBytes(value) {
   return new Uint8Array(Buffer.from(value, 'base64'))
 }
 
-function encodeUtf8(value) {
-  if (typeof btoa === 'function') {
-    return btoa(unescape(encodeURIComponent(value)))
-  }
-  return Buffer.from(value, 'utf-8').toString('base64')
-}
-
-function decodeUtf8(value) {
-  if (typeof atob === 'function') {
-    return decodeURIComponent(escape(atob(value)))
-  }
-  return Buffer.from(value, 'base64').toString('utf-8')
-}
-
 export function getOrCreateDeviceKey() {
   if (typeof window === 'undefined') return null
   // Key lives in sessionStorage so it is cleared when the tab/browser closes.
@@ -86,19 +95,23 @@ export function getOrCreateDeviceKey() {
   const generated = generateUuid()
   try {
     window.sessionStorage.setItem(DEVICE_KEY_STORAGE_KEY, generated)
+    // Encryption is only useful when the key can be recovered for the rest of
+    // this browser session. Treat a blocked/non-persistent sessionStorage as
+    // unavailable instead of writing snapshots that can never be decrypted.
+    return window.sessionStorage.getItem(DEVICE_KEY_STORAGE_KEY) === generated
   } catch {
-    // persistence failure is non-fatal; key remains valid for this session
+    return null
   }
-  return generated
 }
 
 function generateUuid() {
-  if (typeof window !== 'undefined' && window.crypto?.randomUUID) {
-    return window.crypto.randomUUID()
+  const cryptoProvider = getCryptoProvider()
+  if (cryptoProvider?.randomUUID) {
+    return cryptoProvider.randomUUID()
   }
   const bytes = new Uint8Array(16)
-  if (typeof window !== 'undefined' && window.crypto?.getRandomValues) {
-    window.crypto.getRandomValues(bytes)
+  if (cryptoProvider?.getRandomValues) {
+    cryptoProvider.getRandomValues(bytes)
   } else {
     for (let i = 0; i < bytes.length; i += 1) bytes[i] = Math.floor(Math.random() * 256)
   }
@@ -109,18 +122,24 @@ function generateUuid() {
 }
 
 let cachedCryptoKey = null
+let cachedCryptoKeyMaterial = null
 async function importDeviceKey(rawKey) {
-  if (cachedCryptoKey) return cachedCryptoKey
+  if (cachedCryptoKey && cachedCryptoKeyMaterial === rawKey) return cachedCryptoKey
   const material = new TextEncoder().encode(rawKey.padEnd(32, '0').slice(0, 32))
-  cachedCryptoKey = await window.crypto.subtle.importKey('raw', material, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt'])
+  const cryptoProvider = getCryptoProvider()
+  if (!cryptoProvider) throw new Error('WebCrypto unavailable')
+  cachedCryptoKey = await cryptoProvider.subtle.importKey('raw', material, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt'])
+  cachedCryptoKeyMaterial = rawKey
   return cachedCryptoKey
 }
 
 async function encryptAesGcm(data) {
   const json = JSON.stringify(data)
-  const iv = window.crypto.getRandomValues(new Uint8Array(12))
+  const cryptoProvider = getCryptoProvider()
+  if (!cryptoProvider) throw new Error('WebCrypto unavailable')
+  const iv = cryptoProvider.getRandomValues(new Uint8Array(12))
   const key = await importDeviceKey(getOrCreateDeviceKey())
-  const cipherBytes = new Uint8Array(await window.crypto.subtle.encrypt(
+  const cipherBytes = new Uint8Array(await cryptoProvider.subtle.encrypt(
     { name: 'AES-GCM', iv },
     key,
     new TextEncoder().encode(json)
@@ -129,10 +148,12 @@ async function encryptAesGcm(data) {
 }
 
 async function decryptAesGcm(ivBase64, cipherBase64) {
+  const cryptoProvider = getCryptoProvider()
+  if (!cryptoProvider) throw new Error('WebCrypto unavailable')
   const iv = base64ToBytes(ivBase64)
   const cipherBytes = base64ToBytes(cipherBase64)
   const key = await importDeviceKey(getOrCreateDeviceKey())
-  const plainBytes = new Uint8Array(await window.crypto.subtle.decrypt(
+  const plainBytes = new Uint8Array(await cryptoProvider.subtle.decrypt(
     { name: 'AES-GCM', iv },
     key,
     cipherBytes
@@ -174,21 +195,15 @@ export function decryptData(payload) {
 }
 
 /**
- * 只快照白名单中的非敏感字段。
- * 与黑名单不同，白名单确保只有明确声明为安全的字段被保存。
+ * 只排除明确敏感字段，保留后端 contract 中的普通业务字段。
  */
 export function sanitizeSnapshot(data) {
-  if (!data || typeof data !== 'object') return data
-  const sanitized = Array.isArray(data) ? [] : {}
+  if (data === null || typeof data !== 'object') return data
+  if (Array.isArray(data)) return data.map(item => sanitizeSnapshot(item))
+  const sanitized = {}
   for (const key of Object.keys(data)) {
-    if (SNAPSHOT_WHITELIST.includes(key)) {
-      const value = data[key]
-      if (value && typeof value === 'object' && !Array.isArray(value)) {
-        sanitized[key] = sanitizeSnapshot(value)
-      } else {
-        sanitized[key] = value
-      }
-    }
+    if (isSensitiveSnapshotKey(key)) continue
+    sanitized[key] = sanitizeSnapshot(data[key])
   }
   return sanitized
 }

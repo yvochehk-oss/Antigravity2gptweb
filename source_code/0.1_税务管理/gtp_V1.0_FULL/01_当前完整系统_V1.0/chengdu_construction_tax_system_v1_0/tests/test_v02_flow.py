@@ -1,6 +1,8 @@
 """V0.2 端到端 Web + AI 编排回归。"""
 from __future__ import annotations
 
+import time
+
 from fastapi.testclient import TestClient
 
 
@@ -47,9 +49,11 @@ def test_login_and_logout(seeded_app):
 
 
 
-def test_ai_review_run_and_detail(seeded_app):
+def test_ai_review_run_and_detail(seeded_app, monkeypatch):
     from app.main import app
 
+    monkeypatch.setenv("APP_ENV", "test")
+    monkeypatch.setenv("AI_ALLOW_MOCK_ENDPOINTS", "1")
     c = _get_client(app)
 
     # 找启用的 mock 端点进行快速确定性测试
@@ -77,9 +81,11 @@ def test_ai_review_run_and_detail(seeded_app):
     assert "result" in api
 
 
-def test_health_check_standard_two_models(seeded_app):
+def test_health_check_standard_two_models(seeded_app, monkeypatch):
     from app.main import app
 
+    monkeypatch.setenv("APP_ENV", "test")
+    monkeypatch.setenv("AI_ALLOW_MOCK_ENDPOINTS", "1")
     c = _get_client(app)
     from app.db import SessionLocal
     from app.models import AIModelEndpoint
@@ -99,10 +105,14 @@ def test_health_check_standard_two_models(seeded_app):
     assert r.status_code == 303
     bid = int(r.headers["location"].split("/")[-1])
 
+    deadline = time.monotonic() + 10
+    api = c.get(f"/api/health-check/{bid}").json()
+    while api["batch"]["status"] in {"pending", "running"} and time.monotonic() < deadline:
+        time.sleep(0.02)
+        api = c.get(f"/api/health-check/{bid}").json()
     detail = c.get(f"/health-check/{bid}")
     assert detail.status_code == 200
 
-    api = c.get(f"/api/health-check/{bid}").json()
     assert api["batch"]["status"] in ("completed", "completed_with_errors")
     assert "consensus" in api
     # 至少 1 项共识
@@ -112,9 +122,11 @@ def test_health_check_standard_two_models(seeded_app):
     assert 0 <= consensus["score"] <= 100
 
 
-def test_remediation_task_create_and_recheck(seeded_app):
+def test_remediation_task_create_and_recheck(seeded_app, monkeypatch):
     from app.main import app
 
+    monkeypatch.setenv("APP_ENV", "test")
+    monkeypatch.setenv("AI_ALLOW_MOCK_ENDPOINTS", "1")
     c = _get_client(app)
     r = c.post("/tasks/create", data={
         "project_id": "1", "scope": "equipment",

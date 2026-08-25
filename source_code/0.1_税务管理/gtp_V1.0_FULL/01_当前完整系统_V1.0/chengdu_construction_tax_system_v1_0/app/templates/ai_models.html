@@ -1,50 +1,96 @@
 {% extends "base.html" %}
 {% block content %}
 <div class="card">
-<h2>外部模型 API 端点</h2>
-<form method="post" action="/ai-models" class="row">
+<h2>AI 模型端点</h2>
+<p class="muted">仅管理员可配置。API Key 只在提交时接收一次，服务器会加密保存；页面不会回显、掩码或返回任何 Key 字符。</p>
+<form method="post" action="/ai-models" class="row" autocomplete="off">
   <input type="hidden" name="_csrf" value="{{ csrf_token }}">
-<input name="name" placeholder="名称">
-<select name="adapter"><option>模拟</option><option>OpenAI兼容接口</option></select>
-<input name="base_url" placeholder="https://api.example.com">
-<input name="chat_path" value="/v1/chat/completions">
-<input name="model" placeholder="模型名">
-<input name="api_key_env" placeholder="TAX_AI_API_KEY">
-<input name="timeout_seconds" type="number" value="90">
-<input name="note" placeholder="备注">
-<button>新增</button>
+  <input name="name" placeholder="端点名称" maxlength="100" required>
+  <select name="adapter" aria-label="适配器">
+    <option value="openai_compatible">OpenAI 兼容接口</option>
+    <option value="openrouter">OpenRouter</option>
+  </select>
+  <input name="base_url" placeholder="https://api.example.com 或 http://127.0.0.1:8080" maxlength="300" required>
+  <input name="chat_path" value="/v1/chat/completions" maxlength="200" required>
+  <input name="model" placeholder="模型名（如本地 3B 模型）" maxlength="120" required>
+  <input name="api_key" type="password" placeholder="API Key（本地 llama.cpp 可留空）" maxlength="65536" autocomplete="new-password">
+  <input name="api_key_env" placeholder="或服务器环境变量名（不能与 API Key 同填）" maxlength="120" autocomplete="off">
+  <input name="timeout_seconds" type="number" min="1" max="600" value="90" aria-label="超时时间">
+  <input name="priority" type="number" min="0" max="10000" value="100" aria-label="优先级（越小越优先）">
+  <input name="routing_group" value="default" placeholder="路由组" maxlength="80">
+  <input name="note" placeholder="备注" maxlength="300">
+  <button type="submit">新增端点</button>
 </form>
-<p class="muted">API Key 仅保存环境变量名，不入库。</p>
+<p class="muted">本地 llama.cpp：先启动 OpenAI-compatible 服务，再在服务端设置 <code>AI_ALLOW_PRIVATE_LLM=1</code>；本地端点可不填 Key。外部服务必须使用 HTTPS，Key 可直接输入或引用已批准的环境变量。</p>
 </div>
 
 <div class="card">
 <table>
-<thead><tr><th>#</th><th>名称</th><th>适配器</th><th>模型</th><th>Key环境变量</th><th>启用</th><th>操作</th></tr></thead>
+<thead><tr><th>#</th><th>名称</th><th>适配器</th><th>模型</th><th>凭证状态</th><th>优先级/组</th><th>启用</th><th>操作</th></tr></thead>
 <tbody>
 {% for r in rows %}
 <tr>
 <td>{{ r.id }}</td>
-<td>
-  <strong>{{ r.name }}</strong>
-  {% if r.adapter != "mock" %}
-    <span class="tag blue" style="margin-left:6px;">🌟 默认主审查模型</span>
-  {% else %}
-    <span class="tag gray" style="margin-left:6px;">🛡️ 本地兜底模型</span>
-  {% endif %}
-</td>
+<td><strong>{{ r.name }}</strong></td>
 <td>{{ r.adapter }}</td>
 <td>{{ r.model }}</td>
-<td>{{ r.api_key_env }}</td>
+<td><span class="tag {% if credential_status.get(r.id) == '已配置' or credential_status.get(r.id) == '未配置（本地服务）' %}green{% else %}gray{% endif %}">{{ credential_status.get(r.id, '未知') }}</span></td>
+<td>{{ r.priority|default('—', true) }} / {{ r.routing_group|default('default', true) }}</td>
 <td><span class="tag {% if r.enabled %}green{% else %}gray{% endif %}">{{ "✓ 启用" if r.enabled else "✗ 禁用" }}</span></td>
 <td>
-<form method="post" action="/ai-models/{{ r.id }}/toggle" class="inline">
-<input type="hidden" name="_csrf" value="{{ csrf_token }}">
-<button class="secondary">{{ "禁用" if r.enabled else "启用" }}</button>
-</form>
+  <details>
+    <summary>管理</summary>
+    <form method="post" action="/ai-models/{{ r.id }}/rotate" class="inline" autocomplete="off">
+      <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+      <input name="api_key" type="password" placeholder="新 API Key" maxlength="65536" autocomplete="new-password" required>
+      <button type="submit" class="secondary">轮换凭证</button>
+    </form>
+    <form method="post" action="/ai-models/{{ r.id }}/test" class="inline">
+      <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+      <button type="submit" class="secondary">测试连接</button>
+    </form>
+    <form method="post" action="/ai-models/{{ r.id }}/toggle" class="inline">
+      <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+      <button type="submit" class="secondary">{{ "禁用" if r.enabled else "启用" }}</button>
+    </form>
+    <form method="post" action="/ai-models/{{ r.id }}/revoke" class="inline">
+      <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+      <button type="submit" class="secondary">撤销凭证</button>
+    </form>
+    <form method="post" action="/ai-models/{{ r.id }}/delete" class="inline">
+      <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+      <button type="submit" class="secondary">删除端点</button>
+    </form>
+  </details>
+</td>
+</tr>
+<tr>
+<td></td><td colspan="7">
+  <details><summary>编辑连接参数</summary>
+  <form method="post" action="/ai-models/{{ r.id }}/update" class="row" autocomplete="off">
+    <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+    <input name="name" value="{{ r.name }}" maxlength="100" required>
+    <select name="adapter">
+      <option value="openai_compatible" {% if r.adapter == 'openai_compatible' %}selected{% endif %}>OpenAI 兼容接口</option>
+      <option value="openrouter" {% if r.adapter == 'openrouter' %}selected{% endif %}>OpenRouter</option>
+    </select>
+    <input name="base_url" value="{{ r.base_url }}" maxlength="300" required>
+    <input name="chat_path" value="{{ r.chat_path }}" maxlength="200" required>
+    <input name="model" value="{{ r.model }}" maxlength="120" required>
+    <input name="api_key" type="password" placeholder="留空保持现有凭证" maxlength="65536" autocomplete="new-password">
+    <input name="api_key_env" value="{{ r.api_key_env }}" placeholder="环境变量名（不换 Key 时保留）" maxlength="120" autocomplete="off">
+    <input name="timeout_seconds" type="number" min="1" max="600" value="{{ r.timeout_seconds }}">
+    <input name="priority" type="number" min="0" max="10000" value="{{ r.priority|default(100, true) }}">
+    <input name="routing_group" value="{{ r.routing_group|default('default', true) }}" maxlength="80">
+    <input name="note" value="{{ r.note }}" maxlength="300">
+    <button type="submit">保存参数</button>
+  </form>
+  </details>
 </td>
 </tr>
 {% endfor %}
 </tbody>
 </table>
+{% if not rows %}<p class="muted">暂无可管理的模型端点。旧 mock 端点不会在此页面显示；请新增外部模型或本地 llama.cpp 端点。</p>{% endif %}
 </div>
 {% endblock %}

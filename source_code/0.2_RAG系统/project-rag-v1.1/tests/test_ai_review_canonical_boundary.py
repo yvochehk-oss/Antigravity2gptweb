@@ -24,10 +24,14 @@ class _Facts:
     as_of: str
     facts_version: str
     metrics: dict
+    entity_code: str | None = "A01"
+    entity_mapping_status: str | None = "VALID"
+    entity_mapping_reason: str | None = None
+    entity_mapping_valid: bool | None = True
 
 
-def _facts() -> _Facts:
-    return _Facts(
+def _facts(**changes) -> _Facts:
+    payload = dict(
         project_code="YB-DEMO-001",
         as_of="2026-08-20T00:00:00+00:00",
         facts_version="facts-test-v1",
@@ -36,6 +40,8 @@ def _facts() -> _Facts:
             "health_score": MetricValue(88.0, "1.0", "score"),
         },
     )
+    payload.update(changes)
+    return _Facts(**payload)
 
 
 def _service(monkeypatch, facts: _Facts | None = None):
@@ -48,6 +54,11 @@ def _service(monkeypatch, facts: _Facts | None = None):
         service._snapshot_service,
         "create_snapshot",
         lambda **_: SimpleNamespace(id="snapshot-1"),
+    )
+    monkeypatch.setattr(
+        service._evidence_pack_service,
+        "create_pack",
+        lambda **_: SimpleNamespace(id="evidence-pack-1"),
     )
     monkeypatch.setattr(
         service._run_service,
@@ -94,6 +105,29 @@ def test_no_documentary_evidence_is_explicit_needs_review(monkeypatch):
     assert response["result"]["needs_review"] is True
     assert called["llm"] is False
     assert completed["run_status"] == "NEEDS_REVIEW"
+
+def test_entity_mapping_gap_is_explicit_needs_review_before_rag(monkeypatch):
+    facts = _facts(
+        entity_code=None,
+        entity_mapping_status="MISSING",
+        entity_mapping_reason="project.entity_code is NULL or blank",
+        entity_mapping_valid=False,
+    )
+    service, _completed = _service(monkeypatch, facts=facts)
+    called = {"rag": False, "llm": False}
+    monkeypatch.setattr(
+        service,
+        "_get_rag_evidence",
+        lambda _: called.__setitem__("rag", True) or [],
+    )
+    monkeypatch.setattr(service, "_call_llm", lambda *_: called.__setitem__("llm", True))
+
+    response = service.run_review("YB-DEMO-001")
+
+    assert response["status"] == "NEEDS_REVIEW"
+    assert response["result"]["facts_used"] is False
+    assert "entity mapping" in response["result"]["facts_reason"]
+    assert called == {"rag": False, "llm": False}
 
 
 def test_llm_cannot_override_canonical_health_score(monkeypatch):

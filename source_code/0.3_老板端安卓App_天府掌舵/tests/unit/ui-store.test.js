@@ -13,6 +13,8 @@ describe('UI store', () => {
 
   afterEach(() => {
     localStorage.clear()
+    vi.unstubAllGlobals()
+    vi.unstubAllEnvs()
   })
 
   it('defaults offlineCacheEnabled to true when no settings are stored', () => {
@@ -45,7 +47,68 @@ describe('UI store', () => {
     localStorage.removeItem(SERVER_URL_KEY)
     setActivePinia(createPinia())
     const fallback = useUiStore()
-    expect(fallback.serverBaseUrl).toMatch(/^http:\/\/127\.0\.0\.1:8922$/)
+    expect(fallback.serverBaseUrl).toBe(
+      import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8922'
+    )
+  })
+
+  it('falls back to localhost when VITE_API_BASE_URL is not configured', async () => {
+    vi.resetModules()
+    vi.stubEnv('VITE_API_BASE_URL', '')
+    const { useUiStore: useFreshUiStore } = await import('../../src/stores/ui.store')
+
+    setActivePinia(createPinia())
+    const fallback = useFreshUiStore()
+
+    expect(fallback.serverBaseUrl).toBe('http://127.0.0.1:8922')
+  })
+
+  it('ignores a persisted private-LAN URL when the page runs on loopback', () => {
+    vi.stubGlobal('location', { hostname: '127.0.0.1' })
+    localStorage.setItem(SERVER_URL_KEY, 'http://192.168.1.3:8922')
+
+    const ui = useUiStore()
+
+    expect(ui.serverBaseUrl).toBe(
+      import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8922'
+    )
+  })
+
+  it('preserves a persisted private-LAN URL when the page runs on a LAN host', () => {
+    vi.stubGlobal('location', { hostname: '192.168.10.36' })
+    const storedUrl = 'http://192.168.1.3:8922'
+    localStorage.setItem(SERVER_URL_KEY, storedUrl)
+
+    const ui = useUiStore()
+
+    expect(ui.serverBaseUrl).toBe(storedUrl)
+  })
+
+  it('preserves persisted HTTPS and loopback URLs on a loopback page', () => {
+    vi.stubGlobal('location', { hostname: 'localhost' })
+    localStorage.setItem(SERVER_URL_KEY, 'https://api.example.com')
+    expect(useUiStore().serverBaseUrl).toBe('https://api.example.com')
+
+    localStorage.clear()
+    localStorage.setItem(SERVER_URL_KEY, 'http://127.0.0.1:8922')
+    setActivePinia(createPinia())
+    expect(useUiStore().serverBaseUrl).toBe('http://127.0.0.1:8922')
+  })
+
+  it('keeps the store usable when Web Storage reads and writes throw', () => {
+    vi.spyOn(localStorage, 'getItem').mockImplementation(() => {
+      throw new Error('storage unavailable')
+    })
+    vi.spyOn(localStorage, 'setItem').mockImplementation(() => {
+      throw new Error('storage unavailable')
+    })
+
+    const ui = useUiStore()
+
+    expect(ui.serverBaseUrl).toBe(
+      import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8922'
+    )
+    expect(() => ui.persistSettings()).not.toThrow()
   })
 
   it('returns descriptive connection text per status and URL pattern', () => {

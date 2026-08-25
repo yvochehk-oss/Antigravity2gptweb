@@ -53,3 +53,11 @@ def test_download_path_must_stay_in_original_storage(tmp_path, monkeypatch):
     outside.write_text("secret", encoding="utf-8")
     with pytest.raises(PathTraversalError):
         validate_stored_file(str(outside))
+
+
+def test_download_path_accepts_only_the_explicit_v2_materials_root():
+    from app.config import PROJECT_MATERIALS_DIR
+
+    target = PROJECT_MATERIALS_DIR / "CD-TF-001" / "DOC-CF61DD37BED3" / "发票_OUT-IN-TF-B01_2.pdf"
+    assert target.is_file()
+    assert validate_stored_file(str(target)) == target.resolve()

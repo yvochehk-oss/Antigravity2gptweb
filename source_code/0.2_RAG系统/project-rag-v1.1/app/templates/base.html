@@ -93,6 +93,9 @@
         <a href="/search" class="btn btn-sm btn-primary">
           <span>🔍 快速证据检索</span>
         </a>
+        <form method="post" action="/api/v1/auth/logout" class="rag-logout-form">
+          <button type="submit" class="btn btn-sm rag-logout-button">退出登录</button>
+        </form>
       </div>
     </header>
 
@@ -103,5 +106,9 @@
   </div>
 
   {% block scripts %}{% endblock %}
+  <style>
+    .rag-logout-form { display: inline; margin: 0; }
+    .rag-logout-button { cursor: pointer; }
+  </style>
 </body>
 </html>

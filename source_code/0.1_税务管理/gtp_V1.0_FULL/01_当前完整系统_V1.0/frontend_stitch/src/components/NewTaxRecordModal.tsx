@@ -1,340 +1,419 @@
-import { useState } from 'react';
-import { 
-  X, 
-  Database, 
-  Search, 
-  Sparkles, 
-  FileCheck, 
-  AlertTriangle, 
-  ShieldCheck, 
-  RefreshCw, 
-  Layers,
-  FileText,
-  Building2,
-  CheckCircle2
+import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Database,
+  Loader2,
+  RefreshCw,
+  Save,
+  X,
+  XCircle,
 } from 'lucide-react';
-import { TaxLedgerRecord, TaxCategory, FilingStatus, RiskLevel } from '../types';
+import {
+  ApiError,
+  fetchProjectRagMap,
+  fetchRagStatus,
+  saveProjectRagMap,
+  syncRagBatch,
+  syncRagType,
+} from '../api';
+import {
+  ProjectItem,
+  ProjectRagMapping,
+  RagProjectCandidate,
+  RagStatusResponse,
+  RagSyncResult,
+  RagSyncType,
+} from '../types';
+import {
+  canSaveRagMapping,
+  canSyncRagMapping,
+  activeTaxProjectId,
+  mappingChanged,
+  mappingMismatchWarning,
+  operationErrorTitle,
+  ragErrorMessage,
+  resolveTaxProjectId,
+} from '../ragMappingUi';
 
 interface NewTaxRecordModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onAddRecord: (record: Omit<TaxLedgerRecord, 'id' | 'updateTime'>) => void;
+  projects: ProjectItem[];
+  projectId?: number;
+  defaultProjectCode?: string;
   defaultProjectName?: string;
+  onSyncCompleted?: () => void;
 }
 
-// 模拟企业 RAG 知识湖中已索引但待查账归集的业财票据包
-const RAG_PENDING_DOCUMENTS = [
-  {
-    id: 'rag-bundle-01',
-    docId: 'RAG-Doc://财税底账/2026-Q3/幕墙分包合同与数电票.pdf',
-    entityName: '四川锐宝幕墙科技（智慧幕墙与光伏工程分包）',
-    entityCategory: '建筑幕墙与节能分包',
-    declareAmount: 18500000,
-    taxAmount: 1665000,
-    taxCategory: '增值税 (普通/专用)' as TaxCategory,
-    filingPeriod: '2026年第二季度',
-    status: '待主管复核' as FilingStatus,
-    riskLevel: '预警' as RiskLevel,
-    invoiceCode: '数电专票-31002688921',
-    vectorSimilarity: 99.4,
-    riskDescription: 'RAG 语义分析发现：发票开具抬头与银行付款账户一致，但物流现场签收单据签字存在跨期滞后（相隔42天），存在暂估挂账税务稽核偏差风险。',
-    fourFlows: {
-      contractMatch: true,
-      invoiceMatch: true,
-      paymentMatch: true,
-      logisticsMatch: false,
-    },
-    docHighlights: ['合同总价 ¥18,500,000', '发票联税率 9%', '银企直联流水匹配度 100%', '现场电子磅单签名比对存疑']
-  },
-  {
-    id: 'rag-bundle-02',
-    docId: 'RAG-Doc://财税底账/2026-Q3/特种商砼集采电子底账.json',
-    entityName: '四川恒固建材物资（高标号特种预拌商砼供应）',
-    entityCategory: '主材集中采购供应',
-    declareAmount: 9600000,
-    taxAmount: 864000,
-    taxCategory: '增值税 (普通/专用)' as TaxCategory,
-    filingPeriod: '2026年第二季度',
-    status: '已合规申报' as FilingStatus,
-    riskLevel: '正常' as RiskLevel,
-    invoiceCode: '数电专票-44032187654',
-    vectorSimilarity: 98.8,
-    riskDescription: 'RAG 自动质检完成：合同条款、数电发票金税抵扣、银企直联付汇凭证及现场混凝土电子磅单四流完全一致，符合即征即退进项抵扣合规标准。',
-    fourFlows: {
-      contractMatch: true,
-      invoiceMatch: true,
-      paymentMatch: true,
-      logisticsMatch: true,
-    },
-    docHighlights: ['集采框架协议通过', '发票代码 44032187654 验真通过', '招商银行对账单一致', '物流轨迹校验闭环']
-  },
-  {
-    id: 'rag-bundle-03',
-    docId: 'RAG-Doc://跨境税务/2026-Q2/德国重型吊装设备租赁备案.pdf',
-    entityName: '四川德力重工设备（特种高空重型吊装设备租赁）',
-    entityCategory: '大型特种机械租赁',
-    declareAmount: 24000000,
-    taxAmount: 2400000,
-    taxCategory: '预提所得税' as TaxCategory,
-    filingPeriod: '2026年第二季度',
-    status: '异常-税务稽查中' as FilingStatus,
-    riskLevel: '高危' as RiskLevel,
-    invoiceCode: '跨境付汇凭证-DE-99210',
-    vectorSimilarity: 97.6,
-    riskDescription: 'RAG 穿透稽查警报：非居民企业跨境租金涉及双边税收协定常设机构（PE）认定争议，预提所得税协定优惠税率与主管税务机关备案文件存在 5% 税率差额争议。',
-    fourFlows: {
-      contractMatch: true,
-      invoiceMatch: false,
-      paymentMatch: true,
-      logisticsMatch: true,
-    },
-    docHighlights: ['涉税双边协定判例触发', '对外支付税务备案表缺漏项', '外汇管理局付汇申报预警', '存在滞纳金潜在风险']
-  }
+type OperationState = 'idle' | 'saving' | 'syncing' | 'success' | 'pending' | 'partial' | 'failed';
+
+const SYNC_OPTIONS: Array<{ type: RagSyncType; label: string; description: string }> = [
+  { type: 'invoice', label: '发票', description: '进销项发票凭证' },
+  { type: 'contract', label: '合同', description: '合同及履约资料' },
+  { type: 'payment', label: '付款', description: '银行付款/资金凭证' },
+  { type: 'tax_payment', label: '完税凭证', description: '申报与完税资料' },
 ];
+
+function statusLabel(status: string): string {
+  switch (status.toUpperCase()) {
+    case 'SUCCESS': return '成功';
+    case 'PENDING_REVIEW': return '待人工复核';
+    case 'PARTIAL': return '部分完成';
+    case 'FAILED': return '失败';
+    default: return status || '未知状态';
+  }
+}
+
+function resultState(results: RagSyncResult[]): Exclude<OperationState, 'idle' | 'saving' | 'syncing'> {
+  if (results.length === 0 || results.every(result => result.status.toUpperCase() === 'FAILED')) return 'failed';
+  if (results.some(result => result.status.toUpperCase() === 'PARTIAL' || result.errors.length > 0)) return 'partial';
+  if (results.some(result => result.status.toUpperCase() === 'PENDING_REVIEW' || result.totalPending > 0)) return 'pending';
+  return 'success';
+}
+
+function candidateLabel(candidate: RagProjectCandidate): string {
+  const parts = [candidate.projectCode, candidate.name].filter(Boolean);
+  return parts.length > 0 ? parts.join(' · ') : `RAG 项目 #${candidate.id}`;
+}
+
+function projectLabel(project: ProjectItem): string {
+  return [project.projectCode, project.name].filter(Boolean).join(' · ') || `Tax 项目 #${project.numericId}`;
+}
 
 export function NewTaxRecordModal({
   isOpen,
   onClose,
-  onAddRecord,
-  defaultProjectName = '阿尔法一号大厦工程'
+  projects,
+  projectId,
+  defaultProjectCode,
+  defaultProjectName,
+  onSyncCompleted,
 }: NewTaxRecordModalProps) {
-  const [selectedBundleId, setSelectedBundleId] = useState<string>(RAG_PENDING_DOCUMENTS[0].id);
-  const [isSearching, setIsSearching] = useState(false);
-  const [ragSearchQuery, setRagSearchQuery] = useState('');
-  const [activeTab, setActiveTab] = useState<'lake' | 'semantic'>('lake');
+  const [selectedTaxProjectId, setSelectedTaxProjectId] = useState(() => resolveTaxProjectId(projects, projectId));
+  const [ragStatus, setRagStatus] = useState<RagStatusResponse | null>(null);
+  const [candidates, setCandidates] = useState<RagProjectCandidate[]>([]);
+  const [mapping, setMapping] = useState<ProjectRagMapping | null>(null);
+  const [mappingVerified, setMappingVerified] = useState(false);
+  const [selectedRagProjectId, setSelectedRagProjectId] = useState('');
+  const [selectedTypes, setSelectedTypes] = useState<RagSyncType[]>(['invoice']);
+  const [operation, setOperation] = useState<OperationState>('idle');
+  const [syncResults, setSyncResults] = useState<RagSyncResult[]>([]);
+  const [isEditingMapping, setIsEditingMapping] = useState(false);
+  const [pendingMappingCandidate, setPendingMappingCandidate] = useState<RagProjectCandidate | null>(null);
+  const [mappingNotice, setMappingNotice] = useState('');
+  const [statusError, setStatusError] = useState('');
+  const [mappingError, setMappingError] = useState('');
+  const [saveError, setSaveError] = useState('');
+  const [syncError, setSyncError] = useState('');
+  const [statusLoading, setStatusLoading] = useState(false);
+  const [mappingLoading, setMappingLoading] = useState(false);
+  const [statusRetry, setStatusRetry] = useState(0);
+  const [mappingRetry, setMappingRetry] = useState(0);
+  const statusAbortRef = useRef<AbortController | null>(null);
+  const mappingAbortRef = useRef<AbortController | null>(null);
+
+  const selectedTaxProject = useMemo(
+    () => projects.find(project => String(project.numericId) === selectedTaxProjectId),
+    [projects, selectedTaxProjectId],
+  );
+  const activeProjectId = activeTaxProjectId(projects, selectedTaxProjectId, projectId);
+  const activeProjectCode = selectedTaxProject?.projectCode || defaultProjectCode;
+  const activeProjectName = selectedTaxProject?.name || defaultProjectName;
+  const statusOk = ragStatus?.ok === true && !statusError;
+  const selectedCandidate = useMemo(
+    () => candidates.find(candidate => String(candidate.id) === selectedRagProjectId),
+    [candidates, selectedRagProjectId],
+  );
+  const mappingCandidate = useMemo(
+    () => mapping ? candidates.find(candidate => candidate.id === mapping.ragProjectId) : undefined,
+    [candidates, mapping],
+  );
+  const busy = statusLoading || mappingLoading || operation === 'saving' || operation === 'syncing';
+  const canSave = canSaveRagMapping({
+    statusOk,
+    candidates,
+    selected: selectedCandidate,
+    mapping,
+    editing: isEditingMapping,
+    busy,
+  });
+  const canSync = canSyncRagMapping({
+    statusOk,
+    candidates,
+    mapping,
+    mappingCandidate,
+    mappingVerified,
+    editing: isEditingMapping,
+    selectedTypes: selectedTypes.length,
+    busy,
+  });
+  const serviceConnected = statusOk && !mappingLoading && !mappingError && !saveError && !syncError;
+
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    setSelectedTaxProjectId(current => resolveTaxProjectId(projects, projectId, current));
+    return undefined;
+  }, [isOpen, projectId, projects]);
+
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    statusAbortRef.current?.abort();
+    const controller = new AbortController();
+    statusAbortRef.current = controller;
+    setStatusLoading(true);
+    setStatusError('');
+    setRagStatus(null);
+    setCandidates([]);
+    void fetchRagStatus(controller.signal)
+      .then(status => {
+        if (controller.signal.aborted) return;
+        if (!status.ok) {
+          setRagStatus(status);
+          setCandidates([]);
+          setStatusError(ragErrorMessage(new ApiError(status.error || 'RAG 服务返回不可用状态。', 0, status), 'RAG 状态读取失败。'));
+          return;
+        }
+        setRagStatus(status);
+        setCandidates(status.projects);
+      })
+      .catch(error => {
+        if (!controller.signal.aborted) {
+          setRagStatus(null);
+          setCandidates([]);
+          setStatusError(ragErrorMessage(error, 'RAG 状态读取失败。'));
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setStatusLoading(false);
+      });
+    return () => {
+      controller.abort();
+      if (statusAbortRef.current === controller) statusAbortRef.current = null;
+    };
+  }, [isOpen, statusRetry]);
+
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    mappingAbortRef.current?.abort();
+    const controller = new AbortController();
+    mappingAbortRef.current = controller;
+    setMappingLoading(true);
+    setMappingError('');
+    setSaveError('');
+    setSyncError('');
+    setMapping(null);
+    setMappingVerified(false);
+    setSelectedRagProjectId('');
+    setPendingMappingCandidate(null);
+    setIsEditingMapping(false);
+    setMappingNotice('');
+    setOperation('idle');
+    setSyncResults([]);
+    if (!activeProjectId || !Number.isInteger(activeProjectId) || activeProjectId <= 0) {
+      setMappingError('当前没有有效的 Tax 项目，无法读取项目映射。');
+      setMappingLoading(false);
+      return () => controller.abort();
+    }
+    void fetchProjectRagMap(activeProjectId, controller.signal)
+      .then(currentMapping => {
+        if (controller.signal.aborted) return;
+        setMapping(currentMapping);
+        setMappingVerified(Boolean(currentMapping));
+        setSelectedRagProjectId(currentMapping ? String(currentMapping.ragProjectId) : '');
+      })
+      .catch(error => {
+        if (!controller.signal.aborted) {
+          setMapping(null);
+          setMappingVerified(false);
+          setMappingError(ragErrorMessage(error, 'Tax 项目映射读取失败。'));
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setMappingLoading(false);
+      });
+    return () => {
+      controller.abort();
+      if (mappingAbortRef.current === controller) mappingAbortRef.current = null;
+    };
+  }, [isOpen, activeProjectId, mappingRetry]);
+
+  useEffect(() => () => {
+    statusAbortRef.current?.abort();
+    mappingAbortRef.current?.abort();
+  }, []);
 
   if (!isOpen) return null;
 
-  const currentDoc = RAG_PENDING_DOCUMENTS.find(d => d.id === selectedBundleId) || RAG_PENDING_DOCUMENTS[0];
+  const currentMapping = mapping;
+  const selectedCandidateWarning = mappingMismatchWarning(activeProjectCode, activeProjectName, selectedCandidate);
+  const requestStatusRetry = () => setStatusRetry(value => value + 1);
+  const requestMappingRetry = () => setMappingRetry(value => value + 1);
 
-  const handleSyncToLedger = () => {
-    setIsSearching(true);
-    setTimeout(() => {
-      onAddRecord({
-        entityName: currentDoc.entityName,
-        entityCategory: currentDoc.entityCategory,
-        declareAmount: currentDoc.declareAmount,
-        taxAmount: currentDoc.taxAmount,
-        taxCategory: currentDoc.taxCategory,
-        filingPeriod: currentDoc.filingPeriod,
-        status: currentDoc.status,
-        riskLevel: currentDoc.riskLevel,
-        riskDescription: currentDoc.riskDescription,
-        invoiceCode: currentDoc.invoiceCode,
-        ragSourceDoc: currentDoc.docId,
-        vectorSimilarity: currentDoc.vectorSimilarity,
-        fourFlowsCheck: { ...currentDoc.fourFlows }
-      });
-      setIsSearching(false);
-      onClose();
-    }, 400);
+  const handleProjectChange = (value: string) => {
+    if (busy) return;
+    setSelectedTaxProjectId(value);
+    setSelectedRagProjectId('');
+    setPendingMappingCandidate(null);
+    setMappingNotice('');
+    setSaveError('');
+    setSyncError('');
+    setOperation('idle');
   };
 
+  const toggleType = (type: RagSyncType) => {
+    setSelectedTypes(current => current.includes(type)
+      ? current.filter(item => item !== type)
+      : [...current, type]);
+    setSyncError('');
+    setSyncResults([]);
+    setOperation('idle');
+  };
+
+  const beginMappingEdit = () => {
+    if (!currentMapping || !statusOk || candidates.length === 0 || busy) return;
+    setIsEditingMapping(true);
+    setSelectedRagProjectId('');
+    setPendingMappingCandidate(null);
+    setMappingNotice('');
+    setSaveError('');
+    setSyncError('');
+    setOperation('idle');
+  };
+
+  const cancelMappingEdit = () => {
+    if (busy) return;
+    setIsEditingMapping(false);
+    setPendingMappingCandidate(null);
+    setSelectedRagProjectId(currentMapping ? String(currentMapping.ragProjectId) : '');
+    setMappingNotice('');
+    setSaveError('');
+    setOperation('idle');
+  };
+
+  const requestSaveMapping = () => {
+    if (!activeProjectId || !selectedCandidate || !canSave) {
+      setSaveError('请选择 RAG 状态接口返回的真实候选；当前未保存任何映射。');
+      return;
+    }
+    if (!mappingChanged(currentMapping, selectedCandidate)) {
+      setSaveError('请选择与当前映射不同的真实 RAG 候选；当前映射未改变。');
+      return;
+    }
+    setPendingMappingCandidate(selectedCandidate);
+    setSaveError('');
+    setMappingNotice('');
+  };
+
+  const handleConfirmSaveMapping = async () => {
+    const candidate = pendingMappingCandidate;
+    if (!activeProjectId || !candidate || !statusOk || busy) return;
+    setOperation('saving');
+    setSaveError('');
+    setSyncError('');
+    setMappingVerified(false);
+    setPendingMappingCandidate(null);
+    try {
+      await saveProjectRagMap({
+        projectId: activeProjectId,
+        ragProjectId: candidate.id,
+        ragProjectCode: candidate.projectCode,
+      });
+      const savedMapping = await fetchProjectRagMap(activeProjectId);
+      if (!savedMapping || savedMapping.projectId !== activeProjectId || savedMapping.ragProjectId !== candidate.id) {
+        throw new ApiError('映射保存后重新读取结果不匹配，已停止后续同步。');
+      }
+      setMapping(savedMapping);
+      setSelectedRagProjectId(String(savedMapping.ragProjectId));
+      setMappingVerified(true);
+      setIsEditingMapping(false);
+      setOperation('success');
+      setMappingNotice('映射已保存并重新读取确认；本次仅更新映射，未自动触发 RAG 同步。');
+    } catch (error) {
+      setOperation('failed');
+      setSaveError(ragErrorMessage(error, 'RAG 映射保存失败。'));
+    }
+  };
+
+  const handleSync = async () => {
+    if (!activeProjectId || !currentMapping || !canSync) return;
+    setOperation('syncing');
+    setSyncError('');
+    setSyncResults([]);
+    try {
+      const results = selectedTypes.length === 1
+        ? [await syncRagType({ projectId: activeProjectId, ragProjectId: currentMapping.ragProjectId, syncType: selectedTypes[0] })]
+        : (await syncRagBatch({ projectId: activeProjectId, ragProjectId: currentMapping.ragProjectId, syncTypes: selectedTypes })).results;
+      setSyncResults(results);
+      setOperation(resultState(results));
+      onSyncCompleted?.();
+    } catch (error) {
+      setOperation('failed');
+      setSyncError(ragErrorMessage(error, 'RAG 凭证同步失败。'));
+    }
+  };
+
+  const totalExtracted = syncResults.reduce((sum, result) => sum + result.totalExtracted, 0);
+  const totalImported = syncResults.reduce((sum, result) => sum + result.totalImported, 0);
+  const totalPending = syncResults.reduce((sum, result) => sum + result.totalPending, 0);
+  const resultTone = operation === 'success'
+    ? 'border-[#10B981]/40 bg-[#10B981]/10 text-[#b6f4d8]'
+    : operation === 'pending' || operation === 'partial'
+      ? 'border-[#F59E0B]/40 bg-[#F59E0B]/10 text-[#ffd0a8]'
+      : 'border-[#EF4444]/40 bg-[#EF4444]/10 text-[#ffb4ab]';
+
   return (
-    <div className="fixed inset-0 bg-black/75 backdrop-blur-md z-50 flex items-center justify-center p-4">
-      <div className="bg-[#131b2e] border border-[#4cd7f6]/40 rounded-2xl max-w-2xl w-full p-6 shadow-2xl space-y-5 text-[13px] relative overflow-hidden">
-        {/* 背景光效 */}
-        <div className="absolute top-0 right-0 w-80 h-80 bg-[#4cd7f6]/5 rounded-full blur-3xl pointer-events-none"></div>
-
-        {/* 标题栏 */}
+    <div className="fixed inset-0 bg-black/75 backdrop-blur-md z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="rag-sync-title">
+      <div className="bg-[#131b2e] border border-[#4cd7f6]/40 rounded-2xl max-w-2xl w-full p-6 shadow-2xl text-[#dae2fd] max-h-[92vh] overflow-y-auto">
         <div className="flex justify-between items-start pb-4 border-b border-[#444653]/30">
-          <div>
-            <div className="flex items-center gap-2">
-              <div className="p-1.5 rounded-lg bg-[#03b5d3]/15 text-[#4cd7f6] border border-[#4cd7f6]/30">
-                <Database className="w-5 h-5" />
-              </div>
-              <h3 className="text-[18px] font-bold text-[#dae2fd]">RAG 业财知识湖凭证智能检索与查账同步</h3>
+          <div className="flex items-center gap-2">
+            <Database className="w-5 h-5 text-[#4cd7f6]" />
+            <div>
+              <h3 id="rag-sync-title" className="text-[18px] font-bold">RAG 凭证同步</h3>
+              <p className="text-[12px] text-[#8e909f] mt-0.5">当前展示 Tax 服务返回的确定性税务台账；RAG 凭证同步用于补充原始凭证、证据和待复核信息。</p>
             </div>
-            <p className="text-[12px] text-[#8e909f] mt-1">
-              本系统定位为<strong className="text-[#4cd7f6]">【智能查账与风控审计大脑】</strong>，数据无需手工录入，全量从企业 RAG 知识湖检索抽取合同、税票、资金及物流凭证，自动比对并定位涉税问题。
-            </p>
           </div>
-          <button 
-            onClick={onClose} 
-            className="text-[#8e909f] hover:text-[#dae2fd] p-1 rounded-lg hover:bg-[#222a3d] cursor-pointer"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <button type="button" onClick={onClose} disabled={busy} className="text-[#8e909f] hover:text-[#dae2fd] disabled:opacity-40" aria-label="关闭"><X className="w-5 h-5" /></button>
         </div>
 
-        {/* 目标项目标识 */}
-        <div className="bg-[#0b1326] border border-[#444653]/40 rounded-xl p-3 flex items-center justify-between">
-          <div className="flex items-center gap-2 text-[#dae2fd]">
-            <Building2 className="w-4 h-4 text-[#4cd7f6]" />
-            <span className="text-[12px] text-[#8e909f]">查账归集目标工程：</span>
-            <span className="font-bold">{defaultProjectName}</span>
-          </div>
-          <div className="flex items-center gap-1.5 text-[11px] text-[#10B981] bg-[#10B981]/15 px-2.5 py-0.5 rounded-full border border-[#10B981]/30">
-            <span className="w-1.5 h-1.5 rounded-full bg-[#10B981] animate-pulse"></span>
-            RAG 向量库已就绪
-          </div>
-        </div>
+        <label className="block mt-5 text-[12px] text-[#c4c5d5]">
+          Tax 项目
+          <select aria-label="选择 Tax 项目" value={selectedTaxProjectId} onChange={event => handleProjectChange(event.target.value)} disabled={busy || projects.length === 0} className="mt-1.5 w-full bg-[#131b2e] border border-[#444653]/50 rounded-lg px-3 py-2 text-[13px] text-[#dae2fd] focus:border-[#4cd7f6] focus:outline-none disabled:opacity-50">
+            <option value="">请选择 Tax 项目</option>
+            {projects.map(project => <option key={project.numericId} value={project.numericId}>{projectLabel(project)}</option>)}
+          </select>
+        </label>
+        <p className="text-[12px] text-[#8e909f] mt-2">当前项目：{activeProjectCode || (activeProjectId ? `Tax 项目 #${activeProjectId}` : '未选择项目')} · {activeProjectName || '未提供项目名称'}</p>
 
-        {/* 模式切换 */}
-        <div className="flex border-b border-[#444653]/30">
-          <button
-            type="button"
-            onClick={() => setActiveTab('lake')}
-            className={`pb-2.5 px-4 font-semibold text-[13px] border-b-2 transition-colors cursor-pointer flex items-center gap-2 ${
-              activeTab === 'lake'
-                ? 'border-[#4cd7f6] text-[#4cd7f6]'
-                : 'border-transparent text-[#8e909f] hover:text-[#dae2fd]'
-            }`}
-          >
-            <Layers className="w-4 h-4" />
-            <span>知识湖待查账凭证包 ({RAG_PENDING_DOCUMENTS.length})</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('semantic')}
-            className={`pb-2.5 px-4 font-semibold text-[13px] border-b-2 transition-colors cursor-pointer flex items-center gap-2 ${
-              activeTab === 'semantic'
-                ? 'border-[#4cd7f6] text-[#4cd7f6]'
-                : 'border-transparent text-[#8e909f] hover:text-[#dae2fd]'
-            }`}
-          >
-            <Search className="w-4 h-4" />
-            <span>RAG 语义智能检索与查账</span>
-          </button>
-        </div>
+        {(statusLoading || mappingLoading) && <div className="mt-4 rounded-xl border border-[#4cd7f6]/30 bg-[#03b5d3]/5 p-3 flex items-center gap-2" role="status"><Loader2 className="w-4 h-4 animate-spin text-[#4cd7f6]" />正在读取真实 RAG 状态和当前项目映射…</div>}
 
-        {/* 标签页 1: 待同步的 RAG 凭证列表 */}
-        {activeTab === 'lake' ? (
-          <div className="space-y-3 max-h-[260px] overflow-y-auto pr-1">
-            {RAG_PENDING_DOCUMENTS.map((doc) => {
-              const isSelected = doc.id === selectedBundleId;
-              return (
-                <div
-                  key={doc.id}
-                  onClick={() => setSelectedBundleId(doc.id)}
-                  className={`p-3.5 rounded-xl border transition-all cursor-pointer ${
-                    isSelected
-                      ? 'bg-[#171f33] border-[#4cd7f6] shadow-[0_0_15px_rgba(76,215,246,0.15)] ring-1 ring-[#4cd7f6]/50'
-                      : 'bg-[#0b1326]/60 border-[#444653]/40 hover:bg-[#171f33]/60'
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <span className={`w-2 h-2 rounded-full ${
-                        doc.riskLevel === '高危' ? 'bg-[#EF4444]' : doc.riskLevel === '预警' ? 'bg-[#F59E0B]' : 'bg-[#10B981]'
-                      }`}></span>
-                      <span className="font-bold text-[#dae2fd] text-[13px]">{doc.entityName}</span>
-                      <span className="text-[11px] text-[#8e909f] bg-[#222a3d] px-2 py-0.5 rounded">
-                        {doc.entityCategory}
-                      </span>
-                    </div>
-                    <span className="text-[11px] font-mono-num text-[#4cd7f6]">
-                      向量匹配度 {doc.vectorSimilarity}%
-                    </span>
-                  </div>
+        {statusError && <div className="mt-4 rounded-xl border border-[#EF4444]/40 bg-[#EF4444]/10 p-3" role="alert"><p className="font-semibold text-[#ffb4ab]"><XCircle className="inline-block w-4 h-4 mr-1 align-[-2px]" />{operationErrorTitle('status')}</p><p className="text-[12px] mt-1">{statusError}</p><button type="button" onClick={requestStatusRetry} disabled={busy} className="mt-2 inline-flex items-center gap-1 rounded-lg bg-[#222a3d] px-2.5 py-1.5 text-[12px] disabled:opacity-40"><RefreshCw className="w-3.5 h-3.5" />重新读取 RAG 状态</button></div>}
+        {mappingError && <div className="mt-4 rounded-xl border border-[#EF4444]/40 bg-[#EF4444]/10 p-3" role="alert"><p className="font-semibold text-[#ffb4ab]"><XCircle className="inline-block w-4 h-4 mr-1 align-[-2px]" />{operationErrorTitle('mapping')}</p><p className="text-[12px] mt-1">{mappingError}</p><button type="button" onClick={requestMappingRetry} disabled={busy} className="mt-2 inline-flex items-center gap-1 rounded-lg bg-[#222a3d] px-2.5 py-1.5 text-[12px] disabled:opacity-40"><RefreshCw className="w-3.5 h-3.5" />重新读取当前项目映射</button></div>}
+        {saveError && <div className="mt-4 rounded-xl border border-[#EF4444]/40 bg-[#EF4444]/10 p-3" role="alert"><p className="font-semibold text-[#ffb4ab]"><XCircle className="inline-block w-4 h-4 mr-1 align-[-2px]" />{operationErrorTitle('save')}</p><p className="text-[12px] mt-1">{saveError}</p></div>}
+        {syncError && <div className="mt-4 rounded-xl border border-[#EF4444]/40 bg-[#EF4444]/10 p-3" role="alert"><p className="font-semibold text-[#ffb4ab]"><XCircle className="inline-block w-4 h-4 mr-1 align-[-2px]" />{operationErrorTitle('sync')}</p><p className="text-[12px] mt-1">{syncError}</p></div>}
 
-                  <div className="grid grid-cols-3 gap-2 mt-2.5 text-[12px] font-mono-num">
-                    <div>
-                      <span className="text-[#8e909f]">申报计税：</span>
-                      <span className="font-bold text-[#dae2fd]">¥ {doc.declareAmount.toLocaleString('zh-CN')}</span>
-                    </div>
-                    <div>
-                      <span className="text-[#8e909f]">税额：</span>
-                      <span className="font-bold text-[#4cd7f6]">¥ {doc.taxAmount.toLocaleString('zh-CN')}</span>
-                    </div>
-                    <div>
-                      <span className="text-[#8e909f]">四流质检：</span>
-                      <span className={`font-semibold ${
-                        doc.riskLevel === '正常' ? 'text-[#10B981]' : doc.riskLevel === '预警' ? 'text-[#F59E0B]' : 'text-[#EF4444]'
-                      }`}>
-                        {doc.riskLevel === '正常' ? '完全合规' : '存在差异疑点'}
-                      </span>
-                    </div>
-                  </div>
+        {serviceConnected && <div className="mt-4 rounded-xl border border-[#10B981]/30 bg-[#10B981]/5 p-3 flex items-start gap-2"><CheckCircle2 className="w-5 h-5 text-[#10B981] flex-shrink-0" /><div className="text-[12px]"><p className="font-semibold text-[#b6f4d8]">RAG 服务已连接</p><p className="text-[#c4c5d5] mt-1">版本：{ragStatus?.ragVersion || '后端未提供'} · LLM 抽取：{ragStatus?.llmExtraction ? '已启用' : '未启用'} · 候选项目：{candidates.length}</p><p className="text-[11px] text-[#8e909f] mt-1">候选仅来自 /rag-sync/status 的真实响应；页面不显示、不接收 API key。</p></div></div>}
 
-                  <div className="mt-2 text-[11px] text-[#c4c5d5] bg-[#0b1326] p-2 rounded-lg border border-[#444653]/20 flex items-start gap-1.5">
-                    <Sparkles className="w-3.5 h-3.5 text-[#4cd7f6] shrink-0 mt-0.5" />
-                    <span>{doc.riskDescription}</span>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        ) : (
-          /* 标签页 2: 语义检索查账 */
-          <div className="space-y-3">
-            <div className="relative">
-              <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-[#8e909f]" />
-              <input
-                type="text"
-                placeholder="输入关键字检索 RAG 底账（例如：'智慧幕墙'、'数电票 310026'、'跨境租金'）..."
-                value={ragSearchQuery}
-                onChange={(e) => setRagSearchQuery(e.target.value)}
-                className="w-full bg-[#0b1326] border border-[#4cd7f6]/40 rounded-xl pl-10 pr-4 py-2.5 text-[#dae2fd] text-[13px] focus:outline-none focus:ring-1 focus:ring-[#4cd7f6]"
-              />
-            </div>
-            <div className="p-3 bg-[#0b1326]/60 rounded-xl border border-[#444653]/30 text-[12px] text-[#8e909f] space-y-1.5">
-              <div className="flex items-center gap-1.5 text-[#4cd7f6] font-semibold">
-                <Sparkles className="w-3.5 h-3.5" />
-                <span>RAG 知识湖检索模式说明</span>
-              </div>
-              <p>系统将自动检索金税四期电子底账库、招商银行/建设银行银企直联流水、ERP 合同台账及现场磅单系统，自动生成结构化四流校验矩阵与涉税风险报告。</p>
-            </div>
+        {statusOk && candidates.length === 0 && <div className="mt-4 rounded-xl border border-[#F59E0B]/30 bg-[#F59E0B]/5 p-3 text-[12px] text-[#ffd0a8]">RAG 状态可读取，但未返回真实项目候选。保存、重新配置和同步均已安全禁用，当前映射不会被覆盖。</div>}
+
+        {statusOk && !mappingError && !mappingLoading && (currentMapping ? isEditingMapping : true) && (
+          <div className="mt-4 rounded-xl border border-[#F59E0B]/30 bg-[#F59E0B]/5 p-4">
+            <div className="flex items-start gap-2"><AlertTriangle className="w-5 h-5 text-[#F59E0B] flex-shrink-0" /><div className="min-w-0 flex-1"><p className="font-semibold">{currentMapping ? '重新配置 Tax ↔ RAG 项目映射' : '尚未配置 Tax ↔ RAG 项目映射'}</p><p className="text-[12px] text-[#c4c5d5] mt-1.5">系统只展示 RAG 后端真实返回的候选，不会根据名称、编号或顺序自动猜测映射。</p>
+              {candidates.length > 0 && <><label className="block text-[12px] text-[#c4c5d5] mt-3">RAG 项目候选<select aria-label="选择 RAG 项目" value={selectedRagProjectId} onChange={event => { setSelectedRagProjectId(event.target.value); setPendingMappingCandidate(null); setSaveError(''); }} disabled={busy} className="mt-1.5 w-full bg-[#131b2e] border border-[#444653]/50 rounded-lg px-3 py-2 text-[13px] text-[#dae2fd] disabled:opacity-50"><option value="">请选择后端返回的真实 RAG 项目</option>{candidates.map(candidate => <option key={candidate.id} value={candidate.id}>{candidateLabel(candidate)} · ID {candidate.id}</option>)}</select></label>{selectedCandidate && <div className="mt-2 text-[12px] text-[#c4c5d5]">准备保存：{candidateLabel(selectedCandidate)} · ID {selectedCandidate.id}{selectedCandidateWarning && <p className="mt-1 text-[#ffd0a8]">{selectedCandidateWarning}</p>}</div>}
+                {!pendingMappingCandidate ? <button type="button" onClick={() => { if (activeProjectId && selectedCandidate && mappingChanged(currentMapping, selectedCandidate)) setPendingMappingCandidate(selectedCandidate); else setSaveError('请选择与当前映射不同的真实 RAG 候选；当前映射未改变。'); }} disabled={!canSave} className="mt-3 inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-[#1e40af] text-[12px] font-semibold disabled:opacity-40"><Save className="w-3.5 h-3.5" />准备保存映射</button> : <div className="mt-3 rounded-lg border border-[#EF4444]/50 bg-[#EF4444]/10 p-3" role="alert"><p className="font-semibold text-[#ffb4ab]">请二次确认覆盖映射</p><p className="text-[12px] mt-1.5">将当前 Tax 项目映射到 {candidateLabel(pendingMappingCandidate)}（ID {pendingMappingCandidate.id}）。确认后只覆盖映射，不会自动同步凭证。</p><div className="mt-2 flex gap-2"><button type="button" onClick={() => setPendingMappingCandidate(null)} disabled={busy} className="px-3 py-1.5 rounded-lg bg-[#222a3d] text-[12px] disabled:opacity-40">取消确认</button><button type="button" onClick={() => void handleConfirmSaveMapping()} disabled={busy} className="px-3 py-1.5 rounded-lg bg-[#EF4444] text-white text-[12px] font-bold disabled:opacity-40">{operation === 'saving' ? '保存中…' : '确认覆盖保存'}</button></div></div>}
+              </>}
+              {currentMapping && <button type="button" onClick={cancelMappingEdit} disabled={busy} className="ml-2 mt-3 px-4 py-2 rounded-lg bg-[#222a3d] text-[12px] disabled:opacity-40">取消并保留当前映射</button>}
+            </div></div>
           </div>
         )}
 
-        {/* 选中的 RAG 抽取底稿摘要 */}
-        <div className="bg-[#171f33] rounded-xl p-3.5 border border-[#444653]/40 space-y-2">
-          <div className="flex justify-between items-center text-[12px]">
-            <div className="flex items-center gap-1.5 text-[#b8c4ff] font-semibold">
-              <FileText className="w-4 h-4 text-[#4cd7f6]" />
-              <span>RAG 多模态溯源凭证:</span>
-              <code className="text-[#4cd7f6] bg-[#0b1326] px-2 py-0.5 rounded font-mono-num text-[11px]">
-                {currentDoc.docId}
-              </code>
-            </div>
-            <span className="text-[11px] text-[#8e909f]">凭证代码: {currentDoc.invoiceCode}</span>
-          </div>
+        {statusOk && !mappingError && !mappingLoading && currentMapping && !isEditingMapping && <div className="mt-4 rounded-xl border border-[#4cd7f6]/30 bg-[#03b5d3]/5 p-4"><div className="flex items-start justify-between gap-3"><div><p className="font-semibold text-[#4cd7f6]">当前已映射 RAG 知识空间</p><p className="text-[13px] mt-1">{currentMapping.ragProjectCode || `RAG 项目 #${currentMapping.ragProjectId}`} · {mappingCandidate?.name || 'RAG 后端未返回名称'} · ID {currentMapping.ragProjectId}</p><p className="text-[11px] text-[#8e909f] mt-1">映射已由当前项目的 project-map 接口读取确认。</p></div><button type="button" onClick={beginMappingEdit} disabled={!statusOk || candidates.length === 0 || busy} className="px-3 py-1.5 rounded-lg bg-[#222a3d] text-[12px] disabled:opacity-40">重新配置映射</button></div>{mappingNotice && <p className="mt-2 text-[12px] text-[#b6f4d8]" role="status"><CheckCircle2 className="inline-block w-3.5 h-3.5 mr-1" />{mappingNotice}</p>}{!mappingCandidate && <p className="mt-2 text-[12px] text-[#ffd0a8]">当前映射不在最新 RAG 候选列表中，已禁用同步，请先重新确认映射。</p>}</div>}
 
-          <div className="flex flex-wrap gap-2 pt-1">
-            {currentDoc.docHighlights.map((item, idx) => (
-              <span key={idx} className="text-[11px] bg-[#0b1326] text-[#dae2fd] px-2.5 py-1 rounded-md border border-[#444653]/40 flex items-center gap-1">
-                <CheckCircle2 className="w-3 h-3 text-[#10B981]" />
-                {item}
-              </span>
-            ))}
-          </div>
-        </div>
+        {statusOk && !mappingError && !mappingLoading && currentMapping && !isEditingMapping && <div className="mt-4 rounded-xl border border-[#444653]/40 bg-[#0b1326]/50 p-4"><p className="font-semibold text-[14px]">选择同步类型</p><div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-3">{SYNC_OPTIONS.map(option => { const checked = selectedTypes.includes(option.type); return <label key={option.type} className={`flex items-start gap-2.5 rounded-lg border p-3 ${checked ? 'border-[#4cd7f6]/60 bg-[#03b5d3]/10' : 'border-[#444653]/40 bg-[#131b2e]'}`}><input type="checkbox" checked={checked} onChange={() => toggleType(option.type)} disabled={busy || !canSync} className="mt-0.5 accent-[#4cd7f6]" /><span><span className="block text-[13px] font-semibold">{option.label}</span><span className="block text-[11px] text-[#8e909f] mt-0.5">{option.description}</span></span></label>; })}</div><div className="mt-3 flex justify-end"><button type="button" onClick={() => void handleSync()} disabled={!canSync} className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-[#03b5d3] text-[#001f26] text-[12px] font-bold disabled:opacity-40">{operation === 'syncing' && <Loader2 className="w-3.5 h-3.5 animate-spin" />}{operation === 'syncing' ? '同步执行中…' : selectedTypes.length > 1 ? '开始批量同步' : '开始单类同步'}</button></div></div>}
 
-        {/* 底部动作栏 */}
-        <div className="flex items-center justify-between pt-2 border-t border-[#444653]/30">
-          <div className="text-[11px] text-[#8e909f] flex items-center gap-1.5">
-            <ShieldCheck className="w-4 h-4 text-[#10B981]" />
-            <span>同步后自动生成防篡改数字底稿与审计追踪日志</span>
-          </div>
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 bg-[#222a3d] hover:bg-[#2d3449] text-[#dae2fd] rounded-xl cursor-pointer"
-            >
-              取消
-            </button>
-            <button
-              type="button"
-              disabled={isSearching}
-              onClick={handleSyncToLedger}
-              className="flex items-center gap-2 px-5 py-2 bg-[#03b5d3] hover:bg-[#03b5d3]/90 text-[#001f26] font-bold rounded-xl shadow-lg transition-all cursor-pointer disabled:opacity-50"
-            >
-              {isSearching ? (
-                <>
-                  <RefreshCw className="w-4 h-4 animate-spin" />
-                  <span>RAG 智能解析归集中...</span>
-                </>
-              ) : (
-                <>
-                  <Sparkles className="w-4 h-4" />
-                  <span>确认同步并启动智能查账</span>
-                </>
-              )}
-            </button>
-          </div>
-        </div>
+        {syncResults.length > 0 && <div className={`mt-4 rounded-xl border p-4 ${resultTone}`} role="status"><p className="font-semibold">同步结果：{statusLabel(operation === 'pending' ? 'PENDING_REVIEW' : operation === 'partial' ? 'PARTIAL' : operation === 'success' ? 'SUCCESS' : 'FAILED')}</p><div className="grid grid-cols-3 gap-2 mt-3 text-[12px]"><div><span className="block opacity-70">抽取</span><strong>{totalExtracted}</strong></div><div><span className="block opacity-70">已导入</span><strong>{totalImported}</strong></div><div><span className="block opacity-70">待复核</span><strong>{totalPending}</strong></div></div><div className="mt-3 space-y-2">{syncResults.map(result => <div key={`${result.syncType}-${result.syncLogId}`} className="rounded-lg border border-current/20 bg-black/10 p-2.5 text-[12px]"><div className="flex justify-between gap-2"><span>{SYNC_OPTIONS.find(option => option.type === result.syncType)?.label || result.syncType}</span><span>{statusLabel(result.status)}</span></div>{result.errors.length > 0 && <ul className="mt-1.5 list-disc list-inside">{result.errors.map((item, index) => <li key={`${result.syncLogId}-${index}`}>{item}</li>)}</ul>}</div>)}</div></div>}
+
+        <div className="flex justify-end mt-5 pt-4 border-t border-[#444653]/30"><button type="button" onClick={onClose} disabled={busy} className="px-4 py-2 rounded-lg bg-[#222a3d] text-[#dae2fd] disabled:opacity-40">关闭</button></div>
       </div>
     </div>
   );

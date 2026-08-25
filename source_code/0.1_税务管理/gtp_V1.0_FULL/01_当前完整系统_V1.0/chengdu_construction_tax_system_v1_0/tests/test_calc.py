@@ -14,6 +14,55 @@ def test_note_category_word_boundary():
     assert _note_category("") == "未分类"
 
 
+def test_four_flow_evidence_completeness_contract():
+    from app.calc.matching import four_flow_evidence_completeness
+
+    complete = four_flow_evidence_completeness(
+        [
+            {
+                "contract_ok": True,
+                "fulfillment_ok": True,
+                "invoice_ok": True,
+                "paid_ok": True,
+            },
+        ],
+        evaluated_at="2026-08-24T00:00:00+00:00",
+    )
+    assert complete["status"] == "AVAILABLE"
+    assert complete["score"] is None
+    assert complete["percentage"] == 100.0
+    assert complete["counts"]["expected_evidence"] == 4
+    assert complete["counts"]["available_evidence"] == 4
+    assert complete["data_gaps"] == []
+    assert complete["updated"] == "2026-08-24T00:00:00+00:00"
+
+    partial = four_flow_evidence_completeness(
+        [
+            {
+                "contract_ok": True,
+                "fulfillment_ok": False,
+                "invoice_ok": True,
+                "paid_ok": False,
+            },
+        ],
+        evaluated_at="2026-08-24T00:00:00+00:00",
+    )
+    assert partial["status"] == "DEGRADED"
+    assert partial["percentage"] == 50.0
+    assert partial["counts"]["missing_evidence"] == 2
+    assert partial["data_gaps"] == [
+        "MISSING_FULFILLMENT_EVIDENCE",
+        "MISSING_PAID_EVIDENCE",
+    ]
+
+    unavailable = four_flow_evidence_completeness([])
+    assert unavailable["status"] == "UNAVAILABLE"
+    assert unavailable["score"] is None
+    assert unavailable["percentage"] is None
+    assert unavailable["counts"]["expected_evidence"] == 0
+    assert unavailable["data_gaps"] == ["NO_MATCHING_ROWS"]
+
+
 def test_matching_rows_evidence_flag(seeded_app):
     """履约证据缺失应被四流匹配识别。"""
     from app.calc import matching_rows

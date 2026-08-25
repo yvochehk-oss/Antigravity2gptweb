@@ -211,7 +211,7 @@ body {
   </form>
 
   <div class="account-tips">
-    <div class="account-tips-title">💡 通用账号：chairman / admin / operator (密码 888888)</div>
+    <div class="account-tips-title">💡 账号由统一用户中心管理，请使用已分配的系统账号登录。</div>
   </div>
 </div>
 
@@ -225,14 +225,12 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
     errorBox.style.display = 'none';
     
     try {
-        const isLocal = window.location.hostname === '127.0.0.1' || window.location.hostname === 'localhost';
-        // Connect to Tax backend (8921) to fetch token
-        const apiUrl = isLocal ? 'http://127.0.0.1:8921/api/v1/auth/token' : '/api/v1/auth/token';
-        
-        const res = await fetch(apiUrl + '?username=' + encodeURIComponent(u) + '&password=' + encodeURIComponent(p), {
+        // Use the same-origin bridge. The server forwards credentials to Tax;
+        // the Tax access token is returned only as an HttpOnly cookie.
+        const res = await fetch('/api/v1/auth/session', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: new URLSearchParams({ username: u, password: p }) // keep body for compatibility
+            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+            body: JSON.stringify({ username: u, password: p })
         });
         
         if (!res.ok) {
@@ -240,12 +238,9 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
             try { const errJson = await res.json(); msg = errJson.detail || msg; } catch(e){}
             throw new Error(msg);
         }
-        
-        const data = await res.json();
-        document.cookie = `cdjg_rag_token=${data.access_token}; path=/; max-age=${data.expires_in}; SameSite=Lax`;
         window.location.href = '/';
     } catch (err) {
-        errorText.textContent = err.message;
+        errorText.textContent = err instanceof Error ? err.message : '登录失败，请稍后重试';
         errorBox.style.display = 'flex';
     }
 });

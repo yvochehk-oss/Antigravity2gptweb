@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import re
 from collections import defaultdict
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any
 
@@ -77,6 +78,86 @@ def _note_category(note: str) -> str:
     return "未分类"
 
 
+_FOUR_FLOW_NAMES = ("contract", "fulfillment", "invoice", "paid")
+
+
+def four_flow_evidence_completeness(
+    rows: list[dict[str, Any]],
+    *,
+    evaluated_at: str | None = None,
+) -> dict[str, Any]:
+    """Return the deterministic completeness contract for matching rows.
+
+    This is deliberately an *evidence completeness* measure, not a project
+    health score.  Every matching row has four expected evidence items:
+    contract, fulfillment, invoice and payment.  The numerator is the number
+    of explicit evidence flags present across those rows and the denominator
+    is ``len(rows) * 4``.  A project with no matching rows cannot be treated as
+    a measured zero; it is ``UNAVAILABLE`` and its score/percentage are null.
+
+    ``matching_rows`` emits the explicit ``*_ok`` flags.  The amount-based
+    fallback keeps this helper safe for old persisted/test payloads while the
+    fulfillment flow still requires the existing ``evidence_ok`` flag.
+    """
+    row_count = len(rows)
+    expected_per_flow = row_count
+    expected = expected_per_flow * len(_FOUR_FLOW_NAMES)
+    by_flow: dict[str, dict[str, int]] = {}
+
+    for flow in _FOUR_FLOW_NAMES:
+        available = 0
+        for row in rows:
+            explicit_key = f"{flow}_ok"
+            if explicit_key in row:
+                present = bool(row[explicit_key])
+            elif flow == "fulfillment":
+                # ``evidence_ok`` is the established flag and cannot be
+                # inferred from the fulfillment amount alone.
+                present = bool(row.get("evidence_ok", False))
+            else:
+                present = _zero(row.get(flow)) > Decimal("0")
+            available += int(present)
+        by_flow[flow] = {
+            "expected": expected_per_flow,
+            "available": available,
+            "missing": expected_per_flow - available,
+        }
+
+    available_total = sum(item["available"] for item in by_flow.values())
+    missing_total = expected - available_total
+    if row_count == 0:
+        status = "UNAVAILABLE"
+        percentage: float | None = None
+        data_gaps = ["NO_MATCHING_ROWS"]
+    else:
+        status = "AVAILABLE" if missing_total == 0 else "DEGRADED"
+        percentage = round(available_total / expected * 100, 2)
+        data_gaps = [
+            f"MISSING_{flow.upper()}_EVIDENCE"
+            for flow in _FOUR_FLOW_NAMES
+            if by_flow[flow]["missing"]
+        ]
+
+    # ``score`` intentionally remains null.  No approved deterministic
+    # project-health formula exists; callers must use ``percentage`` only as
+    # four-flow evidence completeness and must not label it project health.
+    return {
+        "status": status,
+        "score": None,
+        "percentage": percentage,
+        "counts": {
+            "rows": row_count,
+            "expected_evidence": expected,
+            "available_evidence": available_total,
+            "missing_evidence": missing_total,
+            "by_flow": by_flow,
+        },
+        "data_gaps": data_gaps,
+        "updated": evaluated_at or datetime.now(timezone.utc).isoformat(),
+        "source": "tax.deterministic.matching_rows",
+    }
+
+
 
 def matching_rows(db: Session, pid: int) -> list[dict[str, Any]]:
     """合同 → 履约 → 发票 → 付款 四流匹配。
@@ -113,6 +194,9 @@ def matching_rows(db: Session, pid: int) -> list[dict[str, Any]]:
     isum: dict[tuple[str, str], Decimal] = defaultdict(lambda: Decimal("0"))
     psum: dict[tuple[str, str], Decimal] = defaultdict(lambda: Decimal("0"))
     payment_note_guesses: set[tuple[str, str]] = set()
+    contract_evidence: set[tuple[str, str]] = set()
+    invoice_evidence: set[tuple[str, str]] = set()
+    payment_evidence: set[tuple[str, str]] = set()
     # P1-08: evidence defaults to False; only explicit evidence_complete=True
     # from a Fulfillment record can make it True.
     evidence: dict[tuple[str, str], bool] = defaultdict(lambda: False)
@@ -121,6 +205,7 @@ def matching_rows(db: Session, pid: int) -> list[dict[str, Any]]:
         key = (c.seller_code, c.category)
         keys.add(key)
         csum[key] += _zero(c.amount)
+        contract_evidence.add(key)
 
     for f in fulfill:
         cat = f.category or kind_to_category(f.kind)
@@ -136,6 +221,7 @@ def matching_rows(db: Session, pid: int) -> list[dict[str, Any]]:
         key = (i.counterparty_code, i.category)
         keys.add(key)
         isum[key] += _zero(i.net) + _zero(i.vat)
+        invoice_evidence.add(key)
 
     # Build a map from (counterparty_code, category) to True for invoice
     # categories so payments can be validated against actual invoice records
@@ -151,6 +237,7 @@ def matching_rows(db: Session, pid: int) -> list[dict[str, Any]]:
         key = (x.counterparty_code, guessed)
         keys.add(key)
         psum[key] += _zero(x.amount)
+        payment_evidence.add(key)
         if guessed != "未分类":
             payment_note_guesses.add(key)
 
@@ -195,10 +282,18 @@ def matching_rows(db: Session, pid: int) -> list[dict[str, Any]]:
             "fulfillment": fulfilled,
             "invoice": invoice,
             "paid": paid,
+            "contract_ok": (cp, cat) in contract_evidence,
+            "fulfillment_ok": evidence[(cp, cat)],
+            "invoice_ok": (cp, cat) in invoice_evidence,
+            "paid_ok": (cp, cat) in payment_evidence,
             "evidence_ok": evidence[(cp, cat)],
             "status": "正常" if not flags else "；".join(flags),
         })
     return rows
 
 
-__all__ = ["matching_rows", "_note_category"]
+__all__ = [
+    "matching_rows",
+    "four_flow_evidence_completeness",
+    "_note_category",
+]

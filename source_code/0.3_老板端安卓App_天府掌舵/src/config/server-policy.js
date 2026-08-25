@@ -45,7 +45,7 @@ export function getUrlViolationReason(url) {
   const isHttps = value.startsWith('https://')
   const isCloudflareTunnel = value.includes('trycloudflare')
 
-  if (isHttp && !isHttps && !isCloudflareTunnel) {
+  if (isHttp && !isHttps && !isCloudflareTunnel && !value.startsWith('http://192.168.')) {
     return '生产环境禁止使用 http:// 明文协议。请改用 https:// 或 Cloudflare 安全隧道地址。'
   }
 
@@ -66,10 +66,11 @@ export function isAllowedServerUrl(url) {
 
   const isHttps = value.startsWith('https://')
   const isCloudflareTunnel = value.includes('trycloudflare')
+  const isLocalhost = value.startsWith('http://localhost') || value.startsWith('http://127.0.0.1') || value.startsWith('http://192.168.')
 
-  // Allowed: https:// or Cloudflare tunnel
-  if (isHttps || isCloudflareTunnel) return true
+  // Allowed: https://, Cloudflare tunnel, or localhost preview
+  if (isHttps || isCloudflareTunnel || isLocalhost) return true
 
-  // Reject: anything else in production (http://, file://, etc.)
+  // Reject: anything else in production (remote plain http, file://, etc.)
   return false
 }

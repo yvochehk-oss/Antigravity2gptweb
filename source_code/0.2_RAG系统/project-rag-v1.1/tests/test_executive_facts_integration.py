@@ -23,7 +23,6 @@ runs against the disposable test database without depending on a real
 
 from __future__ import annotations
 
-import os
 import uuid
 from typing import Any, Dict
 from unittest.mock import patch
@@ -34,7 +33,6 @@ from fastapi.testclient import TestClient
 from sqlalchemy import text
 
 from facts_provider.facts_provider import FactsResponse, MetricValue
-
 
 # ---------------------------------------------------------------------------
 # Auth helpers
@@ -138,8 +136,8 @@ def jwt_secret(monkeypatch):
 def client(jwt_secret):
     """Build a TestClient wrapping the production ``app.main.app``."""
 
-    from app.main import app
     from app.db import init_db
+    from app.main import app
 
     init_db()
     return TestClient(app)
@@ -208,8 +206,6 @@ def facts_table(client, admin_token):
 
 def test_cockpit_summary_facts_available(client, admin_token, facts_table):
     """When FactsProvider returns AVAILABLE, cockpit flips to ``data_source=live``."""
-
-    project_code = facts_table["project_code"]
 
     def _fake_get_facts(self, code: str, *args: Any, **kwargs: Any) -> FactsResponse:
         return _available_facts(code)
@@ -362,7 +358,6 @@ def test_ai_chat_includes_facts_summary(client, admin_token, facts_table):
 
     project_id = facts_table["id"]
     project_code = facts_table["project_code"]
-
     def _fake_get_facts(self, code: str, *args: Any, **kwargs: Any) -> FactsResponse:
         return _available_facts(code)
 
@@ -429,3 +424,111 @@ def test_ai_chat_includes_facts_unavailable_summary(client, admin_token, facts_t
     assert meta["data_source"] == "unavailable"
     assert meta["facts_available"] is False
     assert meta.get("facts_reason")
+
+
+# ---------------------------------------------------------------------------
+# Project 360 — fail closed when Canonical Facts are unavailable
+# ---------------------------------------------------------------------------
+
+def test_project_360_facts_unavailable_withholds_all_financial_amounts(
+    client, admin_token, facts_table
+):
+    """360 must not expose old/demo operational rows when Facts is degraded."""
+
+    project_id = facts_table["id"]
+    project_code = facts_table["project_code"]
+
+    def _fake_get_facts(self, code: str, *args: Any, **kwargs: Any) -> FactsResponse:
+        assert code == project_code
+        return _degraded_facts(code, "entity mapping gap: analytics row unavailable")
+
+    with patch.object(
+        __import__("facts_provider.facts_provider", fromlist=["FactsProvider"]).FactsProvider,
+        "get_facts",
+        _fake_get_facts,
+    ):
+        resp = client.get(
+            f"/api/v1/executive/projects/{project_id}/360",
+            headers=_bearer(admin_token),
+        )
+
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["status"] == "DEGRADED"
+    assert body["_meta"]["data_source"] == "unavailable"
+    assert body["facts_summary"]["available"] is False
+    assert "canonical_facts_unavailable" in body["data_gaps"]
+    assert "entity_mapping_gap" in body["data_gaps"]
+
+    financial = body["financial_penetration"]
+    assert all(
+        financial[key] is None
+        for key in (
+            "contract_total",
+            "recognized_revenue",
+            "actual_cost",
+            "real_profit",
+            "gross_margin_pct",
+            "eac_forecast_cost",
+            "eac_forecast_margin",
+        )
+    )
+
+    penetration = body["system_penetration"]
+    assert all(
+        penetration[key] is None
+        for key in (
+            "recognized_revenue",
+            "external_invoice_revenue",
+            "internal_trade_volume_eliminated",
+            "system_external_real_cost",
+            "project_tax_paid",
+            "management_profit_after_tax",
+        )
+    )
+    assert body["cost_breakdown"]["materials"]["amount"] is None
+    assert body["cost_breakdown"]["materials"]["pct"] is None
+    assert body["tax_details"]["prepaid_tax"] is None
+    assert body["system_penetration"]["revenueDetails"] == []
+    assert body["system_penetration"]["externalDetails"] == []
+
+    # Regression guard for the formally observed demo values.
+    assert "23000000" not in resp.text
+    assert "22000000" not in resp.text
+    assert "1000000" not in resp.text
+
+
+def test_project_360_facts_available_uses_canonical_metrics_only(
+    client, admin_token, facts_table
+):
+    """Available 360 values come from Facts, not project-table re-aggregation."""
+
+    project_id = facts_table["id"]
+
+    def _fake_get_facts(self, code: str, *args: Any, **kwargs: Any) -> FactsResponse:
+        return _available_facts(
+            code,
+            recognized_revenue=123.0,
+            real_profit=45.0,
+        )
+
+    with patch.object(
+        __import__("facts_provider.facts_provider", fromlist=["FactsProvider"]).FactsProvider,
+        "get_facts",
+        _fake_get_facts,
+    ):
+        resp = client.get(
+            f"/api/v1/executive/projects/{project_id}/360",
+            headers=_bearer(admin_token),
+        )
+
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["status"] == "success"
+    assert body["facts_summary"]["available"] is True
+    assert body["financial_penetration"]["recognized_revenue"] == pytest.approx(123.0)
+    assert body["financial_penetration"]["real_profit"] == pytest.approx(45.0)
+    assert body["system_penetration"]["recognized_revenue"] == pytest.approx(123.0)
+    assert body["system_penetration"]["management_profit_after_tax"] == pytest.approx(45.0)
+    assert body["system_penetration"]["external_invoice_revenue"] is None
+    assert body["cost_breakdown"]["materials"]["amount"] is None

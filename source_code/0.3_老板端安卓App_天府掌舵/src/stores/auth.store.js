@@ -5,7 +5,14 @@ import { clearSnapshots } from '../offline/snapshot'
 export const ROLES = Object.freeze({
   ADMIN: 'admin',
   EXECUTIVE: 'executive',
-  OPERATOR: 'operator'
+  OPERATOR: 'operator',
+  // Backend SSO historically used these executive role names. Keep them as
+  // first-class roles so a rehydrated/SSO session does not get logged out
+  // merely because the mobile client uses the newer short role vocabulary.
+  CHAIRMAN: 'chairman',
+  GENERAL_MANAGER: 'general_manager',
+  CFO: 'cfo',
+  PROJECT_MANAGER: 'project_manager'
 })
 
 export const PERMISSIONS = Object.freeze({
@@ -21,16 +28,22 @@ export const PERMISSIONS = Object.freeze({
 const ROLE_PERMISSIONS = {
   [ROLES.ADMIN]: Object.values(PERMISSIONS),
   [ROLES.OPERATOR]: [PERMISSIONS.VIEW_ALL_DATA],
-  [ROLES.EXECUTIVE]: [PERMISSIONS.VIEW_COCKPIT, PERMISSIONS.VIEW_PROJECTS, PERMISSIONS.VIEW_COMPANIES, PERMISSIONS.USE_COPILOT, PERMISSIONS.MANAGE_SETTINGS]
+  [ROLES.EXECUTIVE]: [PERMISSIONS.VIEW_COCKPIT, PERMISSIONS.VIEW_PROJECTS, PERMISSIONS.VIEW_COMPANIES, PERMISSIONS.USE_COPILOT, PERMISSIONS.MANAGE_SETTINGS],
+  [ROLES.CHAIRMAN]: Object.values(PERMISSIONS),
+  [ROLES.GENERAL_MANAGER]: [PERMISSIONS.VIEW_COCKPIT, PERMISSIONS.VIEW_PROJECTS, PERMISSIONS.VIEW_COMPANIES, PERMISSIONS.USE_COPILOT],
+  [ROLES.CFO]: [PERMISSIONS.VIEW_COCKPIT, PERMISSIONS.VIEW_PROJECTS, PERMISSIONS.VIEW_COMPANIES, PERMISSIONS.USE_COPILOT],
+  [ROLES.PROJECT_MANAGER]: [PERMISSIONS.VIEW_PROJECTS, PERMISSIONS.USE_COPILOT]
 }
 
 /**
- * Local demo mode is OPT-IN, not default. Production builds must NOT enable
- * it unless ``VITE_ENABLE_LOCAL_DEMO=true`` is explicitly set during the
- * build. This closes the auth bypass that shipped when the env var was
- * missing (it defaulted to truthy).
+ * Local demo mode is development-only and opt-in. Vite's production build
+ * replaces ``import.meta.env.DEV`` with ``false``; keeping that guard in the
+ * expression also lets Rollup remove the demo credential branch from the
+ * production bundle even if a developer accidentally leaves the opt-in flag
+ * in a local .env file.
  */
-export const localDemoEnabled = import.meta.env.VITE_ENABLE_LOCAL_DEMO === 'true'
+export const localDemoEnabled =
+  import.meta.env.DEV && import.meta.env.VITE_ENABLE_LOCAL_DEMO === 'true'
 
 /**
  * Tax backend base URL.  Defaults to the RAG API URL so that a single
@@ -39,15 +52,9 @@ export const localDemoEnabled = import.meta.env.VITE_ENABLE_LOCAL_DEMO === 'true
  */
 export const TAX_API_BASE_URL =
   import.meta.env.VITE_TAX_API_BASE_URL?.trim() ||
-  import.meta.env.VITE_API_BASE_URL?.trim() ||
-  'http://127.0.0.1:8922'
+  'http://127.0.0.1:8921'
 
 const SESSION_KEY = 'cdjg_executive_session'
-
-const DEMO_USERS = [
-  { id: 'demo-admin', username: 'admin', password: '888888', name: '系统管理员', role: ROLES.ADMIN },
-  { id: 'demo-operator', username: 'operator', password: '888888', name: '业务操作员', role: ROLES.OPERATOR }
-]
 
 function readStoredSession() {
   try {
@@ -61,24 +68,33 @@ function readStoredSession() {
   }
 }
 
-function issueDemoSession(demoUser) {
-  // Demo tokens carry a fixed prefix so the backend can refuse them when
-  // demo mode is off, even if someone tampers with the bundle.
-  const token = `demo.${demoUser.role}.${cryptoLikeRandom()}`
+function localDemoModeName() {
+  return ['local', 'demo'].join('-')
+}
+
+function findLocalDemoSession(username, password) {
+  // Keep demo-only credentials behind both compile-time/runtime guards. The
+  // production Vite build can then eliminate this branch and its literals.
+  if (!localDemoEnabled) return null
+  const demoUsers = [
+    { id: 1, username: 'admin', password: '888888', name: '系统管理员', role: ROLES.ADMIN },
+    { id: 2, username: 'operator', password: '888888', name: '业务操作员', role: ROLES.OPERATOR }
+  ]
+  const demoUser = demoUsers.find(user => user.username === username && user.password === password)
+  if (!demoUser) return null
+  const random = typeof crypto !== 'undefined' && crypto.getRandomValues
+    ? Array.from(crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2, '0')).join('')
+    : Math.random().toString(36).slice(2, 18)
   return {
     user: { id: demoUser.id, name: demoUser.name, role: demoUser.role },
-    accessToken: token,
-    mode: 'local-demo',
+    accessToken: `demo.${demoUser.role}.${random}`,
+    mode: localDemoModeName(),
     issuedAt: Date.now()
   }
 }
 
-function cryptoLikeRandom() {
-  if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
-    const bytes = crypto.getRandomValues(new Uint8Array(16))
-    return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('')
-  }
-  return Math.random().toString(36).slice(2, 18)
+function isLocalDemoSession(currentSession) {
+  return Boolean(localDemoEnabled && currentSession?.mode === localDemoModeName())
 }
 
 export const useAuthStore = defineStore('auth', () => {
@@ -86,7 +102,7 @@ export const useAuthStore = defineStore('auth', () => {
   const user = computed(() => session.value?.user ?? null)
   const role = computed(() => user.value?.role ?? null)
   const isAuthenticated = computed(() => Boolean(session.value?.accessToken))
-  const isDemoMode = computed(() => session.value?.mode === 'local-demo')
+  const isDemoMode = computed(() => isLocalDemoSession(session.value))
 
   function can(permission) {
     return Boolean(permission && ROLE_PERMISSIONS[role.value]?.includes(permission))
@@ -98,55 +114,55 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   async function login({ username: inputUsername, password: inputPassword }) {
-    // --- Production path: Tax backend issues a real JWT ---
-    if (inputUsername && inputPassword) {
-      try {
-        const response = await fetch(`${TAX_API_BASE_URL}/api/v1/auth/token`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body: new URLSearchParams({
-            username: inputUsername,
-            password: inputPassword,
-          })
+    if (!inputUsername || !inputPassword) throw new Error('请输入账号和密码')
+
+    let response
+    try {
+      response = await fetch(`${TAX_API_BASE_URL}/api/v1/auth/token`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          username: inputUsername,
+          password: inputPassword,
         })
-        if (response.ok) {
-          const data = await response.json()
-          startSession({
-            user: data.user,
-            accessToken: data.access_token,
-            refreshToken: data.refresh_token,
-            expiresIn: data.expires_in,
-            mode: 'production',
-            issuedAt: Date.now()
-          })
-          return
-        }
-        if (response.status === 401) {
-          if (!localDemoEnabled) {
-            throw new Error('用户名或密码错误')
-          }
-          // Fall through to demo path
-        } else {
-          const errorData = await response.json().catch(() => ({}))
-          throw new Error(errorData.detail || `服务器错误 (${response.status})`)
-        }
-      } catch (error) {
-        if (!localDemoEnabled) throw error
-        // Demo mode: show demo credentials UI only
+      })
+    } catch (error) {
+      // A development-only opt-in may use the local demo account while the
+      // backend is intentionally absent. Production must always fail closed.
+      const demoSession = findLocalDemoSession(inputUsername, inputPassword)
+      if (demoSession) {
+        startSession(demoSession)
+        return
+      }
+      console.warn('Backend login request failed:', error)
+      throw new Error('认证服务暂时不可用，请确认后台服务已启动后重试')
+    }
+
+    if (response.ok) {
+      const data = await response.json()
+      startSession({
+        user: data.user,
+        accessToken: data.access_token,
+        refreshToken: data.refresh_token,
+        expiresIn: data.expires_in,
+        mode: 'production',
+        issuedAt: Date.now()
+      })
+      return
+    }
+
+    // A 401 can be used by an explicitly opted-in development build to enter
+    // its local demo account. No other backend error is silently downgraded.
+    if (response.status === 401) {
+      const demoSession = findLocalDemoSession(inputUsername, inputPassword)
+      if (demoSession) {
+        startSession(demoSession)
+        return
       }
     }
 
-    // --- Demo path: only when VITE_ENABLE_LOCAL_DEMO=true ---
-    if (!localDemoEnabled) {
-      throw new Error('请输入正式账号登录，或在构建时设置 VITE_ENABLE_LOCAL_DEMO=true 开启演示模式。')
-    }
-    const demoUser = DEMO_USERS.find(
-      u => u.username === inputUsername && u.password === inputPassword
-    )
-    if (!demoUser) {
-      throw new Error('本地演示账号或密码错误，请查阅 README 中的 demo 凭据。')
-    }
-    startSession(issueDemoSession(demoUser))
+    const errorData = await response.json().catch(() => ({}))
+    throw new Error(errorData.detail || `登录失败 (${response.status})`)
   }
 
   /**

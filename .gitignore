@@ -12,6 +12,7 @@ models/bge-m3/onnx/*.onnx_data
 models/bge-m3/*.bin
 models/bge-reranker-v2-m3/*.safetensors
 models/bge-reranker-v2-m3/*.bin
+models/local-llm/
 *.bin
 *.safetensors
 *.onnx_data
@@ -26,3 +27,4 @@ dist_apk/
 *.log
 *.pid
 .DS_Store
+token.json

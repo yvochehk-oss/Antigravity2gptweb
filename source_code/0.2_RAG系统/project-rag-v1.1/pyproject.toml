@@ -62,7 +62,13 @@ python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 pythonpath = ["."]
-addopts = "-q --ignore=scripts"
+# The SQLite suite is historical and must not be part of the PostgreSQL-only
+# default gate. It remains selectable explicitly for historical inspection with:
+#   pytest -o addopts='' tests/_archive_sqlite
+addopts = "-q --ignore=scripts --ignore=tests/_archive_sqlite"
+markers = [
+    "postgresql: requires the disposable PostgreSQL test database",
+]
 
 [tool.ruff]
 line-length = 120

@@ -16,13 +16,15 @@ import {
   ArrowUp,
   ArrowDown
 } from 'lucide-react';
-import { ProjectItem, TaxLedgerRecord, SystemSettings } from '../types';
+import { DataStatus, ProjectItem, TaxLedgerRecord, SystemSettings } from '../types';
+import { DataStatusCard } from './DataStatusCard';
 
 type SortField = 'projectName' | 'entityName' | 'declareAmount' | 'taxCategory' | 'status' | 'flow' | null;
 type SortOrder = 'asc' | 'desc';
 
 interface TaxLedgerViewProps {
   projects: ProjectItem[];
+  dataStatus: DataStatus;
   onOpenNewRecordModal: () => void;
   onOpenExportModal: () => void;
   onAskAiAboutRisk: (entityName: string) => void;
@@ -31,6 +33,7 @@ interface TaxLedgerViewProps {
 
 export function TaxLedgerView({
   projects,
+  dataStatus,
   onOpenNewRecordModal,
   onOpenExportModal,
   onAskAiAboutRisk,
@@ -96,6 +99,15 @@ export function TaxLedgerView({
   const totalDeclare = filteredRecords.reduce((acc, cur) => acc + cur.declareAmount, 0);
   const totalTax = filteredRecords.reduce((acc, cur) => acc + cur.taxAmount, 0);
 
+  if (dataStatus !== 'READY' || projects.length === 0 || allRecords.length === 0) {
+    return (
+      <div className="space-y-6">
+        <h2 className="text-[28px] font-bold text-[#dae2fd]">工程全周期税务台账</h2>
+        <DataStatusCard status={dataStatus === 'READY' ? 'UNAVAILABLE' : dataStatus} title="税务台账不可用" message="当前项目摘要接口不包含税务凭证集合，前端不会用静态凭证或金额填充台账。请接通税务台账 JSON 接口后重试。" />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {/* 顶部标题与汇总 */}
@@ -105,7 +117,7 @@ export function TaxLedgerView({
             <h2 className="text-[28px] font-bold text-[#dae2fd] tracking-tight">工程全周期税务台账与查账中枢</h2>
           </div>
           <p className="text-[14px] text-[#c4c5d5] mt-1">
-            数据全量通过 RAG 向量知识库从企业业财 ERP、数电发票底账与银企直联系统智能抽取，支持穿透式查账与疑点发现。
+            当前展示 Tax 服务返回的确定性税务台账；RAG 凭证同步用于补充原始凭证、证据和待复核信息。
           </p>
         </div>
         <div className="flex items-center gap-3">

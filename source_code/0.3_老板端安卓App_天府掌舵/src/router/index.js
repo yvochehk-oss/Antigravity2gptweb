@@ -18,7 +18,10 @@ const routes = [
       { path: 'settings', name: 'settings', component: () => import('../modules/settings/SettingsView.vue'), meta: { permission: PERMISSIONS.MANAGE_SETTINGS } }
     ]
   },
-  { path: '/:pathMatch(.*)*', redirect: { name: 'dashboard' } }
+  // Redirect through the root so Vue Router does not carry the wildcard
+  // `pathMatch` parameter into a named redirect (which produces an invalid
+  // parameter warning and can leave memory-history tests in a stale route).
+  { path: '/:pathMatch(.*)*', redirect: '/' }
 ]
 
 const router = createRouter({

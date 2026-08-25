@@ -1,10 +1,11 @@
 """Integration assertions for a disposable shared PostgreSQL test database."""
 from sqlalchemy import create_engine, inspect, text
 
+
 def test_shared_postgresql_schema(postgres_test_database_url):
     engine=create_engine(postgres_test_database_url, future=True)
     insp=inspect(engine)
-    required={"projects","entities","external_parties","documents","chunks","facts_snapshots"}
+    required={"projects","entities","external_parties","documents","chunks","facts_snapshots","rag_evidence_packs"}
     missing=required-set(insp.get_table_names())
     assert not missing, f"apply Tax migrations first, then RAG migrations; missing={sorted(missing)}"
     views=set(insp.get_view_names())

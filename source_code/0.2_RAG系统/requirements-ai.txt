@@ -1,2 +1,0 @@
-# Local semantic retrieval models. Free/open model weights are downloaded on first use.
-FlagEmbedding>=1.3.5

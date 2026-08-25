@@ -1,50 +1,15 @@
 """Storage read operations - file validation and metadata retrieval."""
+
 from pathlib import Path
 
-from app.config import ORIGINAL_DIR, SAFE_ORIGIN_DIRS
+from app.config import ORIGINAL_DIR, PROJECT_MATERIALS_DIR
 from app.logging_config import get_logger
+
+from .write import PathTraversalError, StorageError, _validate_safe_path
 
 logger = get_logger(__name__)
 
-
-class PathTraversalError(Exception):
-    """Raised when path traversal attack is detected."""
-    pass
-
-
-def _validate_safe_path(path: Path, operation: str = "access") -> Path:
-    """Validate that a path is within allowed directories."""
-    try:
-        resolved = path.resolve()
-    except (OSError, RuntimeError) as e:
-        raise StorageError(f"Cannot resolve path: {e}")
-
-    for allowed in SAFE_ORIGIN_DIRS:
-        try:
-            resolved.relative_to(allowed)
-            return resolved
-        except ValueError:
-            continue
-
-    raise PathTraversalError(
-        f"Path '{path}' is outside allowed directories. "
-        f"Allowed: {[str(p) for p in SAFE_ORIGIN_DIRS]}"
-    )
-
-
-def _check_symlink(path: Path) -> bool:
-    """Check if path or any parent is a symlink."""
-    try:
-        current = path
-        while True:
-            if current.is_symlink():
-                return True
-            if current == current.parent:
-                break
-            current = current.parent
-        return False
-    except OSError:
-        return True
+_DOWNLOAD_ROOTS = (ORIGINAL_DIR.resolve(), PROJECT_MATERIALS_DIR.resolve())
 
 
 def validate_stored_file(path: str) -> Path:
@@ -52,11 +17,11 @@ def validate_stored_file(path: str) -> Path:
     candidate = Path(path)
     if candidate.is_symlink():
         raise PathTraversalError("stored file cannot be a symlink")
-    resolved = _validate_safe_path(candidate, operation="download")
-    try:
-        resolved.relative_to(ORIGINAL_DIR.resolve())
-    except ValueError as exc:
-        raise PathTraversalError("download path is outside document storage") from exc
+    resolved = _validate_safe_path(
+        candidate,
+        operation="download",
+        allowed_roots=_DOWNLOAD_ROOTS,
+    )
     if not resolved.is_file():
         raise StorageError("stored file does not exist")
     return resolved

@@ -28,19 +28,36 @@ from .observability import (
 )
 from .structured_logging import resolve_request_id
 
-# 登录/登出/静态资源 路径不拦截
-PUBLIC_PREFIXES = (
+# Only authentication, documentation, health and static-resource routes are
+# public.  In particular, ``/api/projects`` is deliberately absent: project
+# data and planning APIs must pass through the session/role checks below.
+PUBLIC_EXACT_PATHS = frozenset({
+    "/",
+    "/demo",
     "/login",
     "/docs",
     "/redoc",
     "/openapi.json",
     "/healthz",
-    "/api/projects",
-    "/api/v1/auth/token",
-    "/assets",
     "/favicon.ico",
-    "/ui",
+})
+PUBLIC_PREFIXES = (
+    "/docs/",
+    "/redoc/",
+    "/assets/",
+    "/ui/",
+    "/api/v1/auth/",
 )
+
+
+def _is_public_path(path: str) -> bool:
+    """Return whether *path* belongs to a public route namespace.
+
+    Exact paths and slash-delimited namespaces avoid the old ``startswith``
+    boundary bug (for example ``/api/projects/1`` must never be public just
+    because it starts with ``/api/projects``).
+    """
+    return path in PUBLIC_EXACT_PATHS or any(path.startswith(prefix) for prefix in PUBLIC_PREFIXES)
 
 class AuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
@@ -56,7 +73,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
         actor_token = set_actor("anonymous")
         request.state.request_id = request_id
         try:
-            if path in ("/", "/demo") or any(path.startswith(p) for p in PUBLIC_PREFIXES):
+            if _is_public_path(path):
                 response = await call_next(request)
                 return self._security_headers(self._attach_request_id(request, response))
 
@@ -148,10 +165,16 @@ class AuthMiddleware(BaseHTTPMiddleware):
         # be able to parse their form fields.  Browser requests are protected
         # by the Origin/Referer same-origin check below; API clients can send
         # the token in X-CSRF-Token/X-XSRF-TOKEN.
+        # The origin check is intentionally evaluated first.  A valid token
+        # alone must not turn a cross-origin state change into an allowed
+        # request (for example, when a test client or an embedded browser
+        # happens to carry both cookies and headers).
+        if not cls._same_origin(request):
+            return False
         cookie_token = request.cookies.get(CSRF_COOKIE_NAME, "")
         if supplied and cookie_token:
             return hmac.compare_digest(supplied, cookie_token)
-        return cls._same_origin(request)
+        return True
 
     @staticmethod
     def _security_headers(response):

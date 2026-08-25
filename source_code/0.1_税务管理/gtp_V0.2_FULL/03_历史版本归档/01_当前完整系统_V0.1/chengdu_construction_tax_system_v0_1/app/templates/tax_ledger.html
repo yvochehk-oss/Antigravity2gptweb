@@ -1,7 +1,0 @@
-{% extends 'base.html' %}{% block body %}
-<h1>ABCD 月度独立税务台账</h1><form method="get"><input name="period" value="{{period}}"><button>重算</button></form>
-{% if unreviewed %}<div class="warn">当前有 {{unreviewed}} 条税务规则尚未专业复核。本页面仅用于经营测算，不可直接作为纳税申报依据。</div>{% endif %}
-<table><tr><th>法人</th><th>销项VAT</th><th>可抵进项</th><th>VAT测算应缴</th><th>开票收入</th><th>真实成本</th><th>估算利润</th><th>CIT管理预测</th></tr>
-{% for x in rows %}<tr><td>{{x.entity_code}}</td><td>{{'%.1f'|format(x.output_vat/10000)}}万</td><td>{{'%.1f'|format(x.input_vat/10000)}}万</td><td>{{'%.1f'|format(x.vat_payable/10000)}}万</td><td>{{'%.1f'|format(x.revenue/10000)}}万</td><td>{{'%.1f'|format(x.real_cost/10000)}}万</td><td>{{'%.1f'|format(x.estimated_profit/10000)}}万</td><td>{{'%.1f'|format(x.estimated_cit/10000)}}万</td></tr>{% endfor %}</table>
-<p class="muted">注意：此处CIT为Demo管理预测，正式版还需纳税调整、以前年度亏损等税会差异模块。</p>
-{% endblock %}

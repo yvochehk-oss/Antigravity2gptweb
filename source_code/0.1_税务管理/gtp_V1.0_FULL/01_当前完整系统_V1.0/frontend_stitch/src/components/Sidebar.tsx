@@ -11,17 +11,19 @@ import {
   LogOut,
   X
 } from 'lucide-react';
+import { AiModelStatus } from '../types';
 
 
 interface SidebarProps {
   currentTab: string;
   onSelectTab: (tab: string) => void;
   unresolvedRiskCount: number;
+  aiModelStatus: AiModelStatus;
   isMobile?: boolean;
   onCloseMobile?: () => void;
 }
 
-export function Sidebar({ currentTab, onSelectTab, unresolvedRiskCount, isMobile, onCloseMobile }: SidebarProps) {
+export function Sidebar({ currentTab, onSelectTab, unresolvedRiskCount, aiModelStatus, isMobile, onCloseMobile }: SidebarProps) {
   const menuItems = [
     { id: 'dashboard', label: '全局仪表盘', icon: LayoutDashboard },
     { id: 'projects', label: '项目工程库', icon: Building2 },
@@ -35,6 +37,12 @@ export function Sidebar({ currentTab, onSelectTab, unresolvedRiskCount, isMobile
   const containerClasses = isMobile
     ? "flex flex-col h-full w-full bg-[#0b1326] text-[#dde1ff]"
     : "hidden md:flex flex-col h-screen w-48 fixed left-0 top-0 bg-[#0b1326]/95 backdrop-blur-xl border-r border-[#444653]/30 z-40";
+  const statusStyles = {
+    LOADING: { text: '#F59E0B', dot: '#F59E0B' },
+    READY: { text: '#10B981', dot: '#10B981' },
+    DEGRADED: { text: '#F59E0B', dot: '#F59E0B' },
+    UNAVAILABLE: { text: '#F87171', dot: '#F87171' },
+  }[aiModelStatus.state];
 
   return (
     <nav className={containerClasses}>
@@ -108,9 +116,9 @@ export function Sidebar({ currentTab, onSelectTab, unresolvedRiskCount, isMobile
             <div className="w-5 h-5 rounded-md bg-[#10B981]/15 border border-[#10B981]/30 flex items-center justify-center flex-shrink-0">
               <ShieldCheck className="w-3 h-3 text-[#10B981]" />
             </div>
-            <p className="text-[11px] font-semibold text-[#10B981] flex items-center gap-1 truncate">
-              <span className="w-1.5 h-1.5 rounded-full bg-[#10B981] inline-block animate-ping shadow-[0_0_6px_#10B981]"></span>
-              DeepSeek V4 在线
+            <p className="text-[11px] font-semibold flex items-center gap-1 truncate" style={{ color: statusStyles.text }} title={aiModelStatus.message}>
+              <span className="w-1.5 h-1.5 rounded-full inline-block" style={{ backgroundColor: statusStyles.dot }}></span>
+              {aiModelStatus.message}
             </p>
           </div>
           <a 
@@ -142,5 +150,3 @@ export function Sidebar({ currentTab, onSelectTab, unresolvedRiskCount, isMobile
     </nav>
   );
 }
-
-

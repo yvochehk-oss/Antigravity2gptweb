@@ -2,15 +2,21 @@
 from __future__ import annotations
 
 from decimal import Decimal
-from fastapi import APIRouter, HTTPException, Request
+
+from fastapi import APIRouter, Header, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 
+from ..ai.adapter import endpoint_is_allowed
 from ..db import SessionLocal
 from ..dependencies import admin_only
 from ..models import AIModelEndpoint, Project
-from ..planning.service import planning_candidate_context, recommend_project_allocation, system_penetration_snapshot
+from ..planning.service import (
+    planning_candidate_context,
+    recommend_project_allocation,
+    system_penetration_snapshot,
+)
 from ..templates import templates
 
 router=APIRouter(tags=['项目财税筹划沙盘'])
@@ -39,12 +45,13 @@ class AllocationPlanningBody(BaseModel):
     @field_validator('objective')
     @classmethod
     def valid_objective(cls,v):
-        if v not in {'balanced','profit','tax','risk'}: raise ValueError('objective must be balanced/profit/tax/risk')
+        if v not in {'balanced','profit','tax','risk'}:
+            raise ValueError('objective must be balanced/profit/tax/risk')
         return v
 
 @router.get('/api/projects/{pid}/allocation-planning/context')
 def allocation_context(request: Request, pid: int, category: str = '劳务', package_amount: float = 1):
-    # admin_only(request) # Disabled for demo
+    admin_only(request)
     if package_amount <= 0:
         raise HTTPException(status_code=422,detail='package_amount must be positive')
     db=SessionLocal()
@@ -58,7 +65,7 @@ def allocation_context(request: Request, pid: int, category: str = '劳务', pac
 
 @router.get('/api/projects/{pid}/system-penetration')
 def penetration_api(request: Request, pid: int):
-    # admin_only(request)
+    admin_only(request)
     db=SessionLocal()
     try:
         return system_penetration_snapshot(db,pid)
@@ -69,27 +76,49 @@ def penetration_api(request: Request, pid: int):
 
 
 @router.post('/api/projects/{pid}/allocation-planning/recommend')
-def allocation_recommend(request: Request,pid:int,body:AllocationPlanningBody):
-    # user=admin_only(request)
-    user = type('User', (), {'username': 'demo_user'})()
+def allocation_recommend(
+    request: Request,
+    pid: int,
+    body: AllocationPlanningBody,
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+):
+    user = admin_only(request)
     payload=body.model_dump(exclude_none=True)
     payload['party_overrides']={k:v.model_dump(exclude_none=True) for k,v in body.party_overrides.items()}
+    if idempotency_key is not None:
+        idempotency_key = idempotency_key.strip()
+        if not idempotency_key or len(idempotency_key) > 128:
+            raise HTTPException(status_code=422, detail='Idempotency-Key must be 1-128 non-whitespace characters')
     db=SessionLocal()
     try:
-        return recommend_project_allocation(db,pid,payload,actor=user.username)
+        return recommend_project_allocation(
+            db, pid, payload, actor=user.username, idempotency_key=idempotency_key,
+        )
     except ValueError as exc:
-        db.rollback(); raise HTTPException(status_code=422,detail=str(exc)) from exc
+        db.rollback()
+        raise HTTPException(status_code=422,detail=str(exc)) from exc
     except Exception:
-        db.rollback(); raise
-    finally: db.close()
+        db.rollback()
+        raise
+    finally:
+        db.close()
 
 @router.get('/manager/project/{pid}/planning',response_class=HTMLResponse)
 def planning_page(request:Request,pid:int):
-    # user=admin_only(request)
-    user = type('User', (), {'username': 'demo_user'})(); db=SessionLocal()
+    user = admin_only(request)
+    db=SessionLocal()
     try:
         project=db.get(Project,pid)
-        if project is None: raise HTTPException(status_code=404,detail='project not found')
-        endpoints=db.execute(select(AIModelEndpoint).where(AIModelEndpoint.enabled.is_(True)).order_by(AIModelEndpoint.id)).scalars().all()
+        if project is None:
+            raise HTTPException(status_code=404,detail='project not found')
+        endpoints = [
+            endpoint for endpoint in db.execute(
+                select(AIModelEndpoint)
+                .where(AIModelEndpoint.enabled.is_(True))
+                .order_by(AIModelEndpoint.id)
+            ).scalars().all()
+            if endpoint_is_allowed(endpoint)
+        ]
         return templates.TemplateResponse(request,'manager_planning.html',{'request':request,'title':f'{project.name} - 项目财税筹划沙盘','user':user,'project':project,'endpoints':endpoints})
-    finally: db.close()
+    finally:
+        db.close()

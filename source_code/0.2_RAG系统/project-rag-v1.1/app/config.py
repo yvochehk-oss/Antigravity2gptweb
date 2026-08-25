@@ -16,6 +16,22 @@ ORIGINAL_DIR = DATA_DIR / "originals"
 PARSED_DIR = DATA_DIR / "parsed"
 CACHE_DIR = DATA_DIR / "cache"
 
+# V2.0 keeps the imported business originals in a bundle-level directory so
+# database paths remain valid when the source checkout is moved as one unit.
+# This is a separate read root from DATA_DIR: uploads and parser scratch data
+# continue to use the service data directory, while trusted downloads may
+# resolve the canonical project_materials paths written by migration 012.
+V2_ROOT = BASE_DIR.parents[2]
+PROJECT_MATERIALS_DIR = Path(
+    os.getenv("PROJECT_RAG_PROJECT_MATERIALS_ROOT", str(V2_ROOT / "project_materials"))
+).expanduser().resolve()
+try:
+    PROJECT_MATERIALS_DIR.relative_to(V2_ROOT.resolve())
+except ValueError as exc:
+    raise RuntimeError(
+        "PROJECT_RAG_PROJECT_MATERIALS_ROOT must remain under the approved V2.0 root"
+    ) from exc
+
 # Database
 DB_URL = os.getenv("PROJECT_RAG_DB_URL", "").strip()
 if not DB_URL:
@@ -122,7 +138,60 @@ IS_PROTECTED_ENVIRONMENT = APP_ENV in PROTECTED_ENVIRONMENTS
 # PROJECT_RAG_API_KEY are retained only as deprecated environment names and are
 # deliberately not accepted as authentication credentials.
 LEGACY_RAG_API_KEY = os.getenv("RAG_API_KEY", os.getenv("PROJECT_RAG_API_KEY", "")).strip()
-RAG_SHARED_API_KEY = os.getenv("RAG_SHARED_API_KEY", "").strip()
+RAG_SHARED_API_KEY_FILE = os.getenv("RAG_SHARED_API_KEY_FILE", "").strip()
+
+
+def _read_shared_api_key_file(raw_path: str) -> str:
+    """Read a service credential from an operator-owned file.
+
+    The file mechanism keeps the bearer credential out of ``.env`` and the
+    process command line.  It is deliberately strict: a configured file that
+    is missing, unreadable, empty, world/group-readable, or contains an
+    embedded newline is a configuration error rather than a reason to fall
+    back to an unauthenticated service.
+    """
+    if not raw_path:
+        return ""
+
+    secret_path = Path(raw_path).expanduser()
+    if not secret_path.is_absolute():
+        secret_path = BASE_DIR / secret_path
+    try:
+        secret_path = secret_path.resolve(strict=True)
+        if not secret_path.is_file():
+            raise OSError("not a regular file")
+        # POSIX permissions are meaningful on macOS/Linux.  Windows ACLs are
+        # enforced by the OS and do not map reliably to these mode bits.
+        if os.name != "nt" and secret_path.stat().st_mode & 0o077:
+            raise PermissionError("file permissions are too broad")
+        raw_value = secret_path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        raise RuntimeError(
+            "RAG_SHARED_API_KEY_FILE is configured but cannot be read securely"
+        ) from exc
+
+    value = raw_value.strip(" \t\r\n")
+    if not value:
+        raise RuntimeError("RAG_SHARED_API_KEY_FILE is configured but empty")
+    if "\r" in value or "\n" in value:
+        raise RuntimeError(
+            "RAG_SHARED_API_KEY_FILE must contain one single-line credential"
+        )
+    return value
+
+
+def _resolve_shared_api_key() -> str:
+    """Resolve the shared credential, rejecting ambiguous dual sources."""
+    env_value = os.getenv("RAG_SHARED_API_KEY", "").strip()
+    file_value = _read_shared_api_key_file(RAG_SHARED_API_KEY_FILE)
+    if env_value and file_value and env_value != file_value:
+        raise RuntimeError(
+            "RAG_SHARED_API_KEY and RAG_SHARED_API_KEY_FILE contain different credentials"
+        )
+    return file_value or env_value
+
+
+RAG_SHARED_API_KEY = _resolve_shared_api_key()
 PROJECT_RAG_AUTH_REQUIRED = os.getenv("PROJECT_RAG_AUTH_REQUIRED", "").strip().lower() in {
     "1", "true", "yes", "on",
 }

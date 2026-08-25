@@ -38,6 +38,7 @@ def _config_subprocess(
         "PROJECT_RAG_AUTH_REQUIRED",
         "PROJECT_RAG_HOST",
         "RAG_SHARED_API_KEY",
+        "RAG_SHARED_API_KEY_FILE",
         "RAG_API_KEY",
         "PROJECT_RAG_API_KEY",
         "APP_ENV",
@@ -46,6 +47,10 @@ def _config_subprocess(
     env.update({
         "PROJECT_RAG_HOST": "127.0.0.1",
         "PROJECT_RAG_AUTH_REQUIRED": "0",
+        # Keep the live developer .env credential out of isolated subprocess
+        # tests; individual cases opt in through extra_env below.
+        "RAG_SHARED_API_KEY": "",
+        "RAG_SHARED_API_KEY_FILE": "",
     })
     if not use_default_paths:
         data_dir = tmp_path / "data"
@@ -107,7 +112,8 @@ def test_development_loopback_without_shared_key_keeps_optional_auth_contract(tm
             "PYTHONPATH": str(RAG_ROOT),
         }
     )
-    env.pop("RAG_SHARED_API_KEY", None)
+    env["RAG_SHARED_API_KEY"] = ""
+    env["RAG_SHARED_API_KEY_FILE"] = ""
     env.pop("RAG_API_KEY", None)
     env.pop("PROJECT_RAG_API_KEY", None)
     result = subprocess.run(
@@ -206,6 +212,73 @@ def test_missing_shared_key_fails_closed_at_configuration_startup(tmp_path, mode
     result = _config_subprocess(tmp_path, mode_env)
     assert result.returncode != 0
     assert "RAG_SHARED_API_KEY" in result.stderr
+
+
+def test_shared_key_file_is_loaded_without_printing_the_credential(tmp_path):
+    secret_file = tmp_path / "rag_shared.key"
+    secret_file.write_text("file-injected-key\n", encoding="utf-8")
+    secret_file.chmod(0o600)
+
+    result = _config_subprocess(
+        tmp_path,
+        {
+            "PROJECT_RAG_AUTH_REQUIRED": "1",
+            "RAG_SHARED_API_KEY_FILE": str(secret_file),
+        },
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "file-injected-key" not in result.stdout + result.stderr
+
+
+def test_shared_key_file_missing_fails_before_protected_configuration_starts(tmp_path):
+    missing = tmp_path / "missing-rag-shared.key"
+    result = _config_subprocess(
+        tmp_path,
+        {
+            "PROJECT_RAG_AUTH_REQUIRED": "1",
+            "RAG_SHARED_API_KEY_FILE": str(missing),
+        },
+    )
+
+    assert result.returncode != 0
+    assert "RAG_SHARED_API_KEY_FILE" in result.stderr
+
+
+def test_shared_key_file_and_environment_value_must_match(tmp_path):
+    secret_file = tmp_path / "rag_shared.key"
+    secret_file.write_text("file-value", encoding="utf-8")
+    secret_file.chmod(0o600)
+    result = _config_subprocess(
+        tmp_path,
+        {
+            "PROJECT_RAG_AUTH_REQUIRED": "1",
+            "RAG_SHARED_API_KEY": "different-env-value",
+            "RAG_SHARED_API_KEY_FILE": str(secret_file),
+        },
+    )
+
+    assert result.returncode != 0
+    assert "different-env-value" not in result.stdout + result.stderr
+    assert "RAG_SHARED_API_KEY" in result.stderr
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX key-file mode bits are unavailable")
+def test_shared_key_file_rejects_group_or_world_readable_permissions(tmp_path):
+    secret_file = tmp_path / "rag_shared.key"
+    secret_file.write_text("permission-sensitive-key", encoding="utf-8")
+    secret_file.chmod(0o644)
+    result = _config_subprocess(
+        tmp_path,
+        {
+            "PROJECT_RAG_AUTH_REQUIRED": "1",
+            "RAG_SHARED_API_KEY_FILE": str(secret_file),
+        },
+    )
+
+    assert result.returncode != 0
+    assert "RAG_SHARED_API_KEY_FILE" in result.stderr
+    assert "permission-sensitive-key" not in result.stdout + result.stderr
 
 
 def test_legacy_tax_key_does_not_satisfy_rag_shared_key(tmp_path):

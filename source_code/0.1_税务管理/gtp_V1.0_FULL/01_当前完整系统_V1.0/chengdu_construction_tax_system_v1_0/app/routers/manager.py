@@ -6,9 +6,17 @@ from decimal import Decimal
 
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from sqlalchemy import case, select
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
-from ..ai.adapter import call_endpoint
+from ..ai.adapter import (
+    AIEndpointUnavailable,
+    AIResponseContractError,
+    endpoint_is_allowed,
+)
+from ..ai.adapter import call_endpoint as _ADAPTER_CALL_ENDPOINT
+from ..ai.adapter import call_text_endpoint as _ADAPTER_CALL_TEXT_ENDPOINT
+from ..ai.failover import call_text_with_failover, call_with_failover
 from ..calc import consolidated, project_summary
 from ..constants import CANONICAL_ENTITY_CODES
 from ..db import SessionLocal
@@ -17,6 +25,19 @@ from ..models import AIModelEndpoint, AuditLog, Entity, Invoice, Project, TaxLed
 from ..templates import templates
 
 router = APIRouter(prefix="/manager", tags=["管理者"])
+
+# Kept as a narrow monkeypatch seam for existing adapter tests.  Normal
+# execution below detects the untouched alias and always uses the shared
+# routing pool; a patched alias is only used by an isolated unit test.
+call_endpoint = _ADAPTER_CALL_ENDPOINT
+call_text_endpoint = _ADAPTER_CALL_TEXT_ENDPOINT
+
+# Existing isolated tests monkeypatch the old structured seams.  Production
+# execution uses the dedicated text failover path below; these identity marks
+# let old tests remain narrow without making the natural-language route share
+# the structured JSON contract.
+_DEFAULT_STRUCTURED_FAILOVER = call_with_failover
+_DEFAULT_TEXT_FAILOVER = call_text_with_failover
 
 
 # ---------------------------------------------------------------------------
@@ -86,23 +107,62 @@ def _build_project_context(db: Session, project_id: int) -> dict:
     }
 
 
-def _call_ai(question: str, ctx: dict, endpoint_id: int | None = None) -> str:
-    """直接调用 AI，优先使用外部大模型（如 DeepSeek），本地 Mock 作为兜底。"""
+def _ai_failure_payload(exc: Exception, *, status: str = "DEGRADED") -> dict:
+    reason = str(exc).replace("\x00", " ").replace("\n", " ").strip()[:2000]
+    if not reason:
+        reason = exc.__class__.__name__
+    payload = {
+        "answer": "真实 AI 端点当前不可用，请人工复核；系统未使用模拟结论。",
+        "status": status,
+        "requires_manual_review": True,
+        "data_gaps": [f"AI状态={status}", f"真实 AI 端点不可用：{reason}"],
+    }
+    attempts = getattr(exc, "attempts", None)
+    if isinstance(attempts, list) and attempts:
+        payload["attempts"] = attempts
+    return payload
+
+
+def _normalise_endpoint_id(endpoint_id: int | str | None) -> int | None:
+    """Normalize browser form input without turning blank values into 422."""
+    if endpoint_id is None:
+        return None
+    if isinstance(endpoint_id, int):
+        if endpoint_id <= 0:
+            raise AIEndpointUnavailable(
+                "指定的 AI 端点编号无效",
+                status="UNAVAILABLE",
+            )
+        return endpoint_id
+    value = str(endpoint_id).strip()
+    if not value:
+        return None
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError) as exc:
+        raise AIEndpointUnavailable(
+            "指定的 AI 端点编号无效",
+            status="UNAVAILABLE",
+        ) from exc
+    if parsed <= 0:
+        raise AIEndpointUnavailable(
+            "指定的 AI 端点编号无效",
+            status="UNAVAILABLE",
+        )
+    return parsed
+
+
+def _call_ai(question: str, ctx: dict, endpoint_id: int | str | None = None) -> dict:
+    """调用真实 AI；端点失败时返回显式降级信封，不回退到 mock。"""
     db = SessionLocal()
     try:
-        if endpoint_id:
-            endpoint = db.get(AIModelEndpoint, endpoint_id)
-        else:
-            # 优先选择外部真实模型（非 mock），按 id 升序，mock 模型作为最后兜底
-            endpoint = (
-                db.query(AIModelEndpoint)
-                .filter(AIModelEndpoint.enabled == True)  # noqa: E712
-                .order_by(case((AIModelEndpoint.adapter == "mock", 1), else_=0), AIModelEndpoint.id)
-                .first()
+        endpoint_id = _normalise_endpoint_id(endpoint_id)
+        endpoint = db.get(AIModelEndpoint, endpoint_id) if endpoint_id else None
+        if endpoint_id and endpoint is None:
+            return _ai_failure_payload(
+                AIEndpointUnavailable("指定的 AI 端点不存在"),
+                status="UNAVAILABLE",
             )
-
-        if endpoint is None:
-            return "当前没有可用的 AI 模型端点，请在「AI 模型」页面配置。"
 
         ctx_str = json.dumps(ctx, ensure_ascii=False, indent=2)
         system_msg = (
@@ -119,27 +179,116 @@ def _call_ai(question: str, ctx: dict, endpoint_id: int | None = None) -> str:
         ]
 
         try:
-            result, raw, _ = call_endpoint(endpoint, messages, ctx)
-        except Exception as e:
-            # 若外部主模型调用失败（如网络波动/配额超限），自动尝试本地 mock 模型作为兜底
-            if endpoint.adapter != "mock":
-                mock_ep = (
-                    db.query(AIModelEndpoint)
-                    .filter(AIModelEndpoint.enabled == True, AIModelEndpoint.adapter == "mock")  # noqa: E712
-                    .first()
+            # Natural-language manager answers have their own adapter and
+            # failover contract: any non-empty assistant text is usable.  The
+            # default branch never invokes the structured Review failover.
+            if call_text_with_failover is not _DEFAULT_TEXT_FAILOVER:
+                text_result = call_text_with_failover(
+                    db,
+                    messages,
+                    ctx,
+                    endpoint_id=endpoint_id,
                 )
-                if mock_ep:
-                    result, raw, _ = call_endpoint(mock_ep, messages, ctx)
-                else:
-                    return f"AI 调用失败：{e}"
+                answer = text_result.text
+                route_meta = text_result.metadata
+            elif call_text_endpoint is not _ADAPTER_CALL_TEXT_ENDPOINT:
+                # Narrow seam for adapter-level unit tests.
+                if endpoint is None:
+                    raise AIEndpointUnavailable("未指定可直接调用的 AI 端点")
+                answer = call_text_endpoint(endpoint, messages, ctx)
+                route_meta = {
+                    "endpoint_id": getattr(endpoint, "id", None),
+                    "endpoint_name": getattr(endpoint, "name", ""),
+                    "model": getattr(endpoint, "model", ""),
+                    "status": "READY",
+                    "fallback_used": False,
+                    "attempts": [],
+                }
+            elif call_endpoint is not _ADAPTER_CALL_ENDPOINT:
+                # Compatibility seam for older adapter tests.  The raw text
+                # is authoritative for this question route even if the old
+                # adapter also reports a JSON parse warning.
+                result, raw, _parse_failed = call_endpoint(endpoint, messages, ctx)
+                answer = str(raw or "").strip()
+                if not answer and isinstance(result, dict):
+                    answer = str(result.get("summary") or "").strip()
+                if not answer:
+                    raise AIResponseContractError(
+                        "模型端点未返回非空 assistant 文本",
+                    )
+                route_meta = {
+                    "endpoint_id": getattr(endpoint, "id", None),
+                    "endpoint_name": getattr(endpoint, "name", ""),
+                    "model": getattr(endpoint, "model", ""),
+                    "status": "READY",
+                    "fallback_used": False,
+                    "attempts": [],
+                }
+            elif call_with_failover is not _DEFAULT_STRUCTURED_FAILOVER:
+                # Compatibility seam for tests written against the old pool
+                # function.  Do not expose its structured fields as a Review
+                # result; only retain a non-empty answer and safe route meta.
+                result, raw, _parse_failed, route_meta = call_with_failover(
+                    db,
+                    messages,
+                    ctx,
+                    endpoint_id=endpoint_id,
+                )
+                answer = str(raw or "").strip()
+                if not answer and isinstance(result, dict):
+                    answer = str(result.get("summary") or "").strip()
+                if not answer:
+                    raise AIResponseContractError(
+                        "模型端点未返回非空 assistant 文本",
+                    )
             else:
-                return f"AI 调用失败：{e}"
+                text_result = call_text_with_failover(
+                    db,
+                    messages,
+                    ctx,
+                    endpoint_id=endpoint_id,
+                )
+                answer = text_result.text
+                route_meta = text_result.metadata
+        except AIEndpointUnavailable as exc:
+            return _ai_failure_payload(exc, status=exc.status)
+        except Exception as exc:
+            return _ai_failure_payload(exc, status="DEGRADED")
 
-        # 从结构化结果提取 summary
-        summary = result.get("summary", "") if isinstance(result, dict) else ""
-        return summary or raw[:2000]
-    except Exception as e:
-        return f"AI 调用失败：{e}"
+        answer = str(answer or "").strip()
+        if not answer:
+            raise AIResponseContractError(
+                "模型端点未返回非空 assistant 文本",
+            )
+        fallback_used = bool(route_meta.get("fallback_used"))
+        route_degraded = route_meta.get("status") == "DEGRADED"
+        data_gaps = ["AI解释仅供参考，不覆盖确定性计算结果"]
+        requires_manual_review = False
+        if fallback_used:
+            data_gaps.append(
+                "首选 AI 端点失败，已切换同路由组后备端点；本结果状态为 DEGRADED",
+            )
+            requires_manual_review = True
+        elif route_degraded:
+            data_gaps.append("AI文本问答状态为 DEGRADED，请人工复核")
+            requires_manual_review = True
+        return {
+            "answer": answer[:2000],
+            "status": (
+                "DEGRADED"
+                if fallback_used or route_degraded
+                else "READY"
+            ),
+            "requires_manual_review": requires_manual_review,
+            "data_gaps": data_gaps,
+            "endpoint_id": route_meta.get("endpoint_id"),
+            "endpoint_name": route_meta.get("endpoint_name", ""),
+            "model": route_meta.get("model", ""),
+            "fallback_used": fallback_used,
+            "attempts": route_meta.get("attempts", []),
+        }
+    except Exception as exc:
+        return _ai_failure_payload(exc, status="DEGRADED")
     finally:
         db.close()
 
@@ -271,13 +420,15 @@ def manager_project_detail(request: Request, pid: int) -> HTMLResponse:
             select(RealCost).where(RealCost.project_id == pid)
         ).scalars().all()
 
-        # 可用 AI 端点（外部主力模型优先，Mock 作为兜底）
+        # 仅展示当前进程允许调用的端点；正式库中的 mock 记录不删除，
+        # 但在非 test + 显式 opt-in 时完全忽略。
         endpoints = (
             db.query(AIModelEndpoint)
             .filter(AIModelEndpoint.enabled == True)  # noqa: E712
-            .order_by(case((AIModelEndpoint.adapter == "mock", 1), else_=0), AIModelEndpoint.id)
+            .order_by(AIModelEndpoint.id)
             .all()
         )
+        endpoints = [e for e in endpoints if endpoint_is_allowed(e)]
 
         return templates.TemplateResponse(
             request,
@@ -303,21 +454,34 @@ def manager_ask(
     request: Request,
     pid: int,
     question: str = Form(...),
-    endpoint_id: int = Form(...),
+    endpoint_id: str | None = Form(None),
 ) -> HTMLResponse:
-    """处理 AI 问答请求，返回 JSON 片段（JS 接管）。"""
+    """处理 AI 问答请求，返回 JSON 片段（JS 接管）。
+
+    ``endpoint_id`` is optional because the browser assistant intentionally
+    lets the server choose the configured model pool.  ``_call_ai`` keeps an
+    explicitly supplied id on the same failover path, while a missing/blank
+    value selects the default routing group.  With no eligible real endpoint,
+    the call returns an explicit ``UNAVAILABLE``/``DEGRADED`` envelope rather
+    than FastAPI rejecting the form as HTTP 422.
+    """
     user = admin_only(request)
     db = SessionLocal()
     try:
         ctx = _build_project_context(db, pid)
-        answer = _call_ai(question, ctx, endpoint_id)
+        try:
+            normalized_endpoint_id = _normalise_endpoint_id(endpoint_id)
+        except AIEndpointUnavailable as exc:
+            payload = _ai_failure_payload(exc, status=exc.status)
+        else:
+            payload = _call_ai(question, ctx, normalized_endpoint_id)
 
         # 记录审计
         audit_from_request(request, "manager_ask", "project", str(pid),
                            f"AI问答: {question[:80]}", user.username)
 
         from fastapi.responses import JSONResponse
-        return JSONResponse({"answer": answer})
+        return JSONResponse(payload)
     finally:
         db.close()
 

@@ -6,11 +6,13 @@
 from __future__ import annotations
 
 import hashlib
+import ipaddress
 import json
 import os
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx
 from fastapi import APIRouter, Form, HTTPException, Query, Request
@@ -20,6 +22,7 @@ from sqlalchemy import Date, DateTime
 from .. import config
 from ..audit import current_actor
 from ..db import SessionLocal
+from ..dependencies import admin_only
 from ..models import (
     CashFlow,
     Contract,
@@ -27,17 +30,18 @@ from ..models import (
     Invoice,
     Project,
     ProjectRAGMap,
+    RagServiceEndpoint,
     SyncLog,
     SyncPending,
 )
 from ..observability import get_request_id
+from ..security import resolve_rag_service_addresses, validate_rag_service_url
 from ..services.facts_client import (
     get_latest_snapshot,
     get_project_facts,
     invalidate_facts,
     list_snapshots,
 )
-from ..security import validate_rag_service_url
 
 # These models are introduced by the V1.0 data migration.  Keeping the import
 # optional lets the router remain importable while an old development database
@@ -65,6 +69,10 @@ router = APIRouter(prefix="/rag-sync", tags=["RAG同步"])
 
 RAG_URL = config.RAG_SERVICE_URL.rstrip("/")
 RAG_SHARED_KEY = config.RAG_SHARED_API_KEY or ""
+# Backward-compatible symbol for callers that still refer to the old module
+# name.  It is deliberately an alias of the dedicated shared credential, not
+# a fallback to ``TAX_RAG_API_KEY`` or any value stored in ProjectRAGMap.
+RAG_API_KEY = RAG_SHARED_KEY
 AUTO_CONF_THRESHOLD = Decimal(str(config.SYNC_CONFIDENCE_THRESHOLD))  # >= 此值自动入库
 
 VIRTUAL_ENTITY_CODES = frozenset({"A", "B", "C", "D", "甲", "乙", "丙", "丁"})
@@ -90,15 +98,41 @@ class SyncReviewRequired(ValueError):
 # ============================================================
 
 class RagConnectRequest(BaseModel):
-    url: str = Field(default="", max_length=300, description="RAG 服务地址；留空使用服务配置")
-    api_key: str = Field(default="", max_length=512, description="RAG API 密钥（可选）")
+    url: str = Field(default="", max_length=300, description="RAG 服务地址；留空使用已保存配置")
+
+
+class RagSettingsRequest(BaseModel):
+    """Administrator request for the Tax -> RAG endpoint.
+
+    The shared credential is intentionally absent.  It is process supplied on
+    the Tax server and can never be submitted by the browser.
+    """
+
+    url: str = Field(..., min_length=1, max_length=300, description="RAG 服务 base URL")
+    approve_private: bool = Field(
+        default=False,
+        description="明确批准该主机作为 Tax -> RAG 私网/回环服务",
+    )
+
+
+class RagSettingsResponse(BaseModel):
+    ok: bool
+    url: str = ""
+    host: str = ""
+    approved_private: bool = False
+    configured: bool = False
+    last_tested_at: str = ""
+    rag_version: str = ""
+    llm_extraction: bool = False
+    projects: list[dict] = Field(default_factory=list)
+    error: str = ""
 
 
 class RagConnectResponse(BaseModel):
     ok: bool
     rag_version: str = ""
     llm_extraction: bool = False
-    projects: list[dict] = []
+    projects: list[dict] = Field(default_factory=list)
     error: str = ""
 
 
@@ -173,11 +207,62 @@ def _rag_headers(api_key: str = "", *, request_id: str | None = None) -> dict[st
     return h
 
 
-def _validated_rag_url(raw_url: str) -> str:
-    """Validate a configured or database-backed RAG URL before use."""
+def _stored_rag_endpoint(db) -> RagServiceEndpoint | None:
+    """Return the enabled singleton endpoint, if one has been approved."""
+    if db is None:
+        return None
+    return db.query(RagServiceEndpoint).filter(
+        RagServiceEndpoint.id == 1,
+        RagServiceEndpoint.enabled.is_(True),
+    ).first()
+
+
+def _approved_addresses(endpoint: RagServiceEndpoint | None) -> frozenset[str] | None:
+    """Decode the administrator's DNS snapshot without accepting malformed data."""
+    if endpoint is None:
+        return None
+    raw = str(getattr(endpoint, "resolved_addresses_json", "") or "")
+    try:
+        values = json.loads(raw or "[]")
+    except (TypeError, ValueError, json.JSONDecodeError) as exc:
+        raise ValueError("RAG 服务批准记录的 DNS 地址快照无效") from exc
+    if not isinstance(values, list) or not all(isinstance(value, str) for value in values):
+        raise ValueError("RAG 服务批准记录的 DNS 地址快照无效")
+    return frozenset(value.strip() for value in values if value.strip())
+
+
+def _active_rag_url(db=None) -> str:
+    endpoint = _stored_rag_endpoint(db)
+    if endpoint is not None and str(endpoint.base_url or "").strip():
+        return str(endpoint.base_url).strip().rstrip("/")
+    return RAG_URL
+
+
+def _validated_rag_url(
+    raw_url: str,
+    *,
+    db=None,
+    explicit_private_approval: bool = False,
+) -> str:
+    """Validate a configured or database-backed RAG URL before every call.
+
+    A database endpoint is not trusted merely because it is persisted: the
+    validator re-resolves its host and compares the result with the approval
+    snapshot.  ``explicit_private_approval`` is used only by the administrator
+    test-and-save transaction; normal project/status/sync calls rely on the
+    persisted row.
+    """
     normalized = str(raw_url or "").strip().rstrip("/")
     if not normalized:
         raise ValueError("RAG 服务地址不能为空")
+    endpoint = _stored_rag_endpoint(db)
+    approved_private = False
+    approved_addresses = None
+    endpoint_url = str(getattr(endpoint, "base_url", "") or "").strip().rstrip("/")
+    if endpoint_url and normalized == endpoint_url:
+        approved_private = bool(endpoint.approved_private)
+        approved_addresses = _approved_addresses(endpoint)
+
     # The shipped development default is a loopback HTTP service.  It is
     # allowed only when it is exactly the configured global endpoint and the
     # process is not production/staging; arbitrary user-supplied loopback
@@ -189,6 +274,8 @@ def _validated_rag_url(raw_url: str) -> str:
     return validate_rag_service_url(
         normalized,
         allow_loopback_http=allow_loopback_http,
+        allow_approved_private=approved_private or explicit_private_approval,
+        approved_addresses=approved_addresses,
     )
 
 
@@ -207,9 +294,17 @@ def _resolve_rag_project(db, project_id: int, rag_project_id: int | None) -> tup
         )
 
     resolved_id = rag_project_id or (mapping.rag_project_id if mapping else 0)
-    configured_url = (mapping.rag_url if mapping and mapping.rag_url else RAG_URL).rstrip("/")
+    # Once an administrator has saved a global endpoint, it is the single
+    # effective Tax -> RAG destination.  Legacy project-map URLs remain in the
+    # schema for compatibility but must not make one project silently call a
+    # different RAG machine after the global setting changes.
+    configured_url = (
+        _active_rag_url(db)
+        if _stored_rag_endpoint(db) is not None
+        else (mapping.rag_url if mapping and mapping.rag_url else _active_rag_url(db))
+    ).rstrip("/")
     try:
-        resolved_url = _validated_rag_url(configured_url)
+        resolved_url = _validated_rag_url(configured_url, db=db)
     except ValueError as exc:
         raise HTTPException(400, f"RAG 服务地址不安全: {exc}") from exc
     # Project mappings must not become a secret store.  Legacy values may
@@ -613,10 +708,11 @@ def _call_rag_extract(
     top_k: int,
     *,
     request_id: str | None = None,
+    validation_db=None,
 ) -> dict[str, Any]:
     """调用 RAG /api/v1/extract-tax 接口。"""
     try:
-        rag_url = _validated_rag_url(rag_url)
+        rag_url = _validated_rag_url(rag_url, db=validation_db)
     except ValueError as exc:
         raise HTTPException(502, f"RAG 服务地址不安全: {exc}") from exc
     url = f"{rag_url}/api/v1/extract-tax"
@@ -642,9 +738,9 @@ def _call_rag_extract(
     except httpx.TimeoutException as exc:
         raise HTTPException(504, "RAG 服务响应超时（120s）") from exc
     except httpx.HTTPStatusError as e:
-        raise HTTPException(502, f"RAG 返回错误 {e.response.status_code}: {e.response.text[:200]}") from e
+        raise HTTPException(502, f"RAG 返回错误 {e.response.status_code}") from e
     except Exception as e:
-        raise HTTPException(502, f"RAG 调用失败: {e}") from e
+        raise HTTPException(502, "RAG 调用失败，请检查服务连接") from e
 
 
 def _map_invoice_fields(db, fields: dict, project_id: int) -> dict[str, Any]:
@@ -977,6 +1073,7 @@ def _do_sync(
     rag_data = _call_rag_extract(
         rag_url, rag_api_key, rag_project_id, extract_type,
         period_start, period_end, top_k, request_id=request_id,
+        validation_db=db,
     )
 
     extracted_items = rag_data.get("extracted_items") or []
@@ -1148,43 +1245,226 @@ def _import_record(
 # API 路由
 # ============================================================
 
-@router.post("/connect", response_model=RagConnectResponse)
-def rag_connect(body: RagConnectRequest):
-    """配置并测试 RAG 服务连接。"""
-    try:
-        url = _validated_rag_url(body.url or RAG_URL)
-    except ValueError as exc:
-        return RagConnectResponse(ok=False, error=f"RAG 服务地址不安全: {exc}")
-    headers = _rag_headers(request_id=get_request_id())
-    if body.api_key:
-        headers["Authorization"] = f"Bearer {body.api_key}"
+def _redacted_rag_error(message: str) -> str:
+    """Return a connection error that cannot echo the shared credential."""
+    text = str(message or "").replace("\x00", " ").replace("\n", " ").strip()
+    if RAG_SHARED_KEY:
+        text = text.replace(RAG_SHARED_KEY, "[redacted]")
+    return text[:300] or "RAG 服务连接失败"
 
+
+def _probe_rag(
+    raw_url: str,
+    *,
+    db=None,
+    explicit_private_approval: bool = False,
+) -> tuple[RagConnectResponse, frozenset[str] | None, str]:
+    """Validate and probe a RAG endpoint using only the server-side key."""
+    try:
+        url = _validated_rag_url(
+            raw_url,
+            db=db,
+            explicit_private_approval=explicit_private_approval,
+        )
+        # The address snapshot is persisted only after this validation and a
+        # successful probe.  Normal calls compare it again via ``db``.
+        addresses = resolve_rag_service_addresses(url)
+    except ValueError as exc:
+        return RagConnectResponse(ok=False, error=f"RAG 服务地址不安全: {exc}"), None, ""
+
+    headers = _rag_headers(request_id=get_request_id())
     try:
         with httpx.Client(timeout=10, follow_redirects=False) as client:
             health = client.get(f"{url}/api/v1/health", headers=headers)
             health.raise_for_status()
             hdata = health.json()
+            if not isinstance(hdata, dict):
+                raise ValueError("RAG 健康检查返回格式无效")
 
             projects_resp = client.get(f"{url}/api/v1/projects", headers=headers)
             projects_resp.raise_for_status()
-            projects = projects_resp.json()
+            projects_payload = projects_resp.json()
+            if isinstance(projects_payload, list):
+                raw_projects = projects_payload
+            elif isinstance(projects_payload, dict) and isinstance(
+                projects_payload.get("projects"), list,
+            ):
+                raw_projects = projects_payload["projects"]
+            else:
+                raw_projects = []
+            # Keep the response contract bounded to object records.  The UI
+            # further accepts only records with a positive RAG project ID;
+            # malformed upstream items must never become a successful-looking
+            # project candidate or trigger Pydantic response errors.
+            projects = [item for item in raw_projects if isinstance(item, dict)]
 
-        return RagConnectResponse(
-            ok=True,
-            rag_version=hdata.get("version", ""),
-            llm_extraction=hdata.get("llm_extraction", False),
-            projects=projects,
+        return (
+            RagConnectResponse(
+                ok=True,
+                rag_version=str(hdata.get("version", "") or ""),
+                llm_extraction=hdata.get("llm_extraction", False) is True,
+                projects=projects,
+            ),
+            addresses,
+            url,
         )
-    except httpx.HTTPStatusError as e:
-        return RagConnectResponse(ok=False, error=f"HTTP {e.response.status_code}")
-    except Exception as e:
-        return RagConnectResponse(ok=False, error=str(e))
+    except httpx.HTTPStatusError as exc:
+        return (
+            RagConnectResponse(ok=False, error=f"HTTP {exc.response.status_code}"),
+            None,
+            url,
+        )
+    except httpx.TimeoutException:
+        return RagConnectResponse(ok=False, error="RAG 服务连接超时"), None, url
+    except Exception as exc:
+        return RagConnectResponse(ok=False, error=_redacted_rag_error(str(exc))), None, url
+
+
+def _settings_response(
+    probe: RagConnectResponse,
+    *,
+    url: str = "",
+    configured: bool = False,
+    approved_private: bool = False,
+    last_tested_at: str = "",
+) -> RagSettingsResponse:
+    return RagSettingsResponse(
+        ok=probe.ok,
+        url=url,
+        host=(urlsplit(url).hostname or "") if url else "",
+        approved_private=approved_private,
+        configured=configured,
+        last_tested_at=last_tested_at,
+        rag_version=probe.rag_version,
+        llm_extraction=probe.llm_extraction,
+        projects=probe.projects,
+        error=probe.error,
+    )
+
+
+@router.get("/settings", response_model=RagSettingsResponse)
+def get_rag_settings(request: Request):
+    """Read safe RAG endpoint metadata; the shared key is never returned."""
+    # AuthMiddleware requires a session for this route.  It is safe for an
+    # operator to see the approved base URL and status, but only an admin can
+    # change or test a newly supplied destination.
+    db = SessionLocal()
+    try:
+        endpoint = _stored_rag_endpoint(db)
+        if endpoint is None:
+            url = _active_rag_url(db)
+            return _settings_response(RagConnectResponse(ok=False), url=url)
+        return _settings_response(
+            RagConnectResponse(ok=True),
+            url=str(endpoint.base_url or "").rstrip("/"),
+            configured=True,
+            approved_private=bool(endpoint.approved_private),
+            last_tested_at=str(endpoint.last_tested_at or ""),
+        )
+    finally:
+        db.close()
+
+
+@router.post("/settings/test", response_model=RagSettingsResponse)
+def test_rag_settings(body: RagSettingsRequest, request: Request):
+    """Administrator-only connection test; it does not persist the URL."""
+    admin_only(request)
+    probe, _addresses, url = _probe_rag(
+        body.url,
+        explicit_private_approval=body.approve_private,
+    )
+    return _settings_response(
+        probe,
+        url=url or body.url.strip().rstrip("/"),
+        approved_private=body.approve_private,
+    )
+
+
+@router.post("/settings", response_model=RagSettingsResponse)
+def save_rag_settings(body: RagSettingsRequest, request: Request):
+    """Test and persist one administrator-approved RAG endpoint."""
+    user = admin_only(request)
+    # Do not allow an existing approval row to silently authorize a newly
+    # submitted private URL.  The checkbox/body flag is the explicit approval
+    # for this operation; the probe must succeed before the row is changed.
+    probe, addresses, url = _probe_rag(
+        body.url,
+        explicit_private_approval=body.approve_private,
+    )
+    safe_url = url or body.url.strip().rstrip("/")
+    if not probe.ok or addresses is None or not url:
+        return _settings_response(
+            probe,
+            url=safe_url,
+            approved_private=body.approve_private,
+        )
+
+    private_target = any(
+        (address := ipaddress.ip_address(value)).is_private or address.is_loopback
+        for value in addresses
+    )
+    endpoint_approved_private = private_target and body.approve_private
+    now = _now()
+    db = SessionLocal()
+    try:
+        endpoint = _stored_rag_endpoint(db)
+        if endpoint is None:
+            endpoint = RagServiceEndpoint(id=1)
+            db.add(endpoint)
+        parsed = urlsplit(url)
+        endpoint.base_url = url
+        endpoint.host = (parsed.hostname or "").rstrip(".").lower()
+        endpoint.scheme = parsed.scheme
+        endpoint.port = parsed.port
+        endpoint.approved_private = endpoint_approved_private
+        endpoint.resolved_addresses_json = json.dumps(
+            sorted(addresses), ensure_ascii=False, separators=(",", ":"),
+        )
+        endpoint.enabled = True
+        endpoint.approved_at = now
+        endpoint.approved_by = current_actor(request) or getattr(user, "username", "")
+        endpoint.last_tested_at = now
+        endpoint.created_at = endpoint.created_at or now
+        endpoint.updated_at = now
+        db.commit()
+        return _settings_response(
+            probe,
+            url=url,
+            configured=True,
+            approved_private=endpoint_approved_private,
+            last_tested_at=now,
+        )
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(status_code=500, detail="RAG 服务设置保存失败") from exc
+    finally:
+        db.close()
+
+
+@router.post("/connect", response_model=RagConnectResponse)
+def rag_connect(body: RagConnectRequest, request: Request):
+    """Backward-compatible admin-only connection test."""
+    admin_only(request)
+    db = SessionLocal()
+    try:
+        probe, _addresses, _url = _probe_rag(
+            body.url or _active_rag_url(db),
+            db=db,
+        )
+        return probe
+    finally:
+        db.close()
 
 
 @router.get("/status", response_model=RagConnectResponse)
-def rag_status():
+def rag_status(request: Request):
     """查看 RAG 连接状态。"""
-    return rag_connect(RagConnectRequest())
+    db = SessionLocal()
+    try:
+        probe, _addresses, _url = _probe_rag(_active_rag_url(db), db=db)
+        return probe
+    finally:
+        db.close()
 
 
 @router.post("/sync", response_model=SyncResponse)
@@ -1520,7 +1800,7 @@ def upsert_project_map(body: ProjectRAGMapRequest):
         validated_url = ""
         if body.rag_url:
             try:
-                validated_url = _validated_rag_url(body.rag_url)
+                validated_url = _validated_rag_url(body.rag_url, db=db)
             except ValueError as exc:
                 raise HTTPException(400, f"RAG 服务地址不安全: {exc}") from exc
 
@@ -1575,7 +1855,11 @@ def get_project_map(project_id: int):
             "project_id": mapping.project_id,
             "rag_project_id": mapping.rag_project_id,
             "rag_project_code": mapping.rag_project_code,
-            "rag_url": mapping.rag_url,
+            "rag_url": (
+                _active_rag_url(db)
+                if _stored_rag_endpoint(db) is not None
+                else mapping.rag_url or _active_rag_url(db)
+            ),
             "has_api_key": bool(RAG_SHARED_KEY),
             "note": mapping.note,
             "synced_at": mapping.synced_at,
@@ -1596,6 +1880,12 @@ def sync_project_from_rag(project_id: int, rag_project_id: int, name: str = ""):
         rag_project_id_resolved, rag_url, rag_api_key = _resolve_rag_project(
             db, project_id, rag_project_id,
         )
+        # Re-resolve immediately before the outbound request.  For an
+        # approved hostname this rejects a changed DNS address snapshot.
+        try:
+            rag_url = _validated_rag_url(rag_url, db=db)
+        except ValueError as exc:
+            raise HTTPException(502, f"RAG 服务地址不安全: {exc}") from exc
 
         payload = {
             "project_code": proj.code,

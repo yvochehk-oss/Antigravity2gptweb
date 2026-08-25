@@ -11,10 +11,11 @@ from __future__ import annotations
 import json
 import math
 import uuid
+from collections import OrderedDict
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from decimal import Decimal
-from collections import OrderedDict
 from threading import RLock
 from typing import Any, Optional
 
@@ -23,7 +24,7 @@ from app.config import (
     FACTS_CACHE_MAX_ENTRIES,
     FACTS_CACHE_TTL_SECONDS,
 )
-
+from app.domain.entities import is_canonical_entity_code, normalize_entity_code
 
 FACTS_SOURCE = "analytics_project_full"
 SNAPSHOT_SOURCE = "facts_snapshots"
@@ -45,6 +46,61 @@ REQUIRED_METRICS = frozenset(
 # must never make an otherwise valid deterministic snapshot unusable.
 SNAPSHOT_REQUIRED_METRICS = REQUIRED_METRICS
 
+
+def entity_mapping_failure(mapping: Mapping[str, Any]) -> str | None:
+    """Return a fail-closed reason when a project is not canonically mapped.
+
+    ``analytics_project_summary`` is intentionally the place that joins a
+    project to the canonical ``entities`` master.  The provider still checks
+    the resulting status because an old view, hand-written fixture, or stale
+    snapshot must not be able to mark aggregate amounts as trusted merely by
+    setting ``facts_available=true``.
+    """
+
+    raw_code = mapping.get("entity_code")
+    code = normalize_entity_code(raw_code if raw_code is not None else None)
+    if not code:
+        return "entity mapping gap: project.entity_code is missing"
+    if not is_canonical_entity_code(code):
+        return (
+            f"entity mapping gap: invalid entity_code={raw_code!r}; "
+            "business roles A/B/C/D are not legal entity identifiers"
+        )
+
+    raw_status = mapping.get("entity_mapping_status")
+    status = str(raw_status or "").strip().upper()
+    if not status:
+        return "entity mapping gap: analytics source has no entity_mapping_status"
+    if status != "VALID":
+        detail = str(mapping.get("entity_mapping_reason") or "").strip()
+        suffix = f": {detail}" if detail else ""
+        return f"entity mapping gap: status={status}{suffix}"
+
+    # ``entity_mapping_valid`` was added alongside the status field.  Treat a
+    # present false value as a hard failure, but remain compatible with a
+    # valid status-only row produced by a transitional view.
+    raw_valid = mapping.get("entity_mapping_valid")
+    if isinstance(raw_valid, str):
+        valid = raw_valid.strip().lower() in {"true", "t", "1", "yes"}
+    elif raw_valid is None:
+        valid = True
+    else:
+        valid = bool(raw_valid)
+    if not valid:
+        detail = str(mapping.get("entity_mapping_reason") or "").strip()
+        suffix = f": {detail}" if detail else ""
+        return f"entity mapping gap: entity_mapping_valid=false{suffix}"
+    return None
+
+
+def _optional_bool(value: Any) -> bool | None:
+    """Normalize a nullable database/JSON boolean for response metadata."""
+
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value.strip().lower() in {"true", "t", "1", "yes"}
+    return bool(value)
 
 
 def _validate_metrics_completeness(metrics: dict) -> tuple[bool, list[str]]:
@@ -146,6 +202,10 @@ class FactsResponse:
     facts_available: bool = True
     reason: Optional[str] = None
     source: str = FACTS_SOURCE
+    entity_code: Optional[str] = None
+    entity_mapping_status: Optional[str] = None
+    entity_mapping_reason: Optional[str] = None
+    entity_mapping_valid: Optional[bool] = None
 
     def to_dict(self) -> dict[str, Any]:
         """Convert the response to the public JSON contract."""
@@ -158,6 +218,10 @@ class FactsResponse:
             "facts_available": self.facts_available,
             "reason": self.reason,
             "source": self.source,
+            "entity_code": self.entity_code,
+            "entity_mapping_status": self.entity_mapping_status,
+            "entity_mapping_reason": self.entity_mapping_reason,
+            "entity_mapping_valid": self.entity_mapping_valid,
             "metrics": {key: value.to_dict() for key, value in self.metrics.items()},
         }
 
@@ -337,6 +401,10 @@ def _degraded_response(
     source: str = FACTS_SOURCE,
     metrics: Optional[dict[str, MetricValue]] = None,
     facts_version: Optional[str] = None,
+    entity_code: Optional[str] = None,
+    entity_mapping_status: Optional[str] = None,
+    entity_mapping_reason: Optional[str] = None,
+    entity_mapping_valid: Optional[bool] = None,
 ) -> FactsResponse:
     """Create an explicit unavailable response with no fabricated values."""
 
@@ -349,6 +417,10 @@ def _degraded_response(
         facts_available=False,
         reason=reason,
         source=source,
+        entity_code=entity_code,
+        entity_mapping_status=entity_mapping_status,
+        entity_mapping_reason=entity_mapping_reason,
+        entity_mapping_valid=entity_mapping_valid,
     )
 
 
@@ -477,8 +549,11 @@ class FactsProvider:
             )
 
         mapping = self._row_mapping(row)
+        mapping_failure = entity_mapping_failure(mapping)
         metrics, missing, invalid = self._metrics_from_row(row)
         reasons: list[str] = []
+        if mapping_failure:
+            reasons.append(mapping_failure)
         source_flag = mapping.get("facts_available")
         source_incomplete = source_flag is False or source_flag == 0 or (
             isinstance(source_flag, str) and source_flag.strip().lower() in {"false", "0", "no"}
@@ -489,7 +564,7 @@ class FactsProvider:
             reasons.append("missing metrics: " + ", ".join(sorted(missing)))
         if invalid:
             reasons.append("invalid metrics: " + ", ".join(sorted(invalid)))
-        available = not source_incomplete and not missing and not invalid
+        available = not mapping_failure and not source_incomplete and not missing and not invalid
         as_of = _iso_value(mapping.get("calculated_at") or mapping.get("data_date"))
 
         return FactsResponse(
@@ -501,6 +576,18 @@ class FactsProvider:
             facts_available=available,
             reason="; ".join(reasons) if reasons else None,
             source=FACTS_SOURCE,
+            entity_code=normalize_entity_code(mapping.get("entity_code")),
+            entity_mapping_status=(
+                str(mapping.get("entity_mapping_status")).strip().upper()
+                if mapping.get("entity_mapping_status") is not None
+                else None
+            ),
+            entity_mapping_reason=(
+                str(mapping.get("entity_mapping_reason")).strip()
+                if mapping.get("entity_mapping_reason") is not None
+                else None
+            ),
+            entity_mapping_valid=_optional_bool(mapping.get("entity_mapping_valid")),
         )
 
     @staticmethod
@@ -554,6 +641,28 @@ class FactsProvider:
                 as_of=_iso_value(mapping.get("as_of"), default_now=False) or as_of,
                 source=SNAPSHOT_SOURCE,
                 facts_version=str(mapping.get("facts_version") or ""),
+            )
+
+        mapping_failure = entity_mapping_failure(payload)
+        if mapping_failure:
+            return _degraded_response(
+                project_code,
+                mapping_failure,
+                as_of=_iso_value(mapping.get("as_of"), default_now=False) or as_of,
+                source=SNAPSHOT_SOURCE,
+                facts_version=str(mapping.get("facts_version") or payload.get("facts_version") or ""),
+                entity_code=normalize_entity_code(payload.get("entity_code")),
+                entity_mapping_status=(
+                    str(payload.get("entity_mapping_status")).strip().upper()
+                    if payload.get("entity_mapping_status") is not None
+                    else None
+                ),
+                entity_mapping_reason=(
+                    str(payload.get("entity_mapping_reason")).strip()
+                    if payload.get("entity_mapping_reason") is not None
+                    else None
+                ),
+                entity_mapping_valid=_optional_bool(payload.get("entity_mapping_valid")),
             )
 
         raw_metrics = payload.get("metrics", {})
@@ -611,6 +720,18 @@ class FactsProvider:
             facts_available=available,
             reason=reason,
             source=SNAPSHOT_SOURCE,
+            entity_code=normalize_entity_code(payload.get("entity_code")),
+            entity_mapping_status=(
+                str(payload.get("entity_mapping_status")).strip().upper()
+                if payload.get("entity_mapping_status") is not None
+                else None
+            ),
+            entity_mapping_reason=(
+                str(payload.get("entity_mapping_reason")).strip()
+                if payload.get("entity_mapping_reason") is not None
+                else None
+            ),
+            entity_mapping_valid=_optional_bool(payload.get("entity_mapping_valid")),
         )
 
     def get_history(self, project_code: str, limit: int = 10) -> dict[str, Any]:
@@ -643,11 +764,14 @@ class FactsProvider:
             reason = None
             try:
                 payload = self._decode_snapshot_data(row.get("facts_data"))
+                mapping_failure = entity_mapping_failure(payload)
                 raw_metrics = payload.get("metrics", {})
                 metrics_complete, missing = _validate_metrics_completeness(raw_metrics)
                 base_available = bool(payload.get("facts_available", bool(raw_metrics)))
-                available = base_available and metrics_complete
-                if not available and missing:
+                available = not mapping_failure and base_available and metrics_complete
+                if mapping_failure:
+                    reason = mapping_failure
+                elif not available and missing:
                     reason = f"missing metrics: {', '.join(sorted(missing))}"
             except (TypeError, ValueError, json.JSONDecodeError):
                 reason = "invalid snapshot data"
@@ -661,11 +785,14 @@ class FactsProvider:
                 }
             )
 
+        has_available = any(item["facts_available"] for item in history)
         return {
             "project_code": project_code,
-            "status": "AVAILABLE" if history else "DEGRADED",
-            "facts_available": bool(history),
-            "reason": None if history else "no Facts snapshots found",
+            "status": "AVAILABLE" if has_available else "DEGRADED",
+            "facts_available": has_available,
+            "reason": None if has_available else (
+                "no available Facts snapshots found" if history else "no Facts snapshots found"
+            ),
             "history": history,
         }
 

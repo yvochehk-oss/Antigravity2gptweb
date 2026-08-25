@@ -146,7 +146,7 @@
             <span class="mt-0.5 block text-[12px] leading-4 text-slate-400">下次打开 App 时，无需输入密码即可快速验证身份进入。</span>
           </span>
           <span class="relative inline-flex h-7 w-12 shrink-0 items-center">
-            <input id="bio-cache" v-model="bioEnabled" type="checkbox" @change="toggleBiometric" class="peer sr-only" />
+            <input id="bio-cache" :checked="bioEnabled" type="checkbox" @change="toggleBiometric" class="peer sr-only" />
             <span class="absolute inset-0 rounded-full border border-[#52647f] bg-[#18263a] transition-colors peer-checked:border-amber-400 peer-checked:bg-amber-400 peer-focus-visible:ring-2 peer-focus-visible:ring-amber-400/80" />
             <span class="absolute left-1 h-5 w-5 rounded-full bg-slate-200 shadow-md transition-transform peer-checked:translate-x-5 peer-checked:bg-[#0a1422]" />
           </span>
@@ -244,18 +244,45 @@ onMounted(async () => {
   }
 })
 
-async function toggleBiometric() {
-  if (bioEnabled.value) {
+async function toggleBiometric(event) {
+  // Read the checkbox state from the change event as well as the ref.  The
+  // DOM event is the source of truth for this action; relying only on the ref
+  // can observe the previous value in some runtimes.
+  const shouldEnable = event?.target?.checked ?? bioEnabled.value
+  if (shouldEnable) {
     try {
       const auth = useAuthStore()
-      await enableBiometric(auth.session.user.id, pwdForm.value.oldPassword || '888888')
+      const session = auth.session
+      const userId = session?.user?.id
+      const currentPassword = pwdForm.value.oldPassword
+
+      // Binding biometric credentials must be an explicit, authenticated
+      // action.  Never manufacture a password when the current password is
+      // absent: doing so would either create unusable credentials or, worse,
+      // bind a known default secret to the device.
+      if (
+        !String(session?.accessToken || '').trim() ||
+        userId === null ||
+        userId === undefined ||
+        String(userId).trim() === ''
+      ) {
+        throw new Error('请先正常登录后再启用生物识别。')
+      }
+      if (typeof currentPassword !== 'string' || currentPassword.trim() === '') {
+        throw new Error('请输入当前密码后再启用生物识别。')
+      }
+
+      await enableBiometric(String(userId), currentPassword)
+      bioEnabled.value = true
       await Preferences.set({ key: 'cdjg_biometric_enabled', value: 'true' })
       pwdFeedback.value = { ok: true, message: '生物识别已启用。' }
     } catch (err) {
       bioEnabled.value = false
-      pwdFeedback.value = { ok: false, message: err.message }
+      if (event?.target) event.target.checked = false
+      pwdFeedback.value = { ok: false, message: err?.message || '生物识别启用失败，请稍后重试。' }
     }
   } else {
+    bioEnabled.value = false
     await Preferences.remove({ key: 'cdjg_biometric_enabled' })
     await Preferences.remove({ key: 'cdjg_biometric_password' })
   }

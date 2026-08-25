@@ -1,4 +1,0 @@
-entity_code,counterparty_code,direction,amount,period,note
-A,B,out,500000,2026-08,劳务付款
-A,C,out,800000,2026-08,材料付款
-A,业主,in,1800000,2026-08,工程回款

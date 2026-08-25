@@ -2,23 +2,29 @@
 
 Handles parsing, chunking, embedding, and cleanup of document content.
 """
-from pathlib import Path
 import json
+from pathlib import Path
+
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
-from ..models import Document, Chunk, IngestJob
-from ..config import IS_POSTGRES, EMBEDDING_DIM, PARSE_QUALITY_REVIEW_THRESHOLD
+
+from ..config import EMBEDDING_DIM, IS_POSTGRES
 from ..logging_config import get_logger
-from .mineru_adapter import (
-    parse_with_mineru,
-    MinerUUnavailable,
-    assess_parse_quality,
-    detect_encrypted_pdf,
-)
+from ..models import Chunk, Document, IngestJob
 from .chunker import chunks_from_content_list, chunks_from_markdown, chunks_from_plain_text
 from .embeddings import embed_many
 from .metadata import refine_from_content
-from .storage import delete_file, delete_directory
+from .mineru_adapter import (
+    MinerUUnavailable,
+    assess_parse_quality,
+    detect_encrypted_pdf,
+    parse_with_mineru,
+)
+from .storage.write import (
+    finalize_document_cleanup,
+    restore_document_cleanup,
+    stage_document_cleanup,
+)
 
 logger = get_logger(__name__)
 
@@ -33,19 +39,25 @@ def cleanup_document_files(doc: Document) -> None:
 
 
 def cleanup_paths(original_path: str, parsed_dir: str) -> None:
-    """Clean up document files by path.
+    """Clean up document files by path with strict failure semantics.
 
-    Args:
-        original_path: Path to original file
-        parsed_dir: Path to parsed directory
+    This helper is used outside the HTTP deletion transaction as well.  It
+    uses the same reversible staging protocol and only reports success after
+    every staged object has been finalized.  A cleanup failure is propagated;
+    callers must not infer that a file was deleted from a best-effort boolean.
     """
-    cleaned = []
-    if original_path and delete_file(original_path):
-        cleaned.append(original_path)
-    if parsed_dir and delete_directory(parsed_dir):
-        cleaned.append(parsed_dir)
-    if cleaned:
-        logger.info(f"Cleaned up files: {cleaned}")
+    transaction = stage_document_cleanup(original_path, parsed_dir)
+    try:
+        finalize_document_cleanup(transaction)
+    except Exception:
+        # If finalization failed before any staged object was removed, restore
+        # the files.  If finalization partially removed them, the restore call
+        # raises and the durable manifest remains for operator recovery.
+        try:
+            restore_document_cleanup(transaction)
+        except Exception as restore_exc:
+            logger.error("Document cleanup recovery failed: %s", restore_exc)
+        raise
 
 
 def delete_document_chunks(db: Session, document_id: int) -> int:

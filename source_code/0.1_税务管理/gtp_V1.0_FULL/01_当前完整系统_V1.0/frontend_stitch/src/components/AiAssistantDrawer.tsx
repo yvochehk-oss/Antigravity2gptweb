@@ -13,7 +13,7 @@ import {
   HelpCircle,
   Copy
 } from 'lucide-react';
-import { AssistantMessage, SystemSettings } from '../types';
+import { AiExecutionMetadata, AssistantMessage, SystemSettings } from '../types';
 
 interface AiAssistantDrawerProps {
   isOpen: boolean;
@@ -22,6 +22,28 @@ interface AiAssistantDrawerProps {
   onSendMessage: (query: string) => void;
   isAiThinking: boolean;
   settings?: SystemSettings;
+}
+
+function endpointLabel(endpoint: AiExecutionMetadata['effectiveEndpoint']): string {
+  if (!endpoint) return '—';
+  const parts = [endpoint.id !== undefined ? `#${endpoint.id}` : '', endpoint.name ?? '', endpoint.model ?? ''];
+  return parts.filter(Boolean).join(' · ') || '—';
+}
+
+function AiMetadataPanel({ metadata }: { metadata?: AiExecutionMetadata }) {
+  if (!metadata || Object.keys(metadata).length === 0) return null;
+  const attempts = Array.isArray(metadata.attempts) ? metadata.attempts : [];
+  return (
+    <div className="mt-2 pt-2 border-t border-[#444653]/30 text-[10px] text-[#aeb5ca] space-y-1">
+      <div className="flex flex-wrap gap-x-3 gap-y-1">
+        {(metadata.selectedEndpoint || metadata.effectiveEndpoint) && <span>端点：{endpointLabel(metadata.effectiveEndpoint ?? metadata.selectedEndpoint)}</span>}
+        {metadata.status && <span>状态：{metadata.status}</span>}
+        {metadata.fallback !== undefined && <span>fallback：{metadata.fallback ? '是' : '否'}</span>}
+        {metadata.degraded !== undefined && <span>DEGRADED：{metadata.degraded ? '是' : '否'}</span>}
+      </div>
+      {attempts.length > 0 && <div>尝试摘要：{attempts.map((attempt, index) => `${index + 1}. ${endpointLabel(attempt.endpoint)}${attempt.status ? `/${attempt.status}` : ''}${attempt.error ? `：${attempt.error}` : ''}`).join('；')}</div>}
+    </div>
+  );
 }
 
 export function AiAssistantDrawer({
@@ -108,7 +130,7 @@ export function AiAssistantDrawer({
       {/* 消息对话区域（独立内部滚动，物理隔离） */}
       <div className="flex-1 overflow-y-auto overscroll-contain p-3 space-y-3 scrollbar-hide">
         <div className="text-center text-[10px] font-mono-num text-[#8e909f]/70 my-0.5">
-          今日 14:32 · 安全审计链路已建立
+          当前会话 · AI 响应仅来自已接通的后端接口
         </div>
 
         {messages.map((msg) => {
@@ -135,6 +157,7 @@ export function AiAssistantDrawer({
                     : 'bg-[#1e40af]/40 border-[#4cd7f6]/30 text-[#dde1ff] rounded-tr-sm'
                 }`}>
                   <div className="whitespace-pre-wrap break-words">{msg.content}</div>
+                  {isAi && <AiMetadataPanel metadata={msg.aiMetadata} />}
 
                   {/* 消息内推荐操作快捷按钮 */}
                   {msg.suggestedActions && msg.suggestedActions.length > 0 && (
@@ -237,4 +260,3 @@ export function AiAssistantDrawer({
     </aside>
   );
 }
-

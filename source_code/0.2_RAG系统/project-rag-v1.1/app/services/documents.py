@@ -1,26 +1,31 @@
 """Document management service with improved error handling."""
-from pathlib import Path
+
 import uuid
+from pathlib import Path
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
-from ..models import Project, Document
-from .storage import sha256_bytes, save_original, SAFE_EXTS, StorageError, PathTraversalError, _validate_safe_path
-from .metadata import infer_from_filename, load_canonical_entity_cache
-from .jobs import enqueue_parse
-from ..security import read_file_limited, validate_file_content
-from ..logging_config import get_logger
+
 from ..config import MAX_UPLOAD_SIZE
+from ..logging_config import get_logger
+from ..models import Document, Project
+from ..security import read_file_limited, validate_file_content
+from .jobs import enqueue_parse
+from .metadata import infer_from_filename, load_canonical_entity_cache
+from .storage import (
+    SAFE_EXTS,
+    PathTraversalError,
+    StorageError,
+    _validate_safe_path,
+    save_original,
+    sha256_bytes,
+)
 
 logger = get_logger(__name__)
 
 
 def register_bytes(
-    db: Session,
-    project: Project,
-    filename: str,
-    data: bytes,
-    metadata: dict | None = None,
-    auto_parse: bool = True
+    db: Session, project: Project, filename: str, data: bytes, metadata: dict | None = None, auto_parse: bool = True
 ) -> tuple[Document, int | None]:
     """Register a document from bytes with deduplication.
 
@@ -46,9 +51,7 @@ def register_bytes(
     # Check for duplicate
     duplicate = db.scalar(
         select(Document).where(
-            Document.project_id == project.id,
-            Document.file_hash == digest,
-            Document.duplicate_of_id.is_(None)
+            Document.project_id == project.id, Document.file_hash == digest, Document.duplicate_of_id.is_(None)
         )
     )
 
@@ -85,7 +88,6 @@ def register_bytes(
         original_path=str(path),
         duplicate_of_id=duplicate.id if duplicate else None,
         parse_status="DUPLICATE" if duplicate else "UPLOADED",
-
         # Metadata with priority: explicit > inferred
         document_type=metadata.get("document_type") or inferred.get("document_type", "other"),
         entity_code=metadata.get("entity_code") or inferred.get("entity_code", ""),
@@ -118,7 +120,7 @@ def register_bytes(
         contract_no=metadata.get("contract_no", "") or "",
         period=metadata.get("period") or inferred.get("period", ""),
         metadata_confidence=float(inferred.get("confidence", 0.25)),
-        metadata_source="filename"
+        metadata_source="filename",
     )
 
     db.add(d)
@@ -126,8 +128,7 @@ def register_bytes(
     db.refresh(d)
 
     logger.info(
-        f"Registered document {d.document_code} for project {project.project_code}"
-        f"{' (duplicate)' if duplicate else ''}"
+        f"Registered document {d.document_code} for project {project.project_code}{' (duplicate)' if duplicate else ''}"
     )
 
     # Queue for parsing
@@ -143,11 +144,7 @@ def register_bytes(
 
 
 def scan_folder(
-    db: Session,
-    project: Project,
-    folder: str,
-    recursive: bool = True,
-    auto_parse: bool = True
+    db: Session, project: Project, folder: str, recursive: bool = True, auto_parse: bool = True
 ) -> list[dict]:
     """Scan a folder and import supported files.
 
@@ -164,16 +161,17 @@ def scan_folder(
     Raises:
         ValueError: If folder doesn't exist
     """
-    root = Path(folder).expanduser().resolve()
+    candidate_root = Path(folder).expanduser()
+
+    # Security: validate before resolving so symlinked roots are rejected,
+    # then use the canonical path for the actual traversal.
+    try:
+        root = _validate_safe_path(candidate_root, operation="folder scan")
+    except (StorageError, PathTraversalError) as e:
+        raise ValueError(f"Folder not accessible: {e}")
 
     if not root.exists() or not root.is_dir():
         raise ValueError(f"Folder does not exist: {folder}")
-
-    # Security: validate folder is within allowed directories
-    try:
-        _validate_safe_path(root)
-    except (StorageError, PathTraversalError) as e:
-        raise ValueError(f"Folder not accessible: {e}")
 
     # Security: validate folder is accessible
     try:
@@ -194,57 +192,58 @@ def scan_folder(
         try:
             if path.stat().st_size > MAX_UPLOAD_SIZE:
                 raise ValueError("file exceeds configured upload size")
-            d, jid = register_bytes(
-                db, project, path.name, read_file_limited(path),
-                {}, auto_parse=auto_parse
+            d, jid = register_bytes(db, project, path.name, read_file_limited(path), {}, auto_parse=auto_parse)
+            out.append(
+                {
+                    "source": str(path),
+                    "document_id": d.id,
+                    "document_code": d.document_code,
+                    "status": d.parse_status,
+                    "job_id": jid,
+                    "is_duplicate": d.duplicate_of_id is not None,
+                }
             )
-            out.append({
-                "source": str(path),
-                "document_id": d.id,
-                "document_code": d.document_code,
-                "status": d.parse_status,
-                "job_id": jid,
-                "is_duplicate": d.duplicate_of_id is not None
-            })
-        except (StorageError, PathTraversalError, OSError) as e:
-            out.append({
-                "source": str(path),
-                "error": str(e),
-                "error_type": type(e).__name__
-            })
+        except (StorageError, PathTraversalError, OSError, ValueError) as e:
+            out.append({"source": str(path), "error": str(e), "error_type": type(e).__name__})
             logger.error(f"Failed to import {path}: {e}")
 
-    logger.info(
-        f"Folder scan complete: {len(out)} files, "
-        f"{sum(1 for r in out if 'error' not in r)} imported"
-    )
+    logger.info(f"Folder scan complete: {len(out)} files, {sum(1 for r in out if 'error' not in r)} imported")
 
     return out
 
+
 def register_local_path(
-    db: Session,
-    project: Project,
-    filepath: Path,
-    metadata: dict | None = None,
-    auto_parse: bool = True
+    db: Session, project: Project, filepath: Path, metadata: dict | None = None, auto_parse: bool = True
 ) -> tuple[Document, int | None]:
-    """Register a document directly from a local path without copying."""
+    """Register a document directly from a trusted local path.
+
+    Local imports use the exact same bounded read, extension, magic-byte and
+    archive validation as HTTP uploads.  The source file is not copied, but
+    its canonical path is checked before it is opened and symlinked files are
+    rejected.
+    """
     metadata = metadata or {}
-    filename = filepath.name
-    
-    # Calculate hash incrementally to save memory on large files
-    h = __import__("hashlib").sha256()
-    with open(filepath, "rb") as f2:
-        for chunk in iter(lambda: f2.read(8192), b""):
-            h.update(chunk)
-    digest = h.hexdigest()
-    
+    filepath = Path(filepath).expanduser()
+    if filepath.is_symlink():
+        raise PathTraversalError("local import cannot be a symlink")
+    try:
+        resolved_path = _validate_safe_path(filepath, operation="local import")
+    except (StorageError, PathTraversalError):
+        raise
+    if not resolved_path.is_file():
+        raise StorageError(f"local import is not a regular file: {filepath}")
+    if resolved_path.suffix.lower() not in SAFE_EXTS:
+        raise StorageError(f"Unsupported file type: {resolved_path.suffix or '(none)'}")
+
+    # read_file_limited performs bounded reads plus extension/magic/ZIP checks.
+    data = read_file_limited(resolved_path)
+    filename = resolved_path.name
+    digest = sha256_bytes(data)
+
     # Check for duplicate
     duplicate = db.scalar(
         select(Document).where(
-            Document.project_id == project.id,
-            Document.file_hash == digest,
-            Document.duplicate_of_id.is_(None)
+            Document.project_id == project.id, Document.file_hash == digest, Document.duplicate_of_id.is_(None)
         )
     )
 
@@ -260,22 +259,49 @@ def register_local_path(
         filename=filename,
         file_type=filepath.suffix.lower().lstrip("."),
         file_hash=digest,
-        size_bytes=filepath.stat().st_size,
-        original_path=str(filepath.absolute()),
+        size_bytes=len(data),
+        original_path=str(resolved_path),
         duplicate_of_id=duplicate.id if duplicate else None,
         parse_status="DUPLICATE" if duplicate else "UPLOADED",
-
         # Metadata with priority: explicit > inferred
         document_type=metadata.get("document_type") or inferred.get("document_type", "other"),
         entity_code=metadata.get("entity_code") or inferred.get("entity_code", ""),
         counterparty_code=metadata.get("counterparty_code") or inferred.get("counterparty_code", ""),
         business_category=metadata.get("business_category") or inferred.get("business_category", ""),
         tax_category=metadata.get("tax_category") or inferred.get("tax_category", ""),
+        tax_vat_rate=metadata.get("tax_vat_rate", 0.0) or 0.0,
+        tax_vat_input=metadata.get("tax_vat_input", 0.0) or 0.0,
+        tax_vat_output=metadata.get("tax_vat_output", 0.0) or 0.0,
+        tax_vat_paid=metadata.get("tax_vat_paid", 0.0) or 0.0,
+        tax_income_rate=metadata.get("tax_income_rate", 0.0) or 0.0,
+        tax_income_amount=metadata.get("tax_income_amount", 0.0) or 0.0,
+        tax_income_paid=metadata.get("tax_income_paid", 0.0) or 0.0,
+        tax_individual_rate=metadata.get("tax_individual_rate", 0.0) or 0.0,
+        tax_individual_amount=metadata.get("tax_individual_amount", 0.0) or 0.0,
+        tax_individual_paid=metadata.get("tax_individual_paid", 0.0) or 0.0,
+        tax_surtax_urban=metadata.get("tax_surtax_urban", 0.0) or 0.0,
+        tax_surtax_edu=metadata.get("tax_surtax_edu", 0.0) or 0.0,
+        tax_surtax_local_edu=metadata.get("tax_surtax_local_edu", 0.0) or 0.0,
+        tax_stamp_duty=metadata.get("tax_stamp_duty", 0.0) or 0.0,
+        tax_land=metadata.get("tax_land", 0.0) or 0.0,
+        tax_environmental=metadata.get("tax_environmental", 0.0) or 0.0,
+        invoice_no=metadata.get("invoice_no", "") or "",
+        invoice_code=metadata.get("invoice_code", "") or "",
+        invoice_type=metadata.get("invoice_type", "") or "",
+        invoice_date=metadata.get("invoice_date", "") or "",
+        invoice_deductible=metadata.get("invoice_deductible", False) or False,
+        tax_total=metadata.get("tax_total", 0.0) or 0.0,
+        contract_no=metadata.get("contract_no", "") or "",
         period=metadata.get("period") or inferred.get("period", ""),
         metadata_confidence=float(inferred.get("confidence", 0.25)),
+        metadata_source="filename",
     )
     db.add(d)
-    db.commit()
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
     db.refresh(d)
 
     job_id = None
@@ -287,4 +313,3 @@ def register_local_path(
             logger.error(f"Failed to queue parsing for {d.id}: {e}")
 
     return d, job_id
-

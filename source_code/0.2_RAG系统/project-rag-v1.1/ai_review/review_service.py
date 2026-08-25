@@ -25,12 +25,14 @@ import httpx
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.security import validate_llm_outbound_url
 from app.domain.entities import CANONICAL_ENTITY_RANGE_TEXT, is_canonical_entity_code
-from .snapshot_service import FactsSnapshotService
-from .run_service import AIReviewRunService
+from app.security import validate_llm_outbound_url
+from facts_provider.facts_provider import FactsProvider, entity_mapping_failure
+
+from .evidence_pack_service import RAGEvidencePackService
 from .rag_client import ProjectRAGClient
-from facts_provider.facts_provider import FactsProvider
+from .run_service import AIReviewRunService
+from .snapshot_service import FactsSnapshotService
 
 logger = logging.getLogger(__name__)
 
@@ -43,8 +45,12 @@ class AIReviewError(RuntimeError):
     """Base class for expected AI Review failures."""
 
 
-class AIReviewUnavailable(AIReviewError):
+class AIReviewUnavailableError(AIReviewError):
     """The configured model or documentary evidence is unavailable."""
+
+
+# Preserve the historical import path used by callers and integrations.
+AIReviewUnavailable = AIReviewUnavailableError
 
 
 class AIReviewOutputError(AIReviewError):
@@ -119,19 +125,54 @@ def _serialize_facts(facts: Any) -> dict:
         as_of = facts.get("as_of")
         facts_version = facts.get("facts_version")
         raw_metrics = facts.get("metrics")
-        status = facts.get("status", "UNKNOWN")
-        facts_available = facts.get("facts_available", False)
+        # A few pre-canonical in-process callers supplied the core Facts
+        # fields but did not yet expose the availability flags.  Presence of
+        # metrics is the only compatibility inference allowed here; an
+        # explicitly supplied false value always wins and remains degraded.
+        facts_available = facts.get("facts_available", bool(raw_metrics))
+        status = facts.get(
+            "status",
+            "AVAILABLE" if facts_available else "UNKNOWN",
+        )
         reason = facts.get("reason")
         source = facts.get("source", "")
+        entity_fields = {
+            key: facts.get(key)
+            for key in (
+                "entity_code",
+                "business_role",
+                "entity_mapping_status",
+                "entity_mapping_reason",
+                "entity_mapping_valid",
+            )
+            if facts.get(key) is not None
+        }
     else:
         project_code = getattr(facts, "project_code", None)
         as_of = getattr(facts, "as_of", None)
         facts_version = getattr(facts, "facts_version", None)
         raw_metrics = getattr(facts, "metrics", None)
-        status = getattr(facts, "status", "UNKNOWN")
-        facts_available = getattr(facts, "facts_available", False)
+        facts_available = getattr(facts, "facts_available", None)
+        if facts_available is None:
+            facts_available = bool(raw_metrics)
+        status = getattr(
+            facts,
+            "status",
+            "AVAILABLE" if facts_available else "UNKNOWN",
+        )
         reason = getattr(facts, "reason", None)
         source = getattr(facts, "source", "")
+        entity_fields = {
+            key: getattr(facts, key)
+            for key in (
+                "entity_code",
+                "business_role",
+                "entity_mapping_status",
+                "entity_mapping_reason",
+                "entity_mapping_valid",
+            )
+            if getattr(facts, key, None) is not None
+        }
 
     # Detect unavailable Facts before building the payload
     if not facts_available or status in ("DEGRADED", "UNAVAILABLE"):
@@ -143,6 +184,7 @@ def _serialize_facts(facts: Any) -> dict:
             "facts_available": facts_available,
             "reason": reason or "facts_unavailable",
             "source": source,
+            **entity_fields,
             "metrics": {},
         }
 
@@ -167,27 +209,33 @@ def _serialize_facts(facts: Any) -> dict:
         "metrics": metrics,
     }
 
-    # Entity identity and business role are independent dimensions.  If a
-    # producer supplies an entity_code, reject role labels and placeholders;
-    # do not guess a canonical code here.
-    if isinstance(facts, Mapping):
-        for key in ("entity_code", "business_role"):
-            if key in facts and facts[key] is not None:
-                payload[key] = facts[key]
-    else:
-        for key in ("entity_code", "business_role"):
-            value = getattr(facts, key, None)
-            if value is not None:
-                payload[key] = value
+    # Entity identity and business role are independent dimensions.  Copy the
+    # producer's explicit mapping metadata; never infer it from names, tax IDs,
+    # or business roles.
+    payload.update(entity_fields)
 
     entity_code = payload.get("entity_code")
     if entity_code:
         if not _is_canonical_entity_code(entity_code):
-            raise AIReviewError(
-                f"Canonical Facts contains invalid entity_code={entity_code!r}; "
-                "business roles are not entity identifiers"
-            )
-        payload["entity_code"] = str(entity_code).strip().upper()
+            # Leave the raw value available in the diagnostic payload, but
+            # make the result explicitly unavailable below.  AI Review must
+            # not turn an illegal entity label into a guessed canonical code.
+            pass
+        else:
+            payload["entity_code"] = str(entity_code).strip().upper()
+    mapping_failure = entity_mapping_failure(payload)
+    if mapping_failure:
+        # Keep the serializer fail-closed for custom/in-process Facts
+        # producers as well as the SQL-backed provider.  The caller will
+        # return NEEDS_REVIEW without snapshotting or invoking the LLM.
+        payload.update(
+            {
+                "status": "DEGRADED",
+                "facts_available": False,
+                "reason": mapping_failure,
+                "metrics": {},
+            }
+        )
     return payload
 
 
@@ -271,6 +319,7 @@ class AIReviewService:
         self._db = db
         self._facts_provider = facts_provider
         self._snapshot_service = FactsSnapshotService(db)
+        self._evidence_pack_service = RAGEvidencePackService(db)
         self._run_service = AIReviewRunService(db)
         self._last_rag_errors: list[str] = []
 
@@ -302,14 +351,23 @@ class AIReviewService:
         )
 
         # Check Facts availability BEFORE attempting any review
-        if not facts.facts_available or facts.status in ("DEGRADED", "UNAVAILABLE"):
+        facts_available = getattr(facts, "facts_available", None)
+        if facts_available is None:
+            facts_available = bool(getattr(facts, "metrics", None))
+        facts_status = getattr(
+            facts,
+            "status",
+            "AVAILABLE" if facts_available else "UNKNOWN",
+        )
+        facts_reason = getattr(facts, "reason", None)
+        if not facts_available or facts_status in ("DEGRADED", "UNAVAILABLE"):
             return {
                 "run_id": None,
                 "status": REVIEW_NEEDS_REVIEW,
                 "result": {
                     "review_status": REVIEW_NEEDS_REVIEW,
                     "needs_review": True,
-                    "summary": f"Facts 不可用：{facts.reason or 'unknown'}",
+                    "summary": f"Facts 不可用：{facts_reason or 'unknown'}",
                     "risk_level": UNKNOWN_RISK,
                     "confidence": "UNKNOWN",
                     "health_score": None,
@@ -318,15 +376,41 @@ class AIReviewService:
                     "metric_explanations": {},
                     "evidence_refs": [],
                     "facts_used": False,
-                    "facts_status": facts.status,
+                    "facts_status": facts_status,
                     "facts_available": False,
-                    "facts_reason": facts.reason,
+                    "facts_reason": facts_reason,
                 },
                 "facts_snapshot_id": None,
-                "as_of": facts.as_of,
+                "as_of": getattr(facts, "as_of", ""),
             }
 
         facts_payload = _serialize_facts(facts)
+        if not facts_payload.get("facts_available") or facts_payload.get("status") in (
+            "DEGRADED",
+            "UNAVAILABLE",
+        ):
+            return {
+                "run_id": None,
+                "status": REVIEW_NEEDS_REVIEW,
+                "result": {
+                    "review_status": REVIEW_NEEDS_REVIEW,
+                    "needs_review": True,
+                    "summary": f"Facts 不可用：{facts_payload.get('reason') or 'unknown'}",
+                    "risk_level": UNKNOWN_RISK,
+                    "confidence": "UNKNOWN",
+                    "health_score": None,
+                    "health_score_source": "unavailable",
+                    "findings": [],
+                    "metric_explanations": {},
+                    "evidence_refs": [],
+                    "facts_used": False,
+                    "facts_status": facts_payload.get("status", "DEGRADED"),
+                    "facts_available": False,
+                    "facts_reason": facts_payload.get("reason"),
+                },
+                "facts_snapshot_id": None,
+                "as_of": facts_payload.get("as_of", ""),
+            }
         if facts_payload["project_code"] != project_code:
             raise AIReviewError(
                 "Canonical Facts project_code does not match the requested project"
@@ -341,21 +425,38 @@ class AIReviewService:
             analytics_contract_version="1.0",
             created_by="ai_review",
         )
-        run = self._run_service.create_run(
-            project_id=project_id,
-            project_code=project_code,
-            facts_snapshot_id=snapshot.id,
-            model=model,
-            prompt_version=prompt_version,
-            created_by="ai_review",
-        )
-
+        run = None
         try:
             rag_evidence = _current_evidence(
                 self._get_rag_evidence(project_code),
                 facts_payload["as_of"],
             )
             evidence_manifest = _evidence_manifest(rag_evidence)
+
+            pack_status = "DEGRADED" if self._last_rag_errors else None
+            evidence_pack = self._evidence_pack_service.create_pack(
+                project_id=project_id,
+                project_code=project_code,
+                query=f"AI Review documentary evidence: {project_code}",
+                evidence=rag_evidence,
+                status=pack_status,
+                extra_metadata={
+                    "facts_as_of": facts_payload["as_of"],
+                    "evidence_manifest": evidence_manifest,
+                    "retrieval_queries": self._rag_evidence_queries(project_code),
+                    "retrieval_errors": list(self._last_rag_errors),
+                },
+                created_by="ai_review",
+            )
+            run = self._run_service.create_run(
+                project_id=project_id,
+                project_code=project_code,
+                facts_snapshot_id=snapshot.id,
+                model=model,
+                prompt_version=prompt_version,
+                rag_evidence_pack_id=evidence_pack.id,
+                created_by="ai_review",
+            )
 
             if not rag_evidence:
                 result = self._needs_review_result(
@@ -418,18 +519,23 @@ class AIReviewService:
         except Exception as exc:
             # Unexpected persistence/integration failures remain failures; do
             # not disguise them as a successful review.
-            self._run_service.fail_run(run.id, str(exc))
+            if run is not None:
+                self._run_service.fail_run(run.id, str(exc))
             raise
 
-    def _get_rag_evidence(self, project_code: str) -> list[dict]:
-        """Retrieve documentary evidence with stable citation IDs."""
-        queries = [
+    @staticmethod
+    def _rag_evidence_queries(project_code: str) -> list[str]:
+        return [
             f"{project_code} 项目合同台账",
             f"{project_code} 项目结算与回款",
             f"{project_code} 项目成本与利润",
             f"{project_code} 项目税务与发票",
             f"{project_code} 项目进度与风险",
         ]
+
+    def _get_rag_evidence(self, project_code: str) -> list[dict]:
+        """Retrieve documentary evidence with stable citation IDs."""
+        queries = self._rag_evidence_queries(project_code)
         client = ProjectRAGClient(project_code=project_code)
         merged: list[dict] = []
         seen_keys: set[str] = set()

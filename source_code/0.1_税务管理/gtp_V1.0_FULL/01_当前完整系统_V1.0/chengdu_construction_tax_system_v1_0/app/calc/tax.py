@@ -6,10 +6,11 @@ or as a fallback when an owner cannot be resolved.
 """
 from __future__ import annotations
 
+import logging
 import re
 from decimal import Decimal
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, text
 from sqlalchemy.orm import Session
 
 from ..cache import tax_ledger_cache
@@ -17,6 +18,7 @@ from ..constants import CANONICAL_ENTITY_CODES
 from ..models import Entity, Invoice, RealCost, TaxLedger, TaxRule
 
 _PERIOD_RE = re.compile(r"^\d{4}-\d{2}$")
+_LOGGER = logging.getLogger(__name__)
 
 
 class EntityScopeError(ValueError):
@@ -185,6 +187,29 @@ def _input_invoice_key(
     )
 
 
+def _lock_tax_ledger_period(db: Session, period: str) -> None:
+    """Serialize rebuilds for one accounting period on PostgreSQL.
+
+    ``tax_ledgers`` has a ``(period, entity_code)`` unique constraint and a
+    rebuild intentionally replaces the complete period.  Concurrent health
+    checks can therefore otherwise interleave ``DELETE`` and ``INSERT`` and
+    produce a transient unique-constraint failure (or expose a half-built
+    period to a reader).  A transaction-scoped advisory lock keeps the
+    replacement atomic without requiring a schema change.
+
+    Tax is PostgreSQL-only in V2.  The dialect guard keeps unit-level callers
+    that use a SQLAlchemy stub/fake session useful; real PostgreSQL sessions
+    always take the lock.
+    """
+    bind = db.get_bind()
+    if getattr(getattr(bind, "dialect", None), "name", "") != "postgresql":
+        return
+    db.execute(
+        text("SELECT pg_advisory_xact_lock(hashtext(:lock_key))"),
+        {"lock_key": f"tax-ledger-rebuild:{period}"},
+    )
+
+
 def rebuild_tax_ledger(db: Session, period: str) -> list[TaxLedger]:
     """重建指定期间的法人月度管理税务台账。
 
@@ -199,10 +224,13 @@ def rebuild_tax_ledger(db: Session, period: str) -> list[TaxLedger]:
             f"Invalid period format: {period!r} (expected YYYY-MM, e.g. 2024-03)"
         )
 
-    cit_rate = _get_effective_tax_rule(db, "CIT_GENERAL", period, 0.25)
-    legal_codes, by_code = _entity_scope(db)
-
     try:
+        # Acquire the lock before reading source rows or rules.  The lock is
+        # held until the surrounding transaction commits/rolls back.
+        _lock_tax_ledger_period(db, period)
+        cit_rate = _get_effective_tax_rule(db, "CIT_GENERAL", period, 0.25)
+        legal_codes, by_code = _entity_scope(db)
+
         invs = db.execute(
             select(Invoice).where(Invoice.period == period)
         ).scalars().all()
@@ -283,16 +311,29 @@ def rebuild_tax_ledger(db: Session, period: str) -> list[TaxLedger]:
             )
             db.add(ledger)
         db.commit()
-        tax_ledger_cache.invalidate(period)
     except Exception:
         db.rollback()
         raise
 
-    return db.execute(
-        select(TaxLedger)
-        .where(TaxLedger.period == period)
-        .order_by(TaxLedger.entity_code)
-    ).scalars().all()
+    # Cache invalidation is not part of the source-of-truth transaction.  A
+    # cache backend failure must not turn a successfully committed ledger into
+    # a reported failed calculation or trigger an unsafe second rebuild.
+    try:
+        tax_ledger_cache.invalidate(period)
+    except Exception:  # noqa: BLE001
+        _LOGGER.warning("tax ledger cache invalidation failed", exc_info=True)
+
+    try:
+        return db.execute(
+            select(TaxLedger)
+            .where(TaxLedger.period == period)
+            .order_by(TaxLedger.entity_code)
+        ).scalars().all()
+    except Exception:
+        # The write already committed, but make sure this caller's failed
+        # read does not poison its session for the next operation.
+        db.rollback()
+        raise
 
 
 __all__ = ["rebuild_tax_ledger"]

@@ -55,3 +55,8 @@ dist/
 .coverage
 htmlcov/
 .tox/
+
+# Additional secret material (do NOT commit local env overrides or key files)
+.env.local
+*.key
+secrets/

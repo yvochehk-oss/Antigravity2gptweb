@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { 
+import {
   X, 
   Settings, 
   Check, 
@@ -9,9 +9,11 @@ import {
   AlertTriangle, 
   Cpu, 
   RefreshCw,
-  BellRing
+  BellRing,
+  Radio,
 } from 'lucide-react';
-import { SystemSettings } from '../types';
+import { fetchRagSettings, saveRagSettings, testRagSettings } from '../api';
+import { RagServiceSettings, SystemSettings } from '../types';
 
 export const DEFAULT_SETTINGS: SystemSettings = {
   autoFourFlowsMatch: true,
@@ -38,6 +40,13 @@ export function SettingsModal({
   const [formData, setFormData] = useState<SystemSettings>(settings);
   const [isSaving, setIsSaving] = useState(false);
   const [showSavedToast, setShowSavedToast] = useState(false);
+  const [ragSettings, setRagSettings] = useState<RagServiceSettings | null>(null);
+  const [ragUrl, setRagUrl] = useState('');
+  const [approvePrivate, setApprovePrivate] = useState(false);
+  const [ragLoading, setRagLoading] = useState(false);
+  const [ragAction, setRagAction] = useState<'test' | 'save' | null>(null);
+  const [ragTestResult, setRagTestResult] = useState<RagServiceSettings | null>(null);
+  const [ragError, setRagError] = useState('');
 
   useEffect(() => {
     if (isOpen) {
@@ -45,11 +54,76 @@ export function SettingsModal({
     }
   }, [isOpen, settings]);
 
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    const controller = new AbortController();
+    setRagLoading(true);
+    setRagError('');
+    setRagTestResult(null);
+    void fetchRagSettings(controller.signal)
+      .then((result) => {
+        if (controller.signal.aborted) return;
+        setRagSettings(result);
+        setRagUrl(result.url);
+        setApprovePrivate(result.approvedPrivate);
+      })
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) return;
+        setRagSettings(null);
+        setRagError(error instanceof Error ? error.message : 'RAG 设置读取失败。');
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setRagLoading(false);
+      });
+    return () => controller.abort();
+  }, [isOpen]);
+
   if (!isOpen) return null;
 
-  const handleSave = () => {
+  const ragChanged = ragSettings === null
+    ? Boolean(ragUrl.trim())
+    : (ragUrl.trim() !== ragSettings.url || approvePrivate !== ragSettings.approvedPrivate);
+
+  const handleTestRag = async () => {
+    if (!ragUrl.trim()) {
+      setRagError('请输入 RAG 系统的 IP 地址或域名。');
+      return;
+    }
+    setRagAction('test');
+    setRagError('');
+    setRagTestResult(null);
+    try {
+      const result = await testRagSettings({
+        url: ragUrl,
+        approvePrivate,
+      });
+      setRagTestResult(result);
+      if (!result.ok) setRagError(result.error || 'RAG 连接测试失败。');
+    } catch (error: unknown) {
+      setRagError(error instanceof Error ? error.message : 'RAG 连接测试失败。');
+    } finally {
+      setRagAction(null);
+    }
+  };
+
+  const handleSave = async () => {
+    if (isSaving || ragAction !== null) return;
     setIsSaving(true);
-    setTimeout(() => {
+    setRagError('');
+    try {
+      if (ragChanged) {
+        setRagAction('save');
+        const result = await saveRagSettings({
+          url: ragUrl,
+          approvePrivate,
+        });
+        setRagAction(null);
+        setRagTestResult(result);
+        if (!result.ok) {
+          throw new Error(result.error || 'RAG 设置保存失败。');
+        }
+        setRagSettings(result);
+      }
       onSaveSettings(formData);
       setIsSaving(false);
       setShowSavedToast(true);
@@ -57,7 +131,11 @@ export function SettingsModal({
         setShowSavedToast(false);
         onClose();
       }, 1000);
-    }, 400);
+    } catch (error: unknown) {
+      setRagAction(null);
+      setIsSaving(false);
+      setRagError(error instanceof Error ? error.message : '设置保存失败。');
+    }
   };
 
   const handleResetDefaults = () => {
@@ -195,7 +273,7 @@ export function SettingsModal({
             <div className="flex items-center justify-between">
               <div>
                 <p className="font-semibold text-[#dae2fd]">AI 智能助手深度穿透核验模式</p>
-                <p className="text-[11px] text-[#8e909f]">回答时自动检索全省 142 个标段全部底稿与发票明细</p>
+                <p className="text-[11px] text-[#8e909f]">回答时仅检索当前真实项目及后端已接通的底稿数据</p>
               </div>
               <button
                 type="button"
@@ -259,6 +337,94 @@ export function SettingsModal({
               </div>
             </div>
           </div>
+
+          {/* 4. Tax -> RAG 连接设置。凭证只由 Tax 服务端环境变量提供。 */}
+          <div className="bg-[#131b2e] p-4 rounded-xl border border-[#4cd7f6]/30 space-y-3.5">
+            <div className="flex items-center gap-2 text-[#4cd7f6] font-bold text-[13px] border-b border-[#444653]/30 pb-2">
+              <Radio className="w-4 h-4" />
+              <span>RAG 知识库连接（管理员）</span>
+            </div>
+
+            <div>
+              <label htmlFor="rag-service-url" className="font-semibold text-[#dae2fd]">
+                RAG 系统 IP 地址或域名
+              </label>
+              <p className="text-[11px] text-[#8e909f] mt-1 mb-2">
+                Tax 与 RAG 可部署在不同电脑；填写 RAG 服务的完整地址，例如 http://192.168.1.20:8922 或 https://rag.example.com。
+              </p>
+              <div className="flex gap-2">
+                <input
+                  id="rag-service-url"
+                  type="url"
+                  value={ragUrl}
+                  onChange={(event) => {
+                    setRagUrl(event.target.value);
+                    setRagTestResult(null);
+                    setRagError('');
+                  }}
+                  placeholder="http://192.168.1.20:8922"
+                  maxLength={300}
+                  disabled={ragLoading || ragAction !== null}
+                  className="min-w-0 flex-1 bg-[#171f33] border border-[#444653]/60 focus:border-[#4cd7f6] text-[12px] font-mono-num text-[#dae2fd] px-3 py-2 rounded-lg focus:outline-none disabled:opacity-50"
+                />
+                <button
+                  type="button"
+                  onClick={() => void handleTestRag()}
+                  disabled={ragLoading || ragAction !== null || !ragUrl.trim()}
+                  className="shrink-0 px-3 py-2 bg-[#222a3d] hover:bg-[#2d3449] border border-[#4cd7f6]/40 text-[#4cd7f6] text-[12px] font-semibold rounded-lg flex items-center gap-1.5 disabled:opacity-50"
+                >
+                  {ragAction === 'test' ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : null}
+                  测试连接
+                </button>
+              </div>
+            </div>
+
+            <label className="flex items-start gap-2.5 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={approvePrivate}
+                onChange={(event) => {
+                  setApprovePrivate(event.target.checked);
+                  setRagTestResult(null);
+                  setRagError('');
+                }}
+                disabled={ragLoading || ragAction !== null}
+                className="mt-0.5 h-4 w-4 accent-[#03b5d3]"
+              />
+              <span>
+                <span className="block font-semibold text-[#dae2fd]">批准本机/公司内网 RAG 地址</span>
+                <span className="block text-[11px] text-[#8e909f] mt-0.5">
+                  仅当 RAG 位于本机或可信内网时勾选；系统会记录 DNS 地址快照，地址变化后要求重新批准。
+                </span>
+              </span>
+            </label>
+
+            <div className="rounded-lg bg-[#0b1326]/70 border border-[#444653]/40 px-3 py-2 text-[11px] text-[#aeb6d4]">
+              {ragLoading ? (
+                <span className="inline-flex items-center gap-1.5"><RefreshCw className="w-3 h-3 animate-spin" />正在读取 Tax 后端保存的连接设置…</span>
+              ) : ragSettings?.configured ? (
+                <span>当前已保存：{ragSettings.host || ragSettings.url}{ragSettings.lastTestedAt ? ` · 最近测试 ${ragSettings.lastTestedAt}` : ''}</span>
+              ) : ragSettings ? (
+                <span>尚未保存管理员配置；当前使用 Tax 服务端默认地址。</span>
+              ) : (
+                <span>无法读取当前配置，请确认已登录并联系管理员。</span>
+              )}
+            </div>
+
+            {ragTestResult?.ok && (
+              <div className="rounded-lg bg-[#10B981]/10 border border-[#10B981]/30 px-3 py-2 text-[11px] text-[#6ee7b7]" role="status">
+                连接测试成功{ragTestResult.ragVersion ? ` · RAG ${ragTestResult.ragVersion}` : ''}；发现 {ragTestResult.projects.length} 个 RAG 项目。点击底部“保存设置并应用”后才会持久化地址。
+              </div>
+            )}
+            {ragError && (
+              <div className="rounded-lg bg-[#EF4444]/10 border border-[#EF4444]/30 px-3 py-2 text-[11px] text-[#fca5a5]" role="alert">
+                <AlertTriangle className="w-3.5 h-3.5 inline mr-1 align-[-2px]" />{ragError}
+              </div>
+            )}
+            <p className="text-[10px] text-[#8e909f]">
+              shared key 仅保存在 Tax 服务端环境变量 RAG_SHARED_API_KEY 中，不会在此页面显示或发送。
+            </p>
+          </div>
         </div>
 
         {/* 底部按钮操作区 */}
@@ -283,7 +449,7 @@ export function SettingsModal({
             <button
               type="button"
               onClick={handleSave}
-              disabled={isSaving}
+              disabled={isSaving || ragAction !== null || ragLoading}
               className="px-5 py-2 bg-[#03b5d3] hover:bg-[#03b5d3]/80 text-[#001f26] text-[13px] font-bold rounded-lg flex items-center gap-1.5 cursor-pointer shadow-[0_0_12px_rgba(76,215,246,0.3)] disabled:opacity-50"
             >
               {isSaving ? (

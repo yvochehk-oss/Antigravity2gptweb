@@ -3,73 +3,107 @@
 Imports app construction from wiring.py and health components from health.py.
 Routes are registered via the lifespan context in wiring.py.
 """
-from pathlib import Path
 import json
+import os
+import time as _time
+from pathlib import Path
 from typing import Optional
-from pydantic import BaseModel
 
-from fastapi import FastAPI, Request, Depends, UploadFile, File, Form, HTTPException, Query
-from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse
-from .auth import require_web_auth
-
-
-from fastapi.templating import Jinja2Templates
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import select, func, delete as sa_delete, and_, or_
+from fastapi.templating import Jinja2Templates
+from pydantic import BaseModel
+from sqlalchemy import and_, func, or_, select
+from sqlalchemy import delete as sa_delete
 
-from .db import init_db, db_health, close_connections, SessionLocal
-from .session import get_db
+from .auth import (
+    require_web_auth,
+    require_web_or_service_read,
+    require_web_or_service_role,
+    require_web_role,
+)
+from .config import AUTO_START_WORKER, DEFAULT_PAGE_SIZE, IS_POSTGRES, MAX_PAGE_SIZE
+from .config_validator import validate_config
+from .db import SessionLocal, db_health
+from .logging_config import get_logger, setup_logging
+from .middleware import RateLimitMiddleware, RequestIdMiddleware
 from .models import (
-    Project, Document, Chunk, IngestJob, Entity, ExternalParty, Regulation, RegulationArticle,
+    Chunk,
+    Document,
+    Entity,
+    ExternalParty,
+    IngestJob,
+    Project,
+    Regulation,
+    RegulationArticle,
+    RegulationChunk,
     is_canonical_entity_code,
 )
-from .schemas import (
-    ProjectCreate, ProjectSync, DocumentMetadataPatch,
-    RetrieveRequest, QueryRequest, FolderImportRequest,
-    EntityCreate, EntityPatch, EntityResponse, ExternalPartyCreate, ExternalPartyPatch,
-    RegulationCreate, RegulationUpdate, RegulationArticleCreate,
-    RegulationRetrieveRequest, RegulationQueryRequest,
+from .observability import (
+    get_request_id,
 )
+from .routers.adaptive_retrieval import router as adaptive_retrieval_router
+from .routers.auth import router as auth_router
+from .routers.executive_mobile import router as executive_mobile_router
+from .routers.mounts import router as mounts_router
+from .schemas import (
+    DocumentMetadataPatch,
+    EntityCreate,
+    EntityPatch,
+    ExternalPartyCreate,
+    ExternalPartyPatch,
+    FolderImportRequest,
+    ProjectCreate,
+    ProjectSync,
+    QueryRequest,
+    RegulationArticleCreate,
+    RegulationCreate,
+    RegulationQueryRequest,
+    RegulationRetrieveRequest,
+    RegulationUpdate,
+    RetrieveRequest,
+)
+from .security import RAGSecurityMiddleware, read_upload_limited, require_same_origin, security_audit
 from .services.documents import register_bytes, scan_folder
-from .services.jobs import enqueue_parse, start_worker, stop_worker, process_next, get_worker_status
-from .services.retrieval import retrieve, get_query_stats
+from .services.embeddings import embedding_runtime
+from .services.extractor import ExtractionError, extract_from_chunk, llm_extraction_available
+from .services.jobs import enqueue_parse, get_worker_status, process_next
 from .services.llm import answer_with_llm
 from .services.mineru_adapter import mineru_available
-from .services.embeddings import embedding_runtime
-from .services.reranker import reranker_runtime
-from .services.extractor import extract_from_chunk, llm_extraction_available, ExtractionError
 from .services.regulation_retrieval import (
-    retrieve_regulations, retrieve_regulation_articles, answer_regulation_query,
+    answer_regulation_query,
+    retrieve_regulation_articles,
+    retrieve_regulations,
+)
+from .services.reranker import reranker_runtime
+from .services.retrieval import get_query_stats, retrieve
+from .services.storage import PathTraversalError, StorageError, validate_stored_file
+from .services.storage.write import (
+    finalize_document_cleanup,
+    restore_document_cleanup,
+    stage_document_cleanup,
 )
 from .services.tax_extraction import (
-    ExtractTaxRequest, ExtractTaxResponse, ExtractedItem,
-    EXTRACT_QUERY_TEMPLATES, EXTRACT_DOC_TYPE_FILTERS, EXTRACT_CATEGORY_FILTERS,
+    EXTRACT_DOC_TYPE_FILTERS,
+    EXTRACT_QUERY_TEMPLATES,
+    ExtractedItem,
+    ExtractTaxRequest,
+    ExtractTaxResponse,
 )
-from .config import (
-    AUTO_START_WORKER, IS_POSTGRES, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
-)
-from .logging_config import setup_logging, get_logger
-from .config_validator import validate_config
-from .middleware import RateLimitMiddleware, RequestIdMiddleware
-from .security import RAGSecurityMiddleware, read_upload_limited, security_audit
-from .services.storage import StorageError, PathTraversalError, validate_stored_file
-from .observability import (
-    REQUEST_ID_HEADER, get_request_id, new_request_id, set_request_id, reset_request_id,
-)
+from .session import get_db
 from .wiring import (
-    create_app,
-    lifespan,
     BUSINESS_ROLE_META,
-    BUSINESS_ROLE_ALIASES,
     _business_role_key,
+    lifespan,
     now,
 )
-from .health import get_health_components, worst_status
 
 # Import v1.0 legacy modules
 try:
-    from facts_provider import setup_facts_provider
     from ai_review.routes import router as ai_review_router
+    from facts_provider import setup_facts_provider
     _HAS_V1_LEGACY = True
 except Exception:
     _HAS_V1_LEGACY = False
@@ -176,9 +210,6 @@ def _entity_summary(entities: list[dict]) -> dict:
     }
 
 
-from fastapi.middleware.cors import CORSMiddleware
-from .routers.executive_mobile import router as executive_mobile_router
-
 app = FastAPI(
     title="ProjectRAG",
     version="1.1.0",
@@ -186,10 +217,36 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+_DEFAULT_CORS_ORIGINS = (
+    "http://localhost:3000,http://127.0.0.1:3000,"
+    "http://localhost:5173,http://127.0.0.1:5173,"
+    "http://localhost:8922,http://localhost:8921"
+)
+
+
+def _parse_cors_origins(raw_origins: str) -> list[str]:
+    """Parse explicit CORS origins and reject unsafe wildcard configuration."""
+    origins = []
+    for raw_origin in raw_origins.split(","):
+        origin = raw_origin.strip()
+        if not origin:
+            continue
+        if origin == "*":
+            raise ValueError(
+                "RAG_CORS_ALLOW_ORIGINS must contain explicit origins; wildcard '*' is not allowed"
+            )
+        origins.append(origin)
+    return origins
+
+
+_CORS_ALLOW_ORIGINS = _parse_cors_origins(
+    os.getenv("RAG_CORS_ALLOW_ORIGINS", _DEFAULT_CORS_ORIGINS)
+)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=_CORS_ALLOW_ORIGINS,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -197,11 +254,9 @@ app.add_middleware(RateLimitMiddleware)
 app.add_middleware(RequestIdMiddleware)
 app.add_middleware(RAGSecurityMiddleware)
 
-from app.routers.auth import router as auth_router
-from app.routers.mounts import router as mounts_router
-
 app.include_router(auth_router)
 app.include_router(mounts_router)
+app.include_router(adaptive_retrieval_router)
 app.include_router(executive_mobile_router)
 
 if _HAS_V1_LEGACY:
@@ -221,15 +276,13 @@ app.mount("/static", StaticFiles(directory=str(Path(__file__).parent / "static")
 # Health & Status Endpoints
 # ============================================
 
-import time as _time
-
-
 def _check_db_component() -> dict[str, object]:
     """Return the database component health."""
     started = _time.monotonic()
     try:
-        from .db import SessionLocal
         from sqlalchemy import text
+
+        from .db import SessionLocal
         with SessionLocal() as db:
             db.execute(text("SELECT 1"))
         latency_ms = int((_time.monotonic() - started) * 1000)
@@ -270,8 +323,10 @@ def _check_facts_component() -> dict[str, object]:
     module with no source rows.
     """
     try:
-        from facts_provider import facts_provider as _fp
         from sqlalchemy import text
+
+        from facts_provider import facts_provider as _fp
+
         from .db import SessionLocal
 
         with SessionLocal() as db:
@@ -350,7 +405,7 @@ def _health_components() -> dict[str, dict[str, object]]:
 
 
 @app.get("/health", response_class=HTMLResponse)
-def health_ui(request: Request):
+def health_ui(request: Request, principal=Depends(require_web_auth)):
     """Render friendly visual health check page."""
     data = health()
     return templates.TemplateResponse(
@@ -631,26 +686,209 @@ def api_parse(document_id: int):
 
 @app.delete("/api/v1/documents/{document_id}")
 def api_delete_document(request: Request, document_id: int):
-    """Delete a document and its chunks."""
-    from .services.ingest import cleanup_paths
+    """Delete a document, its chunks/jobs, and its stored files atomically.
+
+    Files are first moved into a durable same-filesystem staging directory.
+    The row/chunk/job deletion then commits as one DB transaction.  A failed
+    DB transaction restores the staged files; only after a successful commit
+    are staged files permanently removed.  Cleanup failures return a
+    non-success response and leave a manifest for recovery.
+    """
+    storage_transaction = None
     with get_db() as db:
-        d = db.get(Document, document_id)
+        # Lock the row while storage is staged so a worker cannot re-index the
+        # same document concurrently with this destructive operation.
+        d = db.execute(
+            select(Document)
+            .where(Document.id == document_id)
+            .with_for_update()
+        ).scalar_one_or_none()
         if not d:
             raise HTTPException(404, "document not found")
         original_path = d.original_path
         parsed_dir = d.parsed_dir
         document_code = d.document_code
-        db.execute(sa_delete(Chunk).where(Chunk.document_id == document_id))
-        db.delete(d)
-        db.commit()
-    cleanup_paths(original_path, parsed_dir)
+
+        try:
+            storage_transaction = stage_document_cleanup(original_path, parsed_dir)
+        except Exception as exc:
+            db.rollback()
+            security_audit(
+                request,
+                "document_delete",
+                "storage_stage_failed",
+                document_id=document_id,
+                subject=document_code,
+            )
+            logger.exception("Could not stage storage for document %s", document_id)
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "deleted": False,
+                    "database_deleted": False,
+                    "cleanup_status": "not_started",
+                    "document_id": document_id,
+                },
+            ) from exc
+
+        try:
+            # Chunks carry the pgvector values, so deleting them in the same
+            # transaction removes the vector index rows without leaving
+            # orphan chunks.  Ingest jobs have a document FK as well and must
+            # be removed before the parent row.
+            db.execute(sa_delete(Chunk).where(Chunk.document_id == document_id))
+            db.execute(sa_delete(IngestJob).where(IngestJob.document_id == document_id))
+            db.delete(d)
+            db.commit()
+        except Exception as exc:
+            db.rollback()
+            try:
+                # Verify the commit outcome before compensating.  A dropped
+                # connection can report an error after PostgreSQL committed;
+                # in that case restoring files would create an orphan.
+                database_deleted = (
+                    db.scalar(select(Document.id).where(Document.id == document_id)) is None
+                )
+            except Exception as verify_exc:
+                logger.critical(
+                    "Document %s DB outcome is unknown after delete failure: %s",
+                    document_id,
+                    verify_exc,
+                )
+                security_audit(
+                    request,
+                    "document_delete",
+                    "database_status_unknown",
+                    document_id=document_id,
+                    subject=document_code,
+                )
+                raise HTTPException(
+                    status_code=503,
+                    detail={
+                        "deleted": False,
+                        "database_deleted": None,
+                        "cleanup_status": "recovery_required",
+                        "document_id": document_id,
+                    },
+                ) from exc
+
+            if database_deleted:
+                # The commit may have succeeded even though the client saw a
+                # connection error.  The DB is authoritative; finalize and
+                # report any remaining file cleanup as pending.
+                try:
+                    finalize_document_cleanup(storage_transaction)
+                except Exception as cleanup_exc:
+                    logger.exception(
+                        "Document %s was deleted in DB but file cleanup is pending",
+                        document_id,
+                    )
+                    security_audit(
+                        request,
+                        "document_delete",
+                        "cleanup_pending",
+                        document_id=document_id,
+                        subject=document_code,
+                    )
+                    raise HTTPException(
+                        status_code=503,
+                        detail={
+                            "deleted": False,
+                            "database_deleted": True,
+                            "cleanup_status": "pending",
+                            "document_id": document_id,
+                        },
+                    ) from cleanup_exc
+                security_audit(
+                    request,
+                    "document_delete",
+                    "success",
+                    document_id=document_id,
+                    subject=document_code,
+                )
+                logger.info("Deleted document %s: %s", document_id, document_code)
+                return {
+                    "deleted": True,
+                    "database_deleted": True,
+                    "cleanup_status": "complete",
+                    "document_id": document_id,
+                }
+            else:
+                try:
+                    restore_document_cleanup(storage_transaction)
+                except Exception as restore_exc:
+                    logger.critical(
+                        "Document %s DB delete rolled back but file recovery failed: %s",
+                        document_id,
+                        restore_exc,
+                    )
+                    security_audit(
+                        request,
+                        "document_delete",
+                        "recovery_required",
+                        document_id=document_id,
+                        subject=document_code,
+                    )
+                    raise HTTPException(
+                        status_code=503,
+                        detail={
+                            "deleted": False,
+                            "database_deleted": False,
+                            "cleanup_status": "recovery_required",
+                            "document_id": document_id,
+                        },
+                    ) from restore_exc
+
+            security_audit(
+                request,
+                "document_delete",
+                "database_failed",
+                document_id=document_id,
+                subject=document_code,
+            )
+            raise HTTPException(
+                status_code=500,
+                detail={
+                    "deleted": False,
+                    "database_deleted": database_deleted,
+                    "cleanup_status": "rolled_back" if not database_deleted else "pending",
+                    "document_id": document_id,
+                },
+            ) from exc
+
+    try:
+        finalize_document_cleanup(storage_transaction)
+    except Exception as exc:
+        logger.exception("Document %s deleted in DB but file cleanup is pending", document_id)
+        security_audit(
+            request,
+            "document_delete",
+            "cleanup_pending",
+            document_id=document_id,
+            subject=document_code,
+        )
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "deleted": False,
+                "database_deleted": True,
+                "cleanup_status": "pending",
+                "document_id": document_id,
+            },
+        ) from exc
+
     security_audit(request, "document_delete", "success", document_id=document_id, subject=document_code)
     logger.info(f"Deleted document {document_id}: {document_code}")
-    return {"deleted": True, "document_id": document_id}
+    return {
+        "deleted": True,
+        "database_deleted": True,
+        "cleanup_status": "complete",
+        "document_id": document_id,
+    }
 
 
 @app.get("/api/v1/documents/{document_id}/original")
-def api_original(document_id: int):
+def api_original(document_id: int, principal=Depends(require_web_or_service_read)):
     """Download original document file."""
     from urllib.parse import quote
     with get_db() as db:
@@ -831,7 +1069,9 @@ def api_create_external_party(body: ExternalPartyCreate):
         if db.scalar(select(ExternalParty).where(ExternalParty.code == body.code)):
             raise HTTPException(409, "external party code already exists")
         party = ExternalParty(**body.model_dump())
-        db.add(party); db.commit(); db.refresh(party)
+        db.add(party)
+        db.commit()
+        db.refresh(party)
         return {"id": party.id, "code": party.code, "name": party.name}
 
 
@@ -839,9 +1079,12 @@ def api_create_external_party(body: ExternalPartyCreate):
 def api_patch_external_party(party_id: int, body: ExternalPartyPatch):
     with get_db() as db:
         party = db.get(ExternalParty, party_id)
-        if not party: raise HTTPException(404, "external party not found")
-        for k, v in body.model_dump(exclude_none=True).items(): setattr(party, k, v)
-        db.commit(); db.refresh(party)
+        if not party:
+            raise HTTPException(404, "external party not found")
+        for key, value in body.model_dump(exclude_none=True).items():
+            setattr(party, key, value)
+        db.commit()
+        db.refresh(party)
         return {"id": party.id, "code": party.code, "name": party.name, "active": party.active}
 
 
@@ -972,7 +1215,14 @@ def dashboard(request: Request, principal=Depends(require_web_auth)):
 
 
 @app.post("/projects")
-def web_create_project(project_code: str = Form(...), name: str = Form(...), external_system: str = Form(""), external_project_id: str = Form("")):
+def web_create_project(
+    project_code: str = Form(...),
+    name: str = Form(...),
+    external_system: str = Form(""),
+    external_project_id: str = Form(""),
+    principal=Depends(require_web_role("admin", "operator")),
+    _csrf=Depends(require_same_origin),
+):
     """Web: Create project."""
     with get_db() as db:
         existing = db.scalar(select(Project).where(Project.project_code == project_code))
@@ -1001,7 +1251,17 @@ def web_project(request: Request, project_ref: str, principal=Depends(require_we
 
 
 @app.post("/projects/{project_id}/upload")
-async def web_upload(project_id: int, file: UploadFile = File(...), document_type: str = Form(""), entity_code: str = Form(""), counterparty_code: str = Form(""), business_category: str = Form(""), period: str = Form("")):
+async def web_upload(
+    project_id: int,
+    file: UploadFile = File(...),
+    document_type: str = Form(""),
+    entity_code: str = Form(""),
+    counterparty_code: str = Form(""),
+    business_category: str = Form(""),
+    period: str = Form(""),
+    principal=Depends(require_web_role("admin", "operator")),
+    _csrf=Depends(require_same_origin),
+):
     """Web: Upload document."""
     try:
         data = await read_upload_limited(file)
@@ -1020,7 +1280,13 @@ async def web_upload(project_id: int, file: UploadFile = File(...), document_typ
 
 
 @app.post("/projects/{project_id}/import-folder")
-def web_import_folder(project_id: int, path: str = Form(...), recursive: bool = Form(False)):
+def web_import_folder(
+    project_id: int,
+    path: str = Form(...),
+    recursive: bool = Form(False),
+    principal=Depends(require_web_role("admin", "operator")),
+    _csrf=Depends(require_same_origin),
+):
     """Web: Import folder."""
     api_import_folder(FolderImportRequest(project_id=project_id, path=path, recursive=recursive, auto_parse=True))
     return RedirectResponse(f"/projects/{project_id}", 303)
@@ -1040,14 +1306,26 @@ def web_document(request: Request, document_id: int, principal=Depends(require_w
 
 
 @app.post("/documents/{document_id}/parse")
-def web_parse(document_id: int):
+def web_parse(
+    document_id: int,
+    principal=Depends(require_web_role("admin", "operator")),
+    _csrf=Depends(require_same_origin),
+):
     """Web: Re-parse document."""
     api_parse(document_id)
     return RedirectResponse(f"/documents/{document_id}", 303)
 
 
 @app.get("/search", response_class=HTMLResponse)
-def web_search(request: Request, project_id: Optional[int] = None, q: str = "", business_category: str = "", entity_code: str = "", business_role: str = ""):
+def web_search(
+    request: Request,
+    project_id: Optional[int] = None,
+    q: str = "",
+    business_category: str = "",
+    entity_code: str = "",
+    business_role: str = "",
+    principal=Depends(require_web_auth),
+):
     """Web: Search page."""
     with get_db() as db:
         projects = db.execute(select(Project).order_by(Project.id)).scalars().all()
@@ -1083,12 +1361,21 @@ def web_search(request: Request, project_id: Optional[int] = None, q: str = "", 
 
 
 @app.get("/regulations", response_class=HTMLResponse)
-def web_regulations(request: Request, q: str = "", entity: str = "", business_role: str = "", jurisdiction: str = "", level: str = "", status: str = ""):
+def web_regulations(
+    request: Request,
+    q: str = "",
+    entity: str = "",
+    business_role: str = "",
+    jurisdiction: str = "",
+    level: str = "",
+    status: str = "",
+    principal=Depends(require_web_auth),
+):
     """Web: Regulations browser page."""
     category_aliases = {"entity_a": "construction", "entity_b": "trade", "entity_c": "labor", "entity_d": "equipment", "a": "construction", "b": "trade", "c": "labor", "d": "equipment", "construction": "construction", "trade": "trade", "labor": "labor", "equipment": "equipment"}
     requested_role = (business_role or entity or "").strip().lower()
     role_filter = category_aliases.get(requested_role, "")
-    CATEGORY_META = {"construction": {"order": 1, "label": "建筑施工业务角色", "badge": "badge-cyan"}, "trade": {"order": 2, "label": "商贸物资业务角色", "badge": "badge-emerald"}, "labor": {"order": 3, "label": "建筑劳务业务角色", "badge": "badge-purple"}, "equipment": {"order": 4, "label": "工程设备业务角色", "badge": "badge-amber"}, "national_vat": {"order": 5, "label": "国家增值税", "badge": "badge-cyan"}, "national_other": {"order": 6, "label": "国家其他税", "badge": "badge-cyan"}, "sichuan": {"order": 7, "label": "四川省规定", "badge": "badge-emerald"}, "chengdu": {"order": 8, "label": "成都市公告", "badge": "badge-amber"}}
+    category_meta = {"construction": {"order": 1, "label": "建筑施工业务角色", "badge": "badge-cyan"}, "trade": {"order": 2, "label": "商贸物资业务角色", "badge": "badge-emerald"}, "labor": {"order": 3, "label": "建筑劳务业务角色", "badge": "badge-purple"}, "equipment": {"order": 4, "label": "工程设备业务角色", "badge": "badge-amber"}, "national_vat": {"order": 5, "label": "国家增值税", "badge": "badge-cyan"}, "national_other": {"order": 6, "label": "国家其他税", "badge": "badge-cyan"}, "sichuan": {"order": 7, "label": "四川省规定", "badge": "badge-emerald"}, "chengdu": {"order": 8, "label": "成都市公告", "badge": "badge-amber"}}
     with get_db() as db:
         stmt = select(Regulation)
         if q:
@@ -1138,7 +1425,7 @@ def web_regulations(request: Request, q: str = "", entity: str = "", business_ro
                     cat = category_aliases.get(str(raw_category).strip().lower(), raw_category)
                 except Exception:
                     pass
-            cinfo = CATEGORY_META.get(cat, {"order": 99, "label": "其他法规", "badge": "badge-muted"})
+            cinfo = category_meta.get(cat, {"order": 99, "label": "其他法规", "badge": "badge-muted"})
             if role_filter and cat != role_filter:
                 continue
             enriched_regs.append({"id": r.id, "document_no": r.document_no, "title": r.title, "issuer": r.issuer or "-", "legal_level": r.legal_level or "规范性文件", "jurisdiction": r.jurisdiction or "全国", "tax_type": r.tax_type or "全部税种", "industry": r.industry or "建筑业", "publish_date": r.publish_date or "-", "effective_date": r.effective_date or "-", "status": r.status or "现行有效", "full_text": r.full_text or "", "category": cat, "category_order": cinfo["order"], "category_label": cinfo["label"], "category_badge": cinfo["badge"]})
@@ -1304,7 +1591,7 @@ def api_create_regulation(body: RegulationCreate):
 
 
 @app.get("/api/v1/regulations/{regulation_id}")
-def api_get_regulation(regulation_id: int):
+def api_get_regulation(regulation_id: int, principal=Depends(require_web_or_service_read)):
     """获取法规详情"""
     db = SessionLocal()
     r = db.get(Regulation, regulation_id)
@@ -1335,17 +1622,26 @@ def api_update_regulation(regulation_id: int, body: RegulationUpdate):
 
 @app.delete("/api/v1/regulations/{regulation_id}")
 def api_delete_regulation(regulation_id: int):
-    """删除法规及其条款"""
+    """删除法规及其条款、Markdown chunks，并保持事务原子性。"""
     db = SessionLocal()
-    r = db.get(Regulation, regulation_id)
-    if not r:
+    try:
+        r = db.get(Regulation, regulation_id)
+        if not r:
+            raise HTTPException(404, "法规不存在")
+        db.execute(sa_delete(RegulationChunk).where(RegulationChunk.regulation_id == regulation_id))
+        db.execute(sa_delete(RegulationArticle).where(RegulationArticle.regulation_id == regulation_id))
+        db.delete(r)
+        db.commit()
+        return {"id": regulation_id, "status": "deleted"}
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:
+        db.rollback()
+        logger.exception("Failed to delete regulation %s", regulation_id)
+        raise HTTPException(500, "法规删除失败，事务已回滚") from exc
+    finally:
         db.close()
-        raise HTTPException(404, "法规不存在")
-    db.execute(sa_delete(RegulationArticle).where(RegulationArticle.regulation_id == regulation_id))
-    db.delete(r)
-    db.commit()
-    db.close()
-    return {"id": regulation_id, "status": "deleted"}
 
 
 @app.get("/api/v1/regulations/{regulation_id}/articles")
@@ -1361,7 +1657,7 @@ def api_list_articles(regulation_id: int):
     return {"regulation_id": regulation_id, "title": r.title, "articles": [{"id": a.id, "chapter": a.chapter, "article_no": a.article_no, "paragraph_no": a.paragraph_no, "heading": a.heading, "text": a.text, "sort_order": a.sort_order} for a in articles]}
 
 
-@app.post("/api/v1/regulations/{registration_id}/articles")
+@app.post("/api/v1/regulations/{regulation_id}/articles")
 def api_create_article(regulation_id: int, body: RegulationArticleCreate):
     """创建法规条款"""
     db = SessionLocal()
@@ -1369,12 +1665,25 @@ def api_create_article(regulation_id: int, body: RegulationArticleCreate):
     if not r:
         db.close()
         raise HTTPException(404, "法规不存在")
-    article = RegulationArticle(**body.model_dump(), search_text=f"{body.article_no} {body.heading} {body.text}")
-    db.add(article)
-    db.commit()
-    db.refresh(article)
-    db.close()
-    return {"id": article.id, "article_no": article.article_no, "status": "created"}
+    try:
+        article_data = body.model_dump()
+        # The path is authoritative; do not allow a body/path mismatch to
+        # attach an article to another regulation.
+        article_data["regulation_id"] = regulation_id
+        article = RegulationArticle(
+            **article_data,
+            search_text=f"{body.article_no} {body.heading} {body.text}",
+        )
+        db.add(article)
+        db.commit()
+        db.refresh(article)
+        return {"id": article.id, "article_no": article.article_no, "status": "created"}
+    except Exception as exc:
+        db.rollback()
+        logger.exception("Failed to create regulation article for %s", regulation_id)
+        raise HTTPException(500, "法规条款创建失败，事务已回滚") from exc
+    finally:
+        db.close()
 
 
 @app.post("/api/v1/regulations/retrieve")
@@ -1424,7 +1733,10 @@ class RegulationCustomSaveRequest(BaseModel):
 
 
 @app.post("/api/v1/regulations/verify")
-def api_verify_regulation(body: RegulationVerifyRequest):
+def api_verify_regulation(
+    body: RegulationVerifyRequest,
+    principal=Depends(require_web_or_service_role("admin", "operator")),
+):
     """联网核验用户输入的法律法规真实性与条款完整性"""
     from app.services.regulation_verifier import verify_regulation_online
     if not body.title and not body.document_no and not body.full_text:
@@ -1448,14 +1760,17 @@ def api_verify_regulation(body: RegulationVerifyRequest):
 
 
 @app.post("/api/v1/regulations/save-custom")
-def api_save_custom_regulation(body: RegulationCustomSaveRequest):
+def api_save_custom_regulation(
+    body: RegulationCustomSaveRequest,
+    principal=Depends(require_web_or_service_role("admin", "operator")),
+):
     """保存用户手工录入的法规并自动生成向量切块"""
     from app.services.regulations_md_ingest import chunk_markdown, upsert_chunks
     db = SessionLocal()
     try:
         doc_no = body.document_no.strip() or body.title.strip()
         existing = db.scalar(select(Regulation).where(Regulation.document_no == doc_no))
-        
+
         meta_dict = {
             "title": body.title,
             "document_no": doc_no,
@@ -1471,7 +1786,7 @@ def api_save_custom_regulation(body: RegulationCustomSaveRequest):
             "category": f"business_roles/{body.business_role}",
             "source": "用户手工录入/联网核验入库",
         }
-        
+
         reg_dict = {
             "document_no": doc_no,
             "title": body.title,
@@ -1490,7 +1805,7 @@ def api_save_custom_regulation(body: RegulationCustomSaveRequest):
             "search_text": f"{body.title} {doc_no} {body.full_text[:500]}",
             "metadata_json": json.dumps(meta_dict, ensure_ascii=False),
         }
-        
+
         if existing:
             for k, v in reg_dict.items():
                 setattr(existing, k, v)
@@ -1501,7 +1816,7 @@ def api_save_custom_regulation(body: RegulationCustomSaveRequest):
             db.add(new_reg)
             db.flush()
             reg_id = new_reg.id
-            
+
         chunks = chunk_markdown(body.full_text, doc_no)
         upsert_chunks(db, RegulationChunk, reg_id, chunks)
         db.commit()
@@ -1519,15 +1834,18 @@ class URLIngestRequest(BaseModel):
     url: str
 
 @app.post("/api/v1/regulations/ai-parse-url")
-def api_ai_parse_url(body: URLIngestRequest):
+def api_ai_parse_url(
+    body: URLIngestRequest,
+    principal=Depends(require_web_or_service_role("admin", "operator")),
+):
     """抓取网页 URL 内容，AI 提取法规元数据并执行联网真实性核验"""
-    from app.services.ai_regulation_extractor import fetch_url_content, ai_extract_regulation_metadata
+    from app.services.ai_regulation_extractor import ai_extract_regulation_metadata, fetch_url_content
     from app.services.regulation_verifier import verify_regulation_online
     try:
         raw_text = fetch_url_content(body.url)
         if not raw_text or len(raw_text) < 30:
             raise HTTPException(400, "无法从指定网页提取有效法规文本，请检查网址。")
-        
+
         meta = ai_extract_regulation_metadata(raw_text)
         verify_res = verify_regulation_online(
             title=meta.get("title", ""),
@@ -1549,21 +1867,28 @@ def api_ai_parse_url(body: URLIngestRequest):
                 "verification_notes": verify_res.verification_notes,
             }
         }
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
     except Exception as e:
         raise HTTPException(500, f"网页解析失败: {e}")
 
 
 @app.post("/api/v1/regulations/ai-parse-file")
-async def api_ai_parse_file(file: UploadFile = File(...)):
+async def api_ai_parse_file(
+    file: UploadFile = File(...),
+    principal=Depends(require_web_or_service_role("admin", "operator")),
+):
     """解析上传的 PDF / 图片 / Word / TXT 文件，AI 自动提取法规元数据并联网核验"""
-    from app.services.ai_regulation_extractor import extract_file_content, ai_extract_regulation_metadata
+    from app.services.ai_regulation_extractor import ai_extract_regulation_metadata, extract_file_content
     from app.services.regulation_verifier import verify_regulation_online
     try:
-        content_bytes = await file.read()
+        content_bytes = await read_upload_limited(file)
         raw_text = extract_file_content(content_bytes, file.filename or "upload.pdf")
         if not raw_text or len(raw_text) < 20:
             raise HTTPException(400, "文件未能成功解析出文本内容。")
-            
+
         meta = ai_extract_regulation_metadata(raw_text)
         verify_res = verify_regulation_online(
             title=meta.get("title", ""),
@@ -1586,7 +1911,9 @@ async def api_ai_parse_file(file: UploadFile = File(...)):
                 "verification_notes": verify_res.verification_notes,
             }
         }
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
     except Exception as e:
         raise HTTPException(500, f"文件解析提取失败: {e}")
-
-

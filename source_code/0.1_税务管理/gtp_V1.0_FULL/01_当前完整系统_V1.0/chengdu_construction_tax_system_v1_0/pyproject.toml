@@ -17,6 +17,7 @@ dependencies = [
     "ruff>=0.4",
     "pyjwt>=2.13.0",
     "psycopg2-binary>=2.9.12",
+    "cryptography>=42.0,<48",
 ]
 
 
@@ -30,6 +31,7 @@ ignore = ["E501"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+norecursedirs = ["_archive_sqlite"]
 addopts = "-ra -q"
 
 [tool.mypy]

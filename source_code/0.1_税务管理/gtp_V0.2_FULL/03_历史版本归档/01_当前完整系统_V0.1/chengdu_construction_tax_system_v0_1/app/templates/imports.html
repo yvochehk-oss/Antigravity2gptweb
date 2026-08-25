@@ -1,8 +1,0 @@
-{% extends 'base.html' %}{% block body %}
-<h1>CSV批量导入</h1>{% if message %}<div class="panel">{{message}}</div>{% endif %}
-<div class="warn">导入前建议先备份数据库。V2.2支持UTF-8 CSV；正式版将增加数电票/银行原始模板映射和暂存审核区。</div>
-<h2>发票CSV</h2><form method="post" action="/imports/invoices" enctype="multipart/form-data"><select name="project_id">{% for p in projects %}<option value="{{p.id}}">{{p.name}}</option>{% endfor %}</select><input type="file" name="file" accept=".csv"><button>导入</button></form>
-<p class="muted">列：invoice_no,period,entity_code,direction,counterparty_code,category,net,vat,rate,deductible,note</p>
-<h2>银行流水CSV</h2><form method="post" action="/imports/cashflows" enctype="multipart/form-data"><select name="project_id">{% for p in projects %}<option value="{{p.id}}">{{p.name}}</option>{% endfor %}</select><input type="file" name="file" accept=".csv"><button>导入</button></form>
-<p class="muted">列：entity_code,counterparty_code,direction,amount,period,note</p>
-{% endblock %}

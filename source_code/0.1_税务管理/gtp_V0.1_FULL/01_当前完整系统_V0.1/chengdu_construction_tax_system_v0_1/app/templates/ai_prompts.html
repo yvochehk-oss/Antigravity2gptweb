@@ -1,5 +1,0 @@
-{% extends 'base.html' %}{% block body %}
-<h1>AI审查 Prompt 模板版本库</h1><div class="panel">每个检查范围可以有多个版本。系统默认取该范围最新启用版本；没有专项模板时回退到 default 通用模板。</div>
-<h2>新增一个版本</h2><form method="post" action="/ai-prompts"><input name="name" placeholder="模板名称"><select name="scope"><option value="default">default 通用</option>{% for code,name in scopes.items() %}<option value="{{code}}">{{name}}</option>{% endfor %}</select><br><textarea name="system_addendum" rows="3" style="width:min(1000px,96%)" placeholder="系统级补充约束"></textarea><br><textarea name="review_focus" rows="3" style="width:min(1000px,96%)" placeholder="本范围重点检查内容"></textarea><br><button>创建新版本</button></form>
-<table><tr><th>范围</th><th>版本</th><th>名称</th><th>重点</th><th>状态</th><th></th></tr>{% for x in rows %}<tr><td>{{x.scope}}</td><td>v{{x.version}}</td><td>{{x.name}}</td><td style="text-align:left">{{x.review_focus}}</td><td>{{'启用' if x.enabled else '停用'}}</td><td><form method="post" action="/ai-prompts/{{x.id}}/toggle" style="box-shadow:none;padding:0;margin:0"><button>{{'停用' if x.enabled else '启用'}}</button></form></td></tr>{% endfor %}</table>
-{% endblock %}

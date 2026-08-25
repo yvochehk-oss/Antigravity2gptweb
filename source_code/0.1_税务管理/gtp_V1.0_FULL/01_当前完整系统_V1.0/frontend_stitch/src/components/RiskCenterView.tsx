@@ -11,10 +11,13 @@ import {
   UserCheck,
   Filter
 } from 'lucide-react';
-import { RiskEvent, SystemSettings } from '../types';
+import { DataStatus, RiskEvent, SystemSettings } from '../types';
+import { DataStatusCard } from './DataStatusCard';
 
 interface RiskCenterViewProps {
   riskEvents: RiskEvent[];
+  dataStatus: DataStatus;
+  dataStatusMessage: string;
   onResolveRisk: (id: string) => void;
   onAskAiAboutRisk: (entityName: string) => void;
   settings?: SystemSettings;
@@ -22,6 +25,8 @@ interface RiskCenterViewProps {
 
 export function RiskCenterView({
   riskEvents,
+  dataStatus,
+  dataStatusMessage,
   onResolveRisk,
   onAskAiAboutRisk,
   settings
@@ -37,8 +42,38 @@ export function RiskCenterView({
     return r.severity === activeFilter;
   });
 
+  const statusMessage = dataStatusMessage.trim() || '风险集合状态暂未返回详细说明。';
+
+  if (dataStatus === 'LOADING' || dataStatus === 'UNAVAILABLE' || (dataStatus === 'DEGRADED' && riskEvents.length === 0)) {
+    return (
+      <div className="space-y-6">
+        <h2 className="text-[28px] font-bold text-[#dae2fd]">风控预警与稽查处置中心</h2>
+        <DataStatusCard
+          status={dataStatus}
+          title={dataStatus === 'LOADING' ? '风险集合加载中' : dataStatus === 'DEGRADED' ? '风险集合数据不完整' : '风险集合不可用'}
+          message={statusMessage}
+        />
+      </div>
+    );
+  }
+
+  if (riskEvents.length === 0) {
+    return (
+      <div className="space-y-6">
+        <h2 className="text-[28px] font-bold text-[#dae2fd]">风控预警与稽查处置中心</h2>
+        <div className="rounded-xl border border-[#10B981]/30 bg-[#10B981]/5 p-5" role="status" aria-live="polite">
+          <p className="font-semibold text-[#dae2fd]">暂无已识别风险事件</p>
+          <p className="text-[13px] text-[#c4c5d5] mt-1 leading-relaxed">{statusMessage}</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="space-y-6">
+      <div className="space-y-6">
+      {dataStatus === 'DEGRADED' && (
+        <DataStatusCard status="DEGRADED" title="风险集合数据不完整" message={statusMessage} />
+      )}
       {/* 顶部标题与应急看板 */}
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
         <div>

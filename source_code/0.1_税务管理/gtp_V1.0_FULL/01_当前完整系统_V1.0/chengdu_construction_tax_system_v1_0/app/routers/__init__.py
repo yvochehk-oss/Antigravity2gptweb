@@ -4,6 +4,7 @@ from .ai_review import router as ai_review_router
 from .api import router as api_router
 from .auth import router as auth_router
 from .cockpit import router as cockpit_router
+from .collections import router as collections_router
 from .health_check import router as health_check_router
 from .manager import router as manager_router
 from .matching import router as matching_router
@@ -17,7 +18,7 @@ from .users import router as users_router
 
 ALL_ROUTERS = [
     auth_router,
-    cockpit_router, matching_router, tax_router,
+    cockpit_router, collections_router, matching_router, tax_router,
     ai_review_router, health_check_router,
     manager_router, planning_router,
     tasks_router,

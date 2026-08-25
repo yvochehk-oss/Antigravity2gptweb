@@ -1,4 +1,0 @@
-{% extends 'base.html' %}{% block body %}
-<h1>风险扫描中心</h1>{% if pid %}<div class="panel"><a href="/ai-review?project_id={{pid}}&scope=risk"><b>让外部模型复核这些风险并提出建议</b></a></div>{% endif %}<form method="get"><select name="project_id">{% for p in projects %}<option value="{{p.id}}" {{'selected' if p.id==pid else ''}}>{{p.name}}</option>{% endfor %}</select><button>重新扫描</button></form>
-<table><tr><th>等级</th><th>代码</th><th>问题</th></tr>{% for x in rows %}<tr><td class="{{'red' if x.severity=='RED' else 'yellow'}}">{{x.severity}}</td><td>{{x.code}}</td><td>{{x.message}}</td></tr>{% endfor %}</table>
-{% endblock %}

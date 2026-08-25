@@ -3,27 +3,131 @@
  * 全中文业务术语体系
  */
 
+// 数据状态。没有真实接口结果时，界面必须显式标记不可用，不能用空对象或演示数字伪装成功。
+export type DataStatus = 'LOADING' | 'READY' | 'DEGRADED' | 'UNAVAILABLE';
+
+/** Safe AI dependency health returned by the Tax service `/healthz` endpoint. */
+export interface AiModelEndpointHealth {
+  name: string;
+  status: 'ok' | 'degraded' | 'down';
+}
+
+/** UI-ready AI model-pool state; it is always derived from a real response. */
+export interface AiModelStatus {
+  state: DataStatus;
+  message: string;
+  endpoints: AiModelEndpointHealth[];
+}
+
+// Tax -> RAG 凭证同步只允许使用后端声明的四类记录。不要在前端扩展为
+// 自由文本，否则后端确定性映射会被绕过。
+export type RagSyncType = 'invoice' | 'contract' | 'payment' | 'tax_payment';
+
+export interface RagProjectCandidate {
+  id: number;
+  projectCode: string;
+  name: string;
+  status?: string;
+}
+
+export interface RagStatusResponse {
+  ok: boolean;
+  ragVersion: string;
+  llmExtraction: boolean;
+  projects: RagProjectCandidate[];
+  error: string;
+}
+
+/**
+ * Safe metadata for the server-side Tax -> RAG connection.
+ *
+ * The shared credential is deliberately absent: it is process supplied on
+ * the Tax server and must never enter browser state or a browser request.
+ */
+export interface RagServiceSettings {
+  ok: boolean;
+  url: string;
+  host: string;
+  approvedPrivate: boolean;
+  configured: boolean;
+  lastTestedAt: string;
+  ragVersion: string;
+  llmExtraction: boolean;
+  projects: RagProjectCandidate[];
+  error: string;
+}
+
+export interface ProjectRagMapping {
+  projectId: number;
+  ragProjectId: number;
+  ragProjectCode: string;
+  ragUrl?: string;
+  hasApiKey: boolean;
+  note?: string;
+  syncedAt?: string;
+}
+
+// Tax deterministic matching completeness. This is evidence availability,
+// not a project-health score; the UI must never label percentage as a score.
+export type MatchingCompletenessStatus = 'AVAILABLE' | 'DEGRADED' | 'UNAVAILABLE';
+
+export interface MatchingFlowCount {
+  expected: number;
+  available: number;
+  missing: number;
+}
+
+export interface MatchingCompletenessCounts {
+  rows: number;
+  expectedEvidence: number;
+  availableEvidence: number;
+  missingEvidence: number;
+  byFlow: Record<string, MatchingFlowCount>;
+}
+
+export interface ProjectMatchingCompleteness {
+  projectId: number;
+  status: MatchingCompletenessStatus;
+  percentage: number | null;
+  score: null;
+  counts: MatchingCompletenessCounts;
+  dataGaps: string[];
+  updated: string;
+  source: string;
+}
+
+export interface MatchingCompletenessSummary {
+  status: MatchingCompletenessStatus;
+  percentage: number | null;
+  dataGaps: string[];
+}
+
+export interface RagSyncResult {
+  syncLogId: number;
+  syncType: RagSyncType;
+  status: string;
+  totalExtracted: number;
+  totalImported: number;
+  totalPending: number;
+  importedIds: number[];
+  pendingIds: number[];
+  errors: string[];
+}
+
+export interface RagSyncBatchResponse {
+  projectId: number;
+  results: RagSyncResult[];
+}
+
 // 风险等级
-export type RiskLevel = '正常' | '预警' | '高危';
+export type RiskLevel = '正常' | '预警' | '高危' | '未知';
 
 // 税种类别
-export type TaxCategory = 
-  | '增值税 (普通/专用)'
-  | '企业所得税'
-  | '个人所得税 (全员扣缴)'
-  | '城市维护建设税及附加'
-  | '印花税与环境保护税'
-  | '房产税与城镇土地使用税';
+// 税种名称来自后端主数据，前端不应限制为演示数据中的少数值。
+export type TaxCategory = string;
 
 // 申报状态
-export type FilingStatus = 
-  | '已审计核销'
-  | '待主管复核'
-  | '异常-税务稽查中'
-  | '已完税核销'
-  | '已合规申报'
-  | '已暂扣待缴'
-  | '已发起退税申请';
+export type FilingStatus = string;
 
 // 税务台账单条记录
 export interface TaxLedgerRecord {
@@ -68,6 +172,7 @@ export interface CostBreakdownItem {
 // 项目总览信息
 export interface ProjectItem {
   id: string;
+  numericId: number;
   projectCode: string;        // 工程编号 (如：工号-2023-014)
   name: string;               // 项目名称 (如：国家体育场二期改扩建)
   constructionStage: string;  // 建设阶段 (如：主体结构施工阶段)
@@ -76,8 +181,8 @@ export interface ProjectItem {
   spentAmount: number;        // 累计已付款项 (元)
   remainingBudget: number;    // 剩余可用预算 (元)
   progressPercent: number;    // 资金消耗/形象进度 (百分比)
-  taxRiskGrade: '极低' | '低' | '中等偏高' | '高危'; // 税务风险评级
-  isOverBudget: boolean;      // 是否超支
+  taxRiskGrade: '极低' | '低' | '中等偏高' | '高危' | '未知'; // 税务风险评级
+  isOverBudget: boolean | null; // 后端未提供预算口径时为 null
   managerName: string;        // 项目经理
   location: string;           // 项目所在地
   teamAvatars: string[];      // 团队成员头像
@@ -90,7 +195,7 @@ export interface RiskEvent {
   id: string;
   projectName: string;
   entityName: string;
-  riskType: '跨区预缴与个税核销争议' | '预提所得税争议' | '进销项不匹配' | '合同四流背离' | '预算严重超支' | '未开票挂账过大';
+  riskType: string;
   severity: '高危' | '中度' | '轻度';
   triggerTime: string;
   description: string;
@@ -108,6 +213,31 @@ export interface AssistantMessage {
   suggestedActions?: string[];
   referenceData?: string;
   isThinking?: boolean;
+  /** Metadata returned by the backend model pool; never inferred in the UI. */
+  aiMetadata?: AiExecutionMetadata;
+}
+
+export interface AiEndpointMetadata {
+  id?: number;
+  name?: string;
+  model?: string;
+}
+
+export interface AiAttemptSummary {
+  endpoint?: AiEndpointMetadata;
+  status?: string;
+  error?: string;
+}
+
+/** Optional execution metadata. The backend may use selected/effective naming. */
+export interface AiExecutionMetadata {
+  status?: string;
+  degraded?: boolean;
+  fallback?: boolean;
+  selectedEndpoint?: AiEndpointMetadata;
+  effectiveEndpoint?: AiEndpointMetadata;
+  attempts?: AiAttemptSummary[];
+  [key: string]: unknown;
 }
 
 // 审计追溯底稿记录
@@ -117,7 +247,7 @@ export interface AuditTrailRecord {
   operator: string;
   role: string;
   targetSubject: string;
-  actionType: '凭证修改' | '税务核销' | '预算调整' | '风险标记' | '合规复核' | '报表签批' | '系统设置变更' | 'RAG底账同步' | '四流智能比对';
+  actionType: string;
   details: string;
   integrityHash: string;      // 防篡改校验码
 }
@@ -131,4 +261,3 @@ export interface SystemSettings {
   dataRefreshInterval: number;          // 数据自动同步频率 (秒，如 30, 60, 300, 0表示手动)
   aiDeepAnalysisMode: boolean;          // AI智能助手深度穿透核验模式
 }
-

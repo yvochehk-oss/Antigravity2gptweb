@@ -132,6 +132,8 @@ RISK_CODE_LABELS: dict[str, str] = {
     "FOUR_STREAM_MISMATCH": "四流不匹配",
     "MISSING_TAX_RATE": "发票缺失税率",
     "EQUIPMENT_RATE_REVIEW": "设备税率需复核",
+    "RAG_EVIDENCE_LOGISTICS_GAP": "物资物流入库凭据链缺口",
+    "CROSS_REGION_FILING_AUDIT": "跨区施工预缴与所得税分摊核查",
     "invoice_over_contract": "发票超额超合同",
     "paid_over_invoice": "付款超额超发票",
     "fulfilled_over_contract": "履约超额超合同",

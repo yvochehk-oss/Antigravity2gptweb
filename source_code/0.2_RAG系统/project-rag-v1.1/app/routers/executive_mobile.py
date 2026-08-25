@@ -11,24 +11,31 @@
 =============================================================================
 """
 
-import time
-import json
 import asyncio
+import json
+import time
 from datetime import datetime, timezone
-from typing import Optional, List, Dict, Any
-from fastapi import APIRouter, Depends, HTTPException, Query, Body
+from typing import Any, Dict, List, Optional
+
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from ..db import SessionLocal
-from ..auth import TaxPrincipal, require_auth
 from facts_provider.facts_provider import FactsProvider, FactsResponse, MetricValue
+
+from ..auth import TaxPrincipal, require_exec_role
+from ..db import SessionLocal
 
 router = APIRouter(prefix="/api/v1/executive", tags=["Executive Mobile Cockpit"])
 
 ALL_EXEC_ROLES = ("admin", "operator")
+# Keep one explicit dependency for the entire Executive surface.  The
+# dependency verifies a Tax-issued Bearer JWT and applies the allow-list at
+# the route boundary; it is intentionally not a service-key or Web-cookie
+# dependency.
+require_executive = require_exec_role(*ALL_EXEC_ROLES)
 
 
 def _meta_block(
@@ -142,9 +149,11 @@ def _aggregate_facts(
         for key in additive:
             value=_metric_value(response.metrics,key)
             if value is not None:
-                sums[key]+=value; seen[key]=True
+                sums[key] += value
+                seen[key] = True
         health=_metric_value(response.metrics,"health_score")
-        if health is not None: health_scores.append(health)
+        if health is not None:
+            health_scores.append(health)
 
     if available_count != len(project_codes):
         reason=(f"facts available for {available_count}/{len(project_codes)} projects"
@@ -171,7 +180,7 @@ def _aggregate_facts(
 # =============================================================================
 @router.get("/cockpit/summary")
 def get_cockpit_summary(
-    principal: TaxPrincipal = Depends(require_auth),
+    principal: TaxPrincipal = Depends(require_executive),
 ):
     """获取集团经营大盘总览指标、资金缺口与月度趋势"""
     db = SessionLocal()
@@ -208,8 +217,6 @@ def get_cockpit_summary(
             profit = facts_kpi.get("real_profit")
             cost = facts_kpi.get("real_project_cost")
             tax_burden = facts_kpi.get("tax_burden_rate")
-            collected = facts_kpi.get("collected_amount")
-            unpaid = facts_kpi.get("unpaid_amount")
             kpi = {
                 "contract_total": facts_kpi.get("contract_total"),
                 "revenue_recognized": recognized,
@@ -299,7 +306,7 @@ def get_cockpit_summary(
 # =============================================================================
 @router.get("/projects")
 def get_executive_projects(
-    principal: TaxPrincipal = Depends(require_auth),
+    principal: TaxPrincipal = Depends(require_executive),
 ):
     """获取所有工程项目的高管穿透指标卡片"""
     db = SessionLocal()
@@ -425,7 +432,7 @@ def get_executive_projects(
 @router.get("/projects/{project_id}/360")
 def get_project_360_detail(
     project_id: int,
-    principal: TaxPrincipal = Depends(require_auth),
+    principal: TaxPrincipal = Depends(require_executive),
 ):
     """获取单个项目的 360 度成本、税务、进展与四流一致性闭环证据链"""
     db = SessionLocal()
@@ -472,13 +479,21 @@ def get_project_360_detail(
         facts = _safe_get_facts(db, pcode)
         facts_available: bool = bool(facts.facts_available)
         metrics = facts.metrics if facts_available else {}
+        data_gaps: List[str] = []
+        if not facts_available:
+            # Canonical Facts is the gate for every financial value in this
+            # endpoint.  A project row, invoice row, or payment row is not a
+            # substitute for the analytics_* / Facts contract.
+            data_gaps.append("canonical_facts_unavailable")
+            facts_reason = (facts.reason or "").lower()
+            if "entity mapping" in facts_reason or "entity_mapping" in facts_reason:
+                data_gaps.append("entity_mapping_gap")
 
         if facts_available:
             recognized = _metric_value(metrics, "recognized_revenue")
             profit = _metric_value(metrics, "real_profit")
             cost = _metric_value(metrics, "real_project_cost")
             eac_cost = _metric_value(metrics, "eac_cost")
-            eac_profit = _metric_value(metrics, "eac_profit")
             eac_margin = _metric_value(metrics, "eac_margin")
             financial_penetration = {
                 "contract_total": _metric_value(metrics, "contract_amount"),
@@ -530,110 +545,155 @@ def get_project_360_detail(
         # 26 家系统内单位穿透与合并抵销数据计算 (System Penetration Calculation)
         # =========================================================================
         from collections import defaultdict
-        from decimal import Decimal as D
+        from decimal import Decimal
 
-        def _d(v): return D(str(v)) if v is not None else D("0")
+        def _d(v): return Decimal(str(v)) if v is not None else Decimal("0")
 
         # 1. 内部与外部主体名单
-        ent_rows = db.execute(text("SELECT entity_code, name, business_role FROM entities")).fetchall()
+        ent_rows = (
+            db.execute(
+                text("SELECT entity_code, name, business_role FROM entities")
+            ).fetchall()
+            if facts_available
+            else []
+        )
         internal_map = {e[0]: e[1] for e in ent_rows}
         internal_codes = set(internal_map.keys())
 
-        ext_rows = db.execute(text("SELECT code, name, kind FROM external_parties")).fetchall()
+        ext_rows = (
+            db.execute(text("SELECT code, name, kind FROM external_parties")).fetchall()
+            if facts_available
+            else []
+        )
         external_map = {x[0]: {"name": x[1], "kind": x[2] or "外部单位"} for x in ext_rows}
         external_codes = set(external_map.keys())
 
-        # 2. 已确认外部结算收入
-        rec_revenue = _d(db.scalar(
-            text("SELECT coalesce(sum(recognized_revenue), 0) FROM progress WHERE project_id = :id"),
-            {"id": project_id}
-        ))
+        # 2. Recognized revenue is Canonical Facts, never a project-table
+        # fallback.  It remains None if the available Facts row omits it.
+        canonical_recognized = _metric_value(metrics, "recognized_revenue")
+        rec_revenue = (
+            _d(canonical_recognized) if canonical_recognized is not None else None
+        )
 
         # 3. 发票流向分析 (区分系统内流转 vs 对外开票)
-        inv_rows = db.execute(
-            text("SELECT direction, entity_code, counterparty_code, net, vat, category FROM invoices WHERE project_id = :id"),
-            {"id": project_id}
-        ).fetchall()
+        inv_rows = (
+            db.execute(
+                text(
+                    "SELECT direction, entity_code, counterparty_code, net, vat, category "
+                    "FROM invoices WHERE project_id = :id"
+                ),
+                {"id": project_id},
+            ).fetchall()
+            if facts_available
+            else []
+        )
 
-        internal_trade_volume = D("0")
-        external_invoice_revenue = D("0")
-        int_details = defaultdict(lambda: D("0"))
-        rev_details = defaultdict(lambda: D("0"))
+        internal_trade_volume: Optional[Decimal] = None
+        external_invoice_revenue: Optional[Decimal] = None
+        int_details = defaultdict(lambda: Decimal("0"))
+        rev_details = defaultdict(lambda: Decimal("0"))
 
         for inv in inv_rows:
-            direction, ecode, ccode, net, vat, cat = inv[0], inv[1], inv[2], inv[3], inv[4], inv[5]
+            direction, ecode, ccode, net, _vat, cat = inv[0], inv[1], inv[2], inv[3], inv[4], inv[5]
             if direction != "out" or ecode not in internal_codes:
                 continue
             if ccode in internal_codes:
-                internal_trade_volume += _d(net)
+                internal_trade_volume = (internal_trade_volume or Decimal("0")) + _d(net)
                 int_details[(ecode, ccode, cat)] += _d(net)
             elif ccode in external_codes:
-                external_invoice_revenue += _d(net)
+                external_invoice_revenue = (
+                    external_invoice_revenue or Decimal("0")
+                ) + _d(net)
                 rev_details[ccode] += _d(net)
 
         # 4. 穿透后系统外真实成本 (real_costs external_cash = true)
-        cost_rows = db.execute(
-            text("SELECT entity_code, counterparty_code, category, amount FROM real_costs WHERE project_id = :id AND external_cash = true"),
-            {"id": project_id}
-        ).fetchall()
+        cost_rows = (
+            db.execute(
+                text(
+                    "SELECT entity_code, counterparty_code, category, amount "
+                    "FROM real_costs WHERE project_id = :id AND external_cash = true"
+                ),
+                {"id": project_id},
+            ).fetchall()
+            if facts_available
+            else []
+        )
 
-        system_external_real_cost = D("0")
-        ext_details = defaultdict(lambda: D("0"))
+        system_external_real_cost: Optional[Decimal] = None
+        ext_details = defaultdict(lambda: Decimal("0"))
         for rc in cost_rows:
             amt = _d(rc[3])
-            system_external_real_cost += amt
+            system_external_real_cost = (
+                system_external_real_cost or Decimal("0")
+            ) + amt
             ext_details[(rc[0], rc[1], rc[2])] += amt
 
         # 5. 实缴税款
-        tax_paid_val = _d(db.scalar(
-            text("SELECT coalesce(sum(tax_amount), 0) FROM tax_payment_records WHERE project_id = :id"),
-            {"id": project_id}
-        ))
+        tax_paid_raw = (
+            db.scalar(
+                text(
+                    "SELECT sum(tax_amount) FROM tax_payment_records "
+                    "WHERE project_id = :id"
+                ),
+                {"id": project_id},
+            )
+            if facts_available
+            else None
+        )
+        tax_paid_val = _d(tax_paid_raw) if tax_paid_raw is not None else None
 
-        # 管理合并利润 = 确认收入 - 穿透后外部真实成本 - 项目实缴税款
-        management_profit_after_tax = rec_revenue - system_external_real_cost - tax_paid_val
+        # Management profit is a Canonical Facts metric.  Do not recreate it
+        # from operational tables here; that was the source of the old demo
+        # values leaking while Facts was DEGRADED.
+        management_profit_after_tax = (
+            _metric_value(metrics, "real_profit") if facts_available else None
+        )
 
         # 构建前端易读明细列表
-        contract_rows = db.execute(
-            text("SELECT buyer_code, amount FROM contracts WHERE project_id = :id"),
-            {"id": project_id}
-        ).fetchall()
+        contract_rows = (
+            db.execute(
+                text("SELECT buyer_code, amount FROM contracts WHERE project_id = :id"),
+                {"id": project_id},
+            ).fetchall()
+            if facts_available
+            else []
+        )
         contract_map = {}
         for c in contract_rows:
             if c[0] in external_codes:
-                contract_map[c[0]] = contract_map.get(c[0], D("0")) + _d(c[1])
+                contract_map[c[0]] = contract_map.get(c[0], Decimal("0")) + _d(c[1])
 
-        revenueDetails = []
-        if not rev_details and contract_map:
+        revenue_details = []
+        if facts_available and not rev_details and contract_map:
             for bcode, camt in contract_map.items():
-                revenueDetails.append({
+                revenue_details.append({
                     "type": external_map.get(bcode, {}).get("kind", "发包方"),
                     "name": f"{external_map.get(bcode, {}).get('name', bcode)} ({bcode})",
                     "contract": float(camt),
                     "recognized": float(0)
                 })
-        else:
+        elif facts_available:
             for bcode, amt in rev_details.items():
-                camt = contract_map.get(bcode, D("0"))
-                revenueDetails.append({
+                camt = contract_map.get(bcode, Decimal("0"))
+                revenue_details.append({
                     "type": external_map.get(bcode, {}).get("kind", "发包方"),
                     "name": f"{external_map.get(bcode, {}).get('name', bcode)} ({bcode})",
-                    "contract": float(camt) if camt > 0 else float(amt * D("1.2")),
+                    "contract": float(camt) if camt > 0 else float(amt * Decimal("1.2")),
                     "recognized": float(amt)
                 })
 
-        internalDetails = []
+        internal_details = []
         for (ecode, ccode, cat), amt in int_details.items():
             ename = internal_map.get(ecode, ecode)
             cname = internal_map.get(ccode, ccode)
-            internalDetails.append({
+            internal_details.append({
                 "node": f"{ename[:2]} → {cname[:2]}",
                 "unit": f"{ecode} {ename}",
                 "category": cat or "内部流转",
                 "amount": float(amt)
             })
 
-        externalDetails = []
+        external_details = []
         for (ecode, ccode, cat), amt in ext_details.items():
             if ccode and ccode in external_map:
                 cname = external_map[ccode]["name"]
@@ -643,31 +703,43 @@ def get_project_360_detail(
             else:
                 supplier_name = "散户 / 零星分供商"
 
-            externalDetails.append({
+            external_details.append({
                 "category": cat or "外部支出",
                 "entity": ecode,
                 "supplier": supplier_name,
-                "nominal": float(amt * D("1.09")),
+                "nominal": float(amt * Decimal("1.09")),
                 "real": float(amt)
             })
 
         system_penetration = {
             "project_id": project_id,
             "project_code": pcode,
-            "recognized_revenue": float(rec_revenue),
-            "external_invoice_revenue": float(external_invoice_revenue),
-            "internal_trade_volume_eliminated": float(internal_trade_volume),
-            "system_external_real_cost": float(system_external_real_cost),
-            "project_tax_paid": float(tax_paid_val),
-            "management_profit_after_tax": float(management_profit_after_tax),
-            "internal_unit_count": len(internal_codes),
-            "revenueDetails": revenueDetails,
-            "internalDetails": internalDetails,
-            "externalDetails": externalDetails,
+            "recognized_revenue": float(rec_revenue) if rec_revenue is not None else None,
+            "external_invoice_revenue": (
+                float(external_invoice_revenue)
+                if external_invoice_revenue is not None
+                else None
+            ),
+            "internal_trade_volume_eliminated": (
+                float(internal_trade_volume)
+                if internal_trade_volume is not None
+                else None
+            ),
+            "system_external_real_cost": (
+                float(system_external_real_cost)
+                if system_external_real_cost is not None
+                else None
+            ),
+            "project_tax_paid": float(tax_paid_val) if tax_paid_val is not None else None,
+            "management_profit_after_tax": management_profit_after_tax,
+            "internal_unit_count": len(internal_codes) if facts_available else None,
+            "revenueDetails": revenue_details,
+            "internalDetails": internal_details,
+            "externalDetails": external_details,
         }
 
         return {
-            "status": "success",
+            "status": "success" if facts_available else "DEGRADED",
             "_meta": _meta_block(
                 principal,
                 facts_available=facts_available,
@@ -698,6 +770,7 @@ def get_project_360_detail(
                 "facts_version": facts.facts_version if facts_available else None,
                 "metrics_count": len(metrics),
             },
+            "data_gaps": data_gaps,
         }
     finally:
         db.close()
@@ -708,7 +781,7 @@ def get_project_360_detail(
 # =============================================================================
 @router.get("/entities/matrix")
 def get_entities_matrix(
-    principal: TaxPrincipal = Depends(require_auth),
+    principal: TaxPrincipal = Depends(require_executive),
 ):
     """获取集团法人公司的 ABCD 业务分类经营与税务全景底账"""
     db = SessionLocal()
@@ -912,7 +985,7 @@ def _build_chat_payload(query: str, facts: Optional[FactsResponse]) -> Dict[str,
 @router.post("/ai/chat")
 def executive_ai_chat(
     req: AIChatRequest,
-    principal: TaxPrincipal = Depends(require_auth),
+    principal: TaxPrincipal = Depends(require_executive),
 ):
     """董事长移动端专属 AI 智策问答与经营决策诊断接口 (JSON, backward-compatible)"""
     q = req.message.strip()
@@ -958,7 +1031,7 @@ def executive_ai_chat(
 @router.post("/ai/chat/stream")
 async def executive_ai_chat_stream(
     req: AIChatRequest,
-    principal: TaxPrincipal = Depends(require_auth),
+    principal: TaxPrincipal = Depends(require_executive),
 ):
     """SSE streaming variant. Emits four event types:
 
