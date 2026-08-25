@@ -777,26 +777,39 @@ def run() -> None:
                     category=cat, active=True,
                 ))
 
-        # 8. AI 端点与提示词
-        # 8. AI 端点与提示词（DeepSeek 外部模型排首位作为默认主力模型，Mock 作为本地兜底）
+        # 8. AI 端点与提示词（DeepSeek 外部模型排首位作为默认主力模型，Ling/Qwen 本地模型作为保底）
         if db.query(AIModelEndpoint).count() == 0:
             db.add(AIModelEndpoint(
                 name="DeepSeek·V4-Flash智能体审查器", adapter="openai_compatible",
                 base_url="https://tokenhub.tencentmaas.com/v1", chat_path="/chat/completions",
                 model="deepseek/deepseek-v4-flash-0731", api_key_env="TENCENT_HUNYUAN_API_KEY",
-                enabled=True, timeout_seconds=90,
+                enabled=True, timeout_seconds=90, priority=100, routing_group="default",
                 note="腾讯云 TokenHub DeepSeek V4 Flash 默认主力模型 (deepseek/deepseek-v4-flash-0731)",
+            ))
+            db.add(AIModelEndpoint(
+                name="本地 Ling-3.0-tiny 保底模型", adapter="openai_compatible",
+                base_url="http://127.0.0.1:8930", chat_path="/v1/chat/completions",
+                model="ling-3.0-tiny", api_key_env="",
+                enabled=True, timeout_seconds=60, priority=900, routing_group="default",
+                note="V2.0 llama.cpp 本地 Ling-3.0-tiny 保底端点；用于无外网时离线 AI 辅助研判",
+            ))
+            db.add(AIModelEndpoint(
+                name="本地 Qwen3.5-2B 保底模型", adapter="openai_compatible",
+                base_url="http://127.0.0.1:8930", chat_path="/v1/chat/completions",
+                model="local-qwen3.5-2b", api_key_env="",
+                enabled=False, timeout_seconds=60, priority=1000, routing_group="default",
+                note="V2.0 llama.cpp 本地 Qwen3.5-2B 备选保底端点",
             ))
             db.add(AIModelEndpoint(
                 name="本地Mock经营审查器", adapter="mock",
                 base_url="", chat_path="", model="mock-operations-v1",
-                api_key_env="", enabled=True, timeout_seconds=10,
+                api_key_env="", enabled=False, timeout_seconds=10, priority=100, routing_group="default",
                 note="本地Mock离线兜底模型，用于无网环境或快速测试",
             ))
             db.add(AIModelEndpoint(
                 name="本地Mock合规复核器", adapter="mock",
                 base_url="", chat_path="", model="mock-compliance-v1",
-                api_key_env="", enabled=True, timeout_seconds=10,
+                api_key_env="", enabled=False, timeout_seconds=10, priority=100, routing_group="default",
                 note="本地Mock离线交叉复核兜底模型",
             ))
 
