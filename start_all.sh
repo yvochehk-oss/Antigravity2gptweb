@@ -115,12 +115,12 @@ LOCAL_LLM_ACTIVE=false
 LOCAL_LLM_ENABLED="${LOCAL_LLM_ENABLED:-1}"
 LOCAL_LLM_HOST="${LOCAL_LLM_HOST:-127.0.0.1}"
 LOCAL_LLM_PORT="${LOCAL_LLM_PORT:-8930}"
-if [ -f "$PROJECT_DIR/models/local-llm/Ling-3.0-tiny-Q4_K_M.gguf" ]; then
-  DEFAULT_LOCAL_MODEL="$PROJECT_DIR/models/local-llm/Ling-3.0-tiny-Q4_K_M.gguf"
-  DEFAULT_LOCAL_ALIAS="ling-3.0-tiny"
-else
+if [ -f "$PROJECT_DIR/models/local-llm/Qwen3.5-2B-Q4_K_M.gguf" ]; then
   DEFAULT_LOCAL_MODEL="$PROJECT_DIR/models/local-llm/Qwen3.5-2B-Q4_K_M.gguf"
   DEFAULT_LOCAL_ALIAS="local-qwen3.5-2b"
+elif [ -f "$PROJECT_DIR/models/local-llm/Ling-3.0-tiny-Q4_K_M.gguf" ]; then
+  DEFAULT_LOCAL_MODEL="$PROJECT_DIR/models/local-llm/Ling-3.0-tiny-Q4_K_M.gguf"
+  DEFAULT_LOCAL_ALIAS="ling-3.0-tiny"
 fi
 LOCAL_LLM_MODEL="${LOCAL_LLM_MODEL:-$DEFAULT_LOCAL_MODEL}"
 LOCAL_LLM_SERVER_BIN="${LOCAL_LLM_SERVER_BIN:-llama-server}"
