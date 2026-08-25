@@ -33,18 +33,28 @@ def sync_all_mounts(db: Session) -> dict:
                     continue
 
                 # Each subdirectory is considered a project folder
-                if item.is_symlink() or not item.is_dir(follow_symlinks=False):
+                if item.is_symlink() or not item.is_dir():
                     continue
                 project_name = item.name
                 if project_name.startswith('.'):
                     continue
 
-                # 1. Find or create Project
+                # 1. Find or create Project (support folder names like 01_天府国际金融中心二期_CD-TF-001)
+                parts = project_name.split('_')
+                code_candidate = parts[-1] if len(parts) > 1 else project_name
                 project = db.scalar(
                     select(Project).where(
-                        (Project.name == project_name) | (Project.project_code == project_name)
+                        (Project.project_code == project_name)
+                        | (Project.name == project_name)
+                        | (Project.project_code == code_candidate)
                     )
                 )
+                if not project:
+                    all_projects = db.execute(select(Project)).scalars().all()
+                    for p in all_projects:
+                        if p.project_code and p.project_code in project_name:
+                            project = p
+                            break
 
                 if not project:
                     # Create new project
