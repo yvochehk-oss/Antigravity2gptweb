@@ -45,9 +45,9 @@ describe('<BottomNavigation />', () => {
     const labels = wrapper.findAll('.nav-label').map(node => node.text())
     expect(labels).toContain('集团大盘')
     expect(labels).toContain('项目穿透')
-    expect(labels).toContain('法人全景')
+    expect(labels).toContain('项目全览')
     expect(labels).toContain('AI 智策')
-    expect(labels).toContain('穿透设置')
+    expect(labels).toContain('系统设置')
   })
 
   it('hides cockpit + companies + settings for project_manager', async () => {

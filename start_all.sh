@@ -115,10 +115,17 @@ LOCAL_LLM_ACTIVE=false
 LOCAL_LLM_ENABLED="${LOCAL_LLM_ENABLED:-1}"
 LOCAL_LLM_HOST="${LOCAL_LLM_HOST:-127.0.0.1}"
 LOCAL_LLM_PORT="${LOCAL_LLM_PORT:-8930}"
-LOCAL_LLM_MODEL="${LOCAL_LLM_MODEL:-$PROJECT_DIR/models/local-llm/Qwen3.5-2B-Q4_K_M.gguf}"
+if [ -f "$PROJECT_DIR/models/local-llm/Ling-3.0-tiny-Q4_K_M.gguf" ]; then
+  DEFAULT_LOCAL_MODEL="$PROJECT_DIR/models/local-llm/Ling-3.0-tiny-Q4_K_M.gguf"
+  DEFAULT_LOCAL_ALIAS="ling-3.0-tiny"
+else
+  DEFAULT_LOCAL_MODEL="$PROJECT_DIR/models/local-llm/Qwen3.5-2B-Q4_K_M.gguf"
+  DEFAULT_LOCAL_ALIAS="local-qwen3.5-2b"
+fi
+LOCAL_LLM_MODEL="${LOCAL_LLM_MODEL:-$DEFAULT_LOCAL_MODEL}"
 LOCAL_LLM_SERVER_BIN="${LOCAL_LLM_SERVER_BIN:-llama-server}"
-LOCAL_LLM_ALIAS="${LOCAL_LLM_ALIAS:-local-qwen3.5-2b}"
-LOCAL_LLM_CTX_SIZE="${LOCAL_LLM_CTX_SIZE:-8192}"
+LOCAL_LLM_ALIAS="${LOCAL_LLM_ALIAS:-$DEFAULT_LOCAL_ALIAS}"
+LOCAL_LLM_CTX_SIZE="${LOCAL_LLM_CTX_SIZE:-4096}"
 LOCAL_LLM_THREADS="${LOCAL_LLM_THREADS:-4}"
 LOCAL_LLM_THREADS_BATCH="${LOCAL_LLM_THREADS_BATCH:-4}"
 LOCAL_LLM_BATCH_SIZE="${LOCAL_LLM_BATCH_SIZE:-512}"
@@ -368,7 +375,7 @@ prepare_local_llm_runtime() {
   fi
   model="$(resolve_local_llm_model)"
   if [ ! -f "$model" ]; then
-    warn "本地 LLM 模型文件不存在：$model（请先运行 models/local-llm/download_qwen25_3b.sh；Tax/RAG 将继续启动）"
+    warn "本地 LLM 模型文件不存在：$model（请先运行 models/local-llm/download_ling3_tiny.sh 或 download_qwen35_2b.sh；Tax/RAG 将继续启动）"
     return 1
   fi
   case "$LOCAL_LLM_PORT" in ''|*[!0-9]*) warn "LOCAL_LLM_PORT 必须是数字：$LOCAL_LLM_PORT"; return 1 ;; esac

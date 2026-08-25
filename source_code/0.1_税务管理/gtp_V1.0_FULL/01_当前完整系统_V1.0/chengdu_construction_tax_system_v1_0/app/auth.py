@@ -245,7 +245,27 @@ def clear_session(response: Response) -> None:
 # 请求上下文：从 cookie 读取当前用户
 # ---------------------------------------------------------------------------
 def current_user_from_request(request: Request) -> User | None:
-    """从请求 cookie 解析当前登录用户，返回 User 或 None。"""
+    """从请求 header (Bearer JWT) 或 cookie 解析当前登录用户，返回 User 或 None。"""
+    # 1. 优先尝试从 Authorization Header 读取 Bearer JWT
+    auth_header = request.headers.get("authorization", "").strip()
+    if auth_header.lower().startswith("bearer "):
+        token_str = auth_header[7:].strip()
+        payload = verify_jwt(token_str, expected_type="access")
+        if payload and payload.get("sub"):
+            db = SessionLocal()
+            try:
+                user = db.query(User).filter(
+                    User.id == int(payload["sub"]),
+                    User.active == True,  # noqa: E712
+                ).first()
+                if user:
+                    return user
+            except (ValueError, TypeError):
+                pass
+            finally:
+                db.close()
+
+    # 2. 尝试从 cookie 读取 Session Token
     token = request.cookies.get(COOKIE_NAME)
     if not token:
         return None

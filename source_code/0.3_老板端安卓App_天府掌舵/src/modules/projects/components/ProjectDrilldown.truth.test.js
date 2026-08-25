@@ -1,9 +1,9 @@
 import { readFileSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
+import path from 'node:path'
 
 import { describe, expect, it } from 'vitest'
 
-const componentPath = fileURLToPath(new URL('./ProjectDrilldown.vue', import.meta.url))
+const componentPath = path.resolve(process.cwd(), 'src/modules/projects/components/ProjectDrilldown.vue')
 const source = readFileSync(componentPath, 'utf8')
 
 describe('ProjectDrilldown truth rendering', () => {

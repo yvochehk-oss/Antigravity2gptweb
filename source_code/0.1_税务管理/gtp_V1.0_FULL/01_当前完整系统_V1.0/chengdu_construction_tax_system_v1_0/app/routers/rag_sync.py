@@ -233,8 +233,9 @@ def _approved_addresses(endpoint: RagServiceEndpoint | None) -> frozenset[str] |
 
 def _active_rag_url(db=None) -> str:
     endpoint = _stored_rag_endpoint(db)
-    if endpoint is not None and str(endpoint.base_url or "").strip():
-        return str(endpoint.base_url).strip().rstrip("/")
+    base_url = getattr(endpoint, "base_url", None)
+    if endpoint is not None and str(base_url or "").strip():
+        return str(base_url).strip().rstrip("/")
     return RAG_URL
 
 

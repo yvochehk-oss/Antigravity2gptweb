@@ -15,13 +15,13 @@ describe('formatters', () => {
   it('uses locale grouping with two decimals for ordinary amounts', () => {
     expect(formatMoney(5_000)).toBe('¥5,000.00')
     expect(formatMoney(0)).toBe('¥0.00')
-    expect(formatMoney(null)).toBe('¥ 0')
+    expect(formatMoney(null)).toBe('—')
   })
 
   it('formats decimals and whole-number percentages', () => {
     expect(formatPercent(0.1234)).toBe('12.34%')
     expect(formatPercent(12.34)).toBe('12.34%')
-    expect(formatPercent(null)).toBe('0.00%')
+    expect(formatPercent(null)).toBe('—')
   })
 
   it('prepends a currency symbol via formatCurrency', () => {
