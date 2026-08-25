@@ -23,7 +23,7 @@
                 <DataSourceBadge :mode="dataSource" class="shrink-0" />
               </div>
               <h2 id="project-drilldown-title" class="drawer-title mt-2 text-[18px] leading-6 font-bold tracking-tight text-slate-50">{{ detailProject.name || '项目 360° 穿透' }}</h2>
-              <p class="mt-1 text-[12px] leading-4 text-slate-400">真实成本 · 进项抵扣 · 动态毛利 · 四流闭环链</p>
+              <p class="mt-1 text-[12px] leading-4 text-slate-400">真实成本 · 进项抵扣 · 动态毛利 · 四流证据链</p>
             </div>
             <button
               ref="closeButton"
@@ -97,12 +97,12 @@
                     <div class="flex items-start justify-between gap-3">
                       <div class="min-w-0">
                         <h4 class="text-[14px] leading-5 font-semibold text-slate-200">{{ item.label }}</h4>
-                        <p class="text-[11px] leading-4 text-slate-400">占实际成本 {{ item.percent }}%</p>
+                        <p class="text-[11px] leading-4 text-slate-400">占实际成本 {{ percent(item.percent) }}</p>
                       </div>
                       <span class="money-value shrink-0 text-right font-financial text-[15px] font-bold text-amber-200">{{ money(item.amount) }}</span>
                     </div>
-                    <div class="h-2 overflow-hidden rounded-full bg-black/40" role="progressbar" :aria-valuenow="item.percent" aria-valuemin="0" aria-valuemax="100" :aria-label="`${item.label}成本占比`">
-                      <div class="h-full rounded-full bg-gradient-to-r from-amber-500 to-amber-300 transition-[width] duration-500" :style="{ width: `${item.percent}%` }" />
+                    <div class="h-2 overflow-hidden rounded-full bg-black/40" role="progressbar" :aria-valuenow="item.percent ?? undefined" aria-valuemin="0" aria-valuemax="100" :aria-label="`${item.label}成本占比`">
+                      <div class="h-full rounded-full bg-gradient-to-r from-amber-500 to-amber-300 transition-[width] duration-500" :style="{ width: `${item.percent ?? 0}%` }" />
                     </div>
                   </li>
                 </ol>
@@ -114,16 +114,20 @@
                 <div class="flex items-start justify-between gap-3 border-b border-white/10 pb-3">
                   <div>
                     <h3 id="flow-heading" class="text-[16px] leading-6 font-bold text-slate-50">四流一致性核验</h3>
-                    <p class="mt-0.5 text-[12px] leading-4 text-slate-400">合同、发票、资金与物资闭环证据链</p>
+                    <p class="mt-0.5 text-[12px] leading-4 text-slate-400">合同、发票、资金与物资证据链；仅展示后端已返回的核验状态</p>
                   </div>
-                  <span class="shrink-0 rounded-md border border-emerald-400/35 bg-emerald-400/15 px-2 py-0.5 text-[11px] font-bold text-emerald-200">100% 闭环</span>
+                  <span class="shrink-0 rounded-md border px-2 py-0.5 text-[11px] font-bold" :class="flowSummary.className">{{ flowSummary.label }}</span>
                 </div>
                 <ol class="mt-3.5 space-y-2.5">
-                  <li v-for="(flow, index) in flows" :key="flow.title" class="flex gap-3 rounded-xl border border-white/10 bg-gradient-to-b from-[#14233a] to-[#0c1626] p-3 shadow-sm">
+                  <li v-for="(flow, index) in flows" :key="flow.key" class="flex gap-3 rounded-xl border border-white/10 bg-gradient-to-b from-[#14233a] to-[#0c1626] p-3 shadow-sm">
                     <span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-amber-400/40 bg-amber-400/15 font-financial text-[13px] font-bold text-amber-200">{{ index + 1 }}</span>
-                    <div class="min-w-0">
-                      <h4 class="text-[14px] leading-5 font-bold" :class="flow.color">{{ flow.title }}</h4>
+                    <div class="min-w-0 flex-1">
+                      <div class="flex items-start justify-between gap-2">
+                        <h4 class="text-[14px] leading-5 font-bold" :class="flow.color">{{ flow.title }}</h4>
+                        <span class="shrink-0 rounded-md border px-1.5 py-0.5 text-[10px] font-semibold" :class="flow.statusClass">{{ flow.statusLabel }}</span>
+                      </div>
                       <p class="mt-0.5 text-[12px] leading-4 text-slate-300">{{ flow.detail }}</p>
+                      <p v-if="flow.docs.length" class="mt-1 text-[11px] leading-4 text-slate-400">关联证据 {{ flow.docs.length }} 份</p>
                     </div>
                   </li>
                 </ol>
@@ -158,7 +162,7 @@
               <!-- 集团合并利润与管理口径核心卡 -->
               <section class="rounded-2xl border border-purple-400/30 bg-gradient-to-b from-[#1c1836] to-[#0c1022] p-4.5 shadow-lg">
                 <div class="flex items-center justify-between">
-                  <span class="text-[12px] font-bold text-purple-300">🏢 集团管理合并净利润</span>
+                  <span class="text-[12px] font-bold text-purple-300">🏢 集团管理合并税后利润</span>
                   <span class="rounded-full bg-purple-400/20 px-2 py-0.5 text-[11px] font-bold text-purple-200 border border-purple-400/30">
                     26 家合并口径
                   </span>
@@ -274,7 +278,11 @@
                   <div v-for="(item, idx) in penetration.externalDetails || []" :key="idx" class="flex items-center justify-between py-1.5 border-b border-white/5">
                     <div>
                       <div class="font-medium text-slate-200">{{ item.supplier }}</div>
-                      <div class="text-[10px] text-amber-300/80">{{ item.category }} (名义: {{ money(item.nominal) }})</div>
+                      <div class="text-[10px] text-amber-300/80">
+                        {{ item.category }}
+                        <span v-if="isAvailableNumber(item.nominal)"> · 名义：{{ money(item.nominal) }}</span>
+                        <span v-else> · 名义金额暂无</span>
+                      </div>
                     </div>
                     <span class="font-financial font-bold text-amber-300">{{ money(item.real) }}</span>
                   </div>
@@ -300,7 +308,7 @@ import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useExecutiveStore } from '../../../stores/executive.store'
 import { useUiStore } from '../../../stores/ui.store'
-import { formatMoney } from '../../../utils/formatters'
+import { formatMoney, formatPercent } from '../../../utils/formatters'
 import DataSourceBadge from '../../../shared/components/DataSourceBadge.vue'
 
 const executive = useExecutiveStore()
@@ -320,21 +328,65 @@ let bodyLocked = false
 const detailProject = computed(() => project360.value?.project || {})
 const financial = computed(() => project360.value?.financial_penetration || {})
 const penetration = computed(() => project360.value?.system_penetration || {})
+const evidenceChain = computed(() => project360.value?.evidence_chain || {})
 const documents = computed(() => Array.isArray(project360.value?.document_list) ? project360.value.document_list.slice(0, 8) : [])
-const costItems = computed(() => Object.entries(project360.value?.cost_breakdown || {}).map(([key, value]) => ({
-  key,
-  label: costLabel(key),
-  amount: value?.amount,
-  percent: safePercent(value?.pct)
-})))
-const hasDetailData = computed(() => Boolean(project360.value?.financial_penetration || project360.value?.system_penetration || project360.value?.cost_breakdown || project360.value?.document_list))
+const costItems = computed(() => Object.entries(project360.value?.cost_breakdown || {})
+  .map(([key, value]) => ({
+    key,
+    label: costLabel(key),
+    amount: value?.amount,
+    percent: safePercent(value?.pct)
+  }))
+  .filter(item => isAvailableNumber(item.amount) || item.percent !== null))
+const hasDetailData = computed(() => Boolean(
+  project360.value?.financial_penetration ||
+  project360.value?.system_penetration ||
+  project360.value?.cost_breakdown ||
+  project360.value?.evidence_chain ||
+  project360.value?.document_list
+))
 
-const flows = [
-  { title: '合同流', detail: '约定 9% 建筑服务税率与节点工程款结算', color: 'text-amber-200' },
-  { title: '发票流', detail: '13%/9% 进销项增值税专票 100% 勾选认证', color: 'text-sky-300' },
-  { title: '资金流', detail: '银行对公账户回单与交易流水三方一致', color: 'text-emerald-300' },
-  { title: '物资流', detail: '智能地磅单、出入库单据与现场影像全闭环', color: 'text-violet-300' }
+const flowDefinitions = [
+  { key: 'contract_stream', title: '合同流', color: 'text-amber-200' },
+  { key: 'invoice_stream', title: '发票流', color: 'text-sky-300' },
+  { key: 'cash_stream', title: '资金流', color: 'text-emerald-300' },
+  { key: 'goods_stream', title: '物资流', color: 'text-violet-300' }
 ]
+
+const flows = computed(() => flowDefinitions.map(definition => {
+  const raw = evidenceChain.value?.[definition.key] || {}
+  const status = normalizeFlowStatus(raw.status)
+  return {
+    ...definition,
+    title: raw.title || definition.title,
+    status,
+    statusLabel: flowStatusLabel(status),
+    statusClass: flowStatusClass(status),
+    detail: raw.details || raw.detail || '暂无可核验证据',
+    docs: Array.isArray(raw.docs) ? raw.docs : []
+  }
+}))
+
+const flowSummary = computed(() => {
+  const verified = flows.value.filter(flow => isVerifiedFlowStatus(flow.status)).length
+  const partial = flows.value.filter(flow => ['degraded', 'partial'].includes(flow.status)).length
+  if (verified === flows.value.length && flows.value.length > 0) {
+    return {
+      label: '证据齐备',
+      className: 'border-emerald-400/35 bg-emerald-400/15 text-emerald-200'
+    }
+  }
+  if (verified > 0 || partial > 0) {
+    return {
+      label: `${verified}/${flows.value.length} 项可核验`,
+      className: 'border-amber-400/35 bg-amber-400/15 text-amber-200'
+    }
+  }
+  return {
+    label: '未核验',
+    className: 'border-slate-500/35 bg-slate-500/15 text-slate-300'
+  }
+})
 
 const labels = {
   materials: '材料采购',
@@ -343,10 +395,38 @@ const labels = {
 }
 
 const money = value => formatMoney(value, privacyMode.value)
-const percent = value => privacyMode.value ? '***' : `${value ?? 0}%`
+const percent = value => formatPercent(value, privacyMode.value)
+
+function isAvailableNumber(value) {
+  return value !== undefined && value !== null && value !== '' && !Number.isNaN(Number(value))
+}
 
 function safePercent(value) {
-  return Math.max(0, Math.min(100, Number(value) || 0))
+  if (!isAvailableNumber(value)) return null
+  const raw = Number(value)
+  const normalized = Math.abs(raw) > 1 ? raw : raw * 100
+  return Math.max(0, Math.min(100, normalized))
+}
+
+function normalizeFlowStatus(status) {
+  return String(status || '').trim().toLowerCase()
+}
+
+function isVerifiedFlowStatus(status) {
+  return ['available', 'verified', 'complete', 'completed', 'matched', 'ok'].includes(status)
+}
+
+function flowStatusLabel(status) {
+  if (isVerifiedFlowStatus(status)) return '可核验'
+  if (['degraded', 'partial'].includes(status)) return '部分可用'
+  if (['unavailable', 'missing', 'unknown', ''].includes(status)) return '不可用'
+  return status
+}
+
+function flowStatusClass(status) {
+  if (isVerifiedFlowStatus(status)) return 'border-emerald-400/35 bg-emerald-400/10 text-emerald-200'
+  if (['degraded', 'partial'].includes(status)) return 'border-amber-400/35 bg-amber-400/10 text-amber-200'
+  return 'border-slate-500/35 bg-slate-500/10 text-slate-400'
 }
 
 function costLabel(key) {

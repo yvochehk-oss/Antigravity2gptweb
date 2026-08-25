@@ -594,7 +594,7 @@ def api_project_audit(project_id: int):
             if not has_cat:
                 issues.append({"type": "CATEGORY_GAP", "category": cat, "message": f"尚未识别到 {cat} 类资料；如项目存在该业务，请补充"})
                 recommendations.append(f"建议检查项目中是否存在 {cat} 类业务资料")
-        coverage["tax_detail"] = dict(tax_cats)
+        coverage["tax_detail"] = sorted(tax_cats)
         coverage["missing_tax"] = len([t for t in ["vat", "enterprise_income", "individual_income"] if t not in tax_cats])
         if counts["unclassified"] > 0:
             recommendations.append("建议批量审核未分类文档，确保元数据准确")

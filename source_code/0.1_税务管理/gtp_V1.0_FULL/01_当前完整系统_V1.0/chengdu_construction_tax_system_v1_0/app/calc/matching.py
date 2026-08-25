@@ -158,13 +158,15 @@ def four_flow_evidence_completeness(
     }
 
 
-
 def matching_rows(db: Session, pid: int) -> list[dict[str, Any]]:
     """合同 → 履约 → 发票 → 付款 四流匹配。
 
-    Evidence is only True when explicit fulfillment records exist with
-    ``evidence_complete=True``. Text-based category guessing from payment
-    notes is used only for flagging unclassified payments, not as evidence.
+    Evidence is only True when explicit records support the same deterministic
+    ``(counterparty, category)`` key.  CashFlow has no deterministic category
+    link in the current schema, so payment note text is never allowed to place
+    a payment into a contract/invoice category bucket.  Note-derived category
+    guesses are warning metadata only and payments stay under ``未分类`` until
+    an explicit linkage field is introduced.
     """
     contracts = db.execute(
         select(Contract).where(Contract.project_id == pid)
@@ -193,7 +195,7 @@ def matching_rows(db: Session, pid: int) -> list[dict[str, Any]]:
     fsum: dict[tuple[str, str], Decimal] = defaultdict(lambda: Decimal("0"))
     isum: dict[tuple[str, str], Decimal] = defaultdict(lambda: Decimal("0"))
     psum: dict[tuple[str, str], Decimal] = defaultdict(lambda: Decimal("0"))
-    payment_note_guesses: set[tuple[str, str]] = set()
+    payment_note_guesses: dict[tuple[str, str], set[str]] = defaultdict(set)
     contract_evidence: set[tuple[str, str]] = set()
     invoice_evidence: set[tuple[str, str]] = set()
     payment_evidence: set[tuple[str, str]] = set()
@@ -223,23 +225,20 @@ def matching_rows(db: Session, pid: int) -> list[dict[str, Any]]:
         isum[key] += _zero(i.net) + _zero(i.vat)
         invoice_evidence.add(key)
 
-    # Build a map from (counterparty_code, category) to True for invoice
-    # categories so payments can be validated against actual invoice records
-    # rather than relying on unreliable text-based note guessing.
-    invoiced_categories: set[tuple[str, str]] = set()
-    for i in invoices:
-        invoiced_categories.add((i.counterparty_code, i.category))
+    invoice_counterparties = {i.counterparty_code for i in invoices}
 
     for x in cash:
-        # Text-based category is a warning signal only; the payment category
-        # defaults to "未分类" when the note contains no recognized keyword.
-        guessed = _note_category(x.note)
-        key = (x.counterparty_code, guessed)
+        # CashFlow currently has no deterministic category/linkage field.
+        # Keep every payment in an explicit unclassified bucket.  A category
+        # guessed from free-text note is retained only so the warning can help
+        # a human link the payment later; it never changes matching evidence.
+        key = (x.counterparty_code, "未分类")
         keys.add(key)
         psum[key] += _zero(x.amount)
         payment_evidence.add(key)
+        guessed = _note_category(x.note)
         if guessed != "未分类":
-            payment_note_guesses.add(key)
+            payment_note_guesses[key].add(guessed)
 
     rows: list[dict[str, Any]] = []
     for cp, cat in sorted(keys, key=lambda k: (k[0], k[1])):
@@ -249,18 +248,18 @@ def matching_rows(db: Session, pid: int) -> list[dict[str, Any]]:
         paid = psum[(cp, cat)]
         flags: list[str] = []
 
-        if cat == "未分类" and (paid > 0):
-            flags.append(f"付款 {paid} 未携带成本类别（文本猜测不可作为证据）")
-
-        # Use the actual invoice category set rather than text-based guessing
-        # to validate whether a payment is backed by an invoice record.
-        if paid > 0 and (cp, cat) not in invoiced_categories:
-            # If the payment note did contain a recognized category keyword,
-            # still warn because the note text is unreliable evidence.
-            if (cp, cat) in payment_note_guesses:
+        if cat == "未分类" and paid > 0:
+            guesses = sorted(payment_note_guesses.get((cp, cat), set()))
+            if guesses:
                 flags.append(
-                    "付款类别来自文本猜测，可靠性不足，请关联发票或合同"
+                    "付款未关联确定性成本类别；备注猜测“"
+                    + "、".join(guesses)
+                    + "”仅供人工复核"
                 )
+            else:
+                flags.append("付款未关联确定性成本类别")
+            if cp in invoice_counterparties:
+                flags.append("付款尚未关联到具体发票/成本类别")
             else:
                 flags.append("付款未见发票记录")
 

@@ -434,7 +434,7 @@ def get_project_360_detail(
     project_id: int,
     principal: TaxPrincipal = Depends(require_executive),
 ):
-    """获取单个项目的 360 度成本、税务、进展与四流一致性闭环证据链"""
+    """获取单个项目的 360 度成本、税务、进展与四流证据链"""
     db = SessionLocal()
     try:
         result = db.execute(
@@ -642,12 +642,25 @@ def get_project_360_detail(
         )
         tax_paid_val = _d(tax_paid_raw) if tax_paid_raw is not None else None
 
-        # Management profit is a Canonical Facts metric.  Do not recreate it
-        # from operational tables here; that was the source of the old demo
-        # values leaking while Facts was DEGRADED.
-        management_profit_after_tax = (
-            _metric_value(metrics, "real_profit") if facts_available else None
-        )
+        # This management KPI has one explicit formula across backend and UI.
+        # It is not the same metric as analytics real_profit.  Fail closed when
+        # any operand is unavailable rather than substituting or inventing 0.
+        if (
+            facts_available
+            and rec_revenue is not None
+            and system_external_real_cost is not None
+            and tax_paid_val is not None
+        ):
+            management_profit_after_tax = float(
+                rec_revenue - system_external_real_cost - tax_paid_val
+            )
+        else:
+            management_profit_after_tax = None
+            if facts_available:
+                data_gaps.append(
+                    "management_profit_after_tax_unavailable: "
+                    "requires recognized_revenue, system_external_real_cost and project_tax_paid"
+                )
 
         # 构建前端易读明细列表
         contract_rows = (
@@ -675,10 +688,14 @@ def get_project_360_detail(
         elif facts_available:
             for bcode, amt in rev_details.items():
                 camt = contract_map.get(bcode, Decimal("0"))
+                if camt <= 0:
+                    data_gaps.append(
+                        f"external_contract_amount_missing:{bcode}; no ratio-based estimate emitted"
+                    )
                 revenue_details.append({
                     "type": external_map.get(bcode, {}).get("kind", "发包方"),
                     "name": f"{external_map.get(bcode, {}).get('name', bcode)} ({bcode})",
-                    "contract": float(camt) if camt > 0 else float(amt * Decimal("1.2")),
+                    "contract": float(camt) if camt > 0 else None,
                     "recognized": float(amt)
                 })
 
@@ -694,6 +711,10 @@ def get_project_360_detail(
             })
 
         external_details = []
+        if ext_details:
+            data_gaps.append(
+                "external_nominal_amount_unavailable: real_costs has no independent nominal amount; no tax-rate reverse estimate emitted"
+            )
         for (ecode, ccode, cat), amt in ext_details.items():
             if ccode and ccode in external_map:
                 cname = external_map[ccode]["name"]
@@ -707,7 +728,7 @@ def get_project_360_detail(
                 "category": cat or "外部支出",
                 "entity": ecode,
                 "supplier": supplier_name,
-                "nominal": float(amt * Decimal("1.09")),
+                "nominal": None,
                 "real": float(amt)
             })
 
@@ -736,6 +757,11 @@ def get_project_360_detail(
             "revenueDetails": revenue_details,
             "internalDetails": internal_details,
             "externalDetails": external_details,
+            "definitions": {
+                "management_profit_after_tax": "确认收入-系统外真实成本-项目实缴税款；三个操作数任一缺失则不可用",
+                "contract": "仅展示实际合同金额，缺失时为 null，不按发票或收入比例反推",
+                "nominal": "当前 real_costs 无独立名义金额来源，缺失时为 null，不按税率反推",
+            },
         }
 
         return {

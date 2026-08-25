@@ -150,7 +150,8 @@ def system_penetration_snapshot(db: Session, project_id: int) -> dict[str, Any]:
     Internal invoices are visible as transaction volume but eliminated from
     system revenue/cost. External real cost comes from ``real_costs.external_cash``.
     Project tax cash uses project-specific tax-payment records only; no tax is
-    guessed from unrelated entity ledgers.
+    guessed from unrelated entity ledgers. Missing contract/nominal values stay
+    missing; this snapshot never derives fact-looking values from arbitrary ratios.
     """
     from collections import defaultdict
     from decimal import Decimal as D
@@ -252,10 +253,12 @@ def system_penetration_snapshot(db: Session, project_id: int) -> dict[str, Any]:
     else:
         for bcode, amt in rev_details.items():
             camt = contract_map.get(bcode, D("0"))
+            if camt <= 0:
+                data_gaps.append(f"外部对手方 {bcode} 缺少合同金额；不按已开票金额比例反推合同额")
             revenueDetails.append({
                 "type": external_map[bcode]["kind"],
                 "name": f"{external_map[bcode]['name']} ({bcode})",
-                "contract": float(camt) if camt > 0 else float(amt * D("1.2")), # fake contract if 0
+                "contract": float(camt) if camt > 0 else None,
                 "recognized": float(amt)
             })
             
@@ -271,6 +274,8 @@ def system_penetration_snapshot(db: Session, project_id: int) -> dict[str, Any]:
         })
         
     externalDetails = []
+    if ext_details:
+        data_gaps.append("外部真实成本明细没有独立名义金额来源；nominal 保持为空，不按税率反推")
     for (ecode, ccode, cat), amt in ext_details.items():
         if ccode:
             # 有明确外部对手方
@@ -286,7 +291,7 @@ def system_penetration_snapshot(db: Session, project_id: int) -> dict[str, Any]:
             "category": cat or '外部支出',
             "entity": ecode,
             "supplier": supplier_name,
-            "nominal": float(amt * D("1.09")),
+            "nominal": None,
             "real": float(amt)
         })
         
