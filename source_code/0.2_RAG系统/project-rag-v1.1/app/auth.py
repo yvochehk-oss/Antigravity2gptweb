@@ -32,6 +32,14 @@ def _get_jwt_secret() -> str:
     """从环境变量读取 JWT 密钥。生产环境必须设置。"""
     raw = os.getenv(_JWT_SECRET_ENV, "").strip()
     if not raw:
+        try:
+            from .config import BASE_DIR
+            from dotenv import load_dotenv
+            load_dotenv(BASE_DIR / ".env")
+            raw = os.getenv(_JWT_SECRET_ENV, "").strip()
+        except Exception:
+            pass
+    if not raw:
         environment = os.getenv("APP_ENV", os.getenv("ENVIRONMENT", "development")).strip().lower()
         if environment in _PROTECTED_ENVIRONMENTS:
             return ""

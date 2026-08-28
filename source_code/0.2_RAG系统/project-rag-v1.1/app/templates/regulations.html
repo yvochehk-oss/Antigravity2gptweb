@@ -1084,9 +1084,13 @@
           default_role: defaultRole
         })
       });
+      if (resp.status === 401) {
+        throw new Error('未检测到有效的管理员登录会话（Cookie 已过期或未登录）。请刷新页面或前往登录页面登录后重试。');
+      }
       const data = await resp.json();
       if (!resp.ok) {
-        throw new Error(data.detail || '导入执行异常');
+        const msg = (typeof data.detail === 'string') ? data.detail : (data.detail?.message || JSON.stringify(data.detail) || '导入执行异常');
+        throw new Error(msg);
       }
 
       let itemsHtml = (data.items || []).slice(0, 15).map(item => `
@@ -1113,7 +1117,11 @@
         </div>
       `;
     } catch (err) {
-      panel.innerHTML = `<div style="color: #ef4444; font-size: 13px;">❌ 批量导入失败: ${err.message}</div>`;
+      let extraTip = '';
+      if (err.message.includes('未登录') || err.message.includes('API key') || err.message.includes('会话')) {
+        extraTip = `<div style="margin-top: 8px;"><a href="/login" class="btn btn-sm btn-primary" style="padding: 3px 10px; font-size: 11px;">🔑 前往登录页面</a></div>`;
+      }
+      panel.innerHTML = `<div style="color: #ef4444; font-size: 13px;">❌ 批量导入失败: ${err.message}${extraTip}</div>`;
     } finally {
       btn.disabled = false;
       btn.innerHTML = '<span>🚀 重新批量扫描并入库</span>';
@@ -1155,9 +1163,13 @@
           local_dir: localDir
         })
       });
+      if (resp.status === 401) {
+        throw new Error('未检测到有效的管理员登录会话（Cookie 已过期或未登录）。请刷新页面或前往登录页面登录后重试。');
+      }
       const data = await resp.json();
       if (!resp.ok) {
-        throw new Error(data.detail || '同步异常');
+        const msg = (typeof data.detail === 'string') ? data.detail : (data.detail?.message || JSON.stringify(data.detail) || '同步异常');
+        throw new Error(msg);
       }
 
       let itemsHtml = (data.items || []).map(item => `
@@ -1187,7 +1199,11 @@
         </div>
       `;
     } catch (err) {
-      panel.innerHTML = `<div style="color: #ef4444; font-size: 13px;">❌ 北大法宝同步失败: ${err.message}</div>`;
+      let extraTip = '';
+      if (err.message.includes('未登录') || err.message.includes('API key') || err.message.includes('会话')) {
+        extraTip = `<div style="margin-top: 8px;"><a href="/login" class="btn btn-sm btn-primary" style="padding: 3px 10px; font-size: 11px;">🔑 前往登录页面</a></div>`;
+      }
+      panel.innerHTML = `<div style="color: #ef4444; font-size: 13px;">❌ 北大法宝同步失败: ${err.message}${extraTip}</div>`;
     } finally {
       btn.disabled = false;
       btn.innerHTML = '<span>⚡ 重新同步北大法宝</span>';

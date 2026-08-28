@@ -66,7 +66,13 @@ def batch_import_regulations_from_dir(
     updated_count = 0
 
     for file_path in files:
-        if file_path.name.startswith((".", "~$")):
+        if file_path.name.startswith((".", "~$")) or file_path.name.lower() in {
+            "readme.md",
+            "index.md",
+            "data_sources.md",
+            "summary.md",
+            "changelog.md",
+        }:
             continue
 
         try:
