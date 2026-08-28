@@ -5,6 +5,7 @@ import shutil
 import tempfile
 from pathlib import Path
 
+import httpx
 from fastapi import FastAPI, File, HTTPException, UploadFile
 
 from .extractors import HybridExtractor
