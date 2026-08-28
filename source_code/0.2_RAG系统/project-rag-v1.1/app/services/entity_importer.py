@@ -16,6 +16,7 @@ Extracts:
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import io
 import re
 from pathlib import Path
@@ -229,8 +230,60 @@ def parse_entities_from_pdf(file_bytes: bytes) -> list[dict[str, Any]]:
     return _extract_entities_from_text(full_text)
 
 
+def _extract_entities_with_llm(text: str) -> list[dict[str, Any]]:
+    """Use local Ling-3.0 or configured LLM to extract structured entity records from text."""
+    if not text or len(text.strip()) < 10:
+        return []
+    import json
+    import requests
+    from ..config import RAG_LLM_BASE_URL
+
+    prompt = (
+        "你是一个专业的企业财税与组织架构分析专家。请从以下文本中提取所有企业/单位主数据信息，"
+        "并严格按 JSON 数组格式返回。每个对象必须包含以下字段（未知则填空字符串）：\n"
+        "- entity_code: 单位编号（如 A01-A11、B01-B10、C01-C02、D01-D03，未指明则填空）\n"
+        "- name: 单位全称（如：成都建工第一建筑工程有限公司）\n"
+        "- short_name: 单位简称（如：一建）\n"
+        "- tax_id: 统一社会信用代码/税号（18位代码）\n"
+        "- business_role: 业务分类（A-施工总包、B-商贸采购、C-劳务分包、D-机械租赁）\n"
+        "- legal_representative: 法定代表人\n"
+        "- registered_capital: 注册资本（如：5000万元）\n"
+        "- establishment_date: 成立日期\n"
+        "- business_scope: 经营范围\n"
+        "- note: 备注说明\n\n"
+        f"【待识别文本】：\n{text[:4000]}\n\n"
+        "请仅返回 JSON 数组格式，不要包含任何 markdown 代码块或解释文字："
+    )
+
+    base_url = (RAG_LLM_BASE_URL or "http://127.0.0.1:8930").rstrip("/")
+    url = f"{base_url}/v1/chat/completions" if not base_url.endswith("/v1") else f"{base_url}/chat/completions"
+
+    try:
+        resp = requests.post(
+            url,
+            json={
+                "model": "ling-3.0-tiny",
+                "messages": [{"role": "user", "content": prompt}],
+                "temperature": 0.1,
+                "max_tokens": 2048,
+            },
+            timeout=15,
+        )
+        if resp.status_code == 200:
+            content = resp.json().get("choices", [{}])[0].get("message", {}).get("content", "").strip()
+            if content.startswith("```"):
+                content = re.sub(r"^```(?:json)?\s*", "", content)
+                content = re.sub(r"\s*```$", "", content)
+            parsed = json.loads(content)
+            if isinstance(parsed, list):
+                return parsed
+    except Exception as exc:
+        logger.warning("LLM entity extraction fallback failed: %s", exc)
+    return []
+
+
 def _extract_entities_from_text(text: str) -> list[dict[str, Any]]:
-    """Regex-based heuristic entity extractor from free text / OCR output."""
+    """Regex-based heuristic entity extractor from free text / OCR output, with LLM fallback."""
     results = []
     lines = [line.strip() for line in text.splitlines() if line.strip()]
 
@@ -252,27 +305,28 @@ def _extract_entities_from_text(text: str) -> list[dict[str, Any]]:
             current_item["legal_representative"] = rep_m.group(1)
 
         # Match Capital
-        cap_m = re.search(r"(?:注册资本|注册资金)[:：\s]*([0-9\.\,]+(?:万|亿)?(?:元|人民币|美元)?)", line)
+        cap_m = re.search(r"(?:注册资本|注册资金)[:：\s]*([0-9.]+(?:万|亿|千)?(?:元|人民币)?)", line)
         if cap_m:
             current_item["registered_capital"] = cap_m.group(1)
 
         # Match Date
-        date_m = re.search(r"(?:成立日期|成立时间)[:：\s]*(\d{4}[年\-\/.]\d{1,2}[月\-\/.]\d{1,2}日?)", line)
+        date_m = re.search(r"(?:成立日期|成立时间|注册日期)[:：\s]*(\d{4}[-年/.]\d{1,2}[-月/.]\d{1,2}日?)", line)
         if date_m:
             current_item["establishment_date"] = date_m.group(1)
 
-        # Match Code
-        code_m = re.search(r"(?:代码|编号)[:：\s]*([A-D](?:0[1-9]|1[0-2]))", line, re.IGNORECASE)
-        if code_m:
-            current_item["entity_code"] = code_m.group(1).upper()
-
-        # When we have both name and tax_id, save and reset for next
+        # Flush if we have a full pair
         if current_item.get("name") and current_item.get("tax_id"):
             results.append(dict(current_item))
             current_item = {}
 
     if current_item.get("name") or current_item.get("tax_id"):
         results.append(current_item)
+
+    # If regex extraction found nothing, fallback to local LLM intelligent extraction
+    if not results:
+        llm_results = _extract_entities_with_llm(text)
+        if llm_results:
+            results.extend(llm_results)
 
     return results
 
@@ -342,8 +396,6 @@ def import_entities_from_file_bytes(
                 existing.note = item["note"]
             existing.business_role = role
             existing.status = "active"
-            existing.active = True
-            existing.internal = True
             updated_count += 1
             imported_entities.append(existing)
         else:
@@ -356,12 +408,10 @@ def import_entities_from_file_bytes(
                 code = allocated_code
 
             new_ent = Entity(
-                code=code,
                 entity_code=code,
                 name=name or code,
                 short_name=item.get("short_name") or name or code,
                 business_role=role,
-                kind=role,
                 entity_kind="internal_company",
                 tax_id=tax_id,
                 unified_social_credit_code=tax_id or "",
@@ -372,8 +422,8 @@ def import_entities_from_file_bytes(
                 note=item.get("note") or "",
                 legal_entity=True,
                 status="active",
-                active=True,
-                internal=True,
+                created_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(timezone.utc),
             )
             db.add(new_ent)
             db.flush()
