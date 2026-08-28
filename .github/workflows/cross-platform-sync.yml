@@ -6,6 +6,9 @@ on:
       - main
       - macos
       - windows
+      - v3.0
+      - v3.0-macos
+      - v3.0-windows
   workflow_dispatch:
 
 permissions:
@@ -25,28 +28,34 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Keep main, macos and windows on one canonical commit
+      - name: Keep platform refs on one canonical commit
         shell: bash
         run: |
           set -euo pipefail
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git fetch origin main macos windows --prune
 
           SOURCE_BRANCH="${GITHUB_REF_NAME}"
           case "$SOURCE_BRANCH" in
-            main|macos|windows) ;;
+            main|macos|windows)
+              GROUP=(main macos windows)
+              ;;
+            v3.0|v3.0-macos|v3.0-windows)
+              GROUP=(v3.0 v3.0-macos v3.0-windows)
+              ;;
             *)
               echo "Unsupported source branch: $SOURCE_BRANCH" >&2
               exit 1
               ;;
           esac
 
+          git fetch origin "${GROUP[@]}" --prune
           SOURCE_SHA="$(git rev-parse "origin/${SOURCE_BRANCH}")"
           echo "Source: ${SOURCE_BRANCH}@${SOURCE_SHA}"
+          printf 'Mirror group: %s\n' "${GROUP[*]}"
 
-          for branch in main macos windows; do
+          for branch in "${GROUP[@]}"; do
             [ "$branch" = "$SOURCE_BRANCH" ] && continue
             TARGET_SHA="$(git rev-parse "origin/${branch}")"
 
@@ -54,34 +63,27 @@ jobs:
               continue
             fi
 
-            # The mirror workflow never invents conflict resolutions and never
-            # overwrites independent work. A normal one-branch change must be a
-            # fast-forward from the other two canonical refs.
             if ! git merge-base --is-ancestor "$TARGET_SHA" "$SOURCE_SHA"; then
               echo "Refusing to overwrite diverged branch ${branch}." >&2
               echo "${branch}: ${TARGET_SHA}" >&2
               echo "${SOURCE_BRANCH}: ${SOURCE_SHA}" >&2
-              echo "Reconcile the commits into main first, then rerun mirror." >&2
+              echo "Reconcile the commits into the canonical branch first, then rerun mirror." >&2
               exit 1
             fi
           done
 
           refs=()
-          for branch in main macos windows; do
+          for branch in "${GROUP[@]}"; do
             [ "$branch" = "$SOURCE_BRANCH" ] && continue
             refs+=("${SOURCE_SHA}:refs/heads/${branch}")
           done
 
-          # Update the other two refs as one atomic operation. Pushes made with
-          # GITHUB_TOKEN do not recursively trigger this workflow, preventing
-          # branch-sync loops.
           git push --atomic origin "${refs[@]}"
 
-          git fetch origin main macos windows --prune
-          MAIN_SHA="$(git rev-parse origin/main)"
-          MACOS_SHA="$(git rev-parse origin/macos)"
-          WINDOWS_SHA="$(git rev-parse origin/windows)"
-
-          printf 'main=%s\nmacos=%s\nwindows=%s\n' "$MAIN_SHA" "$MACOS_SHA" "$WINDOWS_SHA"
-          test "$MAIN_SHA" = "$MACOS_SHA"
-          test "$MAIN_SHA" = "$WINDOWS_SHA"
+          git fetch origin "${GROUP[@]}" --prune
+          EXPECTED_SHA="$(git rev-parse "origin/${GROUP[0]}")"
+          for branch in "${GROUP[@]}"; do
+            SHA="$(git rev-parse "origin/${branch}")"
+            printf '%s=%s\n' "$branch" "$SHA"
+            test "$SHA" = "$EXPECTED_SHA"
+          done
