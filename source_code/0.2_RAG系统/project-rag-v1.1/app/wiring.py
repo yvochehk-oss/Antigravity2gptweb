@@ -170,6 +170,8 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
+    from starlette.middleware.gzip import GZipMiddleware
+    app.add_middleware(GZipMiddleware, minimum_size=1000)
     app.add_middleware(RateLimitMiddleware)
     app.add_middleware(RequestIdMiddleware)
     app.add_middleware(RAGSecurityMiddleware)

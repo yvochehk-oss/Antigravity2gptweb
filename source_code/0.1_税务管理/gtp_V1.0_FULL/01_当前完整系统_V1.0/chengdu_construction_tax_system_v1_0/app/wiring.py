@@ -93,7 +93,9 @@ def create_app() -> FastAPI:
     )
 
     from starlette.middleware.cors import CORSMiddleware
+    from starlette.middleware.gzip import GZipMiddleware
 
+    app.add_middleware(GZipMiddleware, minimum_size=1000)
     app.add_middleware(AuthMiddleware)
     # Register CORS last so it is the outer browser boundary and can answer
     # authenticated API preflights before AuthMiddleware sees an OPTIONS call.

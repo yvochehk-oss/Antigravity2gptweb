@@ -20,14 +20,12 @@
 
 /* 玻璃拟态与发光特效 */
 .glass-panel {
-  background-color: rgba(23, 31, 51, 0.65);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+  background-color: rgba(23, 31, 51, 0.75);
   border: 1px solid rgba(76, 215, 246, 0.12);
 }
 
 .glass-panel-elevated {
-  background-color: rgba(30, 41, 59, 0.85);
+  background-color: rgba(30, 41, 59, 0.9);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   border: 1px solid rgba(76, 215, 246, 0.25);

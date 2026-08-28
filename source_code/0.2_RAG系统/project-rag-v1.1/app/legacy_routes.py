@@ -259,6 +259,9 @@ _CORS_ALLOW_ORIGINS = _parse_cors_origins(
     os.getenv("RAG_CORS_ALLOW_ORIGINS", _DEFAULT_CORS_ORIGINS)
 )
 
+from starlette.middleware.gzip import GZipMiddleware
+
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_CORS_ALLOW_ORIGINS,
