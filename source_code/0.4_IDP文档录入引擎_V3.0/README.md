@@ -27,11 +27,11 @@ MinerU 不属于最小运行依赖，只保留为复杂排版 PDF 的可选 fall
 |---|---:|---|
 | Ling-3.0-tiny | 开启 | 合同/发票语义字段补全，严格 JSON |
 | PaddleOCR | 开启、按需加载 | 扫描 PDF 和图片文字识别 |
-| Granite 4.2 3B | **关闭** | 高金额/校验异常材料的第二道风险审计 |
+| Granite 4.2 3B | **关闭** | 确定性异常、风险关键词或业务配置高金额材料的第二道风险审计 |
 | BGE-M3 | 不使用 | 仅属于 RAG 检索系统 |
 | Reranker | 不使用 | 仅属于 RAG，且 RAG 中默认关闭 |
 
-Granite 是审计员，不是录入员。Granite 调用失败不会毁掉已经完成的规则/Ling 抽取结果，而是把材料路由到人工复核。
+Granite 是审计员，不是录入员。Granite 调用失败不会毁掉已经完成的规则/Ling 抽取结果，而是把材料路由到人工复核。Granite 的金额阈值没有系统硬编码默认值，必须由财务/审计按业务口径在环境变量中明确配置。
 
 ## 目录
 
@@ -48,6 +48,8 @@ Granite 是审计员，不是录入员。Granite 调用失败不会毁掉已经�
 - `database/schema_v3.sql`：V3 数据库结构
 - `.env.example`：完整本地配置示例
 - `requirements-v3.txt`：最小运行依赖
+- `requirements-dev-v3.txt`：本模块测试依赖
+- `tests/`：SHA 去重、强制重跑、历史原件重处理等回归测试
 
 ## Windows 本地启动
 
@@ -94,12 +96,14 @@ OCR_PDF_DPI=180
 GRANITE_ENABLED=0
 GRANITE_BASE_URL=http://127.0.0.1:8001/v1
 GRANITE_MODEL=granite-4.2-3b
-GRANITE_MIN_AMOUNT=500000
+GRANITE_MIN_AMOUNT=
 
 DATABASE_URL=postgresql://postgres:password@127.0.0.1:5432/chengdu_construction
 STORE_ORIGINALS=1
 IDP_STORAGE_DIR=./storage/originals
 ```
+
+`GRANITE_MIN_AMOUNT` 为空或 `0` 时不使用“金额达到阈值”作为单独触发条件；校验异常和明确风险关键词仍可触发 Granite。金额阈值应由业务制度决定，而不是由代码预设。
 
 `.env` 会在 FastAPI 初始化模型客户端之前自动读取。
 
@@ -207,13 +211,22 @@ DB 写入异常
 
 Ling/Granite 是辅助判断层；确定性金额校验、税号校验、重复判断和最终入库边界由 Python/PostgreSQL 控制。
 
+## 回归测试
+
+```powershell
+pip install -r requirements-dev-v3.txt
+pytest tests -q
+```
+
+当前测试至少锁住三条关键行为：重复 SHA 不运行 OCR/LLM Pipeline、`force=true` 必须重新运行 Pipeline、`document_id/reprocess` 必须使用已存原件并标记为强制重处理。
+
 ## 低资源 Windows 原则
 
 1. 有文字层的 PDF 永不 OCR。
 2. PaddleOCR 引擎只在真正需要时初始化。
 3. Ling 只接收候选段落，不默认把整份合同全文塞给模型。
 4. 重复 SHA 默认直接返回数据库结果，不重复消耗 OCR/LLM CPU。
-5. Granite 默认关闭，只对高价值或异常材料按需开启。
+5. Granite 默认关闭；开启后只对确定性异常、明确风险关键词或业务配置的高金额材料按需运行。
 6. Ling 与 Granite 建议不要在 16GB CPU 机器上同时高并发常驻。
 7. IDP 不加载 BGE-M3/Reranker。
 8. PostgreSQL 保存确认事实；RAG 的向量库保存非结构化知识，两条链路不要混在一起。
