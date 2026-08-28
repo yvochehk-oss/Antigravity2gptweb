@@ -12,11 +12,9 @@ from urllib.parse import urlsplit
 
 import pytest
 
-from app import security
-from app.services import extractor, llm, query_rewrite
-from ai_review import review_service as review_service_module
 from ai_review.review_service import AIReviewService, AIReviewUnavailable
-
+from app import security
+from app.services import extractor, llm, llm_pool, query_rewrite
 
 MALICIOUS_URLS = (
     "http://169.254.169.254:80/v1",
@@ -60,6 +58,42 @@ class _RecordingClient:
     def post(self, url, **kwargs):  # noqa: ANN001, ANN003
         self.urls.append(url)
         return _Response()
+
+    def get(self, url, **kwargs):  # noqa: ANN001, ANN003
+        self.urls.append(url)
+        return _Response()
+
+
+class _MissingPoolTableSession:
+    """Explicitly emulate a pre-migration endpoint-table state."""
+
+    def execute(self, _statement):
+        raise RuntimeError("relation rag_llm_model_endpoints does not exist")
+
+    def close(self):
+        return None
+
+
+class _EmptyPoolSession:
+    """Represent a readable endpoint table with zero configured rows."""
+
+    def execute(self, _statement):
+        return self
+
+    def scalars(self):
+        return self
+
+    def all(self):
+        return []
+
+    def close(self):
+        return None
+
+
+@pytest.fixture(autouse=True)
+def use_missing_endpoint_table(monkeypatch):
+    """Make legacy endpoint tests explicit about the compatibility state."""
+    monkeypatch.setattr(llm_pool, "SessionLocal", lambda: _MissingPoolTableSession())
 
 
 @pytest.mark.parametrize("url", MALICIOUS_URLS)
@@ -241,6 +275,32 @@ def test_extractor_accepts_public_https_after_validation(monkeypatch):
     assert _RecordingClient.urls == ["https://example.com/v1/chat/completions"]
 
 
+def test_readable_empty_endpoint_table_does_not_construct_http_client():
+    """A migrated empty table is authoritative and must fail closed."""
+    constructed = []
+
+    class NoClient:
+        def __init__(self, *args, **kwargs):  # noqa: ANN002, ANN003
+            constructed.append((args, kwargs))
+            raise AssertionError("empty endpoint table reached HTTP client")
+
+    with pytest.raises(llm_pool.LLMPoolError) as caught:
+        llm_pool.call_chat(
+            [{"role": "user", "content": "question"}],
+            session=_EmptyPoolSession(),
+            legacy_base_url="https://legacy.example/v1",
+            legacy_model="legacy-model",
+            legacy_api_key="legacy-secret",
+            http_client_factory=NoClient,
+        )
+
+    assert constructed == []
+    assert caught.value.catalog is not None
+    assert caught.value.catalog.table_state == "available"
+    assert caught.value.catalog.source == "database_configured_empty"
+    assert caught.value.catalog.endpoints == ()
+
+
 @pytest.mark.parametrize("helper", ["rewrite", "hyde"])
 @pytest.mark.parametrize("setting", ["override", "fallback"])
 def test_rewrite_and_hyde_accept_public_https_override_and_fallback(
@@ -357,12 +417,10 @@ def test_all_answer_paths_reject_malicious_url_before_network(monkeypatch, url):
 def test_ai_review_allows_local_http_llm_before_client(monkeypatch):
     _allow_dns(monkeypatch, "127.0.0.1")
     _RecordingClient.urls = []
-    from app import config
-
-    monkeypatch.setattr(config, "LLM_BASE_URL", "http://127.0.0.1:11434/v1")
-    monkeypatch.setattr(config, "LLM_MODEL", "configured-model")
-    monkeypatch.setattr(config, "LLM_API_KEY", "")
-    monkeypatch.setattr(review_service_module.httpx, "Client", _RecordingClient)
+    monkeypatch.setattr(llm_pool, "LLM_BASE_URL", "http://127.0.0.1:11434/v1")
+    monkeypatch.setattr(llm_pool, "LLM_MODEL", "configured-model")
+    monkeypatch.setattr(llm_pool, "LLM_API_KEY", "")
+    monkeypatch.setattr(llm_pool.httpx, "Client", _RecordingClient)
 
     service = AIReviewService(db=None, facts_provider=SimpleNamespace())
     assert service._call_llm("review prompt", "review-model") == "validated response"
@@ -377,12 +435,10 @@ def test_ai_review_rejects_unsafe_llm_url_before_client(monkeypatch):
         "getaddrinfo",
         lambda *args, **kwargs: [(None, None, None, None, ("169.254.169.254", 80))],
     )
-    from app import config
-
-    monkeypatch.setattr(config, "LLM_BASE_URL", "http://169.254.169.254/v1")
-    monkeypatch.setattr(config, "LLM_MODEL", "configured-model")
-    monkeypatch.setattr(config, "LLM_API_KEY", "")
-    monkeypatch.setattr(review_service_module.httpx, "Client", _NoNetworkClient)
+    monkeypatch.setattr(llm_pool, "LLM_BASE_URL", "http://169.254.169.254/v1")
+    monkeypatch.setattr(llm_pool, "LLM_MODEL", "configured-model")
+    monkeypatch.setattr(llm_pool, "LLM_API_KEY", "")
+    monkeypatch.setattr(llm_pool.httpx, "Client", _NoNetworkClient)
 
     service = AIReviewService(db=None, facts_provider=SimpleNamespace())
     with pytest.raises(AIReviewUnavailable, match="URL"):

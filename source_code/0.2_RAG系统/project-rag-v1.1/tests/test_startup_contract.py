@@ -1,5 +1,6 @@
 """Static startup contract tests that do not touch PostgreSQL or model files."""
 
+import ast
 import os
 import shutil
 import subprocess
@@ -93,6 +94,20 @@ def test_root_launcher_uses_owned_pids_and_explicit_effective_ports():
     assert 'rm -f "$RAG_PID_FILE" "$TAX_PID_FILE"' not in launcher
 
 
+def test_root_launcher_injects_rag_local_fallback_only_after_local_health():
+    launcher = STARTUP_SCRIPT.read_text(encoding="utf-8")
+    local_start = launcher.index("if local_llm_is_enabled; then")
+    fallback_call = launcher.index("\nconfigure_rag_local_llm_fallback\n", local_start)
+    rag_start = launcher.index('start_rag "$EFFECTIVE_RAG_PORT"', fallback_call)
+
+    assert "configure_rag_local_llm_fallback() {" in launcher
+    assert "export RAG_LLM_LOCAL_BASE_URL" in launcher
+    assert "export RAG_LLM_LOCAL_MODEL" in launcher
+    assert "unset RAG_LLM_LOCAL_BASE_URL RAG_LLM_LOCAL_MODEL RAG_LLM_LOCAL_TIMEOUT_SECONDS" in launcher
+    assert launcher.index("wait_for_local_llm", local_start) < fallback_call
+    assert fallback_call < rag_start
+
+
 def test_shared_jwt_secret_contract_accepts_matching_dotenv_values():
     secret = "shared-jwt-secret-for-startup-contract-32"
     result = _run_jwt_contract(
@@ -152,5 +167,55 @@ def test_external_jwt_override_wins_over_both_dotenv_values():
 def test_fastapi_worker_does_not_replace_uvicorn_signal_handlers():
     wiring = (RAG_DIR / "app" / "wiring.py").read_text(encoding="utf-8")
     jobs = (RAG_DIR / "app" / "services" / "jobs.py").read_text(encoding="utf-8")
-    assert "start_worker(install_signal_handlers=False)" in wiring
-    assert "def start_worker(*, install_signal_handlers: bool = True):" in jobs
+
+    wiring_tree = ast.parse(wiring)
+    worker_calls = [
+        node
+        for node in ast.walk(wiring_tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "start_worker"
+    ]
+    assert any(
+        any(
+            keyword.arg == "install_signal_handlers"
+            and isinstance(keyword.value, ast.Constant)
+            and keyword.value.value is False
+            for keyword in call.keywords
+        )
+        for call in worker_calls
+    ), "FastAPI lifespan must disable worker signal-handler installation"
+
+    jobs_tree = ast.parse(jobs)
+    start_worker = next(
+        node
+        for node in jobs_tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == "start_worker"
+    )
+    keyword_defaults = {
+        argument.arg: default
+        for argument, default in zip(start_worker.args.kwonlyargs, start_worker.args.kw_defaults)
+    }
+    assert "install_signal_handlers" in keyword_defaults
+    assert "concurrency" in keyword_defaults
+    assert isinstance(keyword_defaults["install_signal_handlers"], ast.Constant)
+    assert keyword_defaults["install_signal_handlers"].value is True
+    assert isinstance(keyword_defaults["concurrency"], ast.Constant)
+    assert keyword_defaults["concurrency"].value is None
+
+    # The call that installs process signal handlers must remain guarded by
+    # the opt-in flag.  This is the source-level counterpart to the wiring
+    # assertion above and prevents the worker from replacing Uvicorn's
+    # handlers when FastAPI starts it.
+    assert any(
+        isinstance(node, ast.If)
+        and isinstance(node.test, ast.Name)
+        and node.test.id == "install_signal_handlers"
+        and any(
+            isinstance(child, ast.Call)
+            and isinstance(child.func, ast.Name)
+            and child.func.id == "_install_signal_handlers"
+            for child in ast.walk(node)
+        )
+        for node in ast.walk(start_worker)
+    )

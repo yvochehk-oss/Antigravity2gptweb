@@ -1,10 +1,13 @@
 """MinerU adapter with retry support."""
-from pathlib import Path
-import subprocess
-import shutil
+
 import json
+import shutil
+import subprocess
+import sys
 import time
-from ..config import MINERU_BIN, MINERU_BACKEND, MINERU_API_URL, PARSED_DIR, PARSE_QUALITY_REVIEW_THRESHOLD
+from pathlib import Path
+
+from ..config import MINERU_API_URL, MINERU_BACKEND, MINERU_BIN, PARSE_QUALITY_REVIEW_THRESHOLD, PARSED_DIR
 from ..logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -22,6 +25,19 @@ class MinerUUnavailable(RuntimeError):
 class MinerUError(RuntimeError):
     """Raised when MinerU parsing fails."""
     pass
+
+
+def _mineru_command(*args: str) -> list[str]:
+    """Build a portable CLI command for either a binary or a Python adapter.
+
+    ``MINERU_BIN`` can point to the local RapidOCR compatibility script.  In
+    that case using the service interpreter keeps the parser on the same
+    locked dependencies on macOS and Windows instead of relying on a shebang
+    or a machine-global Python installation.
+    """
+    executable = Path(MINERU_BIN)
+    prefix = [sys.executable, MINERU_BIN] if executable.suffix.lower() == ".py" else [MINERU_BIN]
+    return [*prefix, *args]
 
 
 def mineru_available() -> bool:
@@ -58,7 +74,7 @@ def parse_with_mineru(
     out_dir = PARSED_DIR / document_code
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    cmd = [MINERU_BIN, "-p", str(input_path), "-o", str(out_dir)]
+    cmd = _mineru_command("-p", str(input_path), "-o", str(out_dir))
 
     if MINERU_BACKEND:
         cmd += ["-b", MINERU_BACKEND]
@@ -150,7 +166,7 @@ def get_mineru_version() -> str:
     """
     try:
         proc = subprocess.run(
-            [MINERU_BIN, "--version"],
+            _mineru_command("--version"),
             capture_output=True,
             text=True,
             timeout=5

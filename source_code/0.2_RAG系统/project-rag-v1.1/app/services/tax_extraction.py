@@ -4,9 +4,10 @@ This module defines the schemas and query templates used to extract
 structured tax-related data (invoices, contracts, payments) from document
 chunks via AI-powered extraction.
 """
-from pydantic import BaseModel, Field, field_validator, model_validator
-from typing import Literal
 import re
+from typing import Any, Literal
+
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 # Keep extraction schemas usable by worker/CLI processes without requiring an
 # ORM database driver.  The explicit namespace mirrors app.models.
@@ -43,12 +44,18 @@ EXTRACT_QUERY_TEMPLATES: dict[EXTRACT_TYPES, str] = {
     "tax_payment": "完税凭证 缴纳税款 税票 所属期 实缴金额 纳税人识别号",
 }
 
-# Document type filters: maps extract_type → list of expected document_type values
 EXTRACT_DOC_TYPE_FILTERS: dict[EXTRACT_TYPES, list[str]] = {
-    "invoice": ["invoice", "receipt"],
-    "contract": ["contract", "main_contract", "subcontract", "labor_contract", "material_contract"],
-    "payment": ["payment", "bank_receipt", "transfer_record"],
-    "tax_payment": ["tax_receipt", "tax_payment", "duty_receipt"],
+    "invoice": ["invoice", "receipt", "tax_invoice"],
+    "contract": [
+        "contract", "main_contract", "subcontract", "subcontract_contract",
+        "equipment_contract", "labor_contract", "material_contract"
+    ],
+    "payment": [
+        "payment", "bank_receipt", "transfer_record", "other", "settlement_document", "equipment_contract"
+    ],
+    "tax_payment": [
+        "tax_receipt", "tax_payment", "tax_payment_record", "duty_receipt", "other"
+    ],
 }
 
 # Business category filters
@@ -138,6 +145,7 @@ class ExtractTaxRequest(BaseModel):
 class ExtractedFieldsInvoice(BaseModel):
     """Structured fields extracted from an invoice document."""
     invoice_no: str | None = Field(default=None, description="发票号码")
+    invoice_code: str | None = Field(default=None, description="发票代码")
     invoice_date: str | None = Field(default=None, description="开票日期 YYYY-MM-DD")
     period: str | None = Field(default=None, description="所属期 YYYY-MM")
     direction: Literal["in", "out", ""] = Field(default="", description="in=进项票 out=销项票")
@@ -165,6 +173,14 @@ class ExtractedFieldsInvoice(BaseModel):
     deductible: bool | None = Field(default=None, description="是否可抵扣")
     category: str | None = Field(default=None, description="业务类别: material/labor/equipment/subcontract")
     note: str | None = Field(default=None, description="备注")
+    # These fields are evidence/quality metadata, not posting facts.  They
+    # make it possible for Tax to fail closed without re-running an LLM and
+    # let an operator see exactly why an invoice was held for review.
+    validation_status: str = Field(default="UNVALIDATED", description="VALID/PENDING_REVIEW/UNVALIDATED")
+    validation_errors: list[str] = Field(default_factory=list, description="确定性校验错误")
+    arithmetic_validation: dict[str, Any] = Field(default_factory=dict, description="金额算术校验明细")
+    evidence: dict[str, str] = Field(default_factory=dict, description="字段对应的原文证据摘录")
+    extraction_warnings: list[str] = Field(default_factory=list, description="解析警告")
 
     _validate_seller_entity_code = field_validator("seller_entity_code")(_validate_extracted_entity_code)
     _validate_buyer_entity_code = field_validator("buyer_entity_code")(_validate_extracted_entity_code)
@@ -176,6 +192,19 @@ class ExtractedFieldsInvoice(BaseModel):
         if self.buyer_tax_id is None and self.buyer_code:
             self.buyer_tax_id = self.buyer_code
         return self
+
+    @field_validator("vat_rate", mode="before")
+    @classmethod
+    def normalize_vat_rate_value(cls, value: Any) -> Any:
+        """Accept ``13%``/``13`` while exposing the contract's decimal rate."""
+        if value is None or value == "":
+            return value
+        try:
+            raw = str(value).strip().replace("%", "")
+            rate = float(raw)
+        except (TypeError, ValueError):
+            return value
+        return rate / 100 if abs(rate) > 1 else rate
 
 
 class ExtractedFieldsContract(BaseModel):

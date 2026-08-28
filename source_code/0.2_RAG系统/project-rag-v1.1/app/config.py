@@ -75,11 +75,37 @@ PROCESS_JOBS_INLINE = os.getenv("PROJECT_RAG_PROCESS_JOBS_INLINE", "0") in ("1",
 WORKER_SHUTDOWN_TIMEOUT_SECONDS = float(
     os.getenv("PROJECT_RAG_WORKER_SHUTDOWN_TIMEOUT", "10.0")
 )
+# 并发 Worker 数量（默认 1，pipeline 后端可安全设为 2-4）
+WORKER_CONCURRENCY = max(1, int(os.getenv("PROJECT_RAG_WORKER_CONCURRENCY", "1")))
 
 # LLM settings
 LLM_BASE_URL = os.getenv("RAG_LLM_BASE_URL", "").rstrip("/")
 LLM_MODEL = os.getenv("RAG_LLM_MODEL", "")
 LLM_API_KEY = os.getenv("RAG_LLM_API_KEY", "")
+
+# ``start_all.sh`` injects these values only after its managed llama.cpp
+# process has passed the local health check.  They are deliberately separate
+# from the user-configured endpoint above: the model pool can therefore keep
+# database endpoints (and the legacy environment endpoint) ahead of this
+# non-persistent last-resort endpoint without writing a credential or a row to
+# the formal database.
+LLM_LOCAL_BASE_URL = os.getenv(
+    "RAG_LLM_LOCAL_BASE_URL",
+    os.getenv("RAG_LOCAL_LLM_BASE_URL", ""),
+).rstrip("/")
+LLM_LOCAL_MODEL = os.getenv(
+    "RAG_LLM_LOCAL_MODEL",
+    os.getenv("RAG_LOCAL_LLM_MODEL", ""),
+).strip()
+try:
+    LLM_LOCAL_TIMEOUT_SECONDS = max(
+        1,
+        min(int(os.getenv("RAG_LLM_LOCAL_TIMEOUT_SECONDS", "60")), 600),
+    )
+except ValueError:
+    # A malformed optional fallback timeout must not prevent the service from
+    # starting; the pool still validates the URL/model before using it.
+    LLM_LOCAL_TIMEOUT_SECONDS = 60
 
 # Optional external metadata classifier
 METADATA_LLM_BASE_URL = os.getenv("RAG_METADATA_LLM_BASE_URL", "").rstrip("/")

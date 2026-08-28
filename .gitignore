@@ -28,3 +28,8 @@ dist_apk/
 *.pid
 .DS_Store
 token.json
+cookies.txt
+*.dump*
+*.db
+models/mineru_weights/
+

@@ -6,16 +6,18 @@ Routes are registered via the lifespan context in wiring.py.
 import json
 import os
 import time as _time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Optional
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy import delete as sa_delete
 
 from .auth import (
@@ -47,6 +49,7 @@ from .observability import (
 from .routers.adaptive_retrieval import router as adaptive_retrieval_router
 from .routers.auth import router as auth_router
 from .routers.executive_mobile import router as executive_mobile_router
+from .routers.llm_models import router as llm_models_router
 from .routers.mounts import router as mounts_router
 from .schemas import (
     DocumentMetadataPatch,
@@ -93,12 +96,22 @@ from .services.tax_extraction import (
     ExtractTaxResponse,
 )
 from .session import get_db
+from .validation_errors import request_validation_exception_handler
 from .wiring import (
     BUSINESS_ROLE_META,
     _business_role_key,
     lifespan,
     now,
 )
+
+
+def _tax_extract_workers() -> int:
+    """Bound parallel LLM extraction without overwhelming local small models."""
+    try:
+        configured = int(os.getenv("PROJECT_RAG_TAX_EXTRACT_CONCURRENCY", "8"))
+    except ValueError:
+        configured = 8
+    return max(1, min(configured, 8))
 
 # Import v1.0 legacy modules
 try:
@@ -216,6 +229,7 @@ app = FastAPI(
     description="Project Knowledge RAG Service (merged v0.2-optimized + v1.0 facts/ai_review + v0.2 regulation retrieval)",
     lifespan=lifespan,
 )
+app.add_exception_handler(RequestValidationError, request_validation_exception_handler)
 
 _DEFAULT_CORS_ORIGINS = (
     "http://localhost:3000,http://127.0.0.1:3000,"
@@ -258,6 +272,7 @@ app.include_router(auth_router)
 app.include_router(mounts_router)
 app.include_router(adaptive_retrieval_router)
 app.include_router(executive_mobile_router)
+app.include_router(llm_models_router)
 
 if _HAS_V1_LEGACY:
     try:
@@ -268,7 +283,10 @@ if _HAS_V1_LEGACY:
         logger.warning(f"v1.0 legacy routes 注册失败: {_e}")
 
 
+from .services.metadata import get_document_type_display_name, get_category_display_name
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
+templates.env.filters["doc_type_name"] = get_document_type_display_name
+templates.env.filters["category_name"] = get_category_display_name
 app.mount("/static", StaticFiles(directory=str(Path(__file__).parent / "static")), name="static")
 
 
@@ -625,7 +643,41 @@ async def api_upload_document(project_id: int = Form(...), file: UploadFile = Fi
         return {"id": d.id, "document_code": d.document_code, "filename": d.filename, "parse_status": d.parse_status, "parse_message": d.parse_message, "duplicate_of_id": d.duplicate_of_id, "job_id": jid}
 
 
+
+class FsListRequest(BaseModel):
+    path: str
+
+@app.post("/api/v1/fs/list-dirs")
+def api_fs_list_dirs(
+    body: FsListRequest,
+    principal=Depends(require_web_role("admin", "operator")),
+    _csrf=Depends(require_same_origin)
+):
+    """List directories for a given path (admin/operator only)."""
+    import os
+    target_path = body.path
+    if not target_path:
+        target_path = "/Volumes" if os.path.exists("/Volumes") else "/"
+    elif not os.path.exists(target_path) or not os.path.isdir(target_path):
+        return {"error": "路径不存在或不是文件夹"}
+    
+    dirs = []
+    try:
+        for entry in os.scandir(target_path):
+            if entry.is_dir() and not entry.name.startswith("."):
+                dirs.append({"name": entry.name, "path": entry.path})
+    except Exception as e:
+        return {"error": str(e)}
+        
+    parent_path = os.path.dirname(target_path) if target_path != "/" else "/"
+    return {
+        "current": target_path,
+        "parent": parent_path,
+        "dirs": sorted(dirs, key=lambda x: x["name"].lower())
+    }
+
 @app.post("/api/v1/documents/import-folder")
+
 def api_import_folder(body: FolderImportRequest):
     """Import all supported files from a folder."""
     with get_db() as db:
@@ -913,6 +965,143 @@ def api_original(document_id: int, principal=Depends(require_web_or_service_read
 # Job Endpoints
 # ============================================
 
+_MONITORED_JOB_STATUS_KEYS = {
+    "RUNNING": "active",
+    "QUEUED": "queued",
+    "RETRY": "retry",
+    "FAILED": "failed",
+}
+
+_WAITING_DOCUMENT_STATUSES = {"QUEUED", "WAITING_MINERU", "PARSE_FAILED", "UPLOADED"}
+
+
+def _non_negative_count(value, label: str) -> int:
+    if value is None:
+        return 0
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise ValueError(f"{label} must be a non-negative integer")
+    return value
+
+
+def _document_monitor_kpis(db) -> dict:
+    """Build the dashboard KPI contract from document/chunk tables.
+
+    ``waiting_documents`` intentionally counts document parse states rather
+    than ingest jobs, while ``indexed_chunks`` counts the actual vectorized
+    chunks displayed by the dashboard.
+    """
+    status_counts = {}
+    rows = db.execute(
+        select(Document.parse_status, func.count(Document.id)).group_by(Document.parse_status)
+    ).all()
+    for parse_status, count in rows:
+        normalized_status = str(parse_status or "").strip().upper()
+        if not normalized_status:
+            continue
+        parsed_count = _non_negative_count(count, f"document count for {normalized_status}")
+        status_counts[normalized_status] = status_counts.get(normalized_status, 0) + parsed_count
+
+    indexed_chunks = _non_negative_count(db.scalar(select(func.count(Chunk.id))), "indexed chunk count")
+    return {
+        "document_total": sum(status_counts.values()),
+        "indexed_documents": status_counts.get("INDEXED", 0),
+        "indexed_chunks": indexed_chunks,
+        "waiting_documents": sum(status_counts.get(status, 0) for status in _WAITING_DOCUMENT_STATUSES),
+    }
+
+
+def _job_monitor_snapshot(db) -> dict:
+    """Build the dashboard's job-monitor contract from the ingest queue.
+
+    ``RUNNING`` is the active MinerU process.  Queued and retry jobs are
+    still pending work, while failed jobs remain visible as an error state so
+    the dashboard cannot incorrectly report an idle worker.
+    """
+    counts = {status: 0 for status in _MONITORED_JOB_STATUS_KEYS.values()}
+    rows = db.execute(
+        select(IngestJob.status, func.count(IngestJob.id)).group_by(IngestJob.status)
+    ).all()
+    for status, count in rows:
+        key = _MONITORED_JOB_STATUS_KEYS.get(str(status or "").upper())
+        if key is not None:
+            counts[key] = int(count or 0)
+
+    active_job = db.scalar(
+        select(IngestJob)
+        .where(IngestJob.status == "RUNNING")
+        .order_by(IngestJob.id.asc())
+        .limit(1)
+    )
+    active = active_job is not None
+    if active:
+        status = "active"
+    elif counts["queued"]:
+        status = "queued"
+    elif counts["retry"]:
+        status = "retry"
+    elif counts["failed"]:
+        status = "failed"
+    else:
+        status = "idle"
+
+    payload = {
+        "active": active,
+        "status": status,
+        "counts": counts,
+        # Keep flat counters for simple consumers while the nested ``counts``
+        # object gives the frontend one stable contract to validate.
+        "active_count": counts["active"],
+        "queued_count": counts["queued"],
+        "retry_count": counts["retry"],
+        "failed_count": counts["failed"],
+    }
+    payload.update(_document_monitor_kpis(db))
+    proj_rows = db.execute(
+        select(
+            Document.project_id,
+            func.count(Document.id),
+            func.count(case((Document.parse_status == "INDEXED", 1))),
+        ).group_by(Document.project_id)
+    ).all()
+    payload["projects_stats"] = {
+        int(row[0]): {"doc_count": int(row[1] or 0), "indexed_count": int(row[2] or 0)}
+        for row in proj_rows
+        if row[0] is not None
+    }
+    if active_job is None:
+        payload["active_job"] = None
+        return payload
+
+    doc = db.get(Document, active_job.document_id)
+    active_view = {
+        "id": active_job.id,
+        "document_id": active_job.document_id,
+        "document_name": doc.filename if doc else "未知文件",
+        "attempts": active_job.attempts,
+        "started_at": active_job.started_at,
+    }
+    payload["active_job"] = active_view
+    # Preserve the original top-level fields consumed by older dashboard
+    # builds and external read-only callers.
+    payload.update(
+        {
+            "job_id": active_view["id"],
+            "document_name": active_view["document_name"],
+            "attempts": active_view["attempts"],
+            "started_at": active_view["started_at"],
+        }
+    )
+    return payload
+
+
+@app.get("/api/v1/jobs/active")
+def get_active_job(principal=Depends(require_web_or_service_read)):
+    """Return the reliable MinerU dashboard monitoring snapshot."""
+    del principal
+    with get_db() as db:
+        return _job_monitor_snapshot(db)
+
+
 @app.get("/api/v1/jobs/{job_id}")
 def api_job(job_id: int):
     """Get job details."""
@@ -1051,6 +1240,30 @@ def api_batch_create_entities(body: list[EntityCreate]):
         return {"total": len(results), "items": results}
 
 
+@app.post("/api/v1/entities/import-file")
+async def api_import_entities_file(
+    file: UploadFile = File(...),
+    principal=Depends(require_web_or_service_role("admin")),
+):
+    """Import and auto-recognize internal entities from Excel, Word, or PDF file."""
+    del principal
+    from .services.entity_importer import import_entities_from_file_bytes
+
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="上传的文件内容为空")
+
+    with get_db() as db:
+        try:
+            result = import_entities_from_file_bytes(db, content, file.filename or "file.xlsx")
+            return result
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        except Exception as exc:
+            logger.exception("Failed to parse and import entities from file %s", file.filename)
+            raise HTTPException(status_code=500, detail=f"文件解析失败: {exc}")
+
+
 @app.get("/api/v1/external-parties")
 def api_external_parties(q: str = ""):
     """List system-external owners/suppliers/labor/equipment counterparties."""
@@ -1136,19 +1349,41 @@ def api_extract_tax(body: ExtractTaxRequest):
         if doc_types:
             filters["document_type"] = doc_types
         query = EXTRACT_QUERY_TEMPLATES.get(body.extract_type, body.extract_type)
-        chunks = retrieve(db, pid, query, filters, body.top_k, use_rerank=False)
-        errors: list[str] = []
-        extracted_items: list[ExtractedItem] = []
-        for chunk in chunks:
+        raw_chunks = retrieve(db, pid, query, filters, body.top_k, use_rerank=False)
+
+        # Deduplicate candidate chunks by document_id to avoid extracting redundant copies of the same document
+        seen_doc_ids = set()
+        chunks = []
+        for ch in raw_chunks:
+            doc_id = ch.get("document_id")
+            if doc_id not in seen_doc_ids:
+                seen_doc_ids.add(doc_id)
+                chunks.append(ch)
+
+        def extract_one(chunk: dict) -> tuple[ExtractedItem | None, str | None]:
             chunk_text = chunk.get("text", "")
-            if not chunk_text or len(chunk_text.strip()) < 20:
-                errors.append(f"chunk {chunk['chunk_id']}: text too short, skipped")
-                continue
+            if not chunk_text or len(chunk_text.strip()) < 15:
+                return None, f"chunk {chunk['chunk_id']}: text too short, skipped"
             try:
                 fields, confidence = extract_from_chunk(chunk_text, body.extract_type)
-                extracted_items.append(ExtractedItem(source_chunk_id=chunk["chunk_id"], source_document_id=chunk["document_id"], filename=chunk["filename"], page_start=chunk.get("page_start"), page_end=chunk.get("page_end"), confidence=confidence, extract_type=body.extract_type, fields=fields))
+                return ExtractedItem(
+                    source_chunk_id=chunk["chunk_id"],
+                    source_document_id=chunk["document_id"],
+                    filename=chunk["filename"],
+                    page_start=chunk.get("page_start"),
+                    page_end=chunk.get("page_end"),
+                    confidence=confidence,
+                    extract_type=body.extract_type,
+                    fields=fields,
+                ), None
             except ExtractionError as e:
-                errors.append(f"chunk {chunk['chunk_id']}: {e}")
+                return None, f"chunk {chunk['chunk_id']}: {e}"
+
+        workers = min(_tax_extract_workers(), max(1, len(chunks)))
+        with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="tax-extract") as executor:
+            outcomes = list(executor.map(extract_one, chunks))
+        extracted_items = [item for item, error in outcomes if item is not None]
+        errors = [error for item, error in outcomes if item is None and error]
     return ExtractTaxResponse(project_id=pid, extract_type=body.extract_type, query_used=query, total_chunks=len(chunks), total_extracted=len(extracted_items), extracted_items=extracted_items, errors=errors, llm_available=llm_extraction_available())
 
 
@@ -1179,24 +1414,52 @@ def dashboard(request: Request, principal=Depends(require_web_auth)):
     with get_db() as db:
         projects = db.execute(select(Project).order_by(Project.id)).scalars().all()
         canonical_entities = _canonical_entity_views(db)
-        docs = db.scalar(select(func.count(Document.id))) or 0
-        indexed = db.scalar(select(func.count(Document.id)).where(Document.parse_status == "INDEXED")) or 0
-        waiting = db.scalar(select(func.count(Document.id)).where(Document.parse_status.in_(["QUEUED", "WAITING_MINERU", "PARSE_FAILED", "UPLOADED"]))) or 0
-        # 查询每个项目的凭证数与涉及的往来主体
+        monitor_kpis = _document_monitor_kpis(db)
+        # 查询每个项目的凭证数与涉及的往来主体（包含我方主体与对手方主体）
         project_stats = {}
         for p in projects:
             p_docs = db.scalar(select(func.count(Document.id)).where(Document.project_id == p.id)) or 0
             p_indexed = db.scalar(select(func.count(Document.id)).where(Document.project_id == p.id, Document.parse_status == "INDEXED")) or 0
-            p_ents = [
-                r[0] for r in db.execute(
-                    select(Document.entity_code).where(Document.project_id == p.id, Document.entity_code.is_not(None), Document.entity_code != "").distinct()
-                ).all() if r[0]
-            ]
+            
+            ents_set = set()
+            if p.entity_code:
+                ents_set.add(p.entity_code.strip())
+                
+            e1 = db.execute(
+                select(Document.entity_code).where(
+                    Document.project_id == p.id,
+                    Document.entity_code.is_not(None),
+                    Document.entity_code != ""
+                ).distinct()
+            ).scalars().all()
+            for code in e1:
+                if code:
+                    ents_set.add(code.strip())
+                    
+            e2 = db.execute(
+                select(Document.counterparty_code).where(
+                    Document.project_id == p.id,
+                    Document.counterparty_code.is_not(None),
+                    Document.counterparty_code != ""
+                ).distinct()
+            ).scalars().all()
+            for code in e2:
+                if code:
+                    ents_set.add(code.strip())
+                    
+            all_ents = sorted(list(ents_set))
+            internal_ents = [c for c in all_ents if not c.startswith("EXT-")]
+            external_ents = [c for c in all_ents if c.startswith("EXT-")]
+            
             project_stats[p.id] = {
                 "doc_count": p_docs,
                 "indexed_count": p_indexed,
-                "entity_count": len(p_ents),
-                "entities": sorted(p_ents),
+                "entity_count": len(all_ents),
+                "entities": all_ents,
+                "internal_count": len(internal_ents),
+                "external_count": len(external_ents),
+                "internal_entities": internal_ents,
+                "external_entities": external_ents,
             }
 
         return templates.TemplateResponse(request, "dashboard.html", {
@@ -1205,9 +1468,10 @@ def dashboard(request: Request, principal=Depends(require_web_auth)):
             "canonical_entities": canonical_entities,
             "entity_by_code": {x["entity_code"]: x for x in canonical_entities},
             "entity_summary": _entity_summary(canonical_entities),
-            "docs": docs,
-            "indexed": indexed,
-            "waiting": waiting,
+            "docs": monitor_kpis["document_total"],
+            "indexed_documents": monitor_kpis["indexed_documents"],
+            "indexed_chunks": monitor_kpis["indexed_chunks"],
+            "waiting": monitor_kpis["waiting_documents"],
             "mineru": mineru_available(),
             "postgres": IS_POSTGRES,
             "worker": get_worker_status(),
@@ -1302,7 +1566,9 @@ def web_document(request: Request, document_id: int, principal=Depends(require_w
         chunks = db.execute(select(Chunk).where(Chunk.document_id == document_id).order_by(Chunk.chunk_index).limit(50)).scalars().all()
         p = db.get(Project, d.project_id)
         jobs = db.execute(select(IngestJob).where(IngestJob.document_id == document_id).order_by(IngestJob.id.desc()).limit(20)).scalars().all()
-        return templates.TemplateResponse(request, "document.html", {"doc": d, "project": p, "chunks": chunks, "jobs": jobs, "active_page": "projects", "mineru": mineru_available(), "postgres": IS_POSTGRES})
+        canonical_entities = _canonical_entity_views(db)
+        entity_by_code = {x["entity_code"]: x for x in canonical_entities}
+        return templates.TemplateResponse(request, "document.html", {"doc": d, "project": p, "chunks": chunks, "jobs": jobs, "canonical_entities": canonical_entities, "entity_by_code": entity_by_code, "active_page": "projects", "mineru": mineru_available(), "postgres": IS_POSTGRES})
 
 
 @app.post("/documents/{document_id}/parse")
@@ -1519,6 +1785,9 @@ def web_entity_detail(request: Request, entity_code: str, principal=Depends(requ
             "description": "待补充业务角色",
         })
 
+        canonical_entities = _canonical_entity_views(db)
+        entity_by_code = {x["entity_code"]: x for x in canonical_entities}
+
         return templates.TemplateResponse(
             request,
             "entity_detail.html",
@@ -1529,6 +1798,8 @@ def web_entity_detail(request: Request, entity_code: str, principal=Depends(requ
                 "summary": financial_summary,
                 "projects": list(projects_dict.values()),
                 "documents": enriched_docs,
+                "canonical_entities": canonical_entities,
+                "entity_by_code": entity_by_code,
                 "active_page": "entities",
                 "mineru": mineru_available(),
                 "postgres": IS_POSTGRES,

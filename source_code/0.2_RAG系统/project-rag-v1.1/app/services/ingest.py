@@ -3,6 +3,7 @@
 Handles parsing, chunking, embedding, and cleanup of document content.
 """
 import json
+import re
 from pathlib import Path
 
 from sqlalchemy import delete, select
@@ -10,9 +11,11 @@ from sqlalchemy.orm import Session
 
 from ..config import EMBEDDING_DIM, IS_POSTGRES
 from ..logging_config import get_logger
-from ..models import Chunk, Document, IngestJob
+from ..domain.entities import is_canonical_entity_code
+from ..models import Chunk, Document, ExternalParty, IngestJob, Project
 from .chunker import chunks_from_content_list, chunks_from_markdown, chunks_from_plain_text
 from .embeddings import embed_many
+from .extractor import extract_invoice_fields_from_text
 from .metadata import refine_from_content
 from .mineru_adapter import (
     MinerUUnavailable,
@@ -27,6 +30,107 @@ from .storage.write import (
 )
 
 logger = get_logger(__name__)
+
+
+_INVOICE_DOCUMENT_TYPES = frozenset({"invoice", "receipt", "tax_invoice"})
+_INVOICE_MARKERS = ("发票号码", "发票代码", "价税合计", "增值税专用发票", "增值税普通发票")
+
+
+def _invoice_candidate_text(raw: list[dict]) -> str:
+    """Join parsed text for document-level invoice extraction.
+
+    Invoice fields are frequently split across OCR pages/chunks.  Extraction
+    at chunk level is still used by the Tax endpoint, but document metadata
+    needs one bounded source text so an invoice number on page one and totals
+    on page two are validated together.
+    """
+    parts = [str(item.get("content") or "") for item in raw if isinstance(item, dict)]
+    return "\n".join(parts)[:120_000]
+
+
+def _looks_like_invoice(doc: Document, text: str) -> bool:
+    if str(getattr(doc, "document_type", "") or "").strip().lower() in _INVOICE_DOCUMENT_TYPES:
+        return True
+    marker_count = sum(1 for marker in _INVOICE_MARKERS if marker in text)
+    return marker_count >= 2 and bool(re.search(r"(?:发票号码|发票代码)\s*[:：]", text))
+
+
+def _has_document_value(value, *, numeric: bool = False) -> bool:
+    """Distinguish an explicit value from the ORM's empty defaults."""
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    if numeric:
+        return value != 0
+    return bool(value)
+
+
+def _persist_invoice_metadata(doc: Document, raw: list[dict]) -> dict | None:
+    """Persist deterministic invoice metadata without overwriting user input.
+
+    ``Document`` predates the full invoice contract and has no net/gross
+    columns.  Those values and arithmetic evidence therefore remain in the
+    structured ``parse_message`` payload, while the existing invoice/tax
+    columns are populated only when they are still empty.  No filename or
+    document code is ever used as an invoice number.
+    """
+    text = _invoice_candidate_text(raw)
+    if not text or not _looks_like_invoice(doc, text):
+        return None
+
+    fields = extract_invoice_fields_from_text(text)
+    if not any(fields.get(key) not in (None, "") for key in ("invoice_no", "invoice_code", "invoice_date")):
+        return None
+
+    text_updates = {
+        "invoice_no": fields.get("invoice_no"),
+        "invoice_code": fields.get("invoice_code"),
+        "invoice_date": fields.get("invoice_date"),
+        "invoice_type": fields.get("invoice_type"),
+        "period": fields.get("period"),
+        "document_date": fields.get("invoice_date"),
+    }
+    for name, value in text_updates.items():
+        if value not in (None, "") and not _has_document_value(getattr(doc, name, None)):
+            setattr(doc, name, str(value))
+
+    rate = fields.get("vat_rate")
+    if rate not in (None, "") and not _has_document_value(getattr(doc, "tax_vat_rate", 0), numeric=True):
+        # The ORM/API contract stores this field as a percentage (13.0),
+        # whereas the extraction contract uses a decimal rate (0.13).
+        doc.tax_vat_rate = float(rate) * 100
+
+    vat = fields.get("vat_amount")
+    direction = str(fields.get("direction") or "").strip().lower()
+    if vat not in (None, ""):
+        vat_value = float(vat)
+        if direction == "in" and not _has_document_value(getattr(doc, "tax_vat_input", 0), numeric=True):
+            doc.tax_vat_input = vat_value
+        elif direction == "out" and not _has_document_value(getattr(doc, "tax_vat_output", 0), numeric=True):
+            doc.tax_vat_output = vat_value
+        if not _has_document_value(getattr(doc, "tax_total", 0), numeric=True):
+            doc.tax_total = vat_value
+
+    return {
+        "schema_version": "invoice_metadata_v1",
+        "status": fields.get("validation_status", "UNVALIDATED"),
+        "fields": {
+            key: fields.get(key)
+            for key in (
+                "invoice_no", "invoice_code", "invoice_date", "period", "direction",
+                "invoice_type", "seller_name", "seller_tax_id", "buyer_name",
+                "buyer_tax_id", "total_amount", "net_amount", "vat_amount", "vat_rate",
+                "deductible", "category",
+            )
+            if fields.get(key) not in (None, "")
+        },
+        "validation_errors": list(fields.get("validation_errors") or []),
+        "extraction_warnings": list(fields.get("extraction_warnings") or []),
+        "arithmetic_validation": dict(fields.get("arithmetic_validation") or {}),
+        "evidence": dict(fields.get("evidence") or {}),
+        "source": fields.get("source", "deterministic_ocr_rules"),
+    }
 
 
 def cleanup_document_files(doc: Document) -> None:
@@ -135,6 +239,43 @@ def _update_ingest_job_quality(
             pass
 
 
+def _auto_register_external_party(
+    db: Session,
+    counterparty_code: str | None,
+    counterparty_name: str | None = None,
+    tax_id: str | None = None,
+    kind: str = "partner",
+) -> None:
+    """Automatically discover and register system-external parties from ingested documents."""
+    code = (counterparty_code or "").strip().upper()
+    if not code or is_canonical_entity_code(code):
+        return
+
+    try:
+        existing = db.scalar(select(ExternalParty).where(ExternalParty.code == code))
+        if existing:
+            if counterparty_name and not existing.name:
+                existing.name = counterparty_name
+            if tax_id and not existing.tax_id:
+                existing.tax_id = tax_id
+            return
+
+        name = counterparty_name or code
+        new_party = ExternalParty(
+            code=code,
+            name=name,
+            short_name=name,
+            kind=kind,
+            tax_id=tax_id or None,
+            active=True,
+        )
+        db.add(new_party)
+        db.flush()
+        logger.info(f"Auto-registered new external party from document: {code} ({name})")
+    except Exception as e:
+        logger.warning(f"Auto-register external party failed for {code}: {e}")
+
+
 def parse_and_index(db: Session, doc: Document) -> Document:
     """Parse document and index its chunks with embeddings.
 
@@ -230,6 +371,8 @@ def parse_and_index(db: Session, doc: Document) -> Document:
         preview = "\n".join(x.get("content", "") for x in raw[:5])
         refined = refine_from_content({
             "document_type": doc.document_type,
+            "entity_code": doc.entity_code,
+            "counterparty_code": doc.counterparty_code,
             "business_category": doc.business_category,
             "tax_category": doc.tax_category
         }, preview)
@@ -238,6 +381,25 @@ def parse_and_index(db: Session, doc: Document) -> Document:
             doc.document_type = refined["document_type"]
             doc.metadata_source = "content_rule"
             doc.metadata_confidence = max(doc.metadata_confidence, 0.65)
+
+        if not doc.entity_code and refined.get("entity_code"):
+            doc.entity_code = refined["entity_code"]
+
+        if not doc.counterparty_code and refined.get("counterparty_code"):
+            doc.counterparty_code = refined["counterparty_code"]
+
+        if doc.counterparty_code:
+            _auto_register_external_party(
+                db,
+                doc.counterparty_code,
+                refined.get("counterparty_name"),
+                refined.get("counterparty_tax_id"),
+            )
+
+        if not doc.entity_code:
+            p = db.get(Project, doc.project_id)
+            if p and p.entity_code:
+                doc.entity_code = p.entity_code
 
         if not doc.business_category and refined.get("business_category"):
             doc.business_category = refined["business_category"]
@@ -267,23 +429,37 @@ def parse_and_index(db: Session, doc: Document) -> Document:
                 document_id=doc.id,
                 project_id=doc.project_id,
                 chunk_index=idx,
-                heading_path=item.get("heading_path", "") or "",
+                heading_path=(item.get("heading_path", "") or "").replace("\x00", ""),
                 page_start=item.get("page_start"),
                 page_end=item.get("page_end"),
                 content_type=item.get("content_type", "text"),
-                content=item["content"],
+                content=item["content"].replace("\x00", ""),
                 token_estimate=int(item.get("token_estimate", 0)),
                 embedding_json=json.dumps(vector),
                 embedding=pgvec,
-                search_text=(item.get("heading_path", "") + " " + item["content"]).lower()
+                search_text=((item.get("heading_path", "") or "") + " " + item["content"]).replace("\x00", "").lower()
             )
             chunks_to_add.append(chunk)
 
         db.add_all(chunks_to_add)
 
-        # Step 6: Update document status
+        # Step 6: Persist document-level deterministic invoice metadata before
+        # committing the chunks.  This is intentionally independent from the
+        # optional LLM: the source OCR remains the authority for invoice
+        # number/code/date and arithmetic evidence.
+        invoice_metadata = _persist_invoice_metadata(doc, raw)
         doc.parse_status = "INDEXED"
-        doc.parse_message = f"indexed {len(raw)} chunks"
+        if invoice_metadata is None:
+            doc.parse_message = f"indexed {len(raw)} chunks"
+        else:
+            doc.parse_message = json.dumps(
+                {
+                    "message": f"indexed {len(raw)} chunks",
+                    "invoice_validation": invoice_metadata,
+                },
+                ensure_ascii=False,
+                separators=(",", ":"),
+            )
         db.commit()
         db.refresh(doc)
 
@@ -295,15 +471,17 @@ def parse_and_index(db: Session, doc: Document) -> Document:
         return doc
 
     except MinerUUnavailable as e:
+        db.rollback()
         doc.parse_status = "WAITING_MINERU"
-        doc.parse_message = str(e)
+        doc.parse_message = str(e).replace("\\x00", "")
         db.commit()
         logger.warning(f"Document {doc.document_code} waiting for MinerU: {e}")
         return doc
 
     except Exception as e:
+        db.rollback()
         doc.parse_status = "PARSE_FAILED"
-        doc.parse_message = str(e)
+        doc.parse_message = str(e).replace("\\x00", "")
         db.commit()
         logger.error(f"Failed to parse document {doc.document_code}: {e}")
 

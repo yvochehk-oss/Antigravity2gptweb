@@ -14,7 +14,7 @@ import { NewTaxRecordModal } from './components/NewTaxRecordModal';
 import { ExportReportModal } from './components/ExportReportModal';
 import { DataStatusCard } from './components/DataStatusCard';
 import { DEFAULT_SETTINGS } from './components/SettingsModal';
-import { askProjectAi, ApiError, fetchAiModelStatus, fetchConfiguredProjects, fetchRiskEvents, fetchTaxLedger } from './api';
+import { askProjectAi, ApiError, fetchAiModelStatus, fetchConfiguredProjects, fetchRiskEvents, fetchTaxLedger, rebuildTaxLedger } from './api';
 import {
   AssistantMessage,
   AiModelStatus,
@@ -65,6 +65,7 @@ export default function App() {
   const [riskStatusMessage, setRiskStatusMessage] = useState('正在从 Tax 服务加载风险集合…');
   const [taxLedgerStatus, setTaxLedgerStatus] = useState<DataStatus>('LOADING');
   const [taxLedgerStatusMessage, setTaxLedgerStatusMessage] = useState('正在从 Tax 服务加载台账集合…');
+  const [isLedgerRebuilding, setIsLedgerRebuilding] = useState(false);
   const [auditLogs] = useState<AuditTrailRecord[]>([]);
   const auditStatus: DataStatus = 'UNAVAILABLE';
   const [assistantMessages, setAssistantMessages] = useState<AssistantMessage[]>([]);
@@ -229,6 +230,20 @@ export default function App() {
     void loadProjects();
   };
 
+  const handleRebuildTaxLedger = async (period: string) => {
+    if (isLedgerRebuilding) return;
+    setIsLedgerRebuilding(true);
+    try {
+      const result = await rebuildTaxLedger(period);
+      await loadProjects();
+      setActionNotice(`已生成 ${result.rowCount} 条 ${result.period} 台账，页面已重新读取 Tax 项目与确定性台账数据。`);
+    } catch (error) {
+      setActionNotice(`台账生成/重建失败：${errorMessage(error)}；已保留当前页面最后可信数据。`);
+    } finally {
+      setIsLedgerRebuilding(false);
+    }
+  };
+
   const handleSendAiMessage = async (query: string) => {
     const trimmed = query.trim();
     if (!trimmed || isAiThinking) return;
@@ -370,7 +385,7 @@ export default function App() {
               )}
 
               {currentTab === 'tax-ledger' && (
-                <TaxLedgerView projects={projects} dataStatus={projectStatus} onOpenNewRecordModal={() => setIsNewRecordModalOpen(true)} onOpenExportModal={() => setIsExportModalOpen(true)} onAskAiAboutRisk={handleAskAiAboutRisk} settings={systemSettings} />
+                <TaxLedgerView projects={projects} dataStatus={taxLedgerStatus} dataStatusMessage={taxLedgerStatusMessage} onRetry={() => void loadProjects()} onOpenNewRecordModal={() => setIsNewRecordModalOpen(true)} onOpenExportModal={() => setIsExportModalOpen(true)} onAskAiAboutRisk={handleAskAiAboutRisk} onRebuildTaxLedger={handleRebuildTaxLedger} isRebuilding={isLedgerRebuilding} settings={systemSettings} />
               )}
               {currentTab === 'tax-planning' && (
                 <TaxPlanningView projects={projects} selectedProjectId={selectedProjectId} onSelectProject={setSelectedProjectId} onAskAiAboutRisk={handleAskAiAboutRisk} />

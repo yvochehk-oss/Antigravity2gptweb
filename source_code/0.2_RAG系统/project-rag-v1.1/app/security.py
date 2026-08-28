@@ -69,10 +69,13 @@ WEB_AUTH_EXACT_GET_PATHS = frozenset({
     "/",
     "/entities",
     "/health",
+    "/llm-models",
     "/search",
     "/regulations",
     "/mounts",
+    "/api/v1/llm-models",
     "/api/v1/mounts/fs",
+    "/api/v1/jobs/active",
 })
 WEB_AUTH_DYNAMIC_GET_ROOTS = frozenset({"/projects", "/documents", "/entities"})
 
@@ -82,12 +85,15 @@ WEB_AUTH_DYNAMIC_GET_ROOTS = frozenset({"/projects", "/documents", "/entities"})
 # routes before their own RBAC dependency is present.
 WEB_AUTH_MUTATION_EXACT_PATHS = frozenset({
     "/projects",
+    "/api/v1/fs/list-dirs",
     "/api/v1/regulations/verify",
     "/api/v1/regulations/save-custom",
     "/api/v1/regulations/ai-parse-url",
     "/api/v1/regulations/ai-parse-file",
+    "/api/v1/llm-models",
     "/api/v1/mounts",
     "/api/v1/mounts/scan",
+    "/api/v1/entities/import-file",
 })
 
 
@@ -283,6 +289,14 @@ def _is_web_mutation_route(path: str, method: str) -> bool:
     if len(segments) == 3 and segments[0] == "documents" and segments[2] == "parse":
         return True
     if len(segments) == 5 and segments[:3] == ["api", "v1", "mounts"] and segments[4] == "delete":
+        return True
+    if (
+        len(segments) >= 4
+        and segments[:3] == ["api", "v1", "llm-models"]
+        and segments[3].isdigit()
+    ):
+        # Keep model setting mutations on the explicit browser-session
+        # boundary; unrelated /api/v1 paths must not inherit this policy.
         return True
     return False
 

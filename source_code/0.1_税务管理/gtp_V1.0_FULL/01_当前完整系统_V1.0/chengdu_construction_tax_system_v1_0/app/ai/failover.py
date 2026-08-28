@@ -83,10 +83,17 @@ def _routing_group(endpoint: AIModelEndpoint | None) -> str:
 
 
 def _priority(endpoint: AIModelEndpoint | None) -> int:
+    raw = getattr(endpoint, "priority", None)
+    if raw is None or (isinstance(raw, str) and not raw.strip()):
+        return 100
     try:
-        return max(0, int(getattr(endpoint, "priority", 100) or 100))
+        value = int(raw)
     except (TypeError, ValueError):
         return 100
+    # The schema permits zero and rejects negative values.  Preserve zero as
+    # the highest priority; treat an invalid negative value as legacy/missing
+    # data instead of promoting it ahead of every configured endpoint.
+    return value if value >= 0 else 100
 
 
 def _endpoint_id(endpoint: AIModelEndpoint | None) -> int | None:
@@ -130,7 +137,13 @@ def _load_endpoints(
     if db is None:
         return []
     return _unique_endpoints(
-        db.execute(select(AIModelEndpoint).order_by(AIModelEndpoint.id)).scalars().all(),
+        db.execute(
+            select(AIModelEndpoint).order_by(
+                AIModelEndpoint.routing_group.asc(),
+                AIModelEndpoint.priority.asc(),
+                AIModelEndpoint.id.asc(),
+            )
+        ).scalars().all(),
     )
 
 

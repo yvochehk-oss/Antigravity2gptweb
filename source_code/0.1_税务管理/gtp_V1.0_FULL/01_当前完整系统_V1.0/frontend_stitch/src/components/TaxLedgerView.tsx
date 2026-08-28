@@ -22,21 +22,36 @@ import { DataStatusCard } from './DataStatusCard';
 type SortField = 'projectName' | 'entityName' | 'declareAmount' | 'taxCategory' | 'status' | 'flow' | null;
 type SortOrder = 'asc' | 'desc';
 
+export const TAX_LEDGER_EMPTY_MESSAGE = '接口正常、指定期间暂无已生成台账。请先完成 RAG 凭证同步/结构化入库，再由受控确定性重建生成。';
+
 interface TaxLedgerViewProps {
   projects: ProjectItem[];
   dataStatus: DataStatus;
+  dataStatusMessage: string;
+  onRetry?: () => void;
   onOpenNewRecordModal: () => void;
   onOpenExportModal: () => void;
   onAskAiAboutRisk: (entityName: string) => void;
+  onRebuildTaxLedger: (period: string) => Promise<void>;
+  isRebuilding: boolean;
   settings?: SystemSettings;
+}
+
+function currentMonth(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 }
 
 export function TaxLedgerView({
   projects,
   dataStatus,
+  dataStatusMessage,
+  onRetry,
   onOpenNewRecordModal,
   onOpenExportModal,
   onAskAiAboutRisk,
+  onRebuildTaxLedger,
+  isRebuilding,
   settings
 }: TaxLedgerViewProps) {
   const [searchWord, setSearchWord] = useState('');
@@ -44,6 +59,7 @@ export function TaxLedgerView({
   const [selectedRisk, setSelectedRisk] = useState('全部风险');
   const [sortField, setSortField] = useState<SortField>(null);
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
+  const [rebuildPeriod, setRebuildPeriod] = useState(() => currentMonth());
 
   const handleSort = (field: SortField) => {
     if (sortField === field) {
@@ -60,6 +76,7 @@ export function TaxLedgerView({
   const allRecords: (TaxLedgerRecord & { projectName: string; projectCode: string })[] = projects.flatMap(p => 
     p.taxRecords.map(r => ({ ...r, projectName: p.name, projectCode: p.projectCode }))
   );
+  const hasNoRecords = allRecords.length === 0;
 
   const filteredRecords = allRecords.filter(item => {
     const matchesSearch = 
@@ -99,11 +116,19 @@ export function TaxLedgerView({
   const totalDeclare = filteredRecords.reduce((acc, cur) => acc + cur.declareAmount, 0);
   const totalTax = filteredRecords.reduce((acc, cur) => acc + cur.taxAmount, 0);
 
-  if (dataStatus !== 'READY' || projects.length === 0 || allRecords.length === 0) {
+  const handleRebuild = () => {
+    if (!/^(?:\d{4})-(?:0[1-9]|1[0-2])$/.test(rebuildPeriod) || isRebuilding) return;
+    const confirmed = window.confirm(
+      `将对 ${rebuildPeriod} 执行受控确定性台账生成/重建。该操作会原子替换该期间汇总；请确认已完成 RAG 凭证同步/结构化入库。继续吗？`,
+    );
+    if (confirmed) void onRebuildTaxLedger(rebuildPeriod);
+  };
+
+  if (dataStatus !== 'READY') {
     return (
       <div className="space-y-6">
         <h2 className="text-[28px] font-bold text-[#dae2fd]">工程全周期税务台账</h2>
-        <DataStatusCard status={dataStatus === 'READY' ? 'UNAVAILABLE' : dataStatus} title="税务台账不可用" message="当前项目摘要接口不包含税务凭证集合，前端不会用静态凭证或金额填充台账。请接通税务台账 JSON 接口后重试。" />
+        <DataStatusCard status={dataStatus} title="税务台账不可用" message={dataStatusMessage} onRetry={onRetry} />
       </div>
     );
   }
@@ -134,6 +159,41 @@ export function TaxLedgerView({
           >
             <Download className="w-4 h-4 text-[#4cd7f6]" />
             <span>导出全量台账</span>
+          </button>
+        </div>
+      </div>
+
+      {hasNoRecords && (
+        <div className="rounded-xl border border-[#10B981]/30 bg-[#10B981]/5 p-4" role="status" aria-live="polite">
+          <div className="flex items-start gap-3">
+            <CheckCircle2 className="w-5 h-5 flex-shrink-0 mt-0.5 text-[#10B981]" />
+            <p className="text-[13px] text-[#c4c5d5] leading-relaxed">{TAX_LEDGER_EMPTY_MESSAGE}</p>
+          </div>
+        </div>
+      )}
+
+      <div className="glass-panel rounded-xl p-4 flex flex-wrap items-center justify-between gap-4 border border-[#4cd7f6]/20">
+        <div>
+          <p className="font-semibold text-[#dae2fd]">受控确定性台账生成/重建</p>
+          <p className="text-[12px] text-[#c4c5d5] mt-1 leading-relaxed">请先完成 RAG 凭证同步/结构化入库；确认后将原子替换所选期间汇总。</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <label htmlFor="tax-ledger-rebuild-period" className="text-[12px] text-[#8e909f]">所属月份</label>
+          <input
+            id="tax-ledger-rebuild-period"
+            type="month"
+            value={rebuildPeriod}
+            onChange={event => setRebuildPeriod(event.target.value)}
+            className="bg-[#131b2e] border border-[#444653]/40 rounded-lg px-2.5 py-1.5 text-[12px] text-[#dae2fd] focus:border-[#4cd7f6] focus:outline-none"
+            disabled={isRebuilding}
+          />
+          <button
+            type="button"
+            onClick={handleRebuild}
+            disabled={isRebuilding || !/^(?:\d{4})-(?:0[1-9]|1[0-2])$/.test(rebuildPeriod)}
+            className="px-3.5 py-2 rounded-lg bg-[#1e40af] hover:bg-[#1e40af]/80 disabled:opacity-50 disabled:cursor-not-allowed text-[#dde1ff] text-[12px] font-semibold border border-[#4cd7f6]/30"
+          >
+            {isRebuilding ? '正在生成…' : '生成/重建台账'}
           </button>
         </div>
       </div>
@@ -198,6 +258,7 @@ export function TaxLedgerView({
             </select>
           </div>
         </div>
+
       </div>
 
       {/* 台账明细表 */}

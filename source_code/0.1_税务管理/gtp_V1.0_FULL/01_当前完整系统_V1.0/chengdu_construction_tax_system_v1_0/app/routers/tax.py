@@ -11,6 +11,7 @@ import re
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -27,6 +28,28 @@ _PERIOD_RE = re.compile(r"^\d{4}-(?:0[1-9]|1[0-2])$")
 _rebuild_dependency = Depends(require_role("admin", "operator"))
 
 
+class TaxLedgerRebuildRequest(BaseModel):
+    """Explicit JSON command input for rebuilding one accounting period."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    period: str = Field(
+        ...,
+        min_length=7,
+        max_length=7,
+        pattern=r"^\d{4}-(?:0[1-9]|1[0-2])$",
+        description="Accounting period in YYYY-MM format",
+    )
+
+
+class TaxLedgerRebuildResponse(BaseModel):
+    """Stable success contract for the explicit rebuild command."""
+
+    status: str = Field(..., pattern=r"^success$")
+    period: str = Field(..., pattern=r"^\d{4}-(?:0[1-9]|1[0-2])$")
+    row_count: int = Field(..., ge=0)
+
+
 def _validate_period(period: str) -> str:
     normalized = str(period or "").strip()
     if not _PERIOD_RE.fullmatch(normalized):
@@ -36,10 +59,71 @@ def _validate_period(period: str) -> str:
 
 def _require_csrf(request: Request, supplied: str) -> None:
     """Require a matching form/header token in addition to middleware checks."""
-    token = str(supplied or "").strip() or request.headers.get("X-CSRF-Token", "").strip()
+    token = str(supplied or "").strip()
+    if not token:
+        token = request.headers.get("X-CSRF-Token", "").strip()
+    if not token:
+        # Keep parity with AuthMiddleware's accepted API header alias.
+        token = request.headers.get("X-XSRF-TOKEN", "").strip()
     cookie = request.cookies.get(CSRF_COOKIE_NAME, "").strip()
     if not token or not cookie or not hmac.compare_digest(token, cookie):
         raise HTTPException(status_code=403, detail="CSRF token 无效或缺失")
+
+
+@router.post(
+    "/api/tax-ledger/rebuild",
+    response_model=TaxLedgerRebuildResponse,
+    summary="显式重建指定期间的确定性税务台账",
+)
+def api_tax_ledger_rebuild(
+    request: Request,
+    body: TaxLedgerRebuildRequest,
+    _user=_rebuild_dependency,
+) -> TaxLedgerRebuildResponse:
+    """Rebuild exactly one requested period for the React JSON client.
+
+    The command is deliberately separate from the GET collection endpoint:
+    reads never generate or delete ledger rows.  The calculation engine owns
+    the source-of-truth transaction; this boundary only validates access,
+    maps errors to explicit HTTP statuses, and reports the returned row count.
+    """
+    # The middleware validates browser origin and any supplied CSRF header.
+    # Require the endpoint-level cookie/header match as well so an API JSON
+    # request cannot mutate state merely by being same-origin authenticated.
+    _require_csrf(request, "")
+    requested_period = _validate_period(body.period)
+
+    db = SessionLocal()
+    try:
+        rows = rebuild_tax_ledger(db, requested_period)
+        row_count = len(rows)
+    except ValueError as exc:
+        # Domain/input/rule failures are client-visible 4xx errors.  The
+        # calculation engine rolls back itself; this boundary also rolls back
+        # so a patched or future engine cannot leave this session dirty.
+        db.rollback()
+        _LOGGER.warning(
+            "tax ledger rebuild rejected: period=%s error=%s",
+            requested_period,
+            str(exc),
+        )
+        raise HTTPException(status_code=422, detail="税务台账输入或税务规则无效") from exc
+    except SQLAlchemyError as exc:
+        db.rollback()
+        _LOGGER.exception("tax ledger rebuild database failure: period=%s", requested_period)
+        raise HTTPException(status_code=503, detail="税务台账数据源暂时不可用") from exc
+    except Exception as exc:
+        db.rollback()
+        _LOGGER.exception("tax ledger rebuild failed: period=%s", requested_period)
+        raise HTTPException(status_code=500, detail="税务台账重建失败") from exc
+    finally:
+        db.close()
+
+    return TaxLedgerRebuildResponse(
+        status="success",
+        period=requested_period,
+        row_count=row_count,
+    )
 
 
 @router.get("/tax-ledger", response_class=HTMLResponse)

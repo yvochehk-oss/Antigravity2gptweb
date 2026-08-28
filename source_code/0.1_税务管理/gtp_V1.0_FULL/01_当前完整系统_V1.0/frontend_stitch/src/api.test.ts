@@ -6,13 +6,17 @@ import {
   configuredProjectIds,
   extractProjectIds,
   extractRagProjectCandidates,
+  fetchProjectCounterparties,
   fetchProjectRagMap,
   fetchProjectMatchingCompleteness,
   fetchAiModelStatus,
   fetchRagSettings,
   fetchRagStatus,
+  fetchRagPendingContracts,
+  confirmRagPendingContractAndCreateParties,
   fetchRiskEvents,
   fetchTaxLedger,
+  rebuildTaxLedger,
   mapProjectSummary,
   saveProjectRagMap,
   saveRagSettings,
@@ -23,6 +27,7 @@ import {
   extractAiExecutionMetadata,
   parseAiModelStatus,
 } from './api';
+import { TAX_LEDGER_EMPTY_MESSAGE } from './components/TaxLedgerView';
 
 function jsonResponse(payload: unknown, status = 200): Response {
   return new Response(JSON.stringify(payload), {
@@ -562,6 +567,86 @@ test('fetchTaxLedger maps only real backend items and keeps four-flow checks fai
   });
 });
 
+test('TaxLedgerView keeps a successful empty ledger actionable and preserves Tax status errors', () => {
+  const app = readFileSync(new URL('./App.tsx', import.meta.url), 'utf8');
+  const ledgerView = readFileSync(new URL('./components/TaxLedgerView.tsx', import.meta.url), 'utf8');
+
+  assert.match(app, /<TaxLedgerView[^>]+dataStatus=\{taxLedgerStatus\}/);
+  assert.match(app, /dataStatusMessage=\{taxLedgerStatusMessage\}/);
+  assert.match(ledgerView, /if \(dataStatus !== 'READY'\)/);
+  assert.match(ledgerView, /message=\{dataStatusMessage\}/);
+  assert.match(ledgerView, /onClick=\{onOpenNewRecordModal\}/);
+  assert.match(ledgerView, /TAX_LEDGER_EMPTY_MESSAGE/);
+  assert.match(ledgerView, /type="month"/);
+  assert.match(ledgerView, /window\.confirm/);
+  assert.match(ledgerView, /原子替换该期间汇总/);
+  assert.match(ledgerView, /void onRebuildTaxLedger\(rebuildPeriod\)/);
+  assert.match(app, /rebuildTaxLedger\(period\)/);
+  assert.match(app, /已生成 \$\{result\.rowCount\} 条/);
+  assert.match(app, /已保留当前页面最后可信数据/);
+  assert.equal(ledgerView.includes("dataStatus === 'READY' ? 'UNAVAILABLE'"), false);
+  assert.match(TAX_LEDGER_EMPTY_MESSAGE, /接口正常、指定期间暂无已生成台账/);
+  assert.match(TAX_LEDGER_EMPTY_MESSAGE, /RAG 凭证同步\/结构化入库/);
+  assert.match(TAX_LEDGER_EMPTY_MESSAGE, /受控确定性重建生成/);
+});
+
+test('rebuildTaxLedger validates the month, requires Tax CSRF, and parses the atomic result', async () => {
+  const previousDocument = (globalThis as { document?: unknown }).document;
+  Object.defineProperty(globalThis, 'document', { configurable: true, value: { cookie: 'tax_csrf=csrf%20token' } });
+  const requests: Array<{ path: string; init?: RequestInit }> = [];
+  try {
+    await withMockFetch(async (input, init) => {
+      requests.push({ path: String(input), init });
+      return jsonResponse({ status: 'READY', period: '2026-08', row_count: 3 });
+    }, async () => {
+      const result = await rebuildTaxLedger(' 2026-08 ');
+      assert.deepEqual(result, { status: 'READY', period: '2026-08', rowCount: 3 });
+    });
+  } finally {
+    if (previousDocument === undefined) Reflect.deleteProperty(globalThis, 'document');
+    else Object.defineProperty(globalThis, 'document', { configurable: true, value: previousDocument });
+  }
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].path, '/api/tax-ledger/rebuild');
+  assert.deepEqual(JSON.parse(String(requests[0].init?.body)), { period: '2026-08' });
+  assert.equal((requests[0].init?.headers as Record<string, string>)['X-CSRF-Token'], 'csrf token');
+});
+
+test('rebuildTaxLedger fails closed before POST for invalid month or missing CSRF', async () => {
+  const previousDocument = (globalThis as { document?: unknown }).document;
+  let requestCount = 0;
+  Object.defineProperty(globalThis, 'document', { configurable: true, value: { cookie: '' } });
+  try {
+    await withMockFetch(async () => {
+      requestCount += 1;
+      return jsonResponse({ status: 'READY', period: '2026-08', row_count: 3 });
+    }, async () => {
+      await assert.rejects(() => rebuildTaxLedger('2026-13'), error => error instanceof ApiError && error.status === 400);
+      await assert.rejects(() => rebuildTaxLedger('2026-08'), error => error instanceof ApiError && error.status === 0);
+    });
+  } finally {
+    if (previousDocument === undefined) Reflect.deleteProperty(globalThis, 'document');
+    else Object.defineProperty(globalThis, 'document', { configurable: true, value: previousDocument });
+  }
+  assert.equal(requestCount, 0);
+});
+
+test('rebuildTaxLedger rejects an invalid result envelope', async () => {
+  const previousDocument = (globalThis as { document?: unknown }).document;
+  Object.defineProperty(globalThis, 'document', { configurable: true, value: { cookie: 'tax_csrf=token' } });
+  try {
+    await withMockFetch(async () => jsonResponse({ status: 'READY', period: '2026-08', row_count: -1 }), async () => {
+      await assert.rejects(
+        () => rebuildTaxLedger('2026-08'),
+        error => error instanceof ApiError && error.status === 502,
+      );
+    });
+  } finally {
+    if (previousDocument === undefined) Reflect.deleteProperty(globalThis, 'document');
+    else Object.defineProperty(globalThis, 'document', { configurable: true, value: previousDocument });
+  }
+});
+
 test('fetchRiskEvents validates the collection and maps real backend fields', async () => {
   await withMockFetch(async (input, _init) => {
     assert.equal(String(input), '/api/risks?project_id=6&page_size=100');
@@ -619,4 +704,111 @@ test('fetchRiskEvents throws ApiError for an invalid collection envelope', async
         && /风险接口返回格式不完整/.test(error.message),
     );
   });
+});
+
+test('reviewed RAG contracts are read and confirmed through fixed Tax endpoints only', async () => {
+  const requests: Array<{ path: string; body?: unknown }> = [];
+  await withMockFetch(async (input, init) => {
+    requests.push({ path: String(input), body: init?.body ? JSON.parse(String(init.body)) : undefined });
+    if (String(input).startsWith('/rag-sync/pending?')) {
+      return jsonResponse({
+        page: 1, page_size: 20, total: 1,
+        items: [{
+          id: 41, project_id: 6, sync_type: 'contract', source_chunk_id: 7001,
+          filename: '外部供货合同.pdf', page_start: 3, confidence: 1,
+          review: {
+            reason: '外部交易方 tax_id 未登记',
+            party_a_name: '成都建工', party_a_tax_id: '91510100A08',
+            party_b_name: '供货商', party_b_tax_id: '91510400EXT',
+          },
+        }],
+      });
+    }
+    return jsonResponse({
+      ok: true, pending_id: 41, record_id: 91,
+      created_external_parties: [{ id: 12, code: 'EXT-123', name: '供货商', tax_id: '91510400EXT' }],
+    });
+  }, async () => {
+    const pending = await fetchRagPendingContracts(6);
+    assert.deepEqual(pending[0].partyB, { name: '供货商', taxId: '91510400EXT' });
+    const result = await confirmRagPendingContractAndCreateParties(41);
+    assert.equal(result.recordId, 91);
+    assert.equal(result.createdExternalParties[0].code, 'EXT-123');
+  });
+  assert.deepEqual(requests, [
+    { path: '/rag-sync/pending?project_id=6&sync_type=contract&status=pending', body: undefined },
+    { path: '/rag-sync/pending/41/confirm-contract-and-create-parties', body: { confirm: true } },
+  ]);
+});
+
+test('fetchProjectCounterparties maps canonical and external rows from the real backend', async () => {
+  await withMockFetch(async () => jsonResponse({
+    status: 'READY',
+    message: '',
+    total: 2,
+    items: [
+      {
+        party_code: 'A08', party_name: '四川锐宝建设有限公司',
+        kind: 'entity', isInternal: true, source: 'entities',
+        contract_count: 1, contract_amount: 1200000,
+        invoice_in_count: 0, invoice_in_net: 0, invoice_in_vat: 0,
+        invoice_out_count: 2, invoice_out_net: 200000, invoice_out_vat: 18000,
+        cashflow_in_count: 1, cashflow_in_amount: 18000000,
+        cashflow_out_count: 1, cashflow_out_amount: 900000,
+        real_cost_count: 0, real_cost_amount: 0,
+        fulfillment_count: 0, fulfillment_amount: 0,
+      },
+      {
+        party_code: 'EXT-TF-001', party_name: '成都土方供应有限公司',
+        kind: 'external', isInternal: false, source: 'external_parties',
+        contract_count: 1, contract_amount: 1200000,
+        invoice_in_count: 1, invoice_in_net: 100000, invoice_in_vat: 9000,
+        invoice_out_count: 0, invoice_out_net: 0, invoice_out_vat: 0,
+        cashflow_in_count: 0, cashflow_in_amount: 0,
+        cashflow_out_count: 1, cashflow_out_amount: 90000,
+        real_cost_count: 1, real_cost_amount: 80000,
+        fulfillment_count: 1, fulfillment_amount: 80000,
+      },
+    ],
+  }), async () => {
+    const result = await fetchProjectCounterparties(1);
+    assert.equal(result.status, 'READY');
+    assert.equal(result.items.length, 2);
+    assert.equal(result.total, 2);
+
+    const byCode = Object.fromEntries(result.items.map(p => [p.partyCode, p]));
+    const a08 = byCode['A08'];
+    assert.equal(a08.isInternal, true);
+    assert.equal(a08.source, 'entities');
+    assert.equal(a08.kind, 'entity');
+    assert.equal(a08.contractAmount, 1200000);
+    assert.equal(a08.invoiceOutVat, 18000);
+
+    const ext = byCode['EXT-TF-001'];
+    assert.equal(ext.isInternal, false);
+    assert.equal(ext.source, 'external_parties');
+    assert.equal(ext.kind, 'external');
+    assert.equal(ext.partyName, '成都土方供应有限公司');
+    assert.equal(ext.invoiceInVat, 9000);
+    assert.equal(ext.realCostAmount, 80000);
+    assert.equal(ext.fulfillmentAmount, 80000);
+  });
+});
+
+test('fetchProjectCounterparties rejects an envelope without items', async () => {
+  await withMockFetch(async () => jsonResponse({ status: 'READY' }), async () => {
+    await assert.rejects(
+      () => fetchProjectCounterparties(1),
+      error => error instanceof ApiError
+        && error.status === 502
+        && /对手方接口返回格式不完整/.test(error.message),
+    );
+  });
+});
+
+test('fetchProjectCounterparties validates project id', async () => {
+  await assert.rejects(
+    () => fetchProjectCounterparties(0),
+    error => error instanceof ApiError && error.status === 400,
+  );
 });

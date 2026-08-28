@@ -44,6 +44,7 @@ def init_db() -> None:
         "rag_evidence_packs",
         "facts_snapshots",
         "mount_configs",
+        "rag_llm_model_endpoints",
     }
     required_views = {
         "analytics_project_summary",

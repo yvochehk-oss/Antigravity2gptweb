@@ -13,6 +13,7 @@ from ..ai.adapter import (
     AIEndpointUnavailable,
     AIResponseContractError,
     endpoint_is_allowed,
+    is_mock_endpoint,
 )
 from ..ai.adapter import call_endpoint as _ADAPTER_CALL_ENDPOINT
 from ..ai.adapter import call_text_endpoint as _ADAPTER_CALL_TEXT_ENDPOINT
@@ -150,6 +151,62 @@ def _normalise_endpoint_id(endpoint_id: int | str | None) -> int | None:
             status="UNAVAILABLE",
         )
     return parsed
+
+
+def _manager_endpoint_order_key(endpoint: AIModelEndpoint) -> tuple[str, int, int]:
+    """Return the same stable order used by the shared AI failover pool."""
+    routing_group = str(getattr(endpoint, "routing_group", "default") or "default").strip()
+    if not routing_group:
+        routing_group = "default"
+    raw_priority = getattr(endpoint, "priority", None)
+    if raw_priority is None or (
+        isinstance(raw_priority, str) and not raw_priority.strip()
+    ):
+        priority = 100
+    else:
+        try:
+            parsed_priority = int(raw_priority)
+        except (TypeError, ValueError):
+            priority = 100
+        else:
+            # Keep the valid schema value 0 as the first position.  Negative
+            # values are invalid and therefore use the safe legacy default.
+            priority = parsed_priority if parsed_priority >= 0 else 100
+    try:
+        endpoint_id = int(getattr(endpoint, "id", 0) or 0)
+    except (TypeError, ValueError):
+        endpoint_id = 0
+    return routing_group, priority, endpoint_id
+
+
+def _manager_ai_endpoints(db: Session) -> list[AIModelEndpoint]:
+    """Load selectable real endpoints in the configured failover order.
+
+    The project question page deliberately has an explicit automatic mode.
+    Its endpoint list is only a display/override list, so historical mock
+    rows are excluded even in a test process that has opted into mock calls.
+    Disabled real endpoints remain managed from the model settings page but
+    are not offered as selectable callers here.
+    """
+    rows = (
+        db.query(AIModelEndpoint)
+        .filter(AIModelEndpoint.enabled == True)  # noqa: E712
+        .order_by(
+            AIModelEndpoint.routing_group.asc(),
+            AIModelEndpoint.priority.asc(),
+            AIModelEndpoint.id.asc(),
+        )
+        .all()
+    )
+    rows = [
+        endpoint
+        for endpoint in rows
+        if not is_mock_endpoint(endpoint) and endpoint_is_allowed(endpoint)
+    ]
+    # Keep the contract deterministic for isolated session doubles as well as
+    # ORM-backed results, whose database ordering is already the same.
+    rows.sort(key=_manager_endpoint_order_key)
+    return rows
 
 
 def _call_ai(question: str, ctx: dict, endpoint_id: int | str | None = None) -> dict:
@@ -420,15 +477,9 @@ def manager_project_detail(request: Request, pid: int) -> HTMLResponse:
             select(RealCost).where(RealCost.project_id == pid)
         ).scalars().all()
 
-        # 仅展示当前进程允许调用的端点；正式库中的 mock 记录不删除，
-        # 但在非 test + 显式 opt-in 时完全忽略。
-        endpoints = (
-            db.query(AIModelEndpoint)
-            .filter(AIModelEndpoint.enabled == True)  # noqa: E712
-            .order_by(AIModelEndpoint.id)
-            .all()
-        )
-        endpoints = [e for e in endpoints if endpoint_is_allowed(e)]
+        # 仅展示可调用的真实端点；模型设置中的 priority/routing_group
+        # 决定自动模式和共享 failover 池的顺序，历史 mock 记录永不显示。
+        endpoints = _manager_ai_endpoints(db)
 
         return templates.TemplateResponse(
             request,

@@ -1,16 +1,16 @@
-import { useState } from 'react';
-import { 
-  Building2, 
-  Download, 
+import { useEffect, useMemo, useState } from 'react';
+import {
+  Building2,
+  Download,
   Database,
-  PlusCircle, 
-  ShieldAlert, 
-  ShieldCheck, 
-  AlertTriangle, 
-  ArrowLeft, 
-  Search, 
-  Filter, 
-  FileCheck2, 
+  PlusCircle,
+  ShieldAlert,
+  ShieldCheck,
+  AlertTriangle,
+  ArrowLeft,
+  Search,
+  Filter,
+  FileCheck2,
   Info,
   ChevronDown,
   ExternalLink,
@@ -21,6 +21,7 @@ import {
   Compass
 } from 'lucide-react';
 import { ProjectItem, TaxLedgerRecord, CostBreakdownItem, SystemSettings } from '../types';
+import { fetchProjectCounterparties, ProjectCounterparty } from '../api';
 
 type SortField = 'entityName' | 'declareAmount' | 'taxCategory' | 'status' | 'flow' | null;
 type SortOrder = 'asc' | 'desc';
@@ -52,6 +53,65 @@ export function ProjectDetailView({
   const [filterRisk, setFilterRisk] = useState<string>('全部');
   const [sortField, setSortField] = useState<SortField>(null);
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
+  const [counterparties, setCounterparties] = useState<ProjectCounterparty[]>([]);
+  const [counterpartyStatus, setCounterpartyStatus] = useState<'loading' | 'ready' | 'empty' | 'failed'>('loading');
+  const [counterpartyMessage, setCounterpartyMessage] = useState<string>('');
+  const [counterpartyFilter, setCounterpartyFilter] = useState<'全部' | '系统内' | '系统外'>('全部');
+
+  useEffect(() => {
+    const pid = project.numericId;
+    if (!Number.isInteger(pid) || pid <= 0) {
+      setCounterparties([]);
+      setCounterpartyStatus('empty');
+      setCounterpartyMessage('项目缺少有效 numericId，无法加载对手方。');
+      return;
+    }
+    const controller = new AbortController();
+    setCounterpartyStatus('loading');
+    setCounterpartyMessage('');
+    fetchProjectCounterparties(pid, controller.signal)
+      .then(response => {
+        setCounterparties(response.items);
+        if (response.items.length === 0) {
+          setCounterpartyStatus('empty');
+          setCounterpartyMessage(response.message || '该项目当前没有任何合同/发票/收付款数据。');
+        } else {
+          setCounterpartyStatus('ready');
+          setCounterpartyMessage('');
+        }
+      })
+      .catch(error => {
+        if (controller.signal.aborted) return;
+        setCounterparties([]);
+        setCounterpartyStatus('failed');
+        setCounterpartyMessage(error instanceof Error ? error.message : '对手方数据加载失败。');
+      });
+    return () => controller.abort();
+  }, [project.numericId]);
+
+  const filteredCounterparties = useMemo(() => {
+    if (counterpartyFilter === '全部') return counterparties;
+    return counterparties.filter(party => {
+      if (counterpartyFilter === '系统内') return party.isInternal;
+      return !party.isInternal;
+    });
+  }, [counterparties, counterpartyFilter]);
+
+  const counterpartTotals = useMemo(() => {
+    let contractAmount = 0;
+    let invoiceInVat = 0;
+    let invoiceOutVat = 0;
+    let cashflowOutAmount = 0;
+    let realCostAmount = 0;
+    for (const party of counterparties) {
+      contractAmount += party.contractAmount;
+      invoiceInVat += party.invoiceInVat;
+      invoiceOutVat += party.invoiceOutVat;
+      cashflowOutAmount += party.cashflowOutAmount;
+      realCostAmount += party.realCostAmount;
+    }
+    return { contractAmount, invoiceInVat, invoiceOutVat, cashflowOutAmount, realCostAmount };
+  }, [counterparties]);
 
   const handleSort = (field: SortField) => {
     if (sortField === field) {
@@ -435,6 +495,152 @@ export function ProjectDetailView({
             </tbody>
           </table>
         </div>
+      </section>
+
+      {/* 模块 2.5: RAG 同步出的实际对手方明细（系统内 + 系统外） */}
+      <section className="glass-panel rounded-xl p-5" data-testid="counterparty-section">
+        <div className="flex flex-wrap justify-between items-center gap-3 mb-4 pb-3 border-b border-[#444653]/30">
+          <div>
+            <h3 className="text-[17px] font-bold text-[#dae2fd] flex items-center gap-2">
+              <Building2 className="w-4 h-4 text-[#4cd7f6]" />
+              RAG 项目往来对手方明细
+            </h3>
+            <p className="text-[12px] text-[#c4c5d5] mt-0.5">
+              严格按 RAG 数据库真实存在的合同 / 发票 / 收付款 / 履约记录聚合，
+              系统内主体与 RAG 同步出的外部单位都来自同一份 PostgreSQL 数据。
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] text-[#8e909f]">归属</span>
+            <div className="flex bg-[#131b2e] rounded-lg border border-[#444653]/30 p-0.5">
+              {(['全部', '系统内', '系统外'] as const).map(value => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setCounterpartyFilter(value)}
+                  className={`px-2.5 py-1 text-[11px] rounded-md transition-colors ${
+                    counterpartyFilter === value
+                      ? 'bg-[#4cd7f6]/15 text-[#4cd7f6] border border-[#4cd7f6]/40'
+                      : 'text-[#8e909f] hover:text-[#dae2fd]'
+                  }`}
+                >
+                  {value}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {counterpartyStatus === 'loading' && (
+          <div className="text-[12px] text-[#8e909f] py-4">对手方数据加载中…</div>
+        )}
+
+        {counterpartyStatus === 'failed' && (
+          <div className="text-[12px] text-[#EF4444] bg-[#EF4444]/10 border border-[#EF4444]/30 rounded-lg p-3">
+            对手方数据加载失败：{counterpartyMessage}
+          </div>
+        )}
+
+        {counterpartyStatus === 'empty' && (
+          <div className="text-[12px] text-[#8e909f] bg-[#131b2e] border border-[#444653]/30 rounded-lg p-3">
+            {counterpartyMessage || '该项目当前没有任何合同/发票/收付款数据。'}
+          </div>
+        )}
+
+        {counterpartyStatus === 'ready' && (
+          <>
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-2 mb-3 text-[11px]">
+              <div className="rounded-lg bg-[#131b2e] p-2 border border-[#444653]/30">
+                <p className="text-[#8e909f]">合同金额合计</p>
+                <p className="text-[#dae2fd] font-semibold mt-0.5">¥ {counterpartTotals.contractAmount.toLocaleString('zh-CN')}</p>
+              </div>
+              <div className="rounded-lg bg-[#131b2e] p-2 border border-[#444653]/30">
+                <p className="text-[#8e909f]">进项税额合计</p>
+                <p className="text-[#4cd7f6] font-semibold mt-0.5">¥ {counterpartTotals.invoiceInVat.toLocaleString('zh-CN')}</p>
+              </div>
+              <div className="rounded-lg bg-[#131b2e] p-2 border border-[#444653]/30">
+                <p className="text-[#8e909f]">销项税额合计</p>
+                <p className="text-[#4cd7f6] font-semibold mt-0.5">¥ {counterpartTotals.invoiceOutVat.toLocaleString('zh-CN')}</p>
+              </div>
+              <div className="rounded-lg bg-[#131b2e] p-2 border border-[#444653]/30">
+                <p className="text-[#8e909f]">对外付款合计</p>
+                <p className="text-[#dae2fd] font-semibold mt-0.5">¥ {counterpartTotals.cashflowOutAmount.toLocaleString('zh-CN')}</p>
+              </div>
+              <div className="rounded-lg bg-[#131b2e] p-2 border border-[#444653]/30">
+                <p className="text-[#8e909f]">外部成本合计</p>
+                <p className="text-[#a78bfa] font-semibold mt-0.5">¥ {counterpartTotals.realCostAmount.toLocaleString('zh-CN')}</p>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-[12px] text-left">
+                <thead>
+                  <tr className="text-[#8e909f] border-b border-[#444653]/30">
+                    <th className="py-2 px-3 w-[180px]">对手方编码 / 名称</th>
+                    <th className="py-2 px-2 w-[90px] text-center">归属</th>
+                    <th className="py-2 px-2 w-[60px] text-center">合同数</th>
+                    <th className="py-2 px-2 w-[110px] text-right">合同金额</th>
+                    <th className="py-2 px-2 w-[80px] text-right">进项发票 / 税额</th>
+                    <th className="py-2 px-2 w-[80px] text-right">销项发票 / 税额</th>
+                    <th className="py-2 px-2 w-[80px] text-right">收款 / 付款</th>
+                    <th className="py-2 px-2 w-[90px] text-right">外部成本</th>
+                    <th className="py-2 px-2 w-[70px] text-right">履约记录</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredCounterparties.length === 0 && (
+                    <tr>
+                      <td colSpan={9} className="py-3 px-3 text-[#8e909f] text-center">
+                        当前筛选条件下没有对手方。
+                      </td>
+                    </tr>
+                  )}
+                  {filteredCounterparties.map(party => (
+                    <tr key={party.partyCode} className="border-b border-[#444653]/20 hover:bg-[#131b2e]/40">
+                      <td className="py-2 px-3">
+                        <div className="font-semibold text-[#dae2fd] break-all" title={party.partyCode}>{party.partyCode}</div>
+                        <div className="text-[11px] text-[#8e909f] break-words whitespace-normal" title={party.partyName}>{party.partyName}</div>
+                      </td>
+                      <td className="py-2 px-2 text-center">
+                        {party.isInternal ? (
+                          <span className="inline-flex items-center gap-1 text-[11px] text-[#10B981] bg-[#10B981]/15 px-2 py-0.5 rounded border border-[#10B981]/30 font-medium">
+                            🏢 系统内
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-[11px] text-[#a78bfa] bg-[#8b5cf6]/15 px-2 py-0.5 rounded border border-[#8b5cf6]/30 font-medium">
+                            🌐 系统外
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-2 px-2 text-center text-[#dae2fd]">{party.contractCount}</td>
+                      <td className="py-2 px-2 text-right text-[#dae2fd]">¥ {party.contractAmount.toLocaleString('zh-CN')}</td>
+                      <td className="py-2 px-2 text-right">
+                        <div className="text-[#dae2fd]">{party.invoiceInCount} 张</div>
+                        <div className="text-[11px] text-[#4cd7f6]">税额 ¥ {party.invoiceInVat.toLocaleString('zh-CN')}</div>
+                      </td>
+                      <td className="py-2 px-2 text-right">
+                        <div className="text-[#dae2fd]">{party.invoiceOutCount} 张</div>
+                        <div className="text-[11px] text-[#4cd7f6]">税额 ¥ {party.invoiceOutVat.toLocaleString('zh-CN')}</div>
+                      </td>
+                      <td className="py-2 px-2 text-right">
+                        <div className="text-[#dae2fd]">收 ¥ {party.cashflowInAmount.toLocaleString('zh-CN')}</div>
+                        <div className="text-[11px] text-[#ffb4ab]">付 ¥ {party.cashflowOutAmount.toLocaleString('zh-CN')}</div>
+                      </td>
+                      <td className="py-2 px-2 text-right">
+                        <div className="text-[#a78bfa]">{party.realCostCount} 笔</div>
+                        <div className="text-[11px] text-[#a78bfa]">¥ {party.realCostAmount.toLocaleString('zh-CN')}</div>
+                      </td>
+                      <td className="py-2 px-2 text-right">
+                        <div className="text-[#dae2fd]">{party.fulfillmentCount} 条</div>
+                        <div className="text-[11px] text-[#8e909f]">¥ {party.fulfillmentAmount.toLocaleString('zh-CN')}</div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
       </section>
 
       {/* 模块 3: 成本渗透率矩阵 (工作任务分解结构 - 还原 Image 1 底部表格) */}

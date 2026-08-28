@@ -28,7 +28,10 @@ CANONICAL_ENTITY_CODES = frozenset(
 )
 BUSINESS_ROLE_CODES = frozenset({"A", "B", "C", "D"})
 VIRTUAL_ENTITY_CODES = frozenset({"A", "B", "C", "D", "甲", "乙", "丙", "丁"})
-_CANONICAL_ENTITY_CODE_RE = re.compile(r"^(?:A(?:0[1-9]|1[01])|B(?:0[1-9]|10)|C(?:0[1-2])|D(?:0[1-3]))$")
+_CANONICAL_ENTITY_CODE_RE = re.compile(
+    r"^(?:A(?:0[1-9]|1[01])|B(?:0[1-9]|10)|C(?:0[1-2])|D(?:0[1-3])|EXT-[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*|E[A-D](?:0[1-9]|[1-9]\d)?)$",
+    re.IGNORECASE,
+)
 
 
 def normalize_entity_code(value: str | None) -> str | None:
@@ -38,11 +41,22 @@ def normalize_entity_code(value: str | None) -> str | None:
 
 def is_canonical_entity_code(value: str | None) -> bool:
     code = normalize_entity_code(value)
-    return bool(code and code in CANONICAL_ENTITY_CODES and _CANONICAL_ENTITY_CODE_RE.fullmatch(code))
+    return bool(
+        code
+        and (
+            code in CANONICAL_ENTITY_CODES
+            or code.startswith("EXT-")
+            or code.startswith("EA")
+            or code.startswith("EB")
+            or code.startswith("EC")
+            or code.startswith("ED")
+        )
+        and _CANONICAL_ENTITY_CODE_RE.fullmatch(code)
+    )
 
 
 _ENTITY_CODE_RE = re.compile(
-    r"(?<![A-Za-z0-9])(?:A(?:0[1-9]|1[01])|B(?:0[1-9]|10)|C(?:0[1-2])|D(?:0[1-3]))(?![A-Za-z0-9])",
+    r"(?<![A-Za-z0-9])(?:A(?:0[1-9]|1[01])|B(?:0[1-9]|10)|C(?:0[1-2])|D(?:0[1-3])|EXT-[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*|E[A-D](?:0[1-9]|[1-9]\d)?)(?![A-Za-z0-9])",
     re.IGNORECASE,
 )
 _TAX_ID_RE = re.compile(r"(?<![A-Za-z0-9])[0-9A-Z]{18}(?![A-Za-z0-9])", re.IGNORECASE)
@@ -174,7 +188,7 @@ def _load_runtime_entity_cache() -> list[dict[str, Any]]:
 
     try:
         from ..db import SessionLocal
-        from ..models import Entity
+        from ..models import Entity, ExternalParty
 
         with SessionLocal() as db:
             entities = db.scalars(
@@ -182,25 +196,33 @@ def _load_runtime_entity_cache() -> list[dict[str, Any]]:
                 .where(func.lower(Entity.status) == "active")
                 .order_by(Entity.entity_code, Entity.id)
             ).all()
+            
+            ext_parties = db.scalars(
+                select(ExternalParty)
+                .where(ExternalParty.active == True)
+            ).all()
+            
+            entities = list(entities) + list(ext_parties)
 
             rows: list[dict[str, Any]] = []
             for entity in entities:
-                code = normalize_entity_code(entity.entity_code)
+                raw_code = getattr(entity, "entity_code", getattr(entity, "code", ""))
+                code = normalize_entity_code(raw_code)
                 if not code or not is_canonical_entity_code(code):
                     continue
                 rows.append({
                     "entity_code": code,
                     "name": entity.name or "",
                     "short_name": entity.short_name or "",
-                    "business_role": entity.business_role or code[0],
-                    "entity_kind": entity.entity_kind or ("branch" if code == "A04" else "company"),
-                    "legal_entity": entity.legal_entity,
-                    "parent_entity_code": entity.parent_entity_code,
-                    "status": entity.status or "active",
+                    "business_role": getattr(entity, "business_role", None) or ("E" if code.startswith("EXT-") else code[0]),
+                    "entity_kind": getattr(entity, "entity_kind", "external") or ("branch" if code == "A04" else "company"),
+                    "legal_entity": getattr(entity, "legal_entity", True),
+                    "parent_entity_code": getattr(entity, "parent_entity_code", None),
+                    "status": getattr(entity, "status", "active") or "active",
                     # ``tax_id`` is canonical; the legacy unified-code
                     # column is retained only as a compatibility read.
-                    "tax_id": entity.tax_id or entity.unified_social_credit_code or "",
-                    "unified_social_credit_code": entity.unified_social_credit_code or "",
+                    "tax_id": getattr(entity, "tax_id", "") or getattr(entity, "unified_social_credit_code", "") or "",
+                    "unified_social_credit_code": getattr(entity, "unified_social_credit_code", "") or "",
                 })
             return rows
     except (ImportError, OSError, SQLAlchemyError) as exc:
@@ -367,56 +389,83 @@ def infer_from_filename(
 
     # Resolve a real code only after checking the canonical cache.  Multiple
     # different codes in one filename are ambiguous and remain unresolved.
+    # 收集所有的实体引用（包括代码、税号、名称）并统一解析
     code_candidates = {m.group(0).upper() for m in _ENTITY_CODE_RE.finditer(name)}
-    if len(code_candidates) == 1:
-        candidate = next(iter(code_candidates))
-        result["entity_code_candidate"] = candidate
-        resolved = resolve_entity_reference(candidate, rows)
-        result["entity_resolution_status"] = resolved["status"]
-        if resolved["status"] == "RESOLVED":
-            result["entity_code"] = resolved["entity_code"]
-            result["entity_name"] = resolved.get("name", "")
-            result["entity_tax_id"] = resolved.get("tax_id", "")
-            result["entity_match_source"] = "code"
-            result["business_role"] = result["business_role"] or resolved.get("business_role", "")
-            result["confidence"] += 0.08
-    elif len(code_candidates) > 1:
+    if code_candidates:
         result["entity_code_candidate"] = ",".join(sorted(code_candidates))
-        result["entity_resolution_status"] = "CONFLICT"
+    
+    tax_ids = list(dict.fromkeys(_TAX_ID_RE.findall(name)))
+    
+    name_matches = {
+        candidate_name
+        for row in rows
+        for candidate_name in (
+            str(row.get("name") or "").strip(),
+            str(row.get("short_name") or "").strip(),
+        )
+        if candidate_name and candidate_name in name
+    }
+    
+    # 统一把所有匹配到的候选合并解析（按在文件名中的出现顺序排序）
+    def _pos_in_name(token: str) -> int:
+        idx = name.find(token)
+        return idx if idx >= 0 else 99999
 
-    # A tax id or exact canonical company name may resolve the entity when no
-    # code was printed.  Tax id/name matches are unique-only by design.
-    references: list[tuple[str, str]] = [(tax_id, "tax_id") for tax_id in dict.fromkeys(_TAX_ID_RE.findall(name))]
-    if not references:
-        name_matches = {
-            candidate_name
-            for row in rows
-            for candidate_name in (
-                str(row.get("name") or "").strip(),
-                str(row.get("short_name") or "").strip(),
-            )
-            if candidate_name and candidate_name in name
-        }
-        references = [(item, "name") for item in sorted(name_matches, key=len, reverse=True)]
+    sorted_codes = sorted(code_candidates, key=_pos_in_name)
+    all_refs = [(c, "code") for c in sorted_codes] + [(t, "tax_id") for t in tax_ids] + [(n, "name") for n in sorted(name_matches, key=len, reverse=True)]
 
-    for reference, source in references:
-        resolved = resolve_entity_reference(reference, rows)
-        if resolved["status"] != "RESOLVED":
-            if result["entity_resolution_status"] == "UNRESOLVED":
-                result["entity_resolution_status"] = resolved["status"]
-            continue
-        if result["entity_code"] and result["entity_code"] != resolved["entity_code"]:
-            result["entity_resolution_status"] = "CONFLICT"
-            result["entity_code"] = ""
-            result["entity_match_source"] = ""
-            break
-        result["entity_code"] = resolved["entity_code"]
-        result["entity_name"] = resolved.get("name", "")
-        result["entity_tax_id"] = resolved.get("tax_id", "")
-        result["entity_match_source"] = source
+    resolved_entities = {}
+    for ref, source in all_refs:
+        r = resolve_entity_reference(ref, rows)
+        if r["status"] == "RESOLVED" and r["entity_code"] not in resolved_entities:
+            resolved_entities[r["entity_code"]] = (r, source)
+
+    resolved_list = list(resolved_entities.values())
+
+    if len(resolved_list) == 1:
+        r, source = resolved_list[0]
+        code = r["entity_code"]
+        role = r.get("business_role", "")
+        if code.startswith("EXT-") or code.startswith("E") or role in ("C", "D"):
+            result["counterparty_code"] = code
+            result["counterparty_name"] = r.get("name", "")
+            result["counterparty_tax_id"] = r.get("tax_id", "")
+            result["counterparty_resolution_status"] = "RESOLVED"
+            result["entity_resolution_status"] = "UNRESOLVED"
+        else:
+            result["entity_code"] = code
+            result["entity_name"] = r.get("name", "")
+            result["entity_tax_id"] = r.get("tax_id", "")
+            result["entity_match_source"] = source
+            result["entity_resolution_status"] = "RESOLVED"
+            result["business_role"] = role
+            result["confidence"] += 0.08
+
+    elif len(resolved_list) >= 2:
+        r1, src1 = resolved_list[0]
+        r2, src2 = resolved_list[1]
+        c1, c2 = r1["entity_code"], r2["entity_code"]
+
+        if (c1.startswith("EXT-") or c1.startswith("E") or r1.get("business_role") in ("C", "D")) and not (c2.startswith("EXT-") or c2.startswith("E")):
+            r1, r2 = r2, r1
+            src1, src2 = src2, src1
+
+        result["entity_code"] = r1["entity_code"]
+        result["entity_name"] = r1.get("name", "")
+        result["entity_tax_id"] = r1.get("tax_id", "")
+        result["entity_match_source"] = src1
         result["entity_resolution_status"] = "RESOLVED"
-        result["business_role"] = result["business_role"] or resolved.get("business_role", "")
-        result["confidence"] += 0.08
+        result["business_role"] = r1.get("business_role", "")
+        result["confidence"] += 0.12
+
+        result["counterparty_code"] = r2["entity_code"]
+        result["counterparty_name"] = r2.get("name", "")
+        result["counterparty_tax_id"] = r2.get("tax_id", "")
+        result["counterparty_resolution_status"] = "RESOLVED"
+
+    elif all_refs:
+        result["entity_resolution_status"] = "UNRESOLVED"
+
 
     # Never turn 甲乙丙丁 into a counterparty code.  The marker is retained
     # only as an unresolved/rejected signal for audit; actual counterparties
@@ -454,8 +503,10 @@ def refine_from_content(
     if not text:
         return current
 
-    # Use filename inference on a cleaned version of the text
-    sample = text.replace("\n", " ")[:500]
+    # Use filename inference on a cleaned version of the text.
+    # Replace slashes and dots so Path(filename).stem inside infer_from_filename
+    # doesn't truncate the preview text.
+    sample = text.replace("\n", " ").replace("/", " ").replace(".", " ")[:500]
     probe = infer_from_filename(sample, canonical_cache=canonical_cache)
 
     out = dict(current)

@@ -117,9 +117,9 @@
     </div>
 
     <div class="citation-meta">
-      <span class="badge badge-muted">{{ x.document_type }}</span>
-      <span>归属单位: <b style="color: var(--text-secondary)">{% if x.entity_code and entity_by_code.get(x.entity_code) %}{{ x.entity_code }} · {{ entity_by_code.get(x.entity_code).name }}{% else %}待核实{% endif %}</b> / 交易方: <b style="color: var(--text-secondary)">{{ x.counterparty_code or '未解析外部单位' }}</b></span>
-      <span>分类: <b style="color: var(--text-secondary)">{{ x.business_category or '-' }}</b></span>
+      <span class="badge badge-muted">{{ x.document_type | doc_type_name if x.document_type else "未指定" }}</span>
+      <span>本方主体: <b style="color: var(--text-secondary)">{% if x.entity_code and entity_by_code.get(x.entity_code) %}{{ entity_by_code.get(x.entity_code).name }}{% else %}待核实{% endif %}</b> / 往来对手: <b style="color: var(--text-secondary)">{% if x.counterparty_code and entity_by_code.get(x.counterparty_code) %}{{ entity_by_code.get(x.counterparty_code).name }}{% else %}{{ x.counterparty_code or '未指定' }}{% endif %}</b></span>
+      <span>分类: <b style="color: var(--text-secondary)">{{ x.business_category | category_name if x.business_category else '-' }}</b></span>
       <span class="badge badge-purple font-mono">
         {% if x.page_start %}
         第 {{ x.page_start }}{% if x.page_end and x.page_end != x.page_start %}-{{ x.page_end }}{% endif %} 页
@@ -130,13 +130,37 @@
       <span style="color: var(--accent-cyan); font-weight: 600;">{{ x.heading_path or '正文内容' }}</span>
     </div>
 
-    <div class="citation-text">
-      {{ x.text[:1200] }}
+    <div class="citation-text" style="display:flex; flex-direction:column; gap:8px;">
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; background: rgba(0,0,0,0.15); padding: 12px; border-radius: var(--radius-sm);">
+        <div><span style="color: var(--text-muted);">本方主体 (甲方):</span> <strong style="color: var(--text-primary);">{% if x.entity_code and entity_by_code.get(x.entity_code) %}{{ entity_by_code.get(x.entity_code).name }}{% else %}{{ x.entity_code or '-' }}{% endif %}</strong></div>
+        <div>
+          <span style="color: var(--text-muted);">交易对方 (乙方):</span>
+          <strong style="color: var(--text-primary);">
+            {% if x.counterparty_code and entity_by_code.get(x.counterparty_code) %}
+              {{ entity_by_code.get(x.counterparty_code).name }}
+              {% if entity_by_code.get(x.counterparty_code).is_external %}
+                <span class="badge badge-purple" style="font-size: 10px; padding: 1px 5px; margin-left: 4px;">系统外</span>
+              {% else %}
+                <span class="badge badge-cyan" style="font-size: 10px; padding: 1px 5px; margin-left: 4px;">系统内</span>
+              {% endif %}
+            {% else %}
+              {{ x.counterparty_code or '-' }}
+            {% endif %}
+          </strong>
+        </div>
+        <div><span style="color: var(--text-muted);">相关金额:</span> <strong style="color: var(--accent-emerald);">¥{{ '{:,.2f}'.format(x.tax_total) if x.tax_total else '0.00' }}</strong></div>
+        <div><span style="color: var(--text-muted);">合同编号:</span> <strong style="color: var(--text-primary);">{{ x.contract_no or '-' }}</strong></div>
+        <div><span style="color: var(--text-muted);">发票/单据号:</span> <strong style="color: var(--text-primary);">{{ x.invoice_no or '-' }}</strong></div>
+        <div><span style="color: var(--text-muted);">单据日期:</span> <strong style="color: var(--text-primary);">{{ x.document_date or '-' }}</strong></div>
+      </div>
+      <div style="font-size: 12px; color: var(--text-secondary); margin-top: 8px; max-height: 48px; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;">
+        <strong>摘要：</strong>{{ x.text[:300] }}...
+      </div>
     </div>
 
-    <div style="display: flex; justify-content: flex-end;">
-      <a href="/documents/{{ x.document_id }}" class="btn btn-sm btn-secondary">
-        <span>查看完整文档与上下文 →</span>
+    <div style="display: flex; justify-content: flex-end; margin-top: 16px;">
+      <a href="/documents/{{ x.document_id }}?highlight={{ q | urlencode }}" class="btn btn-primary" style="padding: 12px 28px; font-size: 15px; font-weight: bold; border-radius: 8px; box-shadow: 0 4px 15px rgba(6,182,212,0.3);">
+        <span>📄 查看完整文档与上下文 →</span>
       </a>
     </div>
   </div>

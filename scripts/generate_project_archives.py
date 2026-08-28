@@ -157,7 +157,7 @@ def apply_scanner_photocopy_texture(img, is_color=True, noise_level=12, contrast
     return img
 
 
-def create_simulated_scan_jpg(filepath, title, key_rows, stamp_entity="四川锐宝建设工程有限公司", stamp_type="合同专用章", doc_no="", extra_notes=None):
+def create_simulated_scan_jpg(filepath, title, key_rows, stamp_entity="四川锐宝建设工程有限公司", stamp_type="合同专用章", doc_no="", extra_notes=None, archive_date_str=None):
     w, h = 1600, 2260
     bg_color = (252, 252, 250)
     img = Image.new('RGB', (w, h), color=bg_color)
@@ -203,7 +203,8 @@ def create_simulated_scan_jpg(filepath, title, key_rows, stamp_entity="四川锐
     stamp_y = h - 420
     draw.text((left_x + 50, stamp_y), "经办人签字:  陈建国 (已核)", font=bold_font, fill=(40, 40, 40))
     draw.text((left_x + 50, stamp_y + 50), "项目财务主管: 王晓敏 (已审)", font=bold_font, fill=(40, 40, 40))
-    draw.text((left_x + 50, stamp_y + 100), f"归档日期:     {date.today().strftime('%Y年%m月%d日')}", font=text_font, fill=(80, 80, 80))
+    arch_date = archive_date_str or date.today().strftime('%Y年%m月%d日')
+    draw.text((left_x + 50, stamp_y + 100), f"归档日期:     {arch_date}", font=text_font, fill=(80, 80, 80))
     
     stamp_center = (w - 380, stamp_y + 80)
     draw_circular_stamp(draw, stamp_entity, stamp_type, center=stamp_center, radius=130, color=(210, 40, 40))
@@ -351,7 +352,7 @@ def get_doc_styles():
     }
 
 
-def create_pdf_contract(filepath, title, party_a_code, party_b_code, project_name, contract_no, amount_yuan, category, key_terms):
+def create_pdf_contract(filepath, title, party_a_code, party_b_code, project_name, contract_no, amount_yuan, category, key_terms, sign_date="2023年01月15日"):
     doc = SimpleDocTemplate(
         filepath,
         pagesize=A4,
@@ -406,8 +407,8 @@ def create_pdf_contract(filepath, title, party_a_code, party_b_code, project_nam
     story.append(Spacer(1, 15))
     story.append(Paragraph("<b>签约双方盖章与法人签字（原件存档）：</b>", styles['cell_bold']))
     sign_table = [
-        [Paragraph(f"<b>发包人 (甲方)：</b>{party_a}<br/>法定代表人 (或委托代理人)：陈建国<br/>开户行：{ENTITIES.get(party_a_code, {}).get('bank', '建设银行')}<br/>账号：{ENTITIES.get(party_a_code, {}).get('acc', '5100000000000001')}<br/>日期：2026年01月15日", styles['cell']),
-         Paragraph(f"<b>承包人 (乙方)：</b>{party_b}<br/>法定代表人 (或委托代理人)：李德海<br/>开户行：{ENTITIES.get(party_b_code, {}).get('bank', '工商银行')}<br/>账号：{ENTITIES.get(party_b_code, {}).get('acc', '5100000000000002')}<br/>日期：2026年01月15日", styles['cell'])]
+        [Paragraph(f"<b>发包人 (甲方)：</b>{party_a}<br/>法定代表人 (或委托代理人)：陈建国<br/>开户行：{ENTITIES.get(party_a_code, {}).get('bank', '建设银行')}<br/>账号：{ENTITIES.get(party_a_code, {}).get('acc', '5100000000000001')}<br/>日期：{sign_date}", styles['cell']),
+         Paragraph(f"<b>承包人 (乙方)：</b>{party_b}<br/>法定代表人 (或委托代理人)：李德海<br/>开户行：{ENTITIES.get(party_b_code, {}).get('bank', '工商银行')}<br/>账号：{ENTITIES.get(party_b_code, {}).get('acc', '5100000000000002')}<br/>日期：{sign_date}", styles['cell'])]
     ]
     st = Table(sign_table, colWidths=[243, 243])
     st.setStyle(TableStyle([
@@ -421,7 +422,7 @@ def create_pdf_contract(filepath, title, party_a_code, party_b_code, project_nam
     doc.build(story, canvasmaker=NumberedCanvas)
 
 
-def create_pdf_tax_invoice_sheet(filepath, invoice_no, seller_code, buyer_code, project_name, amount_no_tax, tax_amt, tax_rate, items_list, is_paid=True, is_tax_settled=True):
+def create_pdf_tax_invoice_sheet(filepath, invoice_no, seller_code, buyer_code, project_name, amount_no_tax, tax_amt, tax_rate, items_list, is_paid=True, is_tax_settled=True, invoice_date="2024-03-20"):
     doc = SimpleDocTemplate(filepath, pagesize=A4, leftMargin=54, rightMargin=54, topMargin=54, bottomMargin=54)
     styles = get_doc_styles()
     story = []
@@ -431,7 +432,7 @@ def create_pdf_tax_invoice_sheet(filepath, invoice_no, seller_code, buyer_code, 
     total_val = amount_no_tax + tax_amt
     
     story.append(Paragraph(f"四川增值税专用发票结算与完税明细表", styles['title']))
-    story.append(Paragraph(f"<b>发票号码：</b>{invoice_no} &nbsp;&nbsp;&nbsp;&nbsp; <b>开票日期：</b>2026-03-20 &nbsp;&nbsp;&nbsp;&nbsp; <b>校验码：</b>98234 10293 84728 19284", styles['cell_bold']))
+    story.append(Paragraph(f"<b>发票号码：</b>{invoice_no} &nbsp;&nbsp;&nbsp;&nbsp; <b>开票日期：</b>{invoice_date} &nbsp;&nbsp;&nbsp;&nbsp; <b>校验码：</b>98234 10293 84728 19284", styles['cell_bold']))
     story.append(HRFlowable(width="100%", thickness=1.5, color=colors.HexColor('#1565C0'), spaceBefore=4, spaceAfter=10))
     
     head_table = [
@@ -514,7 +515,7 @@ def create_pdf_tax_invoice_sheet(filepath, invoice_no, seller_code, buyer_code, 
     doc.build(story, canvasmaker=NumberedCanvas)
 
 
-def create_pdf_bank_receipt(filepath, flow_no, payer_code, receiver_code, amount_yuan, usage_desc, pay_date="2026-03-22"):
+def create_pdf_bank_receipt(filepath, flow_no, payer_code, receiver_code, amount_yuan, usage_desc, pay_date="2024-03-22"):
     doc = SimpleDocTemplate(filepath, pagesize=A4, leftMargin=54, rightMargin=54, topMargin=54, bottomMargin=54)
     styles = get_doc_styles()
     story = []
@@ -550,7 +551,7 @@ def create_pdf_bank_receipt(filepath, flow_no, payer_code, receiver_code, amount
     doc.build(story, canvasmaker=NumberedCanvas)
 
 
-def create_pdf_weighbridge_logistics_sheet(filepath, project_name, supplier_code, receiver_code, material_name, total_tonnage, truck_count, amount_yuan):
+def create_pdf_weighbridge_logistics_sheet(filepath, project_name, supplier_code, receiver_code, material_name, total_tonnage, truck_count, amount_yuan, logistics_date="2023-06-18"):
     doc = SimpleDocTemplate(filepath, pagesize=A4, leftMargin=54, rightMargin=54, topMargin=54, bottomMargin=54)
     styles = get_doc_styles()
     story = []
@@ -559,7 +560,8 @@ def create_pdf_weighbridge_logistics_sheet(filepath, project_name, supplier_code
     receiver = get_entity_name(receiver_code)
     
     story.append(Paragraph(f"建设工程大宗物资电子地磅计量与入库验收单", styles['title']))
-    story.append(Paragraph(f"<b>工程项目：</b>{project_name} &nbsp;&nbsp;&nbsp;&nbsp; <b>验收批次：</b>PZ-{date.today().strftime('%Y%m%d')}-01", styles['cell_bold']))
+    batch_no = logistics_date.replace("-", "")
+    story.append(Paragraph(f"<b>工程项目：</b>{project_name} &nbsp;&nbsp;&nbsp;&nbsp; <b>验收批次：</b>PZ-{batch_no}-01", styles['cell_bold']))
     story.append(HRFlowable(width="100%", thickness=1.5, color=colors.HexColor('#E65100'), spaceBefore=4, spaceAfter=8))
     
     info = [
@@ -600,7 +602,7 @@ def create_pdf_weighbridge_logistics_sheet(filepath, project_name, supplier_code
             Paragraph(f"{gross:.2f}", styles['cell']),
             Paragraph(f"{tare:.2f}", styles['cell']),
             Paragraph(f"{net:.2f}", styles['cell']),
-            Paragraph(f"2026-03-{random.randint(10,25):02d} {random.randint(8,17):02d}:{random.randint(10,59):02d}", styles['cell']),
+            Paragraph(f"{logistics_date} {random.randint(8,17):02d}:{random.randint(10,59):02d}", styles['cell']),
             Paragraph("李司磅 (签)", styles['cell']),
             Paragraph("1号主料场", styles['cell']),
         ])
@@ -634,7 +636,7 @@ PROJECTS_CONFIG = [
         'city': '成都市',
         'contracts': [
             # 1. 施工总包主合同 (系统外业主 -> 系统内总包)
-            {'title': '建设工程施工总承包主合同', 'seller': 'A08', 'buyer': 'EXT-TF', 'cat': '建筑工程施工总承包', 'amount': 1_450_000_000, 'no': 'CDTF-MAIN-2026-01', 'terms': ['工期720日历天，争创天府杯金奖', '进度款按月申报80%支付，增值税税率9%']},
+            {'title': '建设工程施工总承包主合同', 'seller': 'A08', 'buyer': 'EXT-TF', 'cat': '建筑工程施工总承包', 'amount': 1_450_000_000, 'no': 'CDTF-MAIN-2023-01', 'terms': ['工期1080日历天，争创天府杯金奖', '进度款按月申报80%支付，增值税税率9%']},
             # 2. 系统内 材料 (B01)
             {'title': '大宗高强抗震钢材集采供销合同', 'seller': 'B01', 'buyer': 'A08', 'cat': '材料采购', 'amount': 450_000_000, 'no': 'TF-A08-B01', 'terms': ['HRB400E高强抗震螺纹钢集采', '全量提供电子地磅单与过磅小票，税率13%']},
             # 3. 系统外 外部材料直采 (攀钢集团物资销售)
@@ -662,7 +664,7 @@ PROJECTS_CONFIG = [
         'main_amount': 880_000_000,
         'city': '重庆市',
         'contracts': [
-            {'title': '跨江特大桥基础设施工程施工总承包合同', 'seller': 'A03', 'buyer': 'EXT-CY', 'cat': '建筑工程施工总承包', 'amount': 880_000_000, 'no': 'CYCQ-MAIN-2026-02', 'terms': ['跨省跨区工程（重庆段就地预缴2%增值税）', '川渝两地企业所得税三因素法分摊申报']},
+            {'title': '跨江特大桥基础设施工程施工总承包合同', 'seller': 'A03', 'buyer': 'EXT-CY', 'cat': '建筑工程施工总承包', 'amount': 880_000_000, 'no': 'CYCQ-MAIN-2023-02', 'terms': ['跨省跨区工程（重庆段就地预缴2%增值税）', '川渝两地企业所得税三因素法分摊申报']},
             {'title': '特种耐候桥梁高强厚板钢材供销合同', 'seller': 'B10', 'buyer': 'A03', 'cat': '材料采购', 'amount': 320_000_000, 'no': 'CY-A03-B10', 'terms': ['Q345qD桥梁专用钢板供应', '税率13%']},
             {'title': '外部高强度水下抗冲刷特种混凝土直供合同', 'seller': 'EXT-XN-CONCRETE', 'buyer': 'A03', 'cat': '材料采购', 'amount': 60_000_000, 'no': 'CY-A03-EXT-CONC', 'terms': ['C50水下自密实防腐特种商砼供货', '税率13%']},
             {'title': '高空索塔及深水基础泥瓦特种作业劳务合同', 'seller': 'C02', 'buyer': 'A03', 'cat': '劳务用工', 'amount': 140_000_000, 'no': 'CY-A03-C02', 'terms': ['特种高处作业及水上沉井施工班组实名代发', '税率9%']},
@@ -680,7 +682,7 @@ PROJECTS_CONFIG = [
         'main_amount': 360_000_000,
         'city': '广元市',
         'contracts': [
-            {'title': '水利水运与生态河道综合整治总承包合同', 'seller': 'A10', 'buyer': 'EXT-GY', 'cat': '建筑工程施工总承包', 'amount': 360_000_000, 'no': 'GYLZ-MAIN-2026-03', 'terms': ['河道疏浚、防洪堤防工程与生态景观绿化', '税率9%']},
+            {'title': '水利水运与生态河道综合整治总承包合同', 'seller': 'A10', 'buyer': 'EXT-GY', 'cat': '建筑工程施工总承包', 'amount': 360_000_000, 'no': 'GYLZ-MAIN-2023-03', 'terms': ['河道疏浚、防洪堤防工程与生态景观绿化', '税率9%']},
             {'title': '水利工程专用级配砂石骨料地磅集采合同', 'seller': 'B05', 'buyer': 'A10', 'cat': '材料采购', 'amount': 130_000_000, 'no': 'GY-A10-B05', 'terms': ['广元本地天然砂石骨料供应，全车过磅验收', '税率13%']},
             {'title': '外部生态景观植被与水土保持苗木直采合同', 'seller': 'EXT-GY-FOREST', 'buyer': 'A10', 'cat': '材料采购', 'amount': 15_000_000, 'no': 'GY-A10-EXT-TREE', 'terms': ['生态护坡水生植物与景观绿化林木供销', '税率9%']},
             {'title': '水利河道清淤开挖及边坡加固劳务用工合同', 'seller': 'C01', 'buyer': 'A10', 'cat': '劳务用工', 'amount': 45_000_000, 'no': 'GY-A10-C01', 'terms': ['清淤班组实名代发', '税率9%']},
@@ -698,7 +700,7 @@ PROJECTS_CONFIG = [
         'main_amount': 180_000_000,
         'city': '成都市',
         'contracts': [
-            {'title': '110kV变电站及配电微网工程总承包合同', 'seller': 'A07', 'buyer': 'EXT-GX', 'cat': '建筑工程施工总承包', 'amount': 180_000_000, 'no': 'CDGX-MAIN-2026-04', 'terms': ['110kV智能变电站设备安装与电缆敷设', '税率9%']},
+            {'title': '110kV变电站及配电微网工程总承包合同', 'seller': 'A07', 'buyer': 'EXT-GX', 'cat': '建筑工程施工总承包', 'amount': 180_000_000, 'no': 'CDGX-MAIN-2023-04', 'terms': ['110kV智能变电站设备安装与电缆敷设', '税率9%']},
             {'title': '高低压交联电力电缆与成套配电柜集采合同', 'seller': 'B08', 'buyer': 'A07', 'cat': '材料采购', 'amount': 65_000_000, 'no': 'GX-A07-B08', 'terms': ['特种阻燃铜芯电缆及高压GIS开关柜', '税率13%']},
             {'title': '外部高压微网继电保护成套智能装置供销合同', 'seller': 'EXT-ABB-ELECTRIC', 'buyer': 'A07', 'cat': '材料采购', 'amount': 28_000_000, 'no': 'GX-A07-EXT-NARI', 'terms': ['特种数字微网变流变压智能装置', '税率13%']},
             {'title': '电气安装五金工具与接地防雷辅材供应合同', 'seller': 'B02', 'buyer': 'A07', 'cat': '材料采购', 'amount': 20_000_000, 'no': 'GX-A07-B02', 'terms': ['铜排、接地极及绝缘辅材供销', '税率13%']},
@@ -716,7 +718,7 @@ PROJECTS_CONFIG = [
         'main_amount': 250_000_000,
         'city': '格尔木市',
         'contracts': [
-            {'title': '盐湖工业园区特种耐腐仓储设施总承包合同', 'seller': 'A01', 'buyer': 'EXT-GEM', 'cat': '建筑工程施工总承包', 'amount': 250_000_000, 'no': 'QYGEM-MAIN-2026-05', 'terms': ['高原高寒盐雾腐蚀特种防腐仓储厂房', '税率9%']},
+            {'title': '盐湖工业园区特种耐腐仓储设施总承包合同', 'seller': 'A01', 'buyer': 'EXT-GEM', 'cat': '建筑工程施工总承包', 'amount': 250_000_000, 'no': 'QYGEM-MAIN-2023-05', 'terms': ['高原高寒盐雾腐蚀特种防腐仓储厂房', '税率9%']},
             {'title': '高寒特种耐低温保温材料直采供销合同', 'seller': 'B09', 'buyer': 'A01', 'cat': '材料采购', 'amount': 55_000_000, 'no': 'GEM-A01-B09', 'terms': ['聚氨酯低温保温板与密封结构胶', '税率13%']},
             {'title': '耐腐蚀耐候特种合金钢构件采购合同', 'seller': 'B03', 'buyer': 'A01', 'cat': '材料采购', 'amount': 35_000_000, 'no': 'GEM-A01-B03', 'terms': ['防盐雾耐酸特种涂层钢结构构件', '税率13%']},
             {'title': '外部重型铁路专用卸货线路与轨道接轨分包合同', 'seller': 'EXT-QH-RAILWAY', 'buyer': 'A01', 'cat': '专业分包', 'amount': 30_000_000, 'no': 'GEM-A01-EXT-RAIL', 'terms': ['盐湖铁路专线接入与装卸站台施工', '税率9%']},
@@ -736,7 +738,7 @@ PROJECTS_CONFIG = [
         'main_amount': 100_000_000,
         'city': '宜宾市',
         'contracts': [
-            {'title': '宜宾三江示范工业园厂房总承包合同', 'seller': 'A08', 'buyer': 'EXT-YB', 'cat': '建筑工程施工总承包', 'amount': 100_000_000, 'no': 'YBDEMO-MAIN-2026-06', 'terms': ['标准轻钢厂房与配套综合用房', '税率9%']},
+            {'title': '宜宾三江示范工业园厂房总承包合同', 'seller': 'A08', 'buyer': 'EXT-YB', 'cat': '建筑工程施工总承包', 'amount': 100_000_000, 'no': 'YBDEMO-MAIN-2023-06', 'terms': ['标准轻钢厂房与配套综合用房', '税率9%']},
             {'title': '主体工程建筑劳务用工分包合同', 'seller': 'C01', 'buyer': 'A08', 'cat': '劳务用工', 'amount': 8_000_000, 'no': 'YB-B-001', 'terms': ['劳务班组实名代发', '税率9%']},
             {'title': '商品混凝土及砌体材料集采合同', 'seller': 'B01', 'buyer': 'A08', 'cat': '材料采购', 'amount': 12_000_000, 'no': 'YB-C-001', 'terms': ['预拌混凝土C30/C35供应', '税率13%']},
             {'title': '起重运输及土方施工机械租赁合同', 'seller': 'D01', 'buyer': 'A08', 'cat': '机械租赁', 'amount': 3_000_000, 'no': 'YB-D-001', 'terms': ['挖掘机及装载机设备台班', '税率13%']},
@@ -750,7 +752,7 @@ PROJECTS_CONFIG = [
 
 def generate_all_archives():
     print("=" * 70)
-    print("  🚀 开始为成都建工 6 大标杆工程全覆盖生成全套真实归档资料与四流凭证...")
+    print("  🚀 开始为成都建工 6 大标杆工程全覆盖生成全套真实归档资料与四流凭证 (2023-2026 三年期)...")
     print("=" * 70)
     
     total_files = 0
@@ -774,11 +776,13 @@ def generate_all_archives():
             
         print(f"\n[{p_idx}/6] 正在构建项目档案: {p['name']} ({p['code']})...")
         
+        # 1. 主合同与中标批文 (2023年01月 开工)
         main_c = p['contracts'][0]
         main_pdf = os.path.join(cat_dirs['01_主合同与发包批文'], f"{main_c['no']}_建设工程施工总承包主合同.pdf")
         create_pdf_contract(
             main_pdf, main_c['title'], main_c['buyer'], main_c['seller'],
-            p['name'], main_c['no'], main_c['amount'], main_c['cat'], main_c['terms']
+            p['name'], main_c['no'], main_c['amount'], main_c['cat'], main_c['terms'],
+            sign_date="2023年01月15日"
         )
         total_files += 1
         
@@ -793,16 +797,17 @@ def generate_all_archives():
                 ("中标总包单位", get_entity_name(main_c['seller'])),
                 ("中标合同金额", f"¥ {main_c['amount']:,.2f} 元"),
                 ("履约担保方式", "银行见索即付不可撤销保函 (保函金额 10%)"),
-                ("计划建设工期", "2026年01月15日 - 2028年01月15日"),
+                ("计划建设工期", "2023年01月15日 - 2026年01月15日 (36日历月)"),
                 ("工程质量目标", "四川省建设工程‘天府杯’金奖 / 鲁班奖参评"),
             ],
             stamp_entity=get_entity_name(main_c['buyer']),
             stamp_type="发包招投标专用章",
-            doc_no=f"ZB-{p['code']}-2026",
+            doc_no=f"ZB-{p['code']}-2023",
             extra_notes=[
                 "发包人确认：招标程序合规，中标通知书具有完全法律效力；",
                 "总承包人已提交足额履约担保，准予进场开工并办理施工许可证。"
-            ]
+            ],
+            archive_date_str="2023年01月18日"
         )
         total_files += 1
 
@@ -810,6 +815,32 @@ def generate_all_archives():
             cat = c['cat']
             amount = c['amount']
             no = c['no']
+            
+            # 分配 2023 / 2024 / 2025 年份
+            if c_idx in (1, 2):
+                # 2023年 基础施工与前期材料
+                sign_d_str = f"2023年{3 + c_idx:02d}月18日"
+                inv_d_str = f"2023年{6 + c_idx:02d}月20日"
+                inv_d_iso = f"2023-{6 + c_idx:02d}-20"
+                pay_d_iso = f"2023-{6 + c_idx:02d}-25"
+                logistics_d_iso = f"2023-{6 + c_idx:02d}-15"
+                arch_d_str = f"2023年{6 + c_idx:02d}月28日"
+            elif c_idx in (3, 4, 5):
+                # 2024年 主体结构施工、大型塔吊与劳务高峰
+                sign_d_str = f"2024年{c_idx - 1:02d}月15日"
+                inv_d_str = f"2024年{c_idx + 3:02d}月18日"
+                inv_d_iso = f"2024-{c_idx + 3:02d}-18"
+                pay_d_iso = f"2024-{c_idx + 3:02d}-22"
+                logistics_d_iso = f"2024-{c_idx + 3:02d}-10"
+                arch_d_str = f"2024年{c_idx + 3:02d}月25日"
+            else:
+                # 2025年 机电弱电、钢结构网架、特种电力与装饰分包
+                sign_d_str = f"2025年{c_idx - 5:02d}月10日"
+                inv_d_str = f"2025年{min(c_idx + 1, 12):02d}月22日"
+                inv_d_iso = f"2025-{min(c_idx + 1, 12):02d}-22"
+                pay_d_iso = f"2025-{min(c_idx + 1, 12):02d}-28"
+                logistics_d_iso = f"2025-{min(c_idx + 1, 12):02d}-15"
+                arch_d_str = f"2025年{min(c_idx + 1, 12):02d}月30日"
             
             if '劳务' in cat:
                 target_dir = cat_dirs['03_劳务用工与用工结算']
@@ -823,7 +854,8 @@ def generate_all_archives():
             c_pdf = os.path.join(target_dir, f"{no}_{c['title']}.pdf")
             create_pdf_contract(
                 c_pdf, c['title'], c['buyer'], c['seller'],
-                p['name'], no, amount, cat, c['terms']
+                p['name'], no, amount, cat, c['terms'],
+                sign_date=sign_d_str
             )
             total_files += 1
             
@@ -837,6 +869,7 @@ def generate_all_archives():
                     ("发包/采购方", get_entity_name(c['buyer'])),
                     ("承包/供应方", get_entity_name(c['seller'])),
                     ("签约暂定金额", f"¥ {amount:,.2f} 元"),
+                    ("签约执行日期", sign_d_str),
                     ("发票开具税率", "13% (物资/纯租赁) / 9% (建筑施工劳务) / 6% (技术服务)"),
                     ("结算支付进度", "按月度核定形象进度 80% 支付，留存3%保修金"),
                 ],
@@ -846,11 +879,13 @@ def generate_all_archives():
                 extra_notes=[
                     "严格执行合同流、资金流、发票流、货物流/劳务流四流一致性审核；",
                     "开票单位与收款银行账户必须与本合同签署主体完全一致。"
-                ]
+                ],
+                archive_date_str=arch_d_str
             )
             total_files += 1
 
-            inv_no = f"2651{random.randint(10000000, 99999999)}"
+            inv_year = inv_d_iso.split("-")[0]
+            inv_no = f"{inv_year[2:]}51{random.randint(10000000, 99999999)}"
             tax_rate = 0.13 if ('材料' in cat or '租赁' in cat) else (0.06 if '服务' in c['title'] else 0.09)
             amount_no_tax = round(amount / (1 + tax_rate), 2)
             tax_amt = round(amount - amount_no_tax, 2)
@@ -863,7 +898,8 @@ def generate_all_archives():
                 inv_pdf, inv_no, c['seller'], c['buyer'], p['name'],
                 amount_no_tax, tax_amt, tax_rate,
                 [[f"*{cat}*{c['title'][:16]}", "批/项", 1, amount_no_tax, amount_no_tax, tax_amt]],
-                is_paid=is_paid, is_tax_settled=is_tax_settled
+                is_paid=is_paid, is_tax_settled=is_tax_settled,
+                invoice_date=inv_d_iso
             )
             total_files += 1
             
@@ -873,7 +909,7 @@ def generate_all_archives():
                 "四川增值税电子专用发票 (全国统一查验平台验证件)",
                 [
                     ("发票代码/号码", f"051002300111 / No.{inv_no}"),
-                    ("开票日期", "2026年03月20日"),
+                    ("开票日期", inv_d_str),
                     ("购买方 (付款人)", get_entity_name(c['buyer'])),
                     ("销售方 (收款人)", get_entity_name(c['seller'])),
                     ("金额 (不含税)", f"¥ {amount_no_tax:,.2f} 元"),
@@ -887,17 +923,19 @@ def generate_all_archives():
                 extra_notes=[
                     "税务稽查核验：发票状态正常，未见作废或红冲记录；",
                     "进项税额已在增值税发票综合服务平台完成抵扣勾选认证。"
-                ]
+                ],
+                archive_date_str=arch_d_str
             )
             total_files += 1
 
             if is_paid:
-                bank_no = f"EBNK20260322{random.randint(100000, 999999)}"
+                bank_date_compact = pay_d_iso.replace("-", "")
+                bank_no = f"EBNK{bank_date_compact}{random.randint(100000, 999999)}"
                 b_pdf = os.path.join(cat_dirs['07_资金结算与银行电子回单'], f"BANK_{no}_{bank_no}_银行支付回单.pdf")
                 create_pdf_bank_receipt(
                     b_pdf, bank_no, c['buyer'], c['seller'],
-                    round(amount * 0.8, 2), f"支付【{p['name']}】项下【{c['title']}】第2期工程进度款",
-                    pay_date=f"2026-03-{random.randint(15, 26):02d}"
+                    round(amount * 0.8, 2), f"支付【{p['name']}】项下【{c['title']}】核定工程进度款",
+                    pay_date=pay_d_iso
                 )
                 total_files += 1
                 
@@ -912,6 +950,7 @@ def generate_all_archives():
                         ("收款账户名称", get_entity_name(c['seller'])),
                         ("收款账号", ENTITIES.get(c['seller'], {}).get('acc', '510000002')),
                         ("交易金额", f"¥ {amount*0.8:,.2f} 元 (支付80%核定进度款)"),
+                        ("交易记账时间", f"{pay_d_iso} 14:35:22"),
                         ("交易状态", "转账成功 · 实时清算入账 (CNAPS)"),
                         ("款项用途", f"工程款/材料款: {c['title']}"),
                     ],
@@ -921,7 +960,8 @@ def generate_all_archives():
                     extra_notes=[
                         "资金流路径验证：款项直接由合同甲方网银对公电汇至乙方合同备案账号；",
                         "无个人卡垫付或第三方过桥交易，资金链路清晰闭环。"
-                    ]
+                    ],
+                    archive_date_str=arch_d_str
                 )
                 total_files += 1
             else:
@@ -935,6 +975,7 @@ def generate_all_archives():
                         ("合同总额", f"¥ {amount:,.2f} 元"),
                         ("本期结算申报金额", f"¥ {amount*0.75:,.2f} 元"),
                         ("目前实际支付金额", "¥ 0.00 元 (挂账应付中)"),
+                        ("申报审批日期", inv_d_str),
                         ("支付审核状态", "⚠️ 业主回款进度滞后，已完成产值确认，待下批资金计划拨付"),
                         ("风险与合规结论", "四流匹配核查：劳务/材料验收已入库，挂账真实，无虚开发票风险"),
                     ],
@@ -944,7 +985,8 @@ def generate_all_archives():
                     extra_notes=[
                         "项目财务已录入应付账款明细台账；",
                         "待发包人对应工程结算款入账后，优先安排该分包单位款项支付。"
-                    ]
+                    ],
+                    archive_date_str=arch_d_str
                 )
                 total_files += 1
 
@@ -954,7 +996,8 @@ def generate_all_archives():
                 w_pdf = os.path.join(cat_dirs['08_物资物流地磅单与入库验收'], f"LOGISTICS_{no}_地磅过磅验收单.pdf")
                 create_pdf_weighbridge_logistics_sheet(
                     w_pdf, p['name'], c['seller'], c['buyer'],
-                    c['title'], tonnage, truck_cnt, amount
+                    c['title'], tonnage, truck_cnt, amount,
+                    logistics_date=logistics_d_iso
                 )
                 total_files += 1
                 
@@ -970,7 +1013,7 @@ def generate_all_archives():
                         ("累计过磅车次", f"{truck_cnt} 车次 (重车进场 / 空车回皮)"),
                         ("累计净重总计", f"{tonnage:,.2f} 吨"),
                         ("现场材料员签字", "周大伟 (现场检尺与外观质量核验合格)"),
-                        ("过磅时间区间", "2026-03-01 至 2026-03-20 全程电子摄像记录"),
+                        ("过磅时间区间", f"{logistics_d_iso} 至 {inv_d_iso} 全程电子摄像记录"),
                     ],
                     stamp_entity=get_entity_name(c['buyer']),
                     stamp_type="项目物资材料专用章",
@@ -978,7 +1021,8 @@ def generate_all_archives():
                     extra_notes=[
                         "过磅称重系统具备红外防作弊与车牌自动识别功能；",
                         "每车称重数据均自动上传集团物资数字化中枢，数据真实闭环。"
-                    ]
+                    ],
+                    archive_date_str=arch_d_str
                 )
                 total_files += 1
             else:
@@ -991,6 +1035,7 @@ def generate_all_archives():
                         ("承包执行主体", get_entity_name(c['seller'])),
                         ("施工部位/作业面", f"【{p['name']}】主体作业标段"),
                         ("现场核验工程量", f"核定合格工程量达标率 100% (金额: ¥{amount*0.8:,.2f}元)"),
+                        ("签证核准日期", inv_d_str),
                         ("安全与技术交底", "班前安全早会交底记录完整，特种作业人员持证上岗"),
                         ("监理旁站验收结论", "经现场实测实量与旁站核验，质量符合设计规范要求，准予计量"),
                     ],
@@ -1000,21 +1045,24 @@ def generate_all_archives():
                     extra_notes=[
                         "专业工序已通过建设、总包、分包、监理四方联合实地复验；",
                         "现场签认单据已归档至工程部数字化质量溯源系统。"
-                    ]
+                    ],
+                    archive_date_str=arch_d_str
                 )
                 total_files += 1
 
         photo1_jpg = os.path.join(cat_dirs['09_现场实景照片与复印件影印本'], f"PHOTO_01_施工现场实景取证_主体形象.jpg")
         create_simulated_site_photo_jpg(
             photo1_jpg, p['name'], "主标段主体结构及施工作业面",
-            "现场塔吊运转正常，工人正在进行钢筋绑扎与模板支设，监理旁站到位。"
+            "现场塔吊运转正常，工人正在进行钢筋绑扎与模板支设，监理旁站到位。",
+            time_str="2024-05-18 10:24:15"
         )
         total_files += 1
 
         photo2_jpg = os.path.join(cat_dirs['09_现场实景照片与复印件影印本'], f"PHOTO_02_物资进场过磅与抽样检测.jpg")
         create_simulated_site_photo_jpg(
             photo2_jpg, p['name'], "物资地磅房及大宗材料卸料堆场",
-            "大宗抗震钢材重车过磅并抽检取样，物资入库单与送货单核对无误。"
+            "大宗抗震钢材重车过磅并抽检取样，物资入库单与送货单核对无误。",
+            time_str="2024-09-22 14:15:30"
         )
         total_files += 1
 
@@ -1024,7 +1072,7 @@ def generate_all_archives():
                 cq_tax_jpg,
                 "国家税务总局 重庆市江北区税务局 跨区税收完税证明",
                 [
-                    ("跨区域涉税事项报告编号", "510104-2026-000128"),
+                    ("跨区域涉税事项报告编号", "510104-2025-000128"),
                     ("异地施工项目名称", "成渝双城经济圈跨江特大桥及连接线工程 (重庆段)"),
                     ("纳税人名称", "四川屹明汇建设工程有限公司重庆分公司 (A04)"),
                     ("计税销售额", "¥ 500,000,000.00 元"),
@@ -1035,11 +1083,12 @@ def generate_all_archives():
                 ],
                 stamp_entity="国家税务总局重庆市江北区税务局征税专用章",
                 stamp_type="征税专用章",
-                doc_no="WS-2026-CQ-009182",
+                doc_no="WS-2025-CQ-009182",
                 extra_notes=[
                     "预缴税款已通过全国财税库银横向联网系统 (TIPS) 实缴入库；",
                     "已生成《跨区域涉税事项反馈表》交回主管税务机关（锦江区税务局）核销抵减。"
-                ]
+                ],
+                archive_date_str="2025年12月28日"
             )
             total_files += 1
 

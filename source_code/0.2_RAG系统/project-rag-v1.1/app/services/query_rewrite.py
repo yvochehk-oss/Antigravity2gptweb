@@ -1,36 +1,31 @@
-def _build_chat_url(base_url: str) -> str:
-    base = (base_url or '').rstrip('/')
-    if base.endswith('/v1'):
-        return f'{base}/chat/completions'
-    return f'{base}/v1/chat/completions'
-
 """Query rewriting and HyDE (Hypothetical Document Embeddings) service.
 
 Provides query optimization via LLM and adaptive HyDE for low-quality retrieval results.
 """
-from dataclasses import dataclass
 import json
+from dataclasses import dataclass
+
 import httpx
 
 from ..config import (
-    ENABLE_QUERY_REWRITE,
     ENABLE_HYDE,
-    REWRITE_LLM_BASE_URL,
-    REWRITE_LLM_MODEL,
-    REWRITE_LLM_API_KEY,
-    REWRITE_MAX_TOKENS,
-    REWRITE_TEMPERATURE,
+    ENABLE_QUERY_REWRITE,
+    HYDE_LLM_API_KEY,
     HYDE_LLM_BASE_URL,
     HYDE_LLM_MODEL,
-    HYDE_LLM_API_KEY,
     HYDE_MAX_TOKENS,
+    LLM_API_KEY,
     LLM_BASE_URL,
     LLM_MODEL,
-    LLM_API_KEY,
+    REWRITE_LLM_API_KEY,
+    REWRITE_LLM_BASE_URL,
+    REWRITE_LLM_MODEL,
+    REWRITE_MAX_TOKENS,
+    REWRITE_TEMPERATURE,
 )
 from ..logging_config import get_logger
 from ..models import is_canonical_entity_code, normalize_entity_code
-from ..security import validate_llm_outbound_url
+from . import llm_pool
 
 logger = get_logger(__name__)
 
@@ -95,6 +90,8 @@ def _call_llm(
     user_prompt: str,
     max_tokens: int,
     temperature: float,
+    *,
+    session=None,
 ) -> str | None:
     """Call an OpenAI-compatible LLM endpoint.
 
@@ -110,49 +107,28 @@ def _call_llm(
     Returns:
         Response text content, or None on any error (timeout, HTTP error, etc.)
     """
-    if not base_url or not model:
-        logger.warning("LLM call skipped: base_url or model not configured")
-        return None
-
-    headers = {"Content-Type": "application/json"}
-    if api_key:
-        headers["Authorization"] = f"Bearer {api_key}"
-
-    payload = {
-        "model": model,
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ],
-        "max_tokens": max_tokens,
-        "temperature": temperature,
-    }
-
     try:
-        # Validate the final chat-completions URL before opening or using the
-        # HTTP client.  Both Rewrite and HyDE (including their dedicated URL
-        # overrides and the shared LLM fallback) reach this single boundary.
-        endpoint = validate_llm_outbound_url(_build_chat_url(base_url))
-        with httpx.Client(timeout=30) as client:
-            response = client.post(
-                endpoint,
-                headers=headers,
-                json=payload,
-            )
-            response.raise_for_status()
-            data = response.json()
-
-        content = data["choices"][0]["message"]["content"]
-        return content.strip()
-
-    except httpx.TimeoutException:
-        logger.warning("LLM call timed out after 30s")
+        result = llm_pool.call_chat(
+            [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            max_tokens=max_tokens,
+            temperature=temperature,
+            routing_group="default",
+            session=session,
+            http_client_factory=httpx.Client,
+            legacy_base_url=base_url,
+            legacy_model=model,
+            legacy_api_key=api_key,
+            legacy_timeout_seconds=30,
+        )
+        return result.text
+    except llm_pool.LLMPoolError as exc:
+        logger.warning("LLM endpoint pool failed: %s", exc)
         return None
-    except httpx.HTTPStatusError as e:
-        logger.warning(f"LLM HTTP error {e.response.status_code}: {e.response.text[:200]}")
-        return None
-    except Exception as e:
-        logger.warning(f"LLM call failed: {e}")
+    except Exception as exc:
+        logger.warning("LLM call failed: %s", exc.__class__.__name__)
         return None
 
 
@@ -160,6 +136,8 @@ def rewrite_query(
     query: str,
     filters: dict,
     project_meta: dict = None,
+    *,
+    session=None,
 ) -> RewriteResult:
     """Rewrite a user query for improved retrieval.
 
@@ -200,6 +178,7 @@ def rewrite_query(
         user_prompt=user_prompt,
         max_tokens=REWRITE_MAX_TOKENS,
         temperature=REWRITE_TEMPERATURE,
+        session=session,
     )
 
     if text is None:
@@ -319,6 +298,8 @@ def hyde_generate(
     query: str,
     context_chunks: list[dict] = None,
     max_hints: int = 3,
+    *,
+    session=None,
 ) -> HyDEResult:
     """Generate a hypothetical document for HyDE retrieval.
 
@@ -366,6 +347,7 @@ def hyde_generate(
         user_prompt=user_prompt,
         max_tokens=HYDE_MAX_TOKENS,
         temperature=0.7,
+        session=session,
     )
 
     if text is None:

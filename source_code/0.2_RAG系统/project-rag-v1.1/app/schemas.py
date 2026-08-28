@@ -152,6 +152,136 @@ class QueryRequest(RetrieveRequest):
     answer: bool = True
 
 
+class LLMModelEndpointCreate(BaseModel):
+    """Create one RAG-owned OpenAI-compatible model endpoint."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=100)
+    base_url: str = Field(min_length=1, max_length=400)
+    chat_path: str = Field(default="/v1/chat/completions", min_length=1, max_length=240)
+    model: str = Field(min_length=1, max_length=160)
+    # Accepted only on write; response models intentionally do not contain it.
+    api_key: str = Field(default="", max_length=65536)
+    enabled: bool = True
+    timeout_seconds: int = Field(default=90, ge=1, le=600)
+    priority: int = Field(default=100, ge=0, le=10000)
+    routing_group: str = Field(default="default", min_length=1, max_length=40)
+    note: str = Field(default="", max_length=400)
+
+    @field_validator("name", "base_url", "chat_path", "model", "routing_group", mode="before")
+    @classmethod
+    def normalize_required_text(cls, value: object) -> str:
+        """Reject whitespace-only endpoint fields before they reach the DB."""
+        if not isinstance(value, str):
+            raise ValueError("endpoint fields must be strings")
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("endpoint fields must not be blank")
+        return normalized
+
+    @field_validator("routing_group")
+    @classmethod
+    def validate_routing_group(cls, value: str) -> str:
+        """Keep routing groups aligned with the PostgreSQL check constraint."""
+        import re
+
+        if not re.fullmatch(r"[a-z0-9][a-z0-9_/-]{0,39}", value):
+            raise ValueError("routing_group must use lowercase letters, digits, _, / or -")
+        return value
+
+    @field_validator("api_key")
+    @classmethod
+    def validate_api_key(cls, value: str) -> str:
+        """Keep credentials single-line so they cannot corrupt headers/logs."""
+        if not isinstance(value, str):
+            raise ValueError("api_key must be a string")
+        if any(ord(char) < 32 or ord(char) == 127 for char in value):
+            raise ValueError("api_key contains unsupported control characters")
+        return value.strip()
+
+
+class LLMModelEndpointPatch(BaseModel):
+    """Partial update for a RAG model endpoint.
+
+    ``api_key=None`` keeps the existing server-side credential; an empty
+    string explicitly clears it.  Neither value is ever returned in a
+    response.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    base_url: Optional[str] = Field(default=None, min_length=1, max_length=400)
+    chat_path: Optional[str] = Field(default=None, min_length=1, max_length=240)
+    model: Optional[str] = Field(default=None, min_length=1, max_length=160)
+    api_key: Optional[str] = Field(default=None, max_length=65536)
+    enabled: Optional[bool] = None
+    timeout_seconds: Optional[int] = Field(default=None, ge=1, le=600)
+    priority: Optional[int] = Field(default=None, ge=0, le=10000)
+    routing_group: Optional[str] = Field(default=None, min_length=1, max_length=40)
+    note: Optional[str] = Field(default=None, max_length=400)
+
+    @field_validator("name", "base_url", "chat_path", "model", "routing_group", mode="before")
+    @classmethod
+    def normalize_optional_text(cls, value: object) -> str | None:
+        """Normalize optional updates while preserving omitted/null semantics."""
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            raise ValueError("endpoint fields must be strings")
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("endpoint fields must not be blank")
+        return normalized
+
+    @field_validator("routing_group")
+    @classmethod
+    def validate_routing_group(cls, value: str | None) -> str | None:
+        import re
+
+        if value is not None and not re.fullmatch(r"[a-z0-9][a-z0-9_/-]{0,39}", value):
+            raise ValueError("routing_group must use lowercase letters, digits, _, / or -")
+        return value
+
+    @field_validator("api_key")
+    @classmethod
+    def validate_api_key(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if any(ord(char) < 32 or ord(char) == 127 for char in value):
+            raise ValueError("api_key contains unsupported control characters")
+        return value.strip()
+
+
+class LLMModelEndpointMove(BaseModel):
+    """Move an endpoint one position within its routing group."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    direction: str = Field(pattern=r"^(up|down)$")
+
+
+class LLMModelEndpointView(BaseModel):
+    """Safe model endpoint view; credentials are represented only by a flag."""
+
+    id: int
+    name: str
+    base_url: str
+    chat_path: str
+    model: str
+    enabled: bool
+    timeout_seconds: int
+    priority: int
+    routing_group: str
+    note: str = ""
+    has_api_key: bool = False
+    last_status: str = "UNKNOWN"
+    last_error_class: str = ""
+    last_latency_ms: int = 0
+    last_checked_at: Optional[str] = None
+
+
 # ============================================
 # V0.3 Retrieval Schemas
 # ============================================

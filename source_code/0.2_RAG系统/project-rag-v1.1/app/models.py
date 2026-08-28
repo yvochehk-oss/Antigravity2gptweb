@@ -94,8 +94,8 @@ class Document(Base):
 
     # Metadata
     document_type: Mapped[str] = mapped_column(String(60), default="other", index=True)
-    entity_code: Mapped[str] = mapped_column(String(16), default="", index=True)
-    counterparty_code: Mapped[str] = mapped_column(String(16), default="", index=True)
+    entity_code: Mapped[str] = mapped_column(String(64), default="", index=True)
+    counterparty_code: Mapped[str] = mapped_column(String(64), default="", index=True)
     business_category: Mapped[str] = mapped_column(String(40), default="", index=True)
     tax_category: Mapped[str] = mapped_column(String(32), default="", index=True)  # 税务分类
 
@@ -340,6 +340,72 @@ class ExternalParty(Base):
     kind: Mapped[str] = mapped_column(String(30), default="", index=True)
     tax_id: Mapped[str | None] = mapped_column(String(40), nullable=True, unique=True, index=True)
     active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+
+
+class LLMModelEndpoint(Base):
+    """RAG-owned OpenAI-compatible model endpoint configuration.
+
+    This table is deliberately separate from Tax's model table.  ``api_key``
+    is an application-private value used only by the server-side model pool;
+    API serializers must use :func:`app.services.llm_pool.safe_endpoint_view`
+    and never expose it.  The pool is empty only when no rows exist, in which
+    case the legacy environment configuration may be used as a compatibility
+    fallback.  Disabled rows therefore intentionally suppress that fallback.
+    """
+
+    __tablename__ = "rag_llm_model_endpoints"
+    __table_args__ = (
+        UniqueConstraint("name", name="uq_rag_llm_model_endpoint_name"),
+        CheckConstraint(
+            "priority >= 0",
+            name="ck_rag_llm_model_endpoints_priority_nonnegative",
+        ),
+        CheckConstraint(
+            "timeout_seconds >= 1 AND timeout_seconds <= 600",
+            name="ck_rag_llm_model_endpoints_timeout_range",
+        ),
+        CheckConstraint(
+            "routing_group ~ '^[a-z0-9][a-z0-9_/-]{0,39}$'",
+            name="ck_rag_llm_model_endpoints_routing_group_format",
+        ),
+        Index(
+            "ix_rag_llm_model_endpoints_route_order",
+            "routing_group",
+            "priority",
+            "id",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    base_url: Mapped[str] = mapped_column(String(400), nullable=False)
+    chat_path: Mapped[str] = mapped_column(
+        String(240), nullable=False, default="/v1/chat/completions",
+    )
+    model: Mapped[str] = mapped_column(String(160), nullable=False)
+    # The value never leaves the server-side adapter.  A later deployment can
+    # migrate this column to a dedicated vault without changing the API.
+    api_key: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False, index=True)
+    timeout_seconds: Mapped[int] = mapped_column(Integer, default=90, nullable=False)
+    priority: Mapped[int] = mapped_column(Integer, default=100, nullable=False)
+    routing_group: Mapped[str] = mapped_column(
+        String(40), default="default", nullable=False, index=True,
+    )
+    note: Mapped[str] = mapped_column(String(400), default="")
+    last_status: Mapped[str] = mapped_column(String(24), default="UNKNOWN")
+    last_error_class: Mapped[str] = mapped_column(String(40), default="")
+    last_latency_ms: Mapped[int] = mapped_column(Integer, default=0)
+    last_checked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: datetime.now(timezone.utc), nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
 
 
 # ============================================

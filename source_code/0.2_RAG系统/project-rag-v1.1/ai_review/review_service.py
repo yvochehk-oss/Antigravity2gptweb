@@ -21,12 +21,11 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
-import httpx
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.domain.entities import CANONICAL_ENTITY_RANGE_TEXT, is_canonical_entity_code
-from app.security import validate_llm_outbound_url
+from app.services import llm_pool
 from facts_provider.facts_provider import FactsProvider, entity_mapping_failure
 
 from .evidence_pack_service import RAGEvidencePackService
@@ -634,55 +633,56 @@ class AIReviewService:
         return "\n".join(lines)
 
     def _call_llm(self, prompt: str, model: str) -> str:
-        """Call the configured OpenAI-compatible model; raise on unavailability."""
-        from app.config import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL
+        """Call the shared endpoint pool; raise on controlled unavailability.
 
-        base_url = (LLM_BASE_URL or "").rstrip("/")
-        if not base_url:
-            raise AIReviewUnavailable("AI Review LLM 未配置；无法形成模型结论")
-        selected_model = model or LLM_MODEL
-        if not selected_model:
-            raise AIReviewUnavailable("AI Review LLM model 未配置")
-
-        if base_url.endswith("/chat/completions"):
-            url = base_url
-        elif base_url.endswith("/v1"):
-            url = f"{base_url}/chat/completions"
-        else:
-            url = f"{base_url}/v1/chat/completions"
+        AI Review deliberately does not own endpoint selection, credentials,
+        URL validation, or failover.  ``llm_pool`` is the single outbound LLM
+        boundary used by extraction, answer generation, Rewrite, and HyDE.
+        The request's ``model`` is retained only as the legacy environment
+        model when an installation has not migrated the endpoint table;
+        configured database rows (including their priority and model) remain
+        authoritative once the table exists.
+        """
+        legacy_model = model.strip() if isinstance(model, str) and model.strip() else None
         try:
-            # AI Review uses the same dedicated LLM policy as extraction,
-            # answer, Rewrite and HyDE.  This allows local Ollama/LM
-            # Studio/vLLM while keeping generic outbound URLs strict.
-            url = validate_llm_outbound_url(url)
-        except ValueError as exc:
-            raise AIReviewUnavailable("AI Review LLM URL 不允许出站") from exc
-        headers = {"Content-Type": "application/json"}
-        if LLM_API_KEY:
-            headers["Authorization"] = f"Bearer {LLM_API_KEY}"
-        try:
-            with httpx.Client(timeout=90) as client:
-                response = client.post(
-                    url,
-                    headers=headers,
-                    json={
-                        "model": selected_model,
-                        "messages": [{"role": "user", "content": prompt}],
-                        "temperature": 0.0,
-                        "response_format": {"type": "json_object"},
-                    },
-                )
-                response.raise_for_status()
-                data = response.json()
-        except httpx.TimeoutException as exc:
-            raise AIReviewUnavailable("AI Review LLM 请求超时") from exc
-        except (httpx.HTTPError, ValueError) as exc:
-            raise AIReviewUnavailable("AI Review LLM 请求失败") from exc
+            result = llm_pool.call_chat(
+                [{"role": "user", "content": prompt}],
+                temperature=0.0,
+                routing_group="default",
+                session=self._db,
+                legacy_model=legacy_model,
+                legacy_timeout_seconds=90,
+            )
+        except llm_pool.LLMPoolError as exc:
+            # A fully rejected catalog is kept distinguishable for the
+            # operator, while all provider/database details remain hidden.
+            attempts = getattr(exc, "attempts", ())
+            rejected = bool(attempts) and all(
+                isinstance(item, Mapping) and item.get("status") == "rejected"
+                for item in attempts
+            )
+            message = (
+                "AI Review LLM URL 不允许出站"
+                if rejected
+                else "AI Review LLM endpoint pool unavailable"
+            )
+            logger.warning("AI Review LLM pool unavailable: %s", message)
+            # Do not chain a provider exception: even a malformed/fake pool
+            # error must not leak a credential through a traceback or API
+            # error handler.
+            raise AIReviewUnavailable(message) from None
+        except Exception as exc:
+            logger.warning("AI Review LLM call failed: %s", exc.__class__.__name__)
+            raise AIReviewUnavailable("AI Review LLM request failed") from None
 
         try:
-            content = data["choices"][0]["message"]["content"]
-        except (KeyError, IndexError, TypeError) as exc:
-            raise AIReviewUnavailable("AI Review LLM 返回格式无效") from exc
+            content = getattr(result, "text", None)
+        except Exception as exc:
+            # Keep even a malformed/custom pool result behind the same safe
+            # boundary.  A provider error must never become an API detail or
+            # traceback containing credentials.
+            logger.warning("AI Review LLM result read failed: %s", exc.__class__.__name__)
+            raise AIReviewUnavailable("AI Review LLM 返回格式无效") from None
         if not isinstance(content, str) or not content.strip():
             raise AIReviewUnavailable("AI Review LLM 未返回内容")
         return content.strip()

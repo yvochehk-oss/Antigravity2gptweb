@@ -1,16 +1,12 @@
-def _build_chat_url(base_url: str) -> str:
-    base = (base_url or '').rstrip('/')
-    if base.endswith('/v1'):
-        return f'{base}/chat/completions'
-    return f'{base}/v1/chat/completions'
-
 """LLM answer service with OpenAI-compatible API."""
-from dataclasses import dataclass
 import re
+from dataclasses import dataclass
+
 import httpx
-from ..config import LLM_BASE_URL, LLM_MODEL, LLM_API_KEY
+
+from ..config import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL
 from ..logging_config import get_logger
-from ..security import validate_llm_outbound_url
+from . import llm_pool
 
 logger = get_logger(__name__)
 
@@ -20,7 +16,7 @@ class LLMError(Exception):
     pass
 
 
-def answer_with_llm(query: str, evidence: list[dict]) -> str:
+def answer_with_llm(query: str, evidence: list[dict], *, session=None) -> str:
     """Generate answer from LLM using retrieved evidence.
 
     Args:
@@ -33,9 +29,6 @@ def answer_with_llm(query: str, evidence: list[dict]) -> str:
     Raises:
         LLMError: If LLM call fails
     """
-    if not LLM_BASE_URL or not LLM_MODEL:
-        return "未配置RAG回答模型；请使用 /api/v1/retrieve 获取证据，或配置 RAG_LLM_BASE_URL / RAG_LLM_MODEL。"
-
     # Build evidence text
     evidence_text = "\n\n".join([
         f"[{i+1}] {x['filename']} P{x.get('page_start') or '?'} {x.get('heading_path') or ''}\n{x['text'][:3000]}"
@@ -49,41 +42,28 @@ def answer_with_llm(query: str, evidence: list[dict]) -> str:
 证据：
 {evidence_text}"""
 
-    headers = {"Content-Type": "application/json"}
-    if LLM_API_KEY:
-        headers["Authorization"] = f"Bearer {LLM_API_KEY}"
-
     try:
-        endpoint = validate_llm_outbound_url(_build_chat_url(LLM_BASE_URL))
-        with httpx.Client(timeout=90) as client:
-            response = client.post(
-                endpoint,
-                headers=headers,
-                json={
-                    "model": LLM_MODEL,
-                    "messages": [{"role": "user", "content": prompt}],
-                    "temperature": 0.1
-                }
-            )
-            response.raise_for_status()
-            data = response.json()
-
-        answer = data["choices"][0]["message"]["content"]
+        result = llm_pool.call_chat(
+            [{"role": "user", "content": prompt}],
+            temperature=0.1,
+            routing_group="default",
+            session=session,
+            http_client_factory=httpx.Client,
+            legacy_base_url=LLM_BASE_URL,
+            legacy_model=LLM_MODEL,
+            legacy_api_key=LLM_API_KEY,
+            legacy_timeout_seconds=90,
+        )
+        answer = result.text
         logger.info(f"Generated answer ({len(answer)} chars) for query: {query[:50]}...")
 
         return answer
-
-    except httpx.TimeoutException:
-        logger.error("LLM request timed out")
-        raise LLMError("LLM request timed out (90s)")
-
-    except httpx.HTTPStatusError as e:
-        logger.error(f"LLM HTTP error: {e.response.status_code} - {e.response.text[:500]}")
-        raise LLMError(f"LLM returned error: {e.response.status_code}")
-
-    except Exception as e:
-        logger.error(f"LLM call failed: {e}")
-        raise LLMError(f"LLM call failed: {e}")
+    except llm_pool.LLMPoolError as exc:
+        logger.error("LLM endpoint pool failed: %s", exc)
+        raise LLMError(f"LLM call failed: {exc}") from exc
+    except Exception as exc:
+        logger.error("LLM call failed: %s", exc.__class__.__name__)
+        raise LLMError(f"LLM call failed: {exc.__class__.__name__}") from exc
 
 
 def llm_available() -> bool:
@@ -92,7 +72,11 @@ def llm_available() -> bool:
     Returns:
         True if LLM is configured
     """
-    return bool(LLM_BASE_URL and LLM_MODEL)
+    return llm_pool.llm_available(
+        legacy_base_url=LLM_BASE_URL,
+        legacy_model=LLM_MODEL,
+        legacy_api_key=LLM_API_KEY,
+    )
 
 
 def test_llm_connection() -> dict:
@@ -101,28 +85,14 @@ def test_llm_connection() -> dict:
     Returns:
         Dict with test result
     """
-    if not llm_available():
-        return {"ok": False, "error": "LLM not configured"}
-
-    try:
-        headers = {"Content-Type": "application/json"}
-        if LLM_API_KEY:
-            headers["Authorization"] = f"Bearer {LLM_API_KEY}"
-
-        base = (LLM_BASE_URL or "").rstrip("/")
-        endpoint = f"{base}/models" if base.endswith("/v1") else f"{base}/v1/models"
-        endpoint = validate_llm_outbound_url(endpoint)
-        with httpx.Client(timeout=10) as client:
-            response = client.post(
-                endpoint,
-                headers=headers
-            )
-            response.raise_for_status()
-
-        return {"ok": True, "models": response.json()}
-
-    except Exception as e:
-        return {"ok": False, "error": str(e)}
+    return llm_pool.check_connection(
+        routing_group="default",
+        http_client_factory=httpx.Client,
+        legacy_base_url=LLM_BASE_URL,
+        legacy_model=LLM_MODEL,
+        legacy_api_key=LLM_API_KEY,
+        legacy_timeout_seconds=10,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -227,6 +197,8 @@ def _call_llm_chat(
     system: str,
     user: str,
     max_tokens: int = 1024,
+    *,
+    session=None,
 ) -> str | None:
     """Make a chat-completion call to the configured LLM endpoint.
 
@@ -241,50 +213,28 @@ def _call_llm_chat(
     Returns:
         Response text on success, or ``None`` on any error.
     """
-    if not LLM_BASE_URL or not LLM_MODEL:
-        logger.warning("LLM call skipped: base_url or model not configured")
-        return None
-
-    headers = {"Content-Type": "application/json"}
-    if LLM_API_KEY:
-        headers["Authorization"] = f"Bearer {LLM_API_KEY}"
-
-    payload = {
-        "model": LLM_MODEL,
-        "messages": [
-            {"role": "system", "content": system},
-            {"role": "user", "content": user},
-        ],
-        "max_tokens": max_tokens,
-        "temperature": 0.1,
-    }
-
     try:
-        endpoint = validate_llm_outbound_url(_build_chat_url(LLM_BASE_URL))
-        with httpx.Client(timeout=90) as client:
-            response = client.post(
-                endpoint,
-                headers=headers,
-                json=payload,
-            )
-            response.raise_for_status()
-            data = response.json()
-
-        content = data["choices"][0]["message"]["content"]
-        return content.strip()
-
-    except httpx.TimeoutException:
-        logger.warning("LLM chat call timed out after 90s")
-        return None
-    except httpx.HTTPStatusError as e:
-        logger.warning(
-            "LLM chat HTTP error %s: %s",
-            e.response.status_code,
-            e.response.text[:200],
+        result = llm_pool.call_chat(
+            [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            max_tokens=max_tokens,
+            temperature=0.1,
+            routing_group="default",
+            session=session,
+            http_client_factory=httpx.Client,
+            legacy_base_url=LLM_BASE_URL,
+            legacy_model=LLM_MODEL,
+            legacy_api_key=LLM_API_KEY,
+            legacy_timeout_seconds=90,
         )
+        return result.text
+    except llm_pool.LLMPoolError as exc:
+        logger.warning("LLM chat endpoint pool failed: %s", exc)
         return None
-    except Exception as e:
-        logger.warning("LLM chat call failed: %s", e)
+    except Exception as exc:
+        logger.warning("LLM chat call failed: %s", exc.__class__.__name__)
         return None
 
 

@@ -31,10 +31,13 @@ from .ingest import parse_and_index
 logger = get_logger(__name__)
 
 _stop = threading.Event()
-_thread = None
+_threads: list[threading.Thread] = []       # 多 worker 并发列表
 _shutdown_timed_out = False
 _signal_handlers_installed = False
 _signal_handlers_lock = threading.Lock()
+_worker_start_lock = threading.Lock()
+_active_job_ids: set[int] = set()
+_active_job_ids_lock = threading.Lock()
 
 
 def now() -> str:
@@ -95,6 +98,102 @@ def enqueue_parse(db, document_id: int) -> IngestJob:
     return job
 
 
+def recover_stale_running_jobs() -> int:
+    """Recover jobs left in ``RUNNING`` by an earlier worker process.
+
+    This is deliberately called once, immediately before a worker thread is
+    started.  Row locks and one transaction make the job/document transition
+    atomic on PostgreSQL.  Jobs currently executing in this process are
+    excluded using ``_active_job_ids``; a second ``start_worker`` call while
+    the worker is alive is rejected before this helper is reached.
+
+    Returns:
+        Number of abandoned jobs transitioned to ``RETRY`` or ``FAILED``.
+    """
+    recovered = 0
+    db = SessionLocal()
+    try:
+        # Serialise the in-process active-job snapshot with process_job's
+        # claim.  The database row lock then serialises this recovery against
+        # another worker/process touching the same job.
+        with _active_job_ids_lock:
+            active_job_ids = set(_active_job_ids)
+            with db.begin():
+                stale_jobs = db.scalars(
+                    select(IngestJob)
+                    .where(IngestJob.status == "RUNNING")
+                    .with_for_update()
+                ).all()
+
+                recovered_at = now()
+                for job in stale_jobs:
+                    if job.id in active_job_ids:
+                        logger.info(
+                            "Keeping active ingest job %s in RUNNING during startup recovery",
+                            job.id,
+                        )
+                        continue
+
+                    try:
+                        attempts = int(job.attempts)
+                        max_attempts = int(job.max_attempts)
+                    except (TypeError, ValueError):
+                        attempts = -1
+                        max_attempts = 0
+
+                    # Invalid counters are terminal rather than silently
+                    # granting retries.  This is the fail-closed branch.
+                    retryable = 0 <= attempts < max_attempts and max_attempts > 0
+                    if retryable:
+                        job.status = "RETRY"
+                        job.next_retry_at = _calculate_next_retry(attempts)
+                        job.message = (
+                            "Recovered abandoned RUNNING job; retry scheduled "
+                            f"(attempt {attempts}/{max_attempts})"
+                        )
+                        document_status = "QUEUED"
+                        document_message = job.message
+                        logger.warning(
+                            "Recovered abandoned ingest job %s as RETRY (attempt %s/%s)",
+                            job.id,
+                            attempts,
+                            max_attempts,
+                        )
+                    else:
+                        job.status = "FAILED"
+                        job.next_retry_at = ""
+                        job.message = (
+                            "Recovered abandoned RUNNING job as FAILED; "
+                            f"max retries ({max_attempts}) exceeded"
+                        )
+                        document_status = "PARSE_FAILED"
+                        document_message = job.message
+                        logger.error(
+                            "Recovered abandoned ingest job %s as FAILED (attempts=%s, max_attempts=%s)",
+                            job.id,
+                            attempts,
+                            max_attempts,
+                        )
+
+                    job.finished_at = recovered_at
+                    if not job.last_error:
+                        job.last_error = "Worker process exited while job was RUNNING"
+
+                    document = db.get(Document, job.document_id)
+                    if document:
+                        document.parse_status = document_status
+                        document.parse_attempts = max(attempts, 0)
+                        document.parse_message = document_message
+                    recovered += 1
+        logger.info("Startup ingest recovery completed: %s job(s) recovered", recovered)
+        return recovered
+    except Exception:
+        logger.exception("Startup ingest recovery failed; worker will not start")
+        raise
+    finally:
+        db.close()
+
+
 def process_job(job_id: int) -> bool:
     """Process a single ingest job with retry support.
 
@@ -104,28 +203,36 @@ def process_job(job_id: int) -> bool:
     Returns:
         True if job completed successfully, False otherwise
     """
-    db = SessionLocal()
-    job = db.get(IngestJob, job_id)
+    # Claim the id before opening the session so startup recovery cannot
+    # mistake a synchronous job in this process for an abandoned job.
+    with _active_job_ids_lock:
+        if job_id in _active_job_ids:
+            logger.warning("Job %s is already active, ignoring duplicate process request", job_id)
+            return False
+        _active_job_ids.add(job_id)
 
-    if not job or job.status not in ("QUEUED", "RETRY"):
-        db.close()
-        return False
+    db = None
+    job = None
+    try:
+        db = SessionLocal()
+        job = db.get(IngestJob, job_id)
 
-    # Check if job should wait for retry backoff
-    if job.status == "RETRY" and job.next_retry_at:
-        next_retry = datetime.fromisoformat(job.next_retry_at.replace("Z", "+00:00"))
-        if datetime.now(timezone.utc) < next_retry:
-            db.close()
+        if not job or job.status not in ("QUEUED", "RETRY"):
             return False
 
-    job.status = "RUNNING"
-    job.started_at = now()
-    job.attempts += 1
-    db.commit()
+        # Check if job should wait for retry backoff
+        if job.status == "RETRY" and job.next_retry_at:
+            next_retry = datetime.fromisoformat(job.next_retry_at.replace("Z", "+00:00"))
+            if datetime.now(timezone.utc) < next_retry:
+                return False
 
-    logger.info(f"Processing job {job_id} (attempt {job.attempts}/{job.max_attempts})")
+        job.status = "RUNNING"
+        job.started_at = now()
+        job.attempts += 1
+        db.commit()
 
-    try:
+        logger.info(f"Processing job {job_id} (attempt {job.attempts}/{job.max_attempts})")
+
         doc = db.get(Document, job.document_id)
         if not doc:
             raise RuntimeError(f"Document {job.document_id} not found")
@@ -139,17 +246,26 @@ def process_job(job_id: int) -> bool:
         if doc.parse_status == "INDEXED":
             job.status = "COMPLETED"
             job.message = doc.parse_message
+            # A successful retry supersedes the prior failure/backoff state.
+            # These columns are NOT NULL in the runtime schema, so use the
+            # contract's empty-string sentinel rather than assigning None.
+            job.last_error = ""
+            job.next_retry_at = ""
             logger.info(f"Job {job_id} completed successfully: {doc.parse_message}")
         else:
             raise RuntimeError(doc.parse_message or "Parsing did not result in INDEXED status")
 
         job.finished_at = now()
         db.commit()
-        db.close()
         return True
 
     except Exception as e:
-        error_msg = str(e)
+        if db is None or job is None:
+            if db is not None:
+                db.rollback()
+            raise
+        db.rollback()
+        error_msg = str(e).replace("\\x00", "")
         job.last_error = error_msg
         logger.error(f"Job {job_id} failed: {error_msg}")
 
@@ -173,8 +289,12 @@ def process_job(job_id: int) -> bool:
 
         job.finished_at = now()
         db.commit()
-        db.close()
         return False
+    finally:
+        if db is not None:
+            db.close()
+        with _active_job_ids_lock:
+            _active_job_ids.discard(job_id)
 
 
 def process_next() -> bool:
@@ -285,38 +405,63 @@ def request_stop() -> None:
     _stop.set()
 
 
-def start_worker(*, install_signal_handlers: bool = True):
-    """Start the background worker thread.
+def start_worker(*, install_signal_handlers: bool = True, concurrency: int | None = None):
+    """Start background worker threads for parallel ingest processing.
 
-    Uvicorn owns process-level ``SIGTERM``/``SIGINT`` handling when this
-    worker runs inside the FastAPI service.  Callers embedding the worker in a
-    standalone process may opt into the legacy handlers explicitly; the web
-    application disables them so they cannot replace Uvicorn's graceful
-    shutdown handler.
+    Args:
+        install_signal_handlers: Whether to install SIGTERM/SIGINT handlers.
+        concurrency: Number of parallel worker threads. Defaults to
+            ``WORKER_CONCURRENCY`` from config/env.
     """
-    global _thread, _shutdown_timed_out
-    if _thread and _thread.is_alive():
-        logger.warning("Worker already running, ignoring start request")
-        return
+    from ..config import WORKER_CONCURRENCY as _DEFAULT_CONCURRENCY
+    n = max(1, concurrency if concurrency is not None else _DEFAULT_CONCURRENCY)
 
-    _stop.clear()
-    _shutdown_timed_out = False
-    _thread = threading.Thread(target=_loop, name="projectrag-ingest-worker", daemon=True)
-    _thread.start()
-    if install_signal_handlers:
-        _install_signal_handlers()
-    logger.info("Background worker thread started")
+    global _threads, _shutdown_timed_out
+    with _worker_start_lock:
+        # Remove dead threads from the list first
+        _threads = [t for t in _threads if t.is_alive()]
+        running = len(_threads)
+        if running >= n:
+            logger.warning(
+                "Worker already running with %d/%d threads, ignoring start request",
+                running, n,
+            )
+            return
+
+        # Recovery only on fresh start (no live workers yet)
+        if running == 0:
+            recover_stale_running_jobs()
+            _stop.clear()
+            _shutdown_timed_out = False
+
+        # Spin up the missing slots
+        to_add = n - running
+        for i in range(to_add):
+            t = threading.Thread(
+                target=_loop,
+                name=f"projectrag-ingest-worker-{running + i + 1}",
+                daemon=True,
+            )
+            t.start()
+            _threads.append(t)
+
+        if install_signal_handlers:
+            _install_signal_handlers()
+        logger.info("Background worker threads started (%d/%d active)", len(_threads), n)
 
 
 def stop_worker():
-    """Stop the background worker thread gracefully."""
+    """Stop all background worker threads gracefully."""
     global _shutdown_timed_out
     logger.info("Stopping worker...")
     request_stop()
-    thread = _thread
-    if thread and thread is not threading.current_thread():
-        thread.join(timeout=WORKER_SHUTDOWN_TIMEOUT_SECONDS)
-    if thread and thread.is_alive():
+    timed_out = False
+    for thread in list(_threads):
+        if thread and thread is not threading.current_thread():
+            thread.join(timeout=WORKER_SHUTDOWN_TIMEOUT_SECONDS)
+            if thread.is_alive():
+                timed_out = True
+    if timed_out:
         _shutdown_timed_out = True
         logger.error(
             "Worker did not stop within %.1fs; shutdown is degraded",
@@ -328,15 +473,12 @@ def stop_worker():
 
 
 def get_worker_status() -> dict:
-    """Get current worker status for monitoring.
-
-    Returns:
-        Dict with worker state information
-    """
+    """Get current worker status for monitoring."""
+    live = [t for t in _threads if t.is_alive()]
     return {
-        "running": _thread is not None and _thread.is_alive(),
-        "thread_id": _thread.ident if _thread else None,
-        "thread_name": _thread.name if _thread else None,
+        "running": len(live) > 0,
+        "concurrency": len(live),
+        "thread_names": [t.name for t in live],
         "stop_requested": _stop.is_set(),
         "shutdown_timed_out": _shutdown_timed_out,
     }

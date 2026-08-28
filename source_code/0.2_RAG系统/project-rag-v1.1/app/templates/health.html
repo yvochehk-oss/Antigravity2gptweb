@@ -11,7 +11,7 @@
   <div>
     <h1>🩺 系统健康体检与运行状态</h1>
     <p style="color: var(--text-muted); margin-top: 8px;">
-      实时监测 PostgreSQL 数据库连接、pgvector 向量引擎、MinerU OCR 解析队列及大模型运行状态。
+      实时监测 PostgreSQL 数据库连接、pgvector 向量引擎、MinerU 3.4.5 OCR 解析队列及大模型运行状态。
     </p>
   </div>
   <div style="display: flex; gap: 10px;">
@@ -95,7 +95,7 @@
     </div>
     <div style="font-size: 13px; color: var(--text-secondary); line-height: 1.8;">
       <div>• 智能元数据识别: <span style="color: #10b981;">支持自动识别合同/发票/凭证</span></div>
-      <div>• MinerU 高精度 OCR: {{ '已加载' if health_data.mineru_available else '轻量内置解析器' }}</div>
+      <div>• MinerU 3.4.5 高精度 OCR: {{ '已加载' if health_data.mineru_available else '轻量内置解析器' }}</div>
       <div>• 四流合一核验: 自动提取收付款双方、税率与金额</div>
     </div>
   </div>

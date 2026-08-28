@@ -142,10 +142,14 @@
       </div>
     </div>
     <div class="ai-chat-input">
-      <select id="ai-endpoint" style="width:180px;flex-shrink:0">
+      <select id="ai-endpoint" aria-label="AI 模型选择" style="width:240px;flex-shrink:0">
+        <option value="" selected>自动选择（按模型设置顺序）</option>
         {% for ep in endpoints %}
-          <option value="{{ ep.id }}" {% if loop.first %}selected{% endif %}>{{ ep.name }}</option>
+          <option value="{{ ep.id }}">{{ ep.name }} · {{ ep.routing_group }} · 优先级 {{ ep.priority }}</option>
         {% endfor %}
+        {% if not endpoints %}
+          <option value="" disabled>暂无可用真实模型</option>
+        {% endif %}
       </select>
       <input type="text" id="ai-question" placeholder="输入问题，例如：本月利润预测是多少？" onkeydown="if(event.key==='Enter')sendAsk()">
       <button class="btn btn-primary" onclick="sendAsk()">提问</button>
@@ -171,6 +175,11 @@ function sendAsk() {
   const endpointId = endpointSelect.value;
   if (!q) return;
 
+  // 自动模式不提交 endpoint_id，让服务端按 routing_group/priority/id
+  // 选择首个模型并在失败时继续尝试同组后备模型。
+  const formData = {question: q};
+  if (endpointId) formData.endpoint_id = endpointId;
+
   // 显示用户消息
   appendMsg('user', `<div class="role">👤 您</div><div>${escapeHtml(q)}</div>`);
   questionInput.value = '';
@@ -186,7 +195,7 @@ function sendAsk() {
   fetch(`/manager/project/{{ project.id }}/ask`, {
     method: 'POST',
     headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-    body: new URLSearchParams({question: q, endpoint_id: endpointId}),
+    body: new URLSearchParams(formData),
   })
   .then(r => r.json())
   .then(data => {

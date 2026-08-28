@@ -4,6 +4,8 @@
 <a href="/">项目空间</a>
 <span>/</span>
 <span class="current">{{ project.name }} ({{ project.project_code }})</span>
+
+
 {% endblock %}
 
 {% block body %}
@@ -44,9 +46,72 @@
   </div>
 </div>
 
+<style>
+  .filter-group-title {
+    font-size: 12px;
+    color: var(--text-muted);
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    white-space: nowrap;
+  }
+  .filter-btn-group {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .filter-pill {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--border-color);
+    color: var(--text-secondary);
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    user-select: none;
+  }
+  .filter-pill:hover {
+    background: rgba(255, 255, 255, 0.09);
+    color: #fff;
+    border-color: rgba(255, 255, 255, 0.2);
+  }
+  .filter-pill.active {
+    background: rgba(3, 181, 211, 0.2);
+    border-color: #4cd7f6;
+    color: #4cd7f6;
+    font-weight: 600;
+    box-shadow: 0 0 10px rgba(76, 215, 246, 0.25);
+  }
+  .filter-pill.active[data-scope="external"] {
+    background: rgba(168, 85, 247, 0.2);
+    border-color: #a855f7;
+    color: #c084fc;
+    box-shadow: 0 0 10px rgba(168, 85, 247, 0.25);
+  }
+  .filter-pill.active[data-scope="internal"] {
+    background: rgba(59, 130, 246, 0.2);
+    border-color: #3b82f6;
+    color: #60a5fa;
+    box-shadow: 0 0 10px rgba(59, 130, 246, 0.25);
+  }
+  .filter-pill .pill-count {
+    font-size: 10px;
+    opacity: 0.75;
+    background: rgba(0, 0, 0, 0.25);
+    padding: 1px 6px;
+    border-radius: 10px;
+  }
+</style>
+
 <!-- 资料资产列表 -->
 <div class="glass-panel" style="padding: 20px; margin-bottom: 24px;">
-  <div class="toolbar">
+  <div class="toolbar" style="margin-bottom: 14px;">
     <h2>
       <span>📑 资料文件资产库</span>
       <span class="badge badge-cyan">{{ documents|length }} 份文件</span>
@@ -55,6 +120,124 @@
       <span style="font-size: 12px; color: var(--text-muted);">
         支持 PDF / DOCX / XLSX / 扫描件 / 发票 OCR / 智能去重
       </span>
+    </div>
+  </div>
+
+  <!-- 顶部快速分类与主体筛选面板 -->
+  <div style="background: rgba(11, 19, 38, 0.65); border: 1px solid var(--border-color); border-radius: 10px; padding: 14px 18px; margin-bottom: 16px; display: flex; flex-direction: column; gap: 12px;">
+    <!-- 第一排：单据类型与业务环节筛选 -->
+    <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
+      <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+        <span class="filter-group-title">📑 资料环节:</span>
+        <div class="filter-btn-group" id="typeFilterGroup">
+          <button type="button" class="filter-pill active" data-type="all" onclick="setTypeFilter('all', this)">
+            全部 <span class="pill-count" id="count-type-all">{{ documents|length }}</span>
+          </button>
+          <button type="button" class="filter-pill" data-type="contract" onclick="setTypeFilter('contract', this)">
+            📜 合同协议 <span class="pill-count" id="count-type-contract">0</span>
+          </button>
+          <button type="button" class="filter-pill" data-type="payment" onclick="setTypeFilter('payment', this)">
+            💳 资金付款 <span class="pill-count" id="count-type-payment">0</span>
+          </button>
+          <button type="button" class="filter-pill" data-type="voucher" onclick="setTypeFilter('voucher', this)">
+            📦 往来凭证 <span class="pill-count" id="count-type-voucher">0</span>
+          </button>
+          <button type="button" class="filter-pill" data-type="tax" onclick="setTypeFilter('tax', this)">
+            🧾 税务发票 <span class="pill-count" id="count-type-tax">0</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- 搜索过滤框 -->
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <input type="text" id="docSearchInput" placeholder="🔍 搜索文件名、合同号、单位..." oninput="applyFilters()" class="form-input" style="padding: 5px 12px; font-size: 12px; width: 220px; border-radius: 6px;">
+      </div>
+    </div>
+
+    <div style="border-top: 1px dashed var(--border-subtle);"></div>
+
+    <!-- 第二排：业务形态分类筛选（胶囊按钮组） -->
+    <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
+      <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+        <span class="filter-group-title">🏷️ 业务分类:</span>
+        <div class="filter-btn-group" id="categoryFilterGroup">
+          <button type="button" class="filter-pill active" data-category="all" onclick="setCategoryFilter('all', this)">
+            全部业务
+          </button>
+          <button type="button" class="filter-pill" data-category="construction" onclick="setCategoryFilter('construction', this)">
+            🏗️ 施工总包 <span class="pill-count" id="count-cat-construction">0</span>
+          </button>
+          <button type="button" class="filter-pill" data-category="material" onclick="setCategoryFilter('material', this)">
+            🧱 材料采购 <span class="pill-count" id="count-cat-material">0</span>
+          </button>
+          <button type="button" class="filter-pill" data-category="labor" onclick="setCategoryFilter('labor', this)">
+            👷 劳务用工 <span class="pill-count" id="count-cat-labor">0</span>
+          </button>
+          <button type="button" class="filter-pill" data-category="equipment" onclick="setCategoryFilter('equipment', this)">
+            🚜 机械租赁 <span class="pill-count" id="count-cat-equipment">0</span>
+          </button>
+          <button type="button" class="filter-pill" data-category="subcontract" onclick="setCategoryFilter('subcontract', this)">
+            ⚡ 专业分包 <span class="pill-count" id="count-cat-subcontract">0</span>
+          </button>
+        </div>
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <span class="filter-group-title" style="margin-right: 0;">年份:</span>
+        <select id="yearFilter" onchange="applyFilters()" class="form-select" style="padding: 3px 8px; font-size: 11px; border-radius: 6px; width: 92px; background: rgba(11, 19, 38, 0.8);">
+          <option value="all">全部年份</option>
+          <option value="2026">2026年</option>
+          <option value="2025">2025年</option>
+          <option value="2024">2024年</option>
+          <option value="2023">2023年</option>
+        </select>
+
+        <span class="filter-group-title" style="margin-right: 0; margin-left: 4px;">月份:</span>
+        <select id="monthFilter" onchange="applyFilters()" class="form-select" style="padding: 3px 8px; font-size: 11px; border-radius: 6px; width: 88px; background: rgba(11, 19, 38, 0.8);">
+          <option value="all">全部月份</option>
+          <option value="01">1月</option>
+          <option value="02">2月</option>
+          <option value="03">3月</option>
+          <option value="04">4月</option>
+          <option value="05">5月</option>
+          <option value="06">6月</option>
+          <option value="07">7月</option>
+          <option value="08">8月</option>
+          <option value="09">9月</option>
+          <option value="10">10月</option>
+          <option value="11">11月</option>
+          <option value="12">12月</option>
+        </select>
+      </div>
+    </div>
+
+    <div style="border-top: 1px dashed var(--border-subtle);"></div>
+
+    <!-- 第三排：合作主体属性（系统内 / 系统外）筛选 -->
+    <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
+      <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+        <span class="filter-group-title">🏢 往来主体:</span>
+        <div class="filter-btn-group" id="scopeFilterGroup">
+          <button type="button" class="filter-pill active" data-scope="all" onclick="setScopeFilter('all', this)">
+            全部主体
+          </button>
+          <button type="button" class="filter-pill" data-scope="internal" onclick="setScopeFilter('internal', this)">
+            🔹 系统内关联单位 <span class="pill-count" id="count-scope-internal">0</span>
+          </button>
+          <button type="button" class="filter-pill" data-scope="external" onclick="setScopeFilter('external', this)">
+            🌐 系统外合作单位 <span class="pill-count" id="count-scope-external">0</span>
+          </button>
+        </div>
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 12px;">
+        <div style="font-size: 12px; color: var(--text-muted);">
+          当前筛选结果: <b id="visibleDocCount" style="color: var(--accent-cyan);">{{ documents|length }}</b> / {{ documents|length }} 份
+        </div>
+        <button type="button" class="btn btn-secondary btn-sm" onclick="resetAllFilters()" style="font-size: 11px; padding: 3px 8px;">
+          🔄 重置
+        </button>
+      </div>
     </div>
   </div>
 
@@ -68,15 +251,10 @@
           <th onclick="sortProjectTable(1, 'text')" style="cursor: pointer;" title="点击按资料类型排序">
             资料类型 <span class="sort-icon-p" id="p-sort-1">↕</span>
           </th>
-          <th onclick="sortProjectTable(2, 'text')" style="cursor: pointer;" title="点击按归属单位排序">
-            归属单位 <span class="sort-icon-p" id="p-sort-2">↕</span>
+          <th onclick="sortProjectTable(2, 'text')" style="cursor: pointer;" title="点击按主体单位排序">
+            主体 / 往来对手 <span class="sort-icon-p" id="p-sort-2">↕</span>
           </th>
-          <th onclick="sortProjectTable(3, 'text')" style="cursor: pointer;" title="点击按业务分类排序">
-            业务分类 <span class="sort-icon-p" id="p-sort-3">↕</span>
-          </th>
-          <th onclick="sortProjectTable(4, 'text')" style="cursor: pointer;" title="点击按业务期间排序">
-            业务期间 <span class="sort-icon-p" id="p-sort-4">↕</span>
-          </th>
+
           <th onclick="sortProjectTable(5, 'text')" style="cursor: pointer;" title="点击按解析状态排序">
             解析状态 <span class="sort-icon-p" id="p-sort-5">↕</span>
           </th>
@@ -85,21 +263,26 @@
       </thead>
       <tbody id="projectDocsTableBody">
         {% for d in documents %}
+        {% set is_ext = '1' if d.counterparty_code and ('EXT-' in d.counterparty_code or (entity_by_code.get(d.counterparty_code) and entity_by_code.get(d.counterparty_code).is_external)) else '0' %}
         <tr class="project-doc-row"
             data-filename="{{ d.filename }}"
             data-type="{{ d.document_type or '' }}"
             data-entity="{{ d.entity_code or '' }}"
+            data-cp="{{ d.counterparty_code or '' }}"
+            data-is-external="{{ is_ext }}"
             data-category="{{ d.business_category or '' }}"
             data-period="{{ d.period or '' }}"
             data-status="{{ d.parse_status }}">
-          <td>
-            <div style="font-weight: 600;">
-              <a href="/documents/{{ d.id }}">{{ d.filename }}</a>
+          <td style="width: 450px; max-width: 450px; white-space: normal; word-break: break-all;">
+            <div style="font-weight: 600; line-height: 1.4; margin-bottom: 4px;">
+              <a href="/documents/{{ d.id }}" style="display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; text-overflow: ellipsis;" title="{{ d.filename }}">{{ d.filename }}</a>
+            </div>
+            <div style="display: flex; align-items: center; gap: 6px;">
               {% if d.duplicate_of_id %}
-              <span class="badge badge-rose" style="margin-left: 6px;" title="检测到内容指纹完全一致的重复文件">重复件</span>
+              <span class="badge badge-rose" title="检测到内容指纹完全一致的重复文件">重复件</span>
               {% endif %}
               {% if d.invoice_no %}
-              <span class="badge badge-emerald" style="margin-left: 4px;" title="发票号码: {{ d.invoice_no }}">含发票</span>
+              <span class="badge badge-emerald" title="发票号码: {{ d.invoice_no }}">含发票</span>
               {% endif %}
             </div>
             <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;" class="font-mono">
@@ -107,29 +290,44 @@
             </div>
           </td>
           <td>
-            <span class="badge badge-cyan">{{ d.document_type or '未指定' }}</span>
+            <span class="badge badge-cyan">{{ d.document_type | doc_type_name if d.document_type else '未指定' }}</span>
           </td>
           <td>
-            {% if d.entity_code %}
-            {% set document_entity = entity_by_code.get(d.entity_code) %}
-            {% if document_entity %}
-            <span class="badge {{ document_entity.business_role_badge }}">{{ document_entity.entity_code }} · {{ document_entity.name }}</span>
-            {% else %}
-            <span class="badge badge-muted">待核实实际单位</span>
-            {% endif %}
-            {% else %}
-            <span style="color: var(--text-muted);">-</span>
-            {% endif %}
-            {% if d.counterparty_code %}
-            <span style="color: var(--text-muted);">/ 对手 {{ d.counterparty_code }}</span>
-            {% endif %}
+            <div style="display: flex; flex-direction: column; gap: 4px;">
+              {% if d.entity_code %}
+              {% set document_entity = entity_by_code.get(d.entity_code) %}
+              <div>
+                {% if document_entity %}
+                <span class="badge {{ document_entity.business_role_badge }}" title="经办/归属主体 ({{ document_entity.source }})">
+                  {{ document_entity.entity_code }} · {{ document_entity.short_name or document_entity.name }}
+                </span>
+                {% else %}
+                <span class="badge badge-muted">待核实主体 ({{ d.entity_code }})</span>
+                {% endif %}
+              </div>
+              {% endif %}
+
+              {% if d.counterparty_code %}
+              {% set cp_entity = entity_by_code.get(d.counterparty_code) %}
+              <div style="font-size: 11px; display: flex; align-items: center; gap: 4px;">
+                <span style="color: var(--text-muted); font-size: 11px;">往来:</span>
+                {% if cp_entity %}
+                <span class="badge {{ cp_entity.business_role_badge }}" style="font-size: 11px; padding: 2px 6px;" title="往来交易对手: {{ cp_entity.name }} ({{ cp_entity.source }})">
+                  {{ cp_entity.short_name or cp_entity.name }}
+                  {% if cp_entity.is_external %}<span style="opacity: 0.8; font-size: 10px; margin-left: 2px;">(系统外)</span>{% endif %}
+                </span>
+                {% else %}
+                <span style="color: var(--text-muted);">{{ d.counterparty_code }}</span>
+                {% endif %}
+              </div>
+              {% endif %}
+
+              {% if not d.entity_code and not d.counterparty_code %}
+              <span style="color: var(--text-muted);">-</span>
+              {% endif %}
+            </div>
           </td>
-          <td>
-            <span class="badge badge-muted">{{ d.business_category or '-' }}</span>
-          </td>
-          <td class="font-mono" style="font-size: 12px;">
-            {{ d.period or '-' }}
-          </td>
+
           <td>
             {% if d.parse_status == 'INDEXED' %}
             <span class="badge badge-emerald">● 已索引</span>
@@ -143,8 +341,10 @@
           </td>
           <td>
             <div style="display: flex; gap: 6px;">
-              <a href="/documents/{{ d.id }}" class="btn btn-sm btn-secondary">查看切块</a>
-              <a href="/api/v1/documents/{{ d.id }}/original" target="_blank" class="btn btn-sm btn-secondary" title="下载原件">原件</a>
+              <a href="/documents/{{ d.id }}" class="btn btn-secondary btn-sm">查看切块</a>
+              {% if d.original_path %}
+              <a href="/api/v1/documents/{{ d.id }}/file" target="_blank" class="btn btn-secondary btn-sm">原件</a>
+              {% endif %}
             </div>
           </td>
         </tr>
@@ -195,6 +395,223 @@ function sortProjectTable(colIndex, type) {
 
   rows.forEach(row => tbody.appendChild(row));
 }
+
+let currentSelectedType = 'all';
+let currentSelectedCategory = 'all';
+let currentSelectedScope = 'all';
+
+function setTypeFilter(type, btn) {
+  currentSelectedType = type;
+  document.querySelectorAll('#typeFilterGroup .filter-pill').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  applyFilters();
+}
+
+function setCategoryFilter(cat, btn) {
+  currentSelectedCategory = cat;
+  document.querySelectorAll('#categoryFilterGroup .filter-pill').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  applyFilters();
+}
+
+function setScopeFilter(scope, btn) {
+  currentSelectedScope = scope;
+  document.querySelectorAll('#scopeFilterGroup .filter-pill').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  applyFilters();
+}
+
+function resetAllFilters() {
+  currentSelectedType = 'all';
+  currentSelectedCategory = 'all';
+  currentSelectedScope = 'all';
+  
+  document.querySelectorAll('#typeFilterGroup .filter-pill').forEach(b => b.classList.remove('active'));
+  document.querySelector('#typeFilterGroup .filter-pill[data-type="all"]')?.classList.add('active');
+
+  document.querySelectorAll('#categoryFilterGroup .filter-pill').forEach(b => b.classList.remove('active'));
+  document.querySelector('#categoryFilterGroup .filter-pill[data-category="all"]')?.classList.add('active');
+
+  document.querySelectorAll('#scopeFilterGroup .filter-pill').forEach(b => b.classList.remove('active'));
+  document.querySelector('#scopeFilterGroup .filter-pill[data-scope="all"]')?.classList.add('active');
+
+  const yearSelect = document.getElementById('yearFilter');
+  if (yearSelect) yearSelect.value = 'all';
+
+  const monthSelect = document.getElementById('monthFilter');
+  if (monthSelect) monthSelect.value = 'all';
+
+  const searchInput = document.getElementById('docSearchInput');
+  if (searchInput) searchInput.value = '';
+
+  applyFilters();
+}
+
+function classifyDoc(docType, filename) {
+  const dt = (docType || '').toLowerCase();
+  const fn = (filename || '').toLowerCase();
+  
+  if (dt.includes('contract') || dt.includes('agreement') || fn.includes('合同') || fn.includes('协议') || fn.includes('中标')) {
+    return 'contract';
+  }
+  if (dt.includes('bank') || dt.includes('settlement') || fn.includes('bank') || fn.includes('回单') || fn.includes('付款') || fn.includes('结算') || fn.includes('支付')) {
+    return 'payment';
+  }
+  if (dt.includes('tax') || dt.includes('invoice') || fn.includes('invoice') || fn.includes('发票') || fn.includes('完税') || fn.includes('专票')) {
+    return 'tax';
+  }
+  if (dt.includes('acceptance') || dt.includes('meter') || dt.includes('delivery') || dt.includes('photo') || fn.includes('acceptance') || fn.includes('photo') || fn.includes('地磅') || fn.includes('过磅') || fn.includes('签认') || fn.includes('现场') || fn.includes('送货') || fn.includes('验收')) {
+    return 'voucher';
+  }
+  return 'other';
+}
+
+function updateFilterCounts() {
+  const rows = document.querySelectorAll('.project-doc-row');
+  let counts = {
+    all: rows.length,
+    contract: 0, payment: 0, voucher: 0, tax: 0, other: 0,
+    construction: 0, material: 0, labor: 0, equipment: 0, subcontract: 0,
+    internal: 0, external: 0
+  };
+
+  rows.forEach(row => {
+    const filename = row.getAttribute('data-filename') || '';
+    const docType = row.getAttribute('data-type') || '';
+    const docCat = (row.getAttribute('data-category') || '').toLowerCase();
+    const isExt = row.getAttribute('data-is-external') === '1';
+
+    // 1. Type classification
+    const typeCat = classifyDoc(docType, filename);
+    if (counts[typeCat] !== undefined) counts[typeCat]++;
+
+    // 2. Business category
+    if (docCat.includes('construct') || docCat.includes('main') || docCat.includes('总包')) {
+      counts.construction++;
+    } else if (docCat.includes('material') || docCat.includes('材料')) {
+      counts.material++;
+    } else if (docCat.includes('labor') || docCat.includes('劳务')) {
+      counts.labor++;
+    } else if (docCat.includes('equipment') || docCat.includes('机械') || docCat.includes('租赁')) {
+      counts.equipment++;
+    } else if (docCat.includes('subcontract') || docCat.includes('分包')) {
+      counts.subcontract++;
+    }
+
+    // 3. Scope
+    if (isExt) {
+      counts.external++;
+    } else {
+      counts.internal++;
+    }
+  });
+
+  const setTxt = (id, val) => { const el = document.getElementById(id); if (el) el.innerText = val; };
+  setTxt('count-type-all', counts.all);
+  setTxt('count-type-contract', counts.contract);
+  setTxt('count-type-payment', counts.payment);
+  setTxt('count-type-voucher', counts.voucher);
+  setTxt('count-type-tax', counts.tax);
+
+  setTxt('count-cat-construction', counts.construction);
+  setTxt('count-cat-material', counts.material);
+  setTxt('count-cat-labor', counts.labor);
+  setTxt('count-cat-equipment', counts.equipment);
+  setTxt('count-cat-subcontract', counts.subcontract);
+
+  setTxt('count-scope-internal', counts.internal);
+  setTxt('count-scope-external', counts.external);
+}
+
+function applyFilters() {
+  const query = (document.getElementById('docSearchInput')?.value || '').toLowerCase().trim();
+  const yearVal = document.getElementById('yearFilter')?.value || 'all';
+  const monthVal = document.getElementById('monthFilter')?.value || 'all';
+  const rows = document.querySelectorAll('.project-doc-row');
+  let visibleCount = 0;
+
+  rows.forEach(row => {
+    const filename = (row.getAttribute('data-filename') || '').toLowerCase();
+    const docType = row.getAttribute('data-type') || '';
+    const docCat = (row.getAttribute('data-category') || '').toLowerCase();
+    const docPeriod = row.getAttribute('data-period') || '';
+    const isExt = row.getAttribute('data-is-external') === '1';
+    const cp = (row.getAttribute('data-cp') || '').toLowerCase();
+    const entity = (row.getAttribute('data-entity') || '').toLowerCase();
+
+    // 1. Type filter
+    let matchType = true;
+    if (currentSelectedType !== 'all') {
+      const cat = classifyDoc(docType, filename);
+      matchType = (cat === currentSelectedType);
+    }
+
+    // 2. Category filter
+    let matchCat = true;
+    if (currentSelectedCategory !== 'all') {
+      if (currentSelectedCategory === 'construction') {
+        matchCat = docCat.includes('construct') || docCat.includes('main') || docCat.includes('总包');
+      } else if (currentSelectedCategory === 'material') {
+        matchCat = docCat.includes('material') || docCat.includes('材料');
+      } else if (currentSelectedCategory === 'labor') {
+        matchCat = docCat.includes('labor') || docCat.includes('劳务');
+      } else if (currentSelectedCategory === 'equipment') {
+        matchCat = docCat.includes('equipment') || docCat.includes('机械') || docCat.includes('租赁');
+      } else if (currentSelectedCategory === 'subcontract') {
+        matchCat = docCat.includes('subcontract') || docCat.includes('分包');
+      } else {
+        matchCat = docCat.includes(currentSelectedCategory);
+      }
+    }
+
+    // 3. Scope filter
+    let matchScope = true;
+    if (currentSelectedScope === 'internal') {
+      matchScope = !isExt;
+    } else if (currentSelectedScope === 'external') {
+      matchScope = isExt;
+    }
+
+    // 4. Time filter (pure year and month matching)
+    let matchTime = true;
+    if (yearVal !== 'all' || monthVal !== 'all') {
+      if (!docPeriod) {
+        matchTime = false;
+      } else {
+        const parts = docPeriod.split('-');
+        const docYear = parts[0] || '';
+        const docMonth = parts[1] || '';
+
+        if (yearVal !== 'all' && docYear !== yearVal) {
+          matchTime = false;
+        }
+        if (monthVal !== 'all' && docMonth !== monthVal) {
+          matchTime = false;
+        }
+      }
+    }
+
+    // 5. Search query
+    let matchQuery = true;
+    if (query) {
+      const rowText = row.innerText.toLowerCase();
+      matchQuery = filename.includes(query) || cp.includes(query) || entity.includes(query) || rowText.includes(query);
+    }
+
+    if (matchType && matchCat && matchScope && matchTime && matchQuery) {
+      row.style.display = '';
+      visibleCount++;
+    } else {
+      row.style.display = 'none';
+    }
+  });
+
+  const countEl = document.getElementById('visibleDocCount');
+  if (countEl) countEl.innerText = visibleCount;
+}
+
+document.addEventListener('DOMContentLoaded', updateFilterCounts);
+setTimeout(updateFilterCounts, 100);
 </script>
 
 <!-- 异步解析任务队列监控 -->
@@ -225,12 +642,14 @@ function sortProjectTable(colIndex, type) {
             <a href="/documents/{{ j.document_id }}">资料 #{{ j.document_id }}</a>
           </td>
           <td>
-            {% if j.status == 'SUCCESS' or j.status == 'INDEXED' %}
+            {% if j.status == 'SUCCESS' or j.status == 'INDEXED' or j.status == 'COMPLETED' %}
             <span class="badge badge-emerald">已完成</span>
             {% elif j.status == 'RUNNING' or j.status == 'QUEUED' %}
             <span class="badge badge-amber">{% if j.status == 'RUNNING' %}处理中{% else %}排队中{% endif %}</span>
             {% elif j.status == 'FAILED' or j.status == 'PARSE_FAILED' %}
             <span class="badge badge-rose">解析失败</span>
+            {% elif j.status == 'RETRY' %}
+            <span class="badge badge-amber">重试中</span>
             {% else %}
             <span class="badge badge-rose">异常</span>
             {% endif %}
@@ -329,15 +748,18 @@ function sortProjectTable(colIndex, type) {
     <form method="post" action="/projects/{{ project.id }}/import-folder">
       <div style="display: flex; flex-direction: column; gap: 14px;">
         <div>
-          <label style="font-size: 12px; color: var(--text-muted); display: block; margin-bottom: 6px;">本机绝对路径 (安全沙箱内路径)</label>
-          <input class="form-input" name="path" placeholder="/Users/yvoche/AI开发/073_成都建工/0.1 税务管理/..." required style="width: 100%;">
+          <label style="font-size: 12px; color: var(--text-muted); display: block; margin-bottom: 6px;">本机/局域网绝对路径</label>
+          <div style="display: flex; gap: 8px;">
+            <input class="form-input" id="import-path-input" name="path" placeholder="例如：/Volumes/共享服务器/或 /Users/yvoche/..." required style="flex: 1;">
+            <button type="button" class="btn btn-secondary" onclick="openDirPicker()">浏览...</button>
+          </div>
         </div>
         <div style="display: flex; align-items: center; gap: 8px;">
           <input type="checkbox" name="recursive" id="chk-rec" value="true" checked>
           <label for="chk-rec" style="font-size: 13px; color: var(--text-secondary);">递归扫描所有子文件夹</label>
         </div>
         <div style="font-size: 11px; color: var(--text-muted); background: rgba(11,19,38,0.6); padding: 10px; border-radius: 6px;">
-          ℹ️ 扫描引擎会自动根据 SHA256 哈希进行去重，并将新文件推入后台 MinerU 异步解析与 BGE-M3 向量化管道。
+          ℹ️ 扫描引擎会自动根据 SHA256 哈希进行去重，并将新文件推入后台 MinerU 3.4.5 异步解析与 BGE-M3 向量化管道。
         </div>
         <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 10px;">
           <button type="button" class="btn btn-secondary" onclick="document.getElementById('modal-import-folder').classList.remove('active')">取消</button>
@@ -347,5 +769,92 @@ function sortProjectTable(colIndex, type) {
     </form>
   </div>
 </div>
+
+
+<!-- 目录选择器弹窗 -->
+<div id="modal-dir-picker" class="modal-overlay" style="z-index: 9999;">
+  <div class="glass-panel-elevated modal-content" style="width: 600px; max-height: 80vh; display: flex; flex-direction: column;">
+    <div class="modal-header">
+      <h3 style="color: #fff; font-size: 16px;">📂 选择文件夹</h3>
+      <button class="modal-close" onclick="document.getElementById('modal-dir-picker').classList.remove('active')">&times;</button>
+    </div>
+    <div style="margin-bottom: 12px; display: flex; gap: 8px;">
+      <input type="text" id="dir-picker-path" class="form-input" style="flex: 1; font-family: monospace; font-size: 12px;" readonly>
+      <button type="button" class="btn btn-secondary" onclick="goUpDir()">⬆️ 返回上级</button>
+      <button type="button" class="btn btn-secondary" onclick="loadDir('/Volumes')">🌐 局域网/外挂盘</button>
+    </div>
+    <div id="dir-picker-list" style="flex: 1; overflow-y: auto; background: rgba(0,0,0,0.3); border: 1px solid var(--border-color); border-radius: 6px; padding: 6px; min-height: 300px;">
+      <!-- Dir list items go here -->
+    </div>
+    <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 14px;">
+      <button type="button" class="btn btn-secondary" onclick="document.getElementById('modal-dir-picker').classList.remove('active')">取消</button>
+      <button type="button" class="btn btn-primary" onclick="confirmDirSelection()">选中当前文件夹</button>
+    </div>
+  </div>
+</div>
+
+<script>
+let currentPickerPath = '';
+
+async function loadDir(path = '') {
+  const listEl = document.getElementById('dir-picker-list');
+  listEl.innerHTML = '<div style="padding: 10px; color: var(--text-muted); text-align: center;">加载中...</div>';
+  
+  try {
+    const res = await fetch('/api/v1/fs/list-dirs', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: path })
+    });
+    const data = await res.json();
+    
+    if (data.error) {
+      listEl.innerHTML = `<div style="padding: 10px; color: #ef4444; text-align: center;">${data.error}</div>`;
+      return;
+    }
+    
+    currentPickerPath = data.current;
+    document.getElementById('dir-picker-path').value = data.current;
+    
+    listEl.innerHTML = '';
+    if (data.dirs.length === 0) {
+      listEl.innerHTML = '<div style="padding: 10px; color: var(--text-muted); text-align: center;">(空文件夹)</div>';
+    } else {
+      data.dirs.forEach(d => {
+        const item = document.createElement('div');
+        item.style.cssText = 'padding: 8px 10px; cursor: pointer; border-radius: 4px; display: flex; align-items: center; gap: 8px; color: var(--text-primary); transition: background 0.2s;';
+        item.onmouseover = () => item.style.background = 'rgba(76, 215, 246, 0.1)';
+        item.onmouseout = () => item.style.background = 'transparent';
+        item.innerHTML = `<span>📁</span> <span>${d.name}</span>`;
+        item.onclick = () => loadDir(d.path);
+        listEl.appendChild(item);
+      });
+    }
+  } catch (err) {
+    listEl.innerHTML = `<div style="padding: 10px; color: #ef4444; text-align: center;">网络错误</div>`;
+  }
+}
+
+function openDirPicker() {
+  document.getElementById('modal-dir-picker').classList.add('active');
+  const initialPath = document.getElementById('import-path-input').value || '/Users/yvoche';
+  loadDir(initialPath);
+}
+
+function goUpDir() {
+  if (currentPickerPath && currentPickerPath !== '/') {
+    const parent = currentPickerPath.substring(0, currentPickerPath.lastIndexOf('/')) || '/';
+    loadDir(parent);
+  }
+}
+
+function confirmDirSelection() {
+  if (currentPickerPath) {
+    document.getElementById('import-path-input').value = currentPickerPath;
+    document.getElementById('modal-dir-picker').classList.remove('active');
+  }
+}
+</script>
 
 {% endblock %}

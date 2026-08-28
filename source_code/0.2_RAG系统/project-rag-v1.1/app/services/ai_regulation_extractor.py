@@ -20,11 +20,10 @@ import re
 import urllib.request
 from typing import Any, Dict, Tuple
 
-import httpx
-
-from ..config import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL, MAX_UPLOAD_SIZE
+from ..config import MAX_UPLOAD_SIZE
 from ..logging_config import get_logger
-from ..security import validate_llm_outbound_url, validate_outbound_url
+from ..security import validate_outbound_url
+from . import llm_pool
 
 logger = get_logger(__name__)
 
@@ -112,13 +111,20 @@ def extract_file_content(file_bytes: bytes, filename: str) -> str:
     return file_bytes.decode("utf-8", errors="ignore")
 
 
-def ai_extract_regulation_metadata(raw_text: str) -> Dict[str, Any]:
-    """使用 LLM 或增强规则智能提取法规的核心元数据"""
+def ai_extract_regulation_metadata(raw_text: str, *, session: Any = None) -> Dict[str, Any]:
+    """Extract regulation metadata through the shared LLM pool.
+
+    The deterministic heuristic parser remains available when the configured
+    pool is disabled, unavailable, or returns malformed JSON.  Such a result
+    is explicitly marked as degraded and must not be presented as an
+    AI-generated extraction.
+    """
     preview_text = raw_text[:4000]
+    ai_status = "DEGRADED"
+    ai_degradation_reason = "LLM endpoint pool unavailable; heuristic extraction used"
 
     # 1. 尝试大模型解析
-    if LLM_BASE_URL and LLM_MODEL:
-        prompt = f"""你是一个专业的中国财税法律法规知识工程专家。请从以下法律法规正文片段中，提取结构化元数据。
+    prompt = f"""你是一个专业的中国财税法律法规知识工程专家。请从以下法律法规正文片段中，提取结构化元数据。
 
 提取规则：
 1. 必须输出严格合法的 JSON 对象，不要输出 markdown 标记或任何其他多余文本。
@@ -137,34 +143,37 @@ def ai_extract_regulation_metadata(raw_text: str) -> Dict[str, Any]:
 
 请输出 JSON:"""
 
-        try:
-            validated_llm_base = validate_llm_outbound_url(LLM_BASE_URL)
-            client = httpx.Client(timeout=15.0)
-            url = f"{validated_llm_base.rstrip('/')}/chat/completions"
-            if not url.endswith("/v1/chat/completions") and "/v1" not in url:
-                url = f"{LLM_BASE_URL.rstrip('/')}/v1/chat/completions"
-
-            headers = {"Content-Type": "application/json"}
-            if LLM_API_KEY:
-                headers["Authorization"] = f"Bearer {LLM_API_KEY}"
-
-            payload = {
-                "model": LLM_MODEL,
-                "messages": [{"role": "user", "content": prompt}],
-                "temperature": 0.1,
-            }
-            resp = client.post(url, json=payload, headers=headers)
-            if resp.status_code == 200:
-                res_data = resp.json()
-                content = res_data["choices"][0]["message"]["content"].strip()
-                # 寻找 json
-                m = re.search(r"\{[\s\S]*\}", content)
-                if m:
-                    meta = json.loads(m.group(0))
-                    meta["raw_extracted"] = True
-                    return meta
-        except Exception as e:
-            logger.warning(f"LLM extraction error: {e}, falling back to heuristic parser")
+    try:
+        result = llm_pool.call_chat(
+            [{"role": "user", "content": prompt}],
+            temperature=0.1,
+            routing_group="default",
+            session=session,
+            legacy_timeout_seconds=15,
+        )
+        content = result.text
+        # 寻找 json
+        match = re.search(r"\{[\s\S]*\}", content)
+        if match:
+            meta = json.loads(match.group(0))
+            if isinstance(meta, dict):
+                meta["raw_extracted"] = True
+                meta["ai_status"] = "OK"
+                meta["ai_degraded"] = False
+                return meta
+        ai_degradation_reason = "LLM response was not valid regulation metadata JSON; heuristic extraction used"
+        logger.warning("LLM regulation metadata response was unusable; using heuristic parser")
+    except llm_pool.LLMPoolError:
+        # LLMPoolError intentionally contains only bounded, credential-free
+        # metadata.  Keep the externally visible reason even more generic so
+        # provider messages or endpoint details can never escape this API.
+        logger.warning("LLM regulation metadata pool failed; using heuristic parser")
+    except (json.JSONDecodeError, TypeError, ValueError):
+        ai_degradation_reason = "LLM response could not be parsed; heuristic extraction used"
+        logger.warning("LLM regulation metadata JSON parsing failed; using heuristic parser")
+    except Exception as exc:
+        ai_degradation_reason = "LLM regulation metadata extraction failed; heuristic extraction used"
+        logger.warning("LLM regulation metadata extraction failed: %s", exc.__class__.__name__)
 
     # 2. 启发式智能规则抽取
     lines = [line.strip() for line in raw_text.splitlines() if line.strip()]
@@ -218,8 +227,15 @@ def ai_extract_regulation_metadata(raw_text: str) -> Dict[str, Any]:
         "tax_type": tax_type,
         "status": "现行有效",
         "business_role": role,
-        "summary": "系统智能分析并自动提取结构化条款。",
-        "raw_extracted": False
+        "summary": (
+            "规则启发式提取；未获得可用 AI 模型结果。"
+            if ai_status != "OK"
+            else "系统智能分析并自动提取结构化条款。"
+        ),
+        "raw_extracted": False,
+        "ai_status": ai_status,
+        "ai_degraded": True,
+        "ai_degradation_reason": ai_degradation_reason,
     }
 
 
@@ -246,7 +262,11 @@ def generate_regulation_markdown(meta: Dict[str, Any], full_text: str) -> Tuple[
         "status": meta.get("status", "现行有效"),
         "business_role": meta.get("business_role", "construction"),
         "category": category,
-        "source": "AI智能识别自动入库",
+        "source": (
+            "AI智能识别自动入库"
+            if meta.get("raw_extracted") and meta.get("ai_status") == "OK"
+            else "规则启发式降级提取（LLM不可用或响应无效）"
+        ),
     }
 
     yaml_header = "---\n"

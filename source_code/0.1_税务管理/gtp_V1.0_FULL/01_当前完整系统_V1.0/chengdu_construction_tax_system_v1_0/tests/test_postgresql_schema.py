@@ -4,6 +4,7 @@ Set TEST_DATABASE_URL to a disposable database whose name contains ``test``.
 The fixture skips safely when no PostgreSQL test service is configured.
 """
 from __future__ import annotations
+
 from sqlalchemy import create_engine, inspect, text
 
 
@@ -21,4 +22,39 @@ def test_postgresql_shared_master_contract(postgres_test_database_url):
     with engine.connect() as conn:
         triggers={r[0] for r in conn.execute(text("SELECT tgname FROM pg_trigger WHERE NOT tgisinternal"))}
     assert {"trg_sync_project_aliases","trg_sync_entity_aliases"} <= triggers
+    engine.dispose()
+
+
+def test_seeded_external_party_identifiers_keep_full_values(
+    seeded_app, postgres_test_database_url
+):
+    """The shared table accepts the complete canonical external-party values."""
+    from app.seed import EXTERNAL_PARTIES
+
+    engine = create_engine(postgres_test_database_url, future=True)
+    with engine.connect() as conn:
+        lengths = {
+            row.column_name: row.character_maximum_length
+            for row in conn.execute(
+                text(
+                    """
+                    SELECT column_name, character_maximum_length
+                    FROM information_schema.columns
+                    WHERE table_schema = 'public'
+                      AND table_name = 'external_parties'
+                      AND column_name IN ('code', 'kind')
+                    """
+                )
+            )
+        }
+        assert lengths == {"code": 30, "kind": 30}
+
+        expected = {code: kind for code, _name, _short_name, kind in EXTERNAL_PARTIES}
+        actual = dict(
+            conn.execute(
+                text("SELECT code, kind FROM external_parties WHERE code LIKE 'EXT-%'")
+            ).all()
+        )
+        assert actual == expected
+        assert actual["EXT-CQ-HEAVY-CRANE"] == "construction"
     engine.dispose()

@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session
 from ..constants import RISK_CODE_LABELS, SEVERITY_LABELS
 from ..db import SessionLocal
 from ..dependencies import require_role
-from ..domain.entities import CANONICAL_ENTITY_CODES
+from ..domain.entities import CANONICAL_ENTITY_CODES, is_canonical_entity_code
 from ..models import (
     AuditLog,
     Entity,
@@ -417,8 +417,8 @@ def _tax_item(
         "generated": bool(row.generated),
         "entityName": entity_name,
         "entityCategory": role,
-        "isInternal": True,
-        "source": "deterministic_tax_ledger",
+        "isInternal": is_canonical_entity_code(entity_code),
+        "source": "canonical" if is_canonical_entity_code(entity_code) else "external",
         "declareAmount": _number(row.revenue),
         "taxAmount": _number(row.vat_payable),
         "taxCategory": "增值税",

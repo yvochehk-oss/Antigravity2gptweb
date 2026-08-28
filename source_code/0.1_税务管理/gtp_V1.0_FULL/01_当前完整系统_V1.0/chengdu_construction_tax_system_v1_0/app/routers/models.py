@@ -21,7 +21,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 
-from ..ai.adapter import endpoint_is_allowed
+from ..ai.adapter import endpoint_is_allowed, is_mock_endpoint
 from ..audit import audit_from_request
 from ..db import SessionLocal
 from ..dependencies import admin_only
@@ -44,6 +44,7 @@ _ADAPTER_ALIASES = {
 }
 _CONTROL_CHARS = frozenset(chr(i) for i in range(32)) | {chr(127)}
 _MAX_SECRET_BYTES = 64 * 1024
+_ORDER_STEP = 100
 
 
 def _column_names() -> set[str]:
@@ -65,6 +66,56 @@ def _endpoint_value(endpoint: AIModelEndpoint, name: str, default: Any = "") -> 
 def _set_endpoint_value(endpoint: AIModelEndpoint, name: str, value: Any) -> None:
     if _has_column(name) or hasattr(endpoint, name):
         setattr(endpoint, name, value)
+
+
+def _endpoint_group(endpoint: AIModelEndpoint | None) -> str:
+    value = str(_endpoint_value(endpoint, "routing_group", "default") or "default").strip()
+    return value or "default"
+
+
+def _endpoint_order_key(endpoint: AIModelEndpoint) -> tuple[int, int]:
+    try:
+        priority = int(_endpoint_value(endpoint, "priority", 100) or 100)
+    except (TypeError, ValueError):
+        priority = 100
+    try:
+        endpoint_id = int(_endpoint_value(endpoint, "id", 0) or 0)
+    except (TypeError, ValueError):
+        endpoint_id = 0
+    return priority, endpoint_id
+
+
+def _real_endpoint_rows(rows: list[AIModelEndpoint]) -> list[AIModelEndpoint]:
+    """Keep historical disabled rows in the ordering, but never mock rows."""
+    return [row for row in rows if not is_mock_endpoint(row)]
+
+
+def _locked_group_rows(db, routing_group: str) -> list[AIModelEndpoint]:
+    """Lock one routing group before calculating or changing its order."""
+    rows = db.execute(
+        select(AIModelEndpoint)
+        .where(AIModelEndpoint.routing_group == routing_group)
+        .order_by(
+            AIModelEndpoint.priority.asc(),
+            AIModelEndpoint.id.asc(),
+        )
+        .with_for_update()
+    ).scalars().all()
+    return _real_endpoint_rows(rows)
+
+
+def _next_group_priority(db, routing_group: str) -> int:
+    rows = _locked_group_rows(db, routing_group)
+    # Repair legacy ties/gaps while the group is locked.  This keeps the
+    # persisted order unambiguous before the new row is appended.
+    _renumber_group(rows)
+    return (len(rows) + 1) * _ORDER_STEP
+
+
+def _renumber_group(rows: list[AIModelEndpoint]) -> None:
+    """Persist unique, deterministic priorities after a reorder."""
+    for index, row in enumerate(rows, start=1):
+        _set_endpoint_value(row, "priority", index * _ORDER_STEP)
 
 
 def _clean_text(value: str | None, *, field: str, maximum: int, required: bool = False) -> str:
@@ -194,18 +245,47 @@ def ai_models(request: Request):
     admin_only(request)
     db = SessionLocal()
     try:
-        rows = db.execute(select(AIModelEndpoint).order_by(AIModelEndpoint.id)).scalars().all()
-        # Existing mock rows are intentionally not deleted by the UI.  They
-        # are hidden from production model management and cannot be recreated.
-        rows = [
-            row for row in rows
-            if str(row.adapter or "").strip().lower() != "mock"
-            and endpoint_is_allowed(row)
-        ]
+        rows = db.execute(
+            select(AIModelEndpoint).order_by(
+                AIModelEndpoint.routing_group.asc(),
+                AIModelEndpoint.priority.asc(),
+                AIModelEndpoint.id.asc(),
+            )
+        ).scalars().all()
+        # Historical test rows remain available to audit/history queries, but
+        # are never shown in production model management.  Disabled real rows
+        # stay visible so disabling and re-enabling preserves their position.
+        rows = _real_endpoint_rows(rows)
+        display_order: dict[int, int] = {}
+        group_counts: dict[str, int] = {}
+        for row in rows:
+            group = _endpoint_group(row)
+            group_counts[group] = group_counts.get(group, 0) + 1
+        previous_group: str | None = None
+        group_index = 0
+        can_move_up: dict[int, bool] = {}
+        can_move_down: dict[int, bool] = {}
+        for row in rows:
+            group = _endpoint_group(row)
+            if group != previous_group:
+                group_index = 1
+                previous_group = group
+            else:
+                group_index += 1
+            display_order[row.id] = group_index
+            can_move_up[row.id] = group_index > 1
+            can_move_down[row.id] = group_index < group_counts[group]
         credential_status = {row.id: _credential_status(row) for row in rows}
         return templates.TemplateResponse(
             request, "ai_models.html",
-            {"request": request, "rows": rows, "credential_status": credential_status},
+            {
+                "request": request,
+                "rows": rows,
+                "credential_status": credential_status,
+                "display_order": display_order,
+                "can_move_up": can_move_up,
+                "can_move_down": can_move_down,
+            },
         )
     finally:
         db.close()
@@ -251,6 +331,10 @@ def ai_model_add(
                 new_ref = store.put(values["api_key"])
             except SecretStoreError as exc:
                 raise HTTPException(status_code=503, detail="安全凭证存储不可用") from exc
+        # A newly added endpoint is always appended to its routing group.  The
+        # submitted legacy priority is accepted for API compatibility but is
+        # deliberately not used as an ordering control.
+        values["priority"] = _next_group_priority(db, values["routing_group"])
         endpoint = AIModelEndpoint(**_new_endpoint_kwargs(values))
         _set_endpoint_value(endpoint, "credential_ref", new_ref or "")
         db.add(endpoint)
@@ -294,6 +378,8 @@ def ai_model_update(
         endpoint = _get_endpoint(db, endpoint_id)
         if str(endpoint.adapter or "").strip().lower() == "mock":
             raise HTTPException(status_code=400, detail="旧 mock 端点不能在此页面编辑")
+        old_group = _endpoint_group(endpoint)
+        new_group = values["routing_group"]
         old_ref = str(_endpoint_value(endpoint, "credential_ref", "") or "").strip()
         if values["api_key"]:
             if not _has_column("credential_ref"):
@@ -313,8 +399,13 @@ def ai_model_update(
             "timeout_seconds", "note",
         ):
             setattr(endpoint, name, values[name])
-        for name in ("priority", "routing_group"):
-            _set_endpoint_value(endpoint, name, values[name])
+        # Keep priority out of the ordinary edit form.  Moving between groups
+        # appends to the new group; same-group edits retain their position.
+        if new_group != old_group:
+            values["priority"] = _next_group_priority(db, new_group)
+        _set_endpoint_value(endpoint, "routing_group", new_group)
+        if new_group != old_group:
+            _set_endpoint_value(endpoint, "priority", values["priority"])
         if new_ref:
             _set_endpoint_value(endpoint, "credential_ref", new_ref)
             endpoint.api_key_env = ""
@@ -333,6 +424,69 @@ def ai_model_update(
     if (new_ref or retire_old_ref) and old_ref and old_ref != new_ref:
         with suppress(Exception):
             store.delete(old_ref)
+    return RedirectResponse("/ai-models", status_code=303)
+
+
+@router.post("/ai-models/{endpoint_id}/move")
+def ai_model_move(request: Request, endpoint_id: int, direction: str = Form(...)):
+    """Move one real endpoint within its group using an atomic transaction.
+
+    Ordering includes disabled real endpoints so toggling an endpoint off and
+    back on does not silently change its configured position.  Only enabled
+    real endpoints are eligible for actual failover in ``ai.failover``.
+    """
+    admin_only(request)
+    direction = str(direction or "").strip().lower()
+    if direction not in {"up", "down"}:
+        raise HTTPException(status_code=400, detail="顺序移动方向无效")
+
+    db = SessionLocal()
+    try:
+        target = db.execute(
+            select(AIModelEndpoint)
+            .where(AIModelEndpoint.id == endpoint_id)
+            .with_for_update()
+        ).scalar_one_or_none()
+        if target is None:
+            raise HTTPException(status_code=404, detail="AI 端点不存在")
+        if is_mock_endpoint(target):
+            raise HTTPException(status_code=409, detail="历史测试端点不可参与生产模型排序")
+
+        group = _endpoint_group(target)
+        rows = _locked_group_rows(db, group)
+        target_index = next(
+            (index for index, row in enumerate(rows) if row.id == target.id),
+            None,
+        )
+        if target_index is None:
+            # A concurrent group change or deletion must be visible to the
+            # caller instead of becoming a silent no-op.
+            raise HTTPException(status_code=409, detail="端点顺序已发生变化，请刷新后重试")
+
+        neighbor_index = target_index - 1 if direction == "up" else target_index + 1
+        if neighbor_index < 0 or neighbor_index >= len(rows):
+            boundary = "第一位" if direction == "up" else "最后一位"
+            raise HTTPException(status_code=409, detail=f"端点已经是当前路由组的{boundary}")
+
+        rows[target_index], rows[neighbor_index] = rows[neighbor_index], rows[target_index]
+        _renumber_group(rows)
+        audit_from_request(
+            db,
+            request,
+            "UPDATE",
+            "AIModelEndpoint",
+            target.id,
+            f"调整 AI 端点顺序：路由组 {group}，{direction} 移动一位",
+        )
+        _commit_or_fail(db)
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(status_code=500, detail="AI 端点顺序更新失败") from exc
+    finally:
+        db.close()
     return RedirectResponse("/ai-models", status_code=303)
 
 

@@ -2,13 +2,25 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import func, select
 
 from ..calc import four_flow_evidence_completeness, matching_rows, project_summary
 from ..db import SessionLocal
 from ..dependencies import require_role
-from ..models import Project
+from ..domain.entities import CANONICAL_ENTITY_CODES, is_canonical_entity_code
+from ..models import (
+    CashFlow,
+    Contract,
+    Entity,
+    ExternalParty,
+    Fulfillment,
+    Invoice,
+    Project,
+    RealCost,
+)
 
 _LOGGER = logging.getLogger(__name__)
 _reader_dependency = Depends(require_role("admin", "operator"))
@@ -92,6 +104,227 @@ def api_matching_completeness(pid: int, _user=_reader_dependency):
     except Exception:
         db.rollback()
         _LOGGER.exception("matching completeness query failed: pid=%s", pid)
+        raise
+    finally:
+        db.close()
+
+
+def _party_label(db, code: str) -> tuple[str, str, bool]:
+    """Resolve a counterparty code to a (name, kind, is_internal) tuple.
+
+    ``kind`` is one of ``"entity"`` (canonical 26-unit master), ``"external"``
+    (named master) or ``"unknown"`` (no master row).  ``is_internal`` mirrors the
+    canonical-set check so a missing master row never silently re-classifies a
+    system-internal unit as external.
+    """
+    code = (code or "").strip()
+    if not code:
+        return "", "unknown", False
+    if is_canonical_entity_code(code):
+        row = db.execute(
+            select(Entity).where(Entity.code == code)
+        ).scalars().first()
+        name = (row.name if row else code) or code
+        return str(name), "entity", True
+    row = db.execute(
+        select(ExternalParty).where(ExternalParty.code == code)
+    ).scalars().first()
+    if row is not None:
+        return str(row.name or row.code), "external", False
+    return code, "unknown", False
+
+
+def _aggregate_party(db, pid: int, code: str) -> dict[str, Any]:
+    """Aggregate one counterparty across the four-flow evidence tables.
+
+    Every numeric field is sourced from the same RAG-shared PostgreSQL row sets
+    (contracts / invoices / cashflows / real_costs / fulfillment).  Empty
+    collections produce zeros rather than fabricated placeholders.
+    """
+    name, kind, is_internal = _party_label(db, code)
+
+    contract_amount_total = db.scalar(
+        select(func.coalesce(func.sum(Contract.amount), 0))
+        .where(Contract.project_id == pid)
+        .where((Contract.buyer_code == code) | (Contract.seller_code == code))
+    ) or 0
+    contract_count = db.scalar(
+        select(func.count(Contract.id))
+        .where(Contract.project_id == pid)
+        .where((Contract.buyer_code == code) | (Contract.seller_code == code))
+    ) or 0
+
+    inv_in = db.execute(
+        select(
+            func.coalesce(func.sum(Invoice.net), 0),
+            func.coalesce(func.sum(Invoice.vat), 0),
+            func.count(Invoice.id),
+        )
+        .where(Invoice.project_id == pid, Invoice.direction == "in")
+        .where((Invoice.entity_code == code) | (Invoice.counterparty_code == code))
+    ).one()
+    inv_out = db.execute(
+        select(
+            func.coalesce(func.sum(Invoice.net), 0),
+            func.coalesce(func.sum(Invoice.vat), 0),
+            func.count(Invoice.id),
+        )
+        .where(Invoice.project_id == pid, Invoice.direction == "out")
+        .where((Invoice.entity_code == code) | (Invoice.counterparty_code == code))
+    ).one()
+
+    cash_in = db.execute(
+        select(
+            func.coalesce(func.sum(CashFlow.amount), 0),
+            func.count(CashFlow.id),
+        )
+        .where(CashFlow.project_id == pid, CashFlow.direction == "in")
+        .where((CashFlow.entity_code == code) | (CashFlow.counterparty_code == code))
+    ).one()
+    cash_out = db.execute(
+        select(
+            func.coalesce(func.sum(CashFlow.amount), 0),
+            func.count(CashFlow.id),
+        )
+        .where(CashFlow.project_id == pid, CashFlow.direction == "out")
+        .where((CashFlow.entity_code == code) | (CashFlow.counterparty_code == code))
+    ).one()
+
+    real_cost = db.execute(
+        select(
+            func.coalesce(func.sum(RealCost.amount), 0),
+            func.count(RealCost.id),
+        )
+        .where(RealCost.project_id == pid)
+        .where((RealCost.entity_code == code) | (RealCost.counterparty_code == code))
+    ).one()
+
+    fulfillment = db.execute(
+        select(
+            func.coalesce(func.sum(Fulfillment.amount), 0),
+            func.count(Fulfillment.id),
+        )
+        .where(Fulfillment.project_id == pid)
+        .where(Fulfillment.counterparty_code == code)
+    ).one()
+
+    return {
+        "party_code": code,
+        "party_name": name,
+        "kind": kind,
+        "isInternal": is_internal,
+        "source": "entities" if kind == "entity" else "external_parties" if kind == "external" else "unknown",
+        "contract_count": int(contract_count),
+        "contract_amount": float(contract_amount_total),
+        "invoice_in_count": int(inv_in[2]),
+        "invoice_in_net": float(inv_in[0]),
+        "invoice_in_vat": float(inv_in[1]),
+        "invoice_out_count": int(inv_out[2]),
+        "invoice_out_net": float(inv_out[0]),
+        "invoice_out_vat": float(inv_out[1]),
+        "cashflow_in_count": int(cash_in[1]),
+        "cashflow_in_amount": float(cash_in[0]),
+        "cashflow_out_count": int(cash_out[1]),
+        "cashflow_out_amount": float(cash_out[0]),
+        "real_cost_count": int(real_cost[1]),
+        "real_cost_amount": float(real_cost[0]),
+        "fulfillment_count": int(fulfillment[1]),
+        "fulfillment_amount": float(fulfillment[0]),
+    }
+
+
+def _discover_party_codes(db, pid: int) -> list[str]:
+    """Return every distinct party code that the project actually references.
+
+    Each evidence table contributes its own ``*_code`` columns so a unit that
+    only shows up in one channel (e.g. only on a RealCost row) is still listed.
+    Order is deterministic: canonical codes first, then alphabetic.
+    """
+    codes: set[str] = set()
+
+    inv_codes = db.execute(
+        select(Invoice.entity_code, Invoice.counterparty_code)
+        .where(Invoice.project_id == pid)
+    ).all()
+    for entity_code, counterparty_code in inv_codes:
+        for raw in (entity_code, counterparty_code):
+            value = (raw or "").strip()
+            if value:
+                codes.add(value)
+
+    cf_codes = db.execute(
+        select(CashFlow.entity_code, CashFlow.counterparty_code)
+        .where(CashFlow.project_id == pid)
+    ).all()
+    for entity_code, counterparty_code in cf_codes:
+        for raw in (entity_code, counterparty_code):
+            value = (raw or "").strip()
+            if value:
+                codes.add(value)
+
+    rc_codes = db.execute(
+        select(RealCost.entity_code, RealCost.counterparty_code)
+        .where(RealCost.project_id == pid)
+    ).all()
+    for entity_code, counterparty_code in rc_codes:
+        for raw in (entity_code, counterparty_code):
+            value = (raw or "").strip()
+            if value:
+                codes.add(value)
+
+    ct_codes = db.execute(
+        select(Contract.buyer_code, Contract.seller_code)
+        .where(Contract.project_id == pid)
+    ).all()
+    for buyer_code, seller_code in ct_codes:
+        for raw in (buyer_code, seller_code):
+            value = (raw or "").strip()
+            if value:
+                codes.add(value)
+
+    fu_codes = db.execute(
+        select(Fulfillment.counterparty_code)
+        .where(Fulfillment.project_id == pid)
+    ).all()
+    for (counterparty_code,) in fu_codes:
+        value = (counterparty_code or "").strip()
+        if value:
+            codes.add(value)
+
+    def sort_key(code: str) -> tuple[int, str]:
+        return (0 if code in CANONICAL_ENTITY_CODES else 1, code)
+
+    return sorted(codes, key=sort_key)
+
+
+@router.get("/api/projects/{pid}/counterparties")
+def api_project_counterparties(pid: int, _user=_reader_dependency):
+    """Aggregate every unit the project actually references.
+
+    Reads exclusively from the RAG-shared PostgreSQL row sets (contracts,
+    invoices, cashflows, real_costs, fulfillment) and resolves each ``*_code``
+    through ``entities`` (canonical 26-unit master) or ``external_parties``
+    (RAG-confirmed counterparty master).  No fabricated rows, no silent
+    reclassification.
+    """
+    db = SessionLocal()
+    try:
+        if db.get(Project, pid) is None:
+            raise HTTPException(status_code=404, detail="项目不存在")
+        codes = _discover_party_codes(db, pid)
+        parties = [_aggregate_party(db, pid, code) for code in codes]
+        return {
+            "status": "READY" if parties else "EMPTY",
+            "message": "" if parties else "该项目当前没有任何合同/发票/收付款数据。",
+            "items": parties,
+            "total": len(parties),
+        }
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception:
+        db.rollback()
+        _LOGGER.exception("counterparty aggregation failed: pid=%s", pid)
         raise
     finally:
         db.close()

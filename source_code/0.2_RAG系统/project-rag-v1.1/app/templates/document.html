@@ -61,19 +61,34 @@
     <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 14px; font-size: 13px;">
       <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--border-subtle); padding-bottom: 8px;">
         <span style="color: var(--text-muted);">资料类型</span>
-        <span class="badge badge-cyan">{{ doc.document_type or '未指定' }}</span>
+        <span class="badge badge-cyan">{{ doc.document_type | doc_type_name if doc.document_type else '未指定' }}</span>
       </div>
       <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--border-subtle); padding-bottom: 8px;">
-        <span style="color: var(--text-muted);">涉税主体 / 外部交易方</span>
-        <span>
-          {% if doc.entity_code %}<span class="badge badge-purple">主体 {{ doc.entity_code }}</span>{% else %}-{% endif %}
-          /
-          {% if doc.counterparty_code %}<span class="badge badge-muted">交易方 {{ doc.counterparty_code }}</span>{% else %}-{% endif %}
+        <span style="color: var(--text-muted);">涉税主体 / 交易对手</span>
+        <span style="display: flex; align-items: center; gap: 6px;">
+          {% if doc.entity_code %}
+            {% set ent = entity_by_code.get(doc.entity_code) if entity_by_code else None %}
+            <span class="badge {{ ent.business_role_badge if ent else 'badge-cyan' }}" title="经办主体">
+              {{ ent.short_name or ent.name if ent else doc.entity_code }}
+            </span>
+          {% else %}
+            <span style="color: var(--text-muted);">-</span>
+          {% endif %}
+          <span style="color: var(--text-muted);">↔</span>
+          {% if doc.counterparty_code %}
+            {% set cp = entity_by_code.get(doc.counterparty_code) if entity_by_code else None %}
+            <span class="badge {{ cp.business_role_badge if cp else 'badge-purple' }}" title="往来对手方">
+              {{ cp.short_name or cp.name if cp else doc.counterparty_code }}
+              {% if cp and cp.is_external %}<span style="opacity: 0.8; font-size: 10px; margin-left: 2px;">(系统外)</span>{% endif %}
+            </span>
+          {% else %}
+            <span style="color: var(--text-muted);">-</span>
+          {% endif %}
         </span>
       </div>
       <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--border-subtle); padding-bottom: 8px;">
         <span style="color: var(--text-muted);">业务类别 / 期间</span>
-        <span><b style="color: var(--text-secondary)">{{ doc.business_category or '-' }}</b> / <span class="font-mono">{{ doc.period or '-' }}</span></span>
+        <span><b style="color: var(--text-secondary)">{{ doc.business_category | category_name if doc.business_category else '-' }}</b> / <span class="font-mono">{{ doc.period or '-' }}</span></span>
       </div>
       <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--border-subtle); padding-bottom: 8px;">
         <span style="color: var(--text-muted);">解析引擎状态</span>

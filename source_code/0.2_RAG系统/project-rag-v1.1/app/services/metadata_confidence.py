@@ -22,7 +22,7 @@ VIRTUAL_ENTITY_CODES = frozenset({"A", "B", "C", "D", "甲", "乙", "丙", "丁"
 
 def is_canonical_entity_code(value: str | None) -> bool:
     code = str(value or "").strip().upper()
-    return bool(code and code in _CANONICAL_ENTITY_CODES and _CANONICAL_CODE_RE.fullmatch(code))
+    return bool(code and (code in _CANONICAL_ENTITY_CODES or code.startswith("EXT-")) and _CANONICAL_CODE_RE.fullmatch(code))
 
 # Confidence ranges by source
 _SOURCE_RANGES: dict[str, tuple[float, float]] = {

@@ -1,6 +1,7 @@
 """RAG-to-tax synchronization regression tests for the V1.0 entity contract."""
 from __future__ import annotations
 
+import json
 from decimal import Decimal
 
 import pytest
@@ -53,6 +54,55 @@ def test_entity_resolution_rejects_virtual_and_rolls_branch_to_parent(seeded_app
         with pytest.raises(rag_sync.SyncReviewRequired, match="虚拟"):
             rag_sync._resolve_party_code(db, raw="甲")
     finally:
+        db.close()
+
+
+def test_reviewed_contract_creates_missing_external_party_then_maps_contract(seeded_app):
+    from app.models import ExternalParty
+
+    rag_sync = _sync_module()
+    db = _db()
+    fields = {
+        "contract_no": "REVIEWED-EXT-001",
+        "party_a_code": "A08",
+        "party_a_name": "锐宝建设",
+        "party_b_name": "待确认供货商",
+        "party_b_tax_id": "91510400REVIEW001",
+        "total_amount": 100,
+        "_review_reason": "外部交易方 tax_id='91510400REVIEW001' 未登记",
+    }
+    try:
+        created = rag_sync._create_confirmed_external_parties(db, fields)
+        assert len(created) == 1
+        assert created[0].tax_id == "91510400REVIEW001"
+        assert created[0].kind == "rag_confirmed"
+        assert db.query(ExternalParty).filter(ExternalParty.tax_id == "91510400REVIEW001").count() == 1
+        mapped = rag_sync._map_contract_fields(db, fields, 1)
+        assert mapped["buyer_code"] == "A08"
+        assert mapped["seller_code"] == created[0].code
+    finally:
+        db.rollback()
+        db.close()
+
+
+def test_reviewed_contract_refuses_same_name_with_different_tax_id(seeded_app):
+    from app.models import ExternalParty
+
+    rag_sync = _sync_module()
+    db = _db()
+    db.add(ExternalParty(code="EXT-EXISTING", name="名称冲突供货商", tax_id="91510400OLD", active=True))
+    db.flush()
+    try:
+        with pytest.raises(rag_sync.SyncReviewRequired, match="税号不同"):
+            rag_sync._create_confirmed_external_parties(db, {
+                "party_a_code": "A08",
+                "party_b_name": "名称冲突供货商",
+                "party_b_tax_id": "91510400NEW",
+                "_review_reason": "外部交易方未登记",
+            })
+        assert db.query(ExternalParty).filter(ExternalParty.tax_id == "91510400NEW").count() == 0
+    finally:
+        db.rollback()
         db.close()
 
 
@@ -273,5 +323,123 @@ def test_item_savepoint_keeps_success_when_next_item_fails(seeded_app, monkeypat
             CashFlow.bank_reference == "PAY-7301"
         ).count() == 1
         assert db.query(CashFlow).filter(CashFlow.bank_reference == "PAY-7302").count() == 0
+    finally:
+        db.close()
+
+
+def test_invoice_rag_validation_gate_and_exact_identity_idempotency(seeded_app, monkeypatch):
+    """RAG validation metadata gates posting and protects same-number rows."""
+    from app.models import Invoice, SyncLog, SyncPending
+
+    rag_sync = _sync_module()
+    db = _db()
+    seller_tax_id = "91510106MA61UEJ48K"  # canonical A08 tax id
+    buyer_tax_id = "91510106MA6D7H4N9A"  # canonical B01 tax id
+    evidence_keys = (
+        "invoice_no", "invoice_code", "invoice_date", "seller_name",
+        "seller_tax_id", "buyer_name", "buyer_tax_id", "net_amount",
+        "vat_amount", "total_amount", "vat_rate",
+    )
+
+    def invoice_fields(*, status: str, arithmetic: dict) -> dict:
+        values = {
+            "invoice_no": "INV-EXACT-001",
+            "invoice_code": "110019999999",
+            "invoice_date": "2026-08-20",
+            "period": "2026-08",
+            "direction": "out",
+            "seller_entity_code": "A08",
+            "seller_name": "四川锐宝建设工程有限公司",
+            "seller_tax_id": seller_tax_id,
+            "buyer_entity_code": "B01",
+            "buyer_name": "四川乾润和贸易有限公司",
+            "buyer_tax_id": buyer_tax_id,
+            "net_amount": 12_000_000,
+            "vat_amount": 1_080_000,
+            "total_amount": 13_080_000,
+            "vat_rate": 0.09,
+            "deductible": True,
+            "validation_status": status,
+            "validation_errors": [],
+            "arithmetic_validation": arithmetic,
+        }
+        values["evidence"] = {key: f"原文:{key}" for key in evidence_keys}
+        return values
+
+    invalid_fields = invoice_fields(
+        status="PENDING_REVIEW",
+        arithmetic={
+            "gross_equals_net_plus_vat": True,
+            "computed_gross": 13_080_000,
+            "vat_equals_net_times_rate": False,
+            "computed_vat": 1_560_000,
+            "vat_rate": 0.13,
+        },
+    )
+    valid_fields = invoice_fields(
+        status="VALID",
+        arithmetic={
+            "gross_equals_net_plus_vat": True,
+            "computed_gross": 13_080_000,
+            "vat_equals_net_times_rate": True,
+            "computed_vat": 1_080_000,
+            "vat_rate": 0.09,
+        },
+    )
+
+    def run_item(fields: dict, sync_type: str) -> SyncLog:
+        log = SyncLog(
+            project_id=1, sync_type="invoice", rag_project_id=999,
+            status="RUNNING", synced_at="2026-08-26T00:00:00+00:00",
+            rag_chunk_ids_json="[]", rag_document_ids_json="[]",
+            tax_record_ids_json="[]", errors_json="[]",
+        )
+        db.add(log)
+        db.commit()
+        db.refresh(log)
+        monkeypatch.setattr(
+            rag_sync, "_call_rag_extract",
+            lambda *args, **kwargs: {
+                "extracted_items": [_item(log.id, fields)],
+                "errors": [], "total_chunks": 1,
+            },
+        )
+        rag_sync._do_sync_background(
+            sync_log_id=log.id, project_id=1, rag_project_id=999,
+            rag_url="", rag_api_key="", extract_type=sync_type,
+            period_start=None, period_end=None, top_k=30, request_id="test",
+        )
+        db.expire_all()
+        return db.get(SyncLog, log.id)
+
+    try:
+        before = db.query(Invoice).count()
+        rejected = run_item(invalid_fields, "invoice")
+        assert rejected.status == "PENDING_REVIEW"
+        assert rejected.total_pending == 1
+        assert db.query(Invoice).count() == before
+        pending = db.query(SyncPending).filter(SyncPending.sync_log_id == rejected.id).one()
+        assert "validation_status" in json.loads(pending.fields_json)["_review_reason"]
+
+        # A legacy/manual row with the same number has no complete RAG
+        # identity marker and must not suppress this separately approved
+        # invoice.
+        db.add(Invoice(
+            project_id=1, invoice_no="INV-EXACT-001", period="2026-08",
+            entity_code="A08", direction="out", counterparty_code="B01",
+            category="material", net=Decimal("1"), vat=Decimal("0.09"),
+            rate=Decimal("0.09"), deductible=True, note="manual row",
+        ))
+        db.commit()
+
+        imported = run_item(valid_fields, "invoice")
+        assert imported.status == "SUCCESS"
+        assert imported.total_imported == 1
+        assert db.query(Invoice).filter(Invoice.invoice_no == "INV-EXACT-001").count() == before + 2
+
+        duplicate = run_item(valid_fields, "invoice")
+        assert duplicate.status == "SUCCESS"
+        assert duplicate.total_imported == 0
+        assert db.query(Invoice).filter(Invoice.invoice_no == "INV-EXACT-001").count() == before + 2
     finally:
         db.close()

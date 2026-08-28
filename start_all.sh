@@ -115,12 +115,14 @@ LOCAL_LLM_ACTIVE=false
 LOCAL_LLM_ENABLED="${LOCAL_LLM_ENABLED:-1}"
 LOCAL_LLM_HOST="${LOCAL_LLM_HOST:-127.0.0.1}"
 LOCAL_LLM_PORT="${LOCAL_LLM_PORT:-8930}"
-if [ -f "$PROJECT_DIR/models/local-llm/Qwen3.5-2B-Q4_K_M.gguf" ]; then
-  DEFAULT_LOCAL_MODEL="$PROJECT_DIR/models/local-llm/Qwen3.5-2B-Q4_K_M.gguf"
-  DEFAULT_LOCAL_ALIAS="local-qwen3.5-2b"
-elif [ -f "$PROJECT_DIR/models/local-llm/Ling-3.0-tiny-Q4_K_M.gguf" ]; then
+DEFAULT_LOCAL_MODEL=""
+DEFAULT_LOCAL_ALIAS=""
+if [ -f "$PROJECT_DIR/models/local-llm/Ling-3.0-tiny-Q4_K_M.gguf" ]; then
   DEFAULT_LOCAL_MODEL="$PROJECT_DIR/models/local-llm/Ling-3.0-tiny-Q4_K_M.gguf"
   DEFAULT_LOCAL_ALIAS="ling-3.0-tiny"
+elif [ -f "$PROJECT_DIR/models/local-llm/Qwen3.5-2B-Q4_K_M.gguf" ]; then
+  DEFAULT_LOCAL_MODEL="$PROJECT_DIR/models/local-llm/Qwen3.5-2B-Q4_K_M.gguf"
+  DEFAULT_LOCAL_ALIAS="local-qwen3.5-2b"
 fi
 LOCAL_LLM_MODEL="${LOCAL_LLM_MODEL:-$DEFAULT_LOCAL_MODEL}"
 LOCAL_LLM_SERVER_BIN="${LOCAL_LLM_SERVER_BIN:-llama-server}"
@@ -559,6 +561,31 @@ wait_for_local_llm() {
   return 1
 }
 
+configure_rag_local_llm_fallback() {
+  # The RAG model pool treats this as a non-persistent last-resort endpoint.
+  # Publish it only after the launcher has proved that its managed process is
+  # healthy; a stale .env value must not make RAG claim a stopped local model.
+  if [ "$LOCAL_LLM_ACTIVE" != true ]; then
+    unset RAG_LLM_LOCAL_BASE_URL RAG_LLM_LOCAL_MODEL RAG_LLM_LOCAL_TIMEOUT_SECONDS
+    return 0
+  fi
+  if [ -z "${LOCAL_LLM_ALIAS:-}" ]; then
+    unset RAG_LLM_LOCAL_BASE_URL RAG_LLM_LOCAL_MODEL RAG_LLM_LOCAL_TIMEOUT_SECONDS
+    warn "本地 llama.cpp 未提供模型 alias；RAG 不注册本地保底端点"
+    return 0
+  fi
+
+  local host_url
+  case "$LOCAL_LLM_HOST" in
+    *:*) host_url="http://[${LOCAL_LLM_HOST}]:${LOCAL_LLM_PORT}" ;;
+    *) host_url="http://${LOCAL_LLM_HOST}:${LOCAL_LLM_PORT}" ;;
+  esac
+  export RAG_LLM_LOCAL_BASE_URL="${host_url}/v1"
+  export RAG_LLM_LOCAL_MODEL="$LOCAL_LLM_ALIAS"
+  export RAG_LLM_LOCAL_TIMEOUT_SECONDS="60"
+  log "RAG 本地保底端点已注入（${host_url}/v1，model=${LOCAL_LLM_ALIAS}，仅进程内生效）"
+}
+
 wait_for_health() {
   local name="$1" pid_file="$2" port="$3" url="$4"
   local deadline=$((SECONDS + STARTUP_TIMEOUT_SECONDS))
@@ -674,6 +701,7 @@ if local_llm_is_enabled; then
 else
   log "LOCAL_LLM_ENABLED=0，跳过本地 llama.cpp"
 fi
+configure_rag_local_llm_fallback
 
 prepare_service_slot "Tax" "$TAX_PID_FILE" "$EFFECTIVE_TAX_PORT"
 prepare_service_slot "RAG" "$RAG_PID_FILE" "$EFFECTIVE_RAG_PORT"

@@ -33,6 +33,12 @@ def now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 BUSINESS_ROLE_META = {
+    "owner": {
+        "label": "外部业主/甲方",
+        "badge": "badge-blue",
+        "color": "#60a5fa",
+        "description": "项目发包方、业主投资平台与建设单位",
+    },
     "construction": {
         "label": "建筑施工",
         "badge": "badge-cyan",
@@ -61,12 +67,15 @@ BUSINESS_ROLE_META = {
 
 BUSINESS_ROLE_ALIASES = {
     "a": "construction", "b": "trade", "c": "labor", "d": "equipment",
+    "ea": "construction", "eb": "trade", "ec": "labor", "ed": "equipment",
+    "e0": "owner", "owner": "owner", "client": "owner",
     "construction": "construction", "construction_role": "construction",
     "trade": "trade", "labor": "labor", "equipment": "equipment",
-    "施工": "construction", "施工企业": "construction",
-    "商贸": "trade", "商贸物资": "trade",
-    "劳务": "labor", "建筑劳务": "labor",
-    "设备": "equipment", "机械租赁": "equipment", "工程设备": "equipment",
+    "业主": "owner", "甲方": "owner", "外部业主": "owner", "发包方": "owner",
+    "施工": "construction", "施工企业": "construction", "外部施工": "construction",
+    "商贸": "trade", "商贸物资": "trade", "外部商贸": "trade", "材料供应": "trade",
+    "劳务": "labor", "建筑劳务": "labor", "外部劳务": "labor",
+    "设备": "equipment", "机械租赁": "equipment", "工程设备": "equipment", "外部机械": "equipment",
 }
 
 

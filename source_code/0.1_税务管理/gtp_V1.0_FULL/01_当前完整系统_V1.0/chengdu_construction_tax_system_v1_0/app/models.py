@@ -89,7 +89,10 @@ class ExternalParty(Base):
 
     __tablename__ = "external_parties"
     id: Mapped[int] = mapped_column(primary_key=True)
-    code: Mapped[str] = mapped_column(String(16), unique=True, index=True)
+    # External-party codes are shared with RAG and include descriptive codes
+    # such as ``EXT-CQ-HEAVY-CRANE``.  Keep the full canonical value instead
+    # of inheriting the 16-character limit used by internal entity codes.
+    code: Mapped[str] = mapped_column(String(30), unique=True, index=True)
     name: Mapped[str] = mapped_column(String(120), index=True)
     short_name: Mapped[str] = mapped_column(String(60), default="", index=True)
     kind: Mapped[str] = mapped_column(String(30), default="", index=True)

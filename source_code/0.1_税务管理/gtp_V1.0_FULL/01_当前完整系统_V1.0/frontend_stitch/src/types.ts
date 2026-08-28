@@ -102,10 +102,12 @@ export interface MatchingCompletenessSummary {
   dataGaps: string[];
 }
 
+export type RagSyncStatus = 'SUCCESS' | 'PENDING_REVIEW' | 'PARTIAL' | 'FAILED' | 'RUNNING';
+
 export interface RagSyncResult {
   syncLogId: number;
   syncType: RagSyncType;
-  status: string;
+  status: RagSyncStatus | string;
   totalExtracted: number;
   totalImported: number;
   totalPending: number;
@@ -117,6 +119,31 @@ export interface RagSyncResult {
 export interface RagSyncBatchResponse {
   projectId: number;
   results: RagSyncResult[];
+}
+
+export interface RagSyncPendingContract {
+  id: number;
+  projectId: number;
+  sourceChunkId: number;
+  filename: string;
+  pageStart: number | null;
+  confidence: number;
+  reason: string;
+  partyA: { name: string; taxId: string };
+  partyB: { name: string; taxId: string };
+}
+
+export interface RagConfirmedExternalParty {
+  id: number;
+  code: string;
+  name: string;
+  taxId: string | null;
+}
+
+export interface RagConfirmPendingContractResult {
+  pendingId: number;
+  recordId: number;
+  createdExternalParties: RagConfirmedExternalParty[];
 }
 
 // 风险等级

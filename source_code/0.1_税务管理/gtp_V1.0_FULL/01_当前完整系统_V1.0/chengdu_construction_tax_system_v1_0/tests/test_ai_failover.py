@@ -47,6 +47,23 @@ def test_pool_uses_explicit_endpoint_then_same_group_priority_order():
     assert [row.name for row in selected] == ["explicit", "earlier", "later"]
 
 
+def test_pool_preserves_zero_priority_before_fifty():
+    from app.ai.failover import select_failover_endpoints
+
+    zero = _endpoint("zero", endpoint_id=6, priority=0)
+    fifty = _endpoint("fifty", endpoint_id=7, priority=50)
+
+    selected = select_failover_endpoints(
+        None,
+        endpoints=[fifty, zero],
+    )
+
+    assert [(row.name, row.priority) for row in selected] == [
+        ("zero", 0),
+        ("fifty", 50),
+    ]
+
+
 def test_failover_marks_fallback_and_returns_actual_endpoint(monkeypatch):
     from app.ai import failover
 

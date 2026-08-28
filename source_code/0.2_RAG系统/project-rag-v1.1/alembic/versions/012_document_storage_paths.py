@@ -119,7 +119,7 @@ def _plan_paths(connection) -> list[dict[str, str | int]]:
         )
     ).mappings().all()
     if not rows:
-        raise RuntimeError("documents table is empty; refusing path migration")
+        return []
 
     plan: list[dict[str, str | int]] = []
     for row in rows:
@@ -197,8 +197,9 @@ def upgrade() -> None:
         ),
         sa.ForeignKeyConstraint(["document_id"], ["documents.id"], ondelete="CASCADE"),
     )
-    connection.execute(
-        text(
+    if plan:
+        connection.execute(
+            text(
             f"""
             INSERT INTO {_ROLLBACK_TABLE} (
                 document_id, old_original_path, old_parsed_dir,

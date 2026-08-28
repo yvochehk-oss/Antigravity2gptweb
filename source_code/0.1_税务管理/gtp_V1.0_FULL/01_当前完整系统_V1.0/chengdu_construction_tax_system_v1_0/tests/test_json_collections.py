@@ -77,7 +77,30 @@ def test_tax_payload_preserves_deterministic_values_and_unknown_risk() -> None:
     assert item["revenue"] == 100.0
     assert item["taxAmount"] == 10.0
     assert item["riskLevel"] == "未知"
-    assert item["source"] == "deterministic_tax_ledger"
+    assert item["isInternal"] is True
+    assert item["source"] == "canonical"
+
+
+def test_tax_item_marks_external_entity_when_code_outside_canonical_set() -> None:
+    ledger = SimpleNamespace(
+        id=2,
+        period="2026-Q2",
+        entity_code="EXT-9011",
+        output_vat="10.00",
+        input_vat="0",
+        vat_payable="10.00",
+        revenue="100.00",
+        real_cost="40.00",
+        estimated_profit="60.00",
+        estimated_cit="15.00",
+        cit_note="external vendor",
+        generated=True,
+    )
+    item = _tax_item(ledger, None)
+
+    assert item["entity_code"] == "EXT-9011"
+    assert item["isInternal"] is False
+    assert item["source"] == "external"
 
 
 def test_audit_payload_does_not_fabricate_integrity_or_timestamps() -> None:

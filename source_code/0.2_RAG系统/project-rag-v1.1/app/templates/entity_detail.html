@@ -133,7 +133,7 @@
       {% for doc in documents %}
       <tr class="doc-row" style="border-bottom: 1px solid var(--border-subtle); transition: background 0.15s;"
           data-doc-name="{{ doc.filename }}"
-          data-doc-type="{{ doc.document_type }}"
+          data-doc-type="{{ doc.document_type | doc_type_name if doc.document_type else "" }}"
           data-project-name="{{ doc.project_name }}"
           data-cp-code="{{ doc.counterparty_code or '' }}"
           data-doc-no="{{ doc.invoice_no or doc.contract_no or '' }}"
@@ -151,7 +151,7 @@
         </td>
         <!-- 类型 -->
         <td style="padding: 12px 16px;">
-          <span class="badge badge-secondary" style="font-size: 11px;">{{ doc.document_type }}</span>
+          <span class="badge badge-secondary" style="font-size: 11px;">{{ doc.document_type | doc_type_name if doc.document_type else "" }}</span>
         </td>
         <!-- 所属项目 (可点击) -->
         <td style="padding: 12px 16px;">
@@ -166,8 +166,10 @@
         <!-- 往来对手方 (可点击) -->
         <td style="padding: 12px 16px;">
           {% if doc.counterparty_code %}
-          <a href="/entities/{{ doc.counterparty_code }}" class="project-code font-mono" style="text-decoration: none; font-size: 11px;">
-            {{ doc.counterparty_code }}
+          {% set cp = entity_by_code.get(doc.counterparty_code) if entity_by_code else None %}
+          <a href="/entities/{{ doc.counterparty_code }}" class="badge {% if cp and cp.is_external %}badge-purple{% else %}badge-cyan{% endif %}" style="text-decoration: none;" title="{{ cp.name if cp else doc.counterparty_code }}">
+            {{ cp.short_name or cp.name if cp else doc.counterparty_code }}
+            {% if cp and cp.is_external %}<span style="opacity: 0.8; font-size: 10px; margin-left: 2px;">(系统外)</span>{% endif %}
           </a>
           {% else %}
           <span style="color: var(--text-muted);">-</span>

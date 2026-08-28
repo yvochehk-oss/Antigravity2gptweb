@@ -14,6 +14,9 @@ import {
   RagServiceSettings,
   RagStatusResponse,
   RagSyncBatchResponse,
+  RagConfirmPendingContractResult,
+  RagConfirmedExternalParty,
+  RagSyncPendingContract,
   RagSyncResult,
   RagSyncType,
   RiskEvent,
@@ -137,6 +140,7 @@ const RAG_SYNC_STATUSES = [
   'PENDING_REVIEW',
   'PARTIAL',
   'FAILED',
+  'RUNNING',
 ] as const;
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -427,6 +431,64 @@ export async function syncRagBatch(input: {
   };
 }
 
+function stringField(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function parseRagSyncPendingContract(value: unknown): RagSyncPendingContract | null {
+  const data = asRecord(value);
+  const review = asRecord(data?.review);
+  const id = positiveInteger(data?.id);
+  const projectId = positiveInteger(data?.project_id);
+  const sourceChunkId = positiveInteger(data?.source_chunk_id);
+  const confidence = toFiniteNumber(data?.confidence, Number.NaN);
+  if (!data || data.sync_type !== 'contract' || !id || !projectId || !sourceChunkId
+    || !Number.isFinite(confidence) || confidence < 0 || confidence > 1 || !review) return null;
+  return {
+    id,
+    projectId,
+    sourceChunkId,
+    filename: stringField(data.filename) || `合同待复核 #${id}`,
+    pageStart: positiveInteger(data.page_start),
+    confidence,
+    reason: stringField(review.reason) || '后端要求人工复核。',
+    partyA: { name: stringField(review.party_a_name), taxId: stringField(review.party_a_tax_id) },
+    partyB: { name: stringField(review.party_b_name), taxId: stringField(review.party_b_tax_id) },
+  };
+}
+
+export async function fetchRagPendingContracts(projectId: number, signal?: AbortSignal): Promise<RagSyncPendingContract[]> {
+  if (!positiveInteger(projectId)) throw new ApiError('Tax 项目必须是有效 ID。', 400);
+  const payload = await fetchJson<unknown>(`/rag-sync/pending?project_id=${projectId}&sync_type=contract&status=pending`, { signal });
+  const data = asRecord(payload);
+  if (!data || !Array.isArray(data.items)) throw new ApiError('待复核合同接口返回格式不完整。', 502, payload);
+  const parsed = data.items.map(parseRagSyncPendingContract);
+  if (parsed.some(item => item === null)) throw new ApiError('待复核合同包含无效记录，已停止确认操作。', 502, payload);
+  return parsed as RagSyncPendingContract[];
+}
+
+export async function confirmRagPendingContractAndCreateParties(pendingId: number): Promise<RagConfirmPendingContractResult> {
+  if (!positiveInteger(pendingId)) throw new ApiError('待复核记录必须是有效 ID。', 400);
+  const payload = await postJson<unknown>(`/rag-sync/pending/${pendingId}/confirm-contract-and-create-parties`, { confirm: true });
+  const data = asRecord(payload);
+  const resultPendingId = positiveInteger(data?.pending_id);
+  const recordId = positiveInteger(data?.record_id);
+  const partiesRaw = Array.isArray(data?.created_external_parties) ? data.created_external_parties : null;
+  if (data?.ok !== true || resultPendingId !== pendingId || !recordId || !partiesRaw) {
+    throw new ApiError('合同确认接口返回格式不完整。', 502, payload);
+  }
+  const parties = partiesRaw.map(item => {
+    const party = asRecord(item);
+    const id = positiveInteger(party?.id);
+    const code = stringField(party?.code);
+    const name = stringField(party?.name);
+    const taxId = party?.tax_id === null ? null : stringField(party?.tax_id);
+    return id && code && name && (taxId === null || taxId) ? { id, code, name, taxId } : null;
+  });
+  if (parties.some(item => item === null)) throw new ApiError('合同确认接口返回了无效交易方。', 502, payload);
+  return { pendingId: resultPendingId, recordId, createdExternalParties: parties as RagConfirmedExternalParty[] };
+}
+
 export function toFiniteNumber(value: unknown, fallback = 0): number {
   const number = typeof value === 'number' ? value : Number(value);
   return Number.isFinite(number) ? number : fallback;
@@ -639,6 +701,44 @@ export interface TaxLedgerCollectionResponse {
   hasMore: boolean;
 }
 
+export interface TaxLedgerRebuildResponse {
+  status: string;
+  period: string;
+  rowCount: number;
+}
+
+/** A single unit (system-internal entity or external party) referenced by a project. */
+export interface ProjectCounterparty {
+  partyCode: string;
+  partyName: string;
+  kind: 'entity' | 'external' | 'unknown';
+  isInternal: boolean;
+  source: 'entities' | 'external_parties' | 'unknown';
+  contractCount: number;
+  contractAmount: number;
+  invoiceInCount: number;
+  invoiceInNet: number;
+  invoiceInVat: number;
+  invoiceOutCount: number;
+  invoiceOutNet: number;
+  invoiceOutVat: number;
+  cashflowInCount: number;
+  cashflowInAmount: number;
+  cashflowOutCount: number;
+  cashflowOutAmount: number;
+  realCostCount: number;
+  realCostAmount: number;
+  fulfillmentCount: number;
+  fulfillmentAmount: number;
+}
+
+export interface ProjectCounterpartiesResponse {
+  status: 'READY' | 'EMPTY' | string;
+  message: string;
+  items: ProjectCounterparty[];
+  total: number;
+}
+
 export interface RiskCollectionResponse {
   status: 'READY' | 'DEGRADED' | 'UNAVAILABLE';
   message: string;
@@ -762,6 +862,104 @@ export async function fetchTaxLedger(
   };
 }
 
+function isTaxLedgerPeriod(value: string): boolean {
+  return /^(?:\d{4})-(?:0[1-9]|1[0-2])$/.test(value);
+}
+
+function parseTaxLedgerRebuildResponse(payload: unknown): TaxLedgerRebuildResponse {
+  const data = asRecord(payload);
+  const status = typeof data?.status === 'string' ? data.status.trim() : '';
+  const period = typeof data?.period === 'string' ? data.period.trim() : '';
+  const rowCount = data?.row_count;
+  if (!status || !isTaxLedgerPeriod(period) || typeof rowCount !== 'number' || !Number.isInteger(rowCount) || rowCount < 0) {
+    throw new ApiError('Tax 台账重建接口返回格式不完整。', 502, payload);
+  }
+  return { status, period, rowCount };
+}
+
+/** Explicitly rebuild one month through the controlled deterministic Tax endpoint. */
+export async function rebuildTaxLedger(
+  period: string,
+  signal?: AbortSignal,
+): Promise<TaxLedgerRebuildResponse> {
+  const normalizedPeriod = period.trim();
+  if (!isTaxLedgerPeriod(normalizedPeriod)) {
+    throw new ApiError('台账所属期必须使用 YYYY-MM 格式。', 400);
+  }
+  const csrfToken = readCookie('tax_csrf');
+  if (!csrfToken) {
+    throw new ApiError('缺少 Tax CSRF token，未执行台账重建。', 0);
+  }
+  const payload = await postJson<unknown>(
+    '/api/tax-ledger/rebuild',
+    { period: normalizedPeriod },
+    signal,
+    { 'X-CSRF-Token': csrfToken },
+  );
+  const result = parseTaxLedgerRebuildResponse(payload);
+  if (result.period !== normalizedPeriod) {
+    throw new ApiError('Tax 台账重建接口返回的所属期与请求不一致。', 502, payload);
+  }
+  return result;
+}
+
+function parseCounterparty(raw: unknown): ProjectCounterparty | null {
+  const data = asRecord(raw);
+  if (!data) return null;
+  const code = String(data.party_code ?? '').trim();
+  if (!code) return null;
+  const kindRaw = String(data.kind ?? 'unknown');
+  const kind: ProjectCounterparty['kind'] = (
+    kindRaw === 'entity' || kindRaw === 'external' || kindRaw === 'unknown'
+  ) ? kindRaw : 'unknown';
+  const sourceRaw = String(data.source ?? 'unknown');
+  const source: ProjectCounterparty['source'] = (
+    sourceRaw === 'entities' || sourceRaw === 'external_parties' || sourceRaw === 'unknown'
+  ) ? sourceRaw : 'unknown';
+  return {
+    partyCode: code,
+    partyName: String(data.party_name ?? code).trim() || code,
+    kind,
+    isInternal: data.isInternal === true,
+    source,
+    contractCount: toFiniteNumber(data.contract_count),
+    contractAmount: toFiniteNumber(data.contract_amount),
+    invoiceInCount: toFiniteNumber(data.invoice_in_count),
+    invoiceInNet: toFiniteNumber(data.invoice_in_net),
+    invoiceInVat: toFiniteNumber(data.invoice_in_vat),
+    invoiceOutCount: toFiniteNumber(data.invoice_out_count),
+    invoiceOutNet: toFiniteNumber(data.invoice_out_net),
+    invoiceOutVat: toFiniteNumber(data.invoice_out_vat),
+    cashflowInCount: toFiniteNumber(data.cashflow_in_count),
+    cashflowInAmount: toFiniteNumber(data.cashflow_in_amount),
+    cashflowOutCount: toFiniteNumber(data.cashflow_out_count),
+    cashflowOutAmount: toFiniteNumber(data.cashflow_out_amount),
+    realCostCount: toFiniteNumber(data.real_cost_count),
+    realCostAmount: toFiniteNumber(data.real_cost_amount),
+    fulfillmentCount: toFiniteNumber(data.fulfillment_count),
+    fulfillmentAmount: toFiniteNumber(data.fulfillment_amount),
+  };
+}
+
+/** Read every party the project actually references from the RAG-shared data sets. */
+export async function fetchProjectCounterparties(
+  projectId: number,
+  signal?: AbortSignal,
+): Promise<ProjectCounterpartiesResponse> {
+  if (!positiveInteger(projectId)) throw new ApiError('缺少有效的 Tax 项目 ID。', 400);
+  const payload = await fetchJson<unknown>(`/api/projects/${projectId}/counterparties`, { signal });
+  const data = asRecord(payload);
+  if (!data || !Array.isArray(data.items)) {
+    throw new ApiError('对手方接口返回格式不完整。', 502, payload);
+  }
+  return {
+    status: typeof data.status === 'string' ? data.status : 'EMPTY',
+    message: typeof data.message === 'string' ? data.message : '',
+    items: data.items.map(parseCounterparty).filter((item): item is ProjectCounterparty => item !== null),
+    total: toFiniteNumber(data.total),
+  };
+}
+
 export async function fetchProjectSummary(projectId: number, signal?: AbortSignal): Promise<ProjectItem> {
   const summary = await fetchJson<ProjectSummaryResponse>(`/api/projects/${projectId}`, { signal });
   const project = mapProjectSummary(summary);
@@ -828,6 +1026,19 @@ export function postJson<T>(path: string, body: unknown, signal?: AbortSignal, h
     body: JSON.stringify(body),
     signal,
   });
+}
+
+function readCookie(name: string): string | null {
+  if (typeof document === 'undefined' || !document.cookie) return null;
+  const prefix = `${encodeURIComponent(name)}=`;
+  const entry = document.cookie.split(';').map(part => part.trim()).find(part => part.startsWith(prefix));
+  if (!entry) return null;
+  try {
+    const value = decodeURIComponent(entry.slice(prefix.length)).trim();
+    return value || null;
+  } catch {
+    return null;
+  }
 }
 
 function parseEndpointMetadata(value: unknown): AiEndpointMetadata | undefined {

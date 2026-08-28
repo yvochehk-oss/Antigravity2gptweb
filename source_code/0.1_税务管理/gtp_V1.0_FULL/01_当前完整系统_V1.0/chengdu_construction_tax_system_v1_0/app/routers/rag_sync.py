@@ -8,14 +8,16 @@ from __future__ import annotations
 import hashlib
 import ipaddress
 import json
+import logging
 import os
+from pathlib import PurePath
 from datetime import datetime, timezone
 from decimal import Decimal
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import urlsplit
 
 import httpx
-from fastapi import APIRouter, Form, HTTPException, Query, Request
+from fastapi import APIRouter, Form, HTTPException, Query, Request, BackgroundTasks
 from pydantic import BaseModel, Field
 from sqlalchemy import Date, DateTime
 
@@ -176,6 +178,15 @@ class SyncBatchRequest(BaseModel):
     note: str = Field(default="")
 
 
+class ConfirmPendingContractRequest(BaseModel):
+    """Deliberate operator acknowledgement for a master-data write."""
+
+    confirm: Literal[True] = Field(
+        ...,
+        description="Must be true after the operator has reviewed the external-party identity.",
+    )
+
+
 class SyncResponse(BaseModel):
     sync_log_id: int
     sync_type: str
@@ -194,6 +205,9 @@ class SyncResponse(BaseModel):
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+_LOGGER = logging.getLogger(__name__)
 
 
 def _rag_headers(api_key: str = "", *, request_id: str | None = None) -> dict[str, str]:
@@ -549,6 +563,64 @@ def _resolve_party_code(
         )
 
 
+def _external_party_code_for_tax_id(tax_id: str) -> str:
+    """Create a compact, deterministic code for an operator-confirmed party."""
+    return f"EXT-{hashlib.sha256(tax_id.encode('utf-8')).hexdigest()[:10].upper()}"
+
+
+def _create_confirmed_external_parties(db, fields: dict[str, Any]) -> list[ExternalParty]:
+    """Create only the missing contract counterparties from a reviewed record.
+
+    The browser never supplies these identities: names and tax ids are read
+    from the immutable pending extraction.  Any collision or incomplete
+    identity remains fail-closed for a separate master-data correction.
+    """
+    if ExternalParty is None:
+        raise SyncReviewRequired("外部交易方主数据尚未迁移，无法确认创建")
+    if "未登记" not in _clean_identity(fields.get("_review_reason")):
+        raise SyncReviewRequired("该待复核原因不是未登记交易方，不能自动创建主数据")
+    created: list[ExternalParty] = []
+    for side in ("party_a", "party_b"):
+        raw_tax_id = _clean_identity(fields.get(f"{side}_tax_id") or fields.get(f"{side}_code"))
+        name = _clean_identity(fields.get(f"{side}_name"))
+        if not raw_tax_id or _is_virtual_identity(raw_tax_id):
+            continue
+        try:
+            _resolve_party_code(db, tax_id=raw_tax_id, name=name)
+            continue
+        except SyncReviewRequired as exc:
+            if "未登记" not in exc.reason:
+                raise
+        if not name:
+            raise SyncReviewRequired(f"{side} 缺少名称，不能创建外部交易方")
+        same_tax_id = _external_party_matches(db, "tax_id", raw_tax_id)
+        if len(same_tax_id) > 1:
+            raise SyncReviewRequired(f"外部交易方 tax_id={raw_tax_id!r} 匹配不唯一")
+        if same_tax_id:
+            continue
+        same_name = _external_party_matches(db, "name", name)
+        if same_name:
+            raise SyncReviewRequired(
+                f"外部交易方名称 {name!r} 已登记但税号不同，需先人工处理主数据冲突"
+            )
+        code = _external_party_code_for_tax_id(raw_tax_id)
+        code_rows = _external_party_matches(db, "code", code)
+        if code_rows:
+            raise SyncReviewRequired("外部交易方编码冲突，需先人工处理主数据")
+        party = ExternalParty(
+            code=code,
+            name=name,
+            short_name=name[:60],
+            kind="rag_confirmed",
+            tax_id=raw_tax_id,
+            active=True,
+        )
+        db.add(party)
+        db.flush()
+        created.append(party)
+    return created
+
+
 def _is_internal_entity_code(db, code: str) -> bool:
     column = getattr(Entity, "code", None)
     if column is None:
@@ -746,25 +818,42 @@ def _call_rag_extract(
 
 def _map_invoice_fields(db, fields: dict, project_id: int) -> dict[str, Any]:
     """将 RAG 抽取的发票字段映射为税务系统 Invoice 模型字段。"""
+    invoice_no = _clean_identity(fields.get("invoice_no"))
+    if not invoice_no:
+        raise SyncReviewRequired("发票缺少明确的发票号码")
     direction = _clean_identity(fields.get("direction")).lower()
     if direction not in {"", "in", "out"}:
         raise SyncReviewRequired(f"发票 direction={direction!r} 无效")
+
+    # The RAG invoice contract carries canonical entity codes separately from
+    # tax identifiers.  Keep both when present so the resolver can detect a
+    # disagreement instead of silently preferring whichever alias happens to
+    # be populated.
+    def _party(side: str) -> tuple[str, str, str]:
+        return (
+            _clean_identity(fields.get(f"{side}_entity_code")),
+            _clean_identity(fields.get(f"{side}_tax_id") or fields.get(f"{side}_code")),
+            _clean_identity(fields.get(f"{side}_name")),
+        )
+
+    seller_entity_code, seller_tax_id, seller_name = _party("seller")
+    buyer_entity_code, buyer_tax_id, buyer_name = _party("buyer")
     # The entity owning the tax event is the buyer for input invoices and the
     # seller for output invoices.  Counterparties are retained separately.
     if direction == "out":
         seller_code = _resolve_entity_identifier(
-            db, raw=fields.get("seller_code"), name=fields.get("seller_name"),
+            db, code=seller_entity_code, tax_id=seller_tax_id, name=seller_name,
         )
         buyer_code = _resolve_party_code(
-            db, raw=fields.get("buyer_code"), name=fields.get("buyer_name"),
+            db, code=buyer_entity_code, tax_id=buyer_tax_id, name=buyer_name,
         )
         entity_code, counterparty_code = seller_code, buyer_code
     else:
         buyer_code = _resolve_entity_identifier(
-            db, raw=fields.get("buyer_code"), name=fields.get("buyer_name"),
+            db, code=buyer_entity_code, tax_id=buyer_tax_id, name=buyer_name,
         )
         seller_code = _resolve_party_code(
-            db, raw=fields.get("seller_code"), name=fields.get("seller_name"),
+            db, code=seller_entity_code, tax_id=seller_tax_id, name=seller_name,
         )
         entity_code, counterparty_code = buyer_code, seller_code
 
@@ -792,9 +881,19 @@ def _map_invoice_fields(db, fields: dict, project_id: int) -> dict[str, Any]:
     if not period:
         raise SyncReviewRequired("发票缺少所属期/开票日期")
 
+    identity_fingerprint = _invoice_identity_fingerprint(
+        project_id=project_id,
+        fields=fields,
+        entity_code=entity_code,
+        counterparty_code=counterparty_code,
+    )
+    source_note = _clean_identity(fields.get("note"))
+    identity_marker = f"RAG_INVOICE_ID:{identity_fingerprint}"
+    note = f"{source_note} | {identity_marker}" if source_note else identity_marker
+
     return {
         "project_id": project_id,
-        "invoice_no": fields.get("invoice_no") or "",
+        "invoice_no": invoice_no,
         "period": period,
         "entity_code": entity_code,
         "direction": direction,
@@ -804,21 +903,124 @@ def _map_invoice_fields(db, fields: dict, project_id: int) -> dict[str, Any]:
         "vat": vat,
         "rate": Decimal(str(fields.get("vat_rate") or 0)),
         "deductible": bool(fields.get("deductible", True)),
-        "note": fields.get("note") or "",
+        "note": note,
     }
+
+
+def _invoice_identity_fingerprint(
+    *,
+    project_id: int,
+    fields: dict[str, Any],
+    entity_code: str,
+    counterparty_code: str,
+) -> str:
+    """Return the exact approved identity used for invoice idempotency.
+
+    ``Invoice`` predates the RAG invoice-code/date columns.  Persisting this
+    digest in the imported row's note lets us distinguish an exact replay
+    from an unrelated old/manual row with the same invoice number, without
+    treating a filename or document alias as invoice identity.
+    """
+    payload = {
+        "project_id": project_id,
+        "invoice_no": _clean_identity(fields.get("invoice_no")),
+        "invoice_code": _clean_identity(fields.get("invoice_code")),
+        "invoice_date": _clean_identity(fields.get("invoice_date"))[:10],
+        "direction": _clean_identity(fields.get("direction")).lower(),
+        "seller_entity_code": _clean_identity(fields.get("seller_entity_code")),
+        "seller_tax_id": _clean_identity(fields.get("seller_tax_id") or fields.get("seller_code")),
+        "seller_name": _clean_identity(fields.get("seller_name")),
+        "buyer_entity_code": _clean_identity(fields.get("buyer_entity_code")),
+        "buyer_tax_id": _clean_identity(fields.get("buyer_tax_id") or fields.get("buyer_code")),
+        "buyer_name": _clean_identity(fields.get("buyer_name")),
+        "entity_code": _clean_identity(entity_code),
+        "counterparty_code": _clean_identity(counterparty_code),
+    }
+    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def _validate_invoice_rag_contract(item: dict[str, Any], fields: dict[str, Any]) -> None:
+    """Fail closed unless RAG marked the invoice fully source-validated.
+
+    This is intentionally performed before entity resolution and deduplication
+    in the sync loop.  Consequently an invalid item sharing an invoice number
+    with an unrelated existing row still creates a review record rather than
+    disappearing as a false duplicate.
+    """
+    status = _clean_identity(fields.get("validation_status")).upper()
+    if status != "VALID":
+        raise SyncReviewRequired(
+            f"RAG 发票 validation_status={status or '缺失'}，需人工复核"
+        )
+    validation_errors = fields.get("validation_errors")
+    if validation_errors:
+        raise SyncReviewRequired("RAG 发票仍包含确定性校验错误")
+
+    evidence = fields.get("evidence")
+    if not isinstance(evidence, dict):
+        raise SyncReviewRequired("RAG 发票缺少原文证据")
+    required_evidence = (
+        "invoice_no", "invoice_code", "invoice_date",
+        "seller_name", "seller_tax_id", "buyer_name", "buyer_tax_id",
+        "net_amount", "vat_amount", "total_amount", "vat_rate",
+    )
+    missing_evidence = [
+        key for key in required_evidence
+        if not _clean_identity(fields.get(key)) or not _clean_identity(evidence.get(key))
+    ]
+    if missing_evidence:
+        raise SyncReviewRequired(
+            f"RAG 发票缺少字段原文证据: {', '.join(missing_evidence)}"
+        )
+
+    arithmetic = fields.get("arithmetic_validation")
+    if not isinstance(arithmetic, dict):
+        raise SyncReviewRequired("RAG 发票缺少金额算术校验")
+    failed_checks = [
+        key for key in ("gross_equals_net_plus_vat", "vat_equals_net_times_rate")
+        if arithmetic.get(key) is not True
+    ]
+    if failed_checks:
+        raise SyncReviewRequired(
+            f"RAG 发票金额算术校验未通过: {', '.join(failed_checks)}"
+        )
+
+    # A filename is provenance only.  A value that is literally the filename
+    # (or its stem) is a common aliasing error and cannot be approved.
+    invoice_no = _clean_identity(fields.get("invoice_no"))
+    filename = _clean_identity(item.get("filename"))
+    filename_stem = PurePath(filename).stem if filename else ""
+    if filename and invoice_no.casefold() in {
+        filename.casefold(), _clean_identity(filename_stem).casefold(),
+    }:
+        raise SyncReviewRequired("发票号码疑似来自文件名，需人工复核原始发票")
 
 
 def _map_contract_fields(db, fields: dict, project_id: int) -> dict[str, Any]:
     """将 RAG 抽取的合同字段映射为税务系统 Contract 模型字段。"""
+    party_a_code = _clean_identity(fields.get("party_a_code"))
+    party_a_tax_id = _clean_identity(fields.get("party_a_tax_id"))
+    party_b_code = _clean_identity(fields.get("party_b_code"))
+    party_b_tax_id = _clean_identity(fields.get("party_b_tax_id"))
+    # Some extractors put the tax id into ``*_code``.  Passing that value as
+    # both a code and tax id would intentionally fail the identity resolver;
+    # keep the one authoritative identifier instead.
+    if party_a_tax_id and party_a_code == party_a_tax_id:
+        party_a_code = ""
+    if party_b_tax_id and party_b_code == party_b_tax_id:
+        party_b_code = ""
     party_a = _resolve_party_code(
         db,
-        raw=fields.get("party_a_code"),
+        raw=party_a_code,
         name=fields.get("party_a_name"),
+        tax_id=party_a_tax_id,
     )
     party_b = _resolve_party_code(
         db,
-        raw=fields.get("party_b_code"),
+        raw=party_b_code,
         name=fields.get("party_b_name"),
+        tax_id=party_b_tax_id,
     )
     internal_trade = _is_internal_entity_code(db, party_a) and _is_internal_entity_code(db, party_b)
 
@@ -979,12 +1181,29 @@ def _dedup_check(
     the new columns cannot cause all later ``out`` rows to be discarded.
     """
     if extract_type == "invoice":
-        invoice_no = fields.get("invoice_no")
-        if invoice_no:
-            return db.query(Invoice).filter(
+        invoice_no = _clean_identity(fields.get("invoice_no"))
+        identity_marker = ""
+        if mapped and mapped.get("entity_code") and mapped.get("counterparty_code"):
+            identity_marker = (
+                "RAG_INVOICE_ID:"
+                + _invoice_identity_fingerprint(
+                    project_id=project_id,
+                    fields=fields,
+                    entity_code=mapped["entity_code"],
+                    counterparty_code=mapped["counterparty_code"],
+                )
+            )
+        if invoice_no and identity_marker:
+            # Invoice identity includes code/date/parties, not only the human
+            # invoice number.  Legacy/manual rows without our marker are not
+            # considered duplicates, so they cannot suppress an unrelated
+            # RAG invoice sharing a number.
+            rows = db.query(Invoice).filter(
                 Invoice.project_id == project_id,
                 Invoice.invoice_no == invoice_no,
-            ).first() is not None
+            ).all()
+            return any(identity_marker in (_clean_identity(row.note)) for row in rows)
+        return False
 
     elif extract_type == "contract":
         contract_no = fields.get("contract_no")
@@ -1055,8 +1274,8 @@ def _dedup_check(
 # 核心同步逻辑
 # ============================================================
 
-def _do_sync(
-    db,
+def _do_sync_background(
+    sync_log_id: int,
     project_id: int,
     rag_project_id: int,
     rag_url: str,
@@ -1065,141 +1284,171 @@ def _do_sync(
     period_start: str | None,
     period_end: str | None,
     top_k: int,
-    note: str,
-    actor: str,
     request_id: str | None = None,
-) -> SyncResponse:
-    """执行一次同步，返回同步结果。"""
-    # 1. 调用 RAG 抽取
-    rag_data = _call_rag_extract(
-        rag_url, rag_api_key, rag_project_id, extract_type,
-        period_start, period_end, top_k, request_id=request_id,
-        validation_db=db,
+):
+    """后台执行一次同步。"""
+    _LOGGER.info(
+        "rag_sync_background_start sync_log_id=%s project_id=%s extract_type=%s request_id=%s",
+        sync_log_id, project_id, extract_type, request_id or "",
     )
-
-    extracted_items = rag_data.get("extracted_items") or []
-    errors = rag_data.get("errors") or []
-
-    # 2. 创建同步记录
-    sync_log = SyncLog(
-        project_id=project_id,
-        sync_type=extract_type,
-        rag_project_id=rag_project_id,
-        rag_chunk_ids_json=json.dumps([i.get("source_chunk_id", 0) for i in extracted_items]),
-        rag_document_ids_json=json.dumps(list({i.get("source_document_id", 0) for i in extracted_items})),
-        tax_record_ids_json="[]",
-        status="pending",
-        total_chunks=rag_data.get("total_chunks", 0),
-        total_extracted=len(extracted_items),
-        total_imported=0,
-        total_pending=0,
-        errors_json=json.dumps(errors),
-        synced_at=_now(),
-        synced_by=actor,
-        note=note,
-    )
-    db.add(sync_log)
-    db.flush()  # 获取 sync_log.id
-
-    imported_ids: list[int] = []
-    pending_ids: list[int] = []
-    duplicate_count = 0
-    failed_count = 0
-
-    def _pending_item(item: dict, fields: dict, confidence: Decimal, reason: str) -> None:
-        """Persist a review item in its own SAVEPOINT."""
-        pending_fields = dict(fields)
-        pending_fields["_review_reason"] = reason
-        with db.begin_nested():
-            pending = SyncPending(
-                sync_log_id=sync_log.id,
-                project_id=project_id,
-                sync_type=extract_type,
-                source_chunk_id=item.get("source_chunk_id", 0),
-                source_document_id=item.get("source_document_id", 0),
-                filename=item.get("filename") or "",
-                page_start=item.get("page_start"),
-                confidence=confidence,
-                fields_json=json.dumps(pending_fields, ensure_ascii=False),
-                status="pending",
-                note=reason,
+    db = SessionLocal()
+    try:
+        sync_log = db.get(SyncLog, sync_log_id)
+        if not sync_log:
+            _LOGGER.warning(
+                "rag_sync_background_synclog_missing sync_log_id=%s request_id=%s",
+                sync_log_id, request_id or "",
             )
-            db.add(pending)
-            db.flush()
-            pending_ids.append(pending.id)
+            return
 
-    # 3. 按置信度分流
-    for item in extracted_items:
-        fields = item.get("fields") or {}
+        # 1. 调用 RAG 抽取
         try:
-            confidence = Decimal(str(item.get("confidence", 0)))
-        except Exception:
-            confidence = Decimal("0")
-        if confidence < 0 or confidence > 1:
-            confidence = Decimal("0")
+            rag_data = _call_rag_extract(
+                rag_url, rag_api_key, rag_project_id, extract_type,
+                period_start, period_end, top_k, request_id=request_id,
+                validation_db=db,
+            )
+        except Exception as e:
+            _LOGGER.error(
+                "rag_sync_background_rag_unreachable sync_log_id=%s project_id=%s extract_type=%s error=%s request_id=%s",
+                sync_log_id, project_id, extract_type, e.__class__.__name__, request_id or "",
+            )
+            sync_log.status = "FAILED"
+            sync_log.errors_json = json.dumps([f"RAG 服务连接或抽取失败: {e}"])
+            db.commit()
+            return
 
-        try:
-            # Mapping is read-only.  Do it before the SAVEPOINT so a review
-            # decision can preserve a useful reason, then put the write itself
-            # (including its flush) in a per-item nested transaction.
-            mapped = _map_fields(db, project_id, extract_type, fields)
-            if _dedup_check(db, None, project_id, extract_type, fields, mapped):
-                duplicate_count += 1
-                continue
-            if confidence < AUTO_CONF_THRESHOLD:
-                _pending_item(item, fields, confidence, "抽取置信度不足，需人工确认")
-                continue
+        extracted_items = rag_data.get("extracted_items") or []
+        errors = rag_data.get("errors") or []
+
+        _LOGGER.info(
+            "rag_sync_background_extracted sync_log_id=%s project_id=%s extract_type=%s total_chunks=%s total_extracted=%s upstream_errors=%s",
+            sync_log_id, project_id, extract_type,
+            rag_data.get("total_chunks", 0), len(extracted_items), len(errors),
+        )
+
+        sync_log.rag_chunk_ids_json = json.dumps([i.get("source_chunk_id", 0) for i in extracted_items])
+        sync_log.rag_document_ids_json = json.dumps(list({i.get("source_document_id", 0) for i in extracted_items}))
+        sync_log.total_chunks = rag_data.get("total_chunks", 0)
+        sync_log.total_extracted = len(extracted_items)
+
+        imported_ids: list[int] = []
+        pending_ids: list[int] = []
+        duplicate_count = 0
+        failed_count = 0
+
+        def _pending_item(item: dict, fields: dict, confidence: Decimal, reason: str) -> None:
+            pending_fields = dict(fields)
+            pending_fields["_review_reason"] = reason
             with db.begin_nested():
-                record = _import_record(
-                    db, project_id, extract_type, fields, mapped=mapped,
+                pending = SyncPending(
+                    sync_log_id=sync_log.id,
+                    project_id=project_id,
+                    sync_type=extract_type,
+                    source_chunk_id=item.get("source_chunk_id", 0),
+                    source_document_id=item.get("source_document_id", 0),
+                    filename=item.get("filename") or "",
+                    page_start=item.get("page_start"),
+                    confidence=confidence,
+                    fields_json=json.dumps(pending_fields, ensure_ascii=False),
+                    status="pending",
+                    note=reason,
                 )
+                db.add(pending)
                 db.flush()
-                imported_ids.append(record.id)
-        except SyncReviewRequired as exc:
+                pending_ids.append(pending.id)
+
+        # 3. 按置信度分流
+        for item in extracted_items:
+            fields = item.get("fields") or {}
             try:
-                _pending_item(item, fields, confidence, exc.reason)
-            except Exception as pending_exc:
+                confidence = Decimal(str(item.get("confidence", 0)))
+            except Exception:
+                confidence = Decimal("0")
+            if confidence < 0 or confidence > 1:
+                confidence = Decimal("0")
+
+            try:
+                if extract_type == "invoice":
+                    # This must precede mapping and deduplication.  An
+                    # untrusted item is reviewable even if an unrelated old
+                    # invoice happens to share its number.
+                    _validate_invoice_rag_contract(item, fields)
+                mapped = _map_fields(db, project_id, extract_type, fields)
+                if _dedup_check(db, None, project_id, extract_type, fields, mapped):
+                    duplicate_count += 1
+                    continue
+                if confidence < AUTO_CONF_THRESHOLD:
+                    _pending_item(item, fields, confidence, "抽取置信度不足，需人工确认")
+                    continue
+                with db.begin_nested():
+                    record = _import_record(
+                        db, project_id, extract_type, fields, mapped=mapped,
+                    )
+                    db.flush()
+                    imported_ids.append(record.id)
+            except SyncReviewRequired as exc:
+                try:
+                    _pending_item(item, fields, confidence, exc.reason)
+                except Exception as pending_exc:
+                    failed_count += 1
+                    errors.append(
+                        f"待确认记录写入失败 chunk={item.get('source_chunk_id', 0)}: {pending_exc}"
+                    )
+                    _LOGGER.warning(
+                        "rag_sync_background_pending_write_failed sync_log_id=%s chunk=%s error=%s",
+                        sync_log_id, item.get('source_chunk_id', 0), pending_exc.__class__.__name__,
+                    )
+            except Exception as exc:
                 failed_count += 1
                 errors.append(
-                    f"待确认记录写入失败 chunk={item.get('source_chunk_id', 0)}: {pending_exc}"
+                    f"入库失败 chunk={item.get('source_chunk_id', 0)}: {exc}"
                 )
-        except Exception as exc:
-            # ``begin_nested`` rolls back only this item.  The outer sync log
-            # and successful items remain valid for the next iterations.
-            failed_count += 1
-            errors.append(
-                f"入库失败 chunk={item.get('source_chunk_id', 0)}: {exc}"
-            )
+                _LOGGER.warning(
+                    "rag_sync_background_import_failed sync_log_id=%s chunk=%s error=%s",
+                    sync_log_id, item.get('source_chunk_id', 0), exc.__class__.__name__,
+                )
 
-    # 4. 更新同步记录
-    if pending_ids and not errors:
-        status = "PENDING_REVIEW"
-    elif errors and (imported_ids or pending_ids):
-        status = "PARTIAL"
-    elif errors:
-        status = "FAILED"
-    else:
-        # A batch consisting entirely of idempotent duplicates is a successful
-        # no-op, not an error.
-        status = "SUCCESS"
-    sync_log.status = status
-    sync_log.tax_record_ids_json = json.dumps(imported_ids)
-    sync_log.total_imported = len(imported_ids)
-    sync_log.total_pending = len(pending_ids)
-    sync_log.errors_json = json.dumps(errors)
-    db.commit()
+        # 4. 更新同步记录
+        if pending_ids and not errors:
+            status = "PENDING_REVIEW"
+        elif errors and (imported_ids or pending_ids):
+            status = "PARTIAL"
+        elif errors:
+            status = "FAILED"
+        else:
+            status = "SUCCESS"
 
-    return SyncResponse(
-        sync_log_id=sync_log.id,
-        sync_type=extract_type,
-        status=status,
-        total_extracted=len(extracted_items),
-        total_imported=len(imported_ids),
-        total_pending=len(pending_ids),
-        imported_ids=imported_ids,
-        pending_ids=pending_ids,
-        errors=errors,
-    )
+        sync_log.status = status
+        sync_log.tax_record_ids_json = json.dumps(imported_ids)
+        sync_log.total_imported = len(imported_ids)
+        sync_log.total_pending = len(pending_ids)
+        sync_log.errors_json = json.dumps(errors)
+        db.commit()
+
+        _LOGGER.info(
+            "rag_sync_background_done sync_log_id=%s project_id=%s extract_type=%s status=%s imported=%s pending=%s duplicate=%s failed=%s request_id=%s",
+            sync_log_id, project_id, extract_type, status,
+            len(imported_ids), len(pending_ids), duplicate_count, failed_count,
+            request_id or "",
+        )
+
+    except Exception as exc:
+        _LOGGER.exception(
+            "rag_sync_background_unhandled sync_log_id=%s project_id=%s extract_type=%s error=%s",
+            sync_log_id, project_id, extract_type, exc.__class__.__name__,
+        )
+        try:
+            sync_log = db.get(SyncLog, sync_log_id)
+            if sync_log is not None:
+                sync_log.status = "FAILED"
+                sync_log.errors_json = json.dumps([f"后台同步未捕获异常: {exc}"])
+                db.commit()
+        except Exception:
+            db.rollback()
+        raise
+    finally:
+        db.close()
 
 
 def _map_fields(db, project_id: int, extract_type: str, fields: dict) -> dict[str, Any]:
@@ -1240,6 +1489,74 @@ def _import_record(
     record = model_cls(**_model_kwargs(model_cls, mapped))
     db.add(record)
     return record
+
+
+def _existing_record_for_pending(
+    db, project_id: int, extract_type: str, fields: dict[str, Any], mapped: dict[str, Any],
+):
+    """Return an existing deterministic record when the reviewed item was already imported."""
+    if not _dedup_check(db, None, project_id, extract_type, fields, mapped):
+        return None
+    if extract_type == "invoice":
+        invoice_no = _clean_identity(fields.get("invoice_no"))
+        if invoice_no:
+            identity_marker = (
+                "RAG_INVOICE_ID:"
+                + _invoice_identity_fingerprint(
+                    project_id=project_id,
+                    fields=fields,
+                    entity_code=mapped.get("entity_code", ""),
+                    counterparty_code=mapped.get("counterparty_code", ""),
+                )
+            )
+            return db.query(Invoice).filter(
+                Invoice.project_id == project_id,
+                Invoice.invoice_no == invoice_no,
+                Invoice.note.contains(identity_marker),
+            ).first()
+        return None
+    if extract_type == "contract":
+        contract_no = _clean_identity(fields.get("contract_no"))
+        if contract_no:
+            return db.query(Contract).filter(
+                Contract.project_id == project_id, Contract.contract_no == contract_no,
+            ).first()
+    return None
+
+
+def _pending_fields_for_display(pending: SyncPending) -> dict[str, Any]:
+    """Decode legacy pending fields without making the list endpoint crash."""
+    try:
+        fields = json.loads(pending.fields_json or "{}")
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return {}
+    return fields if isinstance(fields, dict) else {}
+
+
+def _pending_list_item(pending: SyncPending) -> dict[str, Any]:
+    fields = _pending_fields_for_display(pending)
+    return {
+        "id": pending.id,
+        "sync_log_id": pending.sync_log_id,
+        "project_id": pending.project_id,
+        "sync_type": pending.sync_type,
+        "source_chunk_id": pending.source_chunk_id,
+        "filename": pending.filename,
+        "page_start": pending.page_start,
+        "confidence": float(pending.confidence),
+        "fields": fields,
+        "review": {
+            "reason": fields.get("_review_reason", ""),
+            "party_a_name": fields.get("party_a_name", ""),
+            "party_a_tax_id": fields.get("party_a_tax_id") or fields.get("party_a_code", ""),
+            "party_b_name": fields.get("party_b_name", ""),
+            "party_b_tax_id": fields.get("party_b_tax_id") or fields.get("party_b_code", ""),
+        },
+        "status": pending.status,
+        "confirmed_record_id": pending.confirmed_record_id,
+        "confirmed_at": pending.confirmed_at,
+        "note": pending.note,
+    }
 
 
 # ============================================================
@@ -1469,7 +1786,7 @@ def rag_status(request: Request):
 
 
 @router.post("/sync", response_model=SyncResponse)
-def sync_single(body: SyncRequest, request: Request):
+def sync_single(body: SyncRequest, request: Request, background_tasks: BackgroundTasks):
     """触发单类型同步：从 RAG 抽取指定类型数据并入库。"""
     actor = current_actor(request)
 
@@ -1484,8 +1801,35 @@ def sync_single(body: SyncRequest, request: Request):
             db, body.project_id, body.rag_project_id,
         )
 
-        return _do_sync(
-            db=db,
+        sync_log = SyncLog(
+            project_id=body.project_id,
+            sync_type=body.extract_type,
+            rag_project_id=rag_project_id,
+            rag_chunk_ids_json="[]",
+            rag_document_ids_json="[]",
+            tax_record_ids_json="[]",
+            status="RUNNING",
+            total_chunks=0,
+            total_extracted=0,
+            total_imported=0,
+            total_pending=0,
+            errors_json="[]",
+            synced_at=_now(),
+            synced_by=actor,
+            note=body.note,
+        )
+        db.add(sync_log)
+        db.commit()
+        db.refresh(sync_log)
+
+        _LOGGER.info(
+            "rag_sync_single_dispatched sync_log_id=%s project_id=%s extract_type=%s request_id=%s",
+            sync_log.id, body.project_id, body.extract_type, get_request_id(),
+        )
+
+        background_tasks.add_task(
+            _do_sync_background,
+            sync_log_id=sync_log.id,
             project_id=body.project_id,
             rag_project_id=rag_project_id,
             rag_url=rag_url,
@@ -1494,16 +1838,26 @@ def sync_single(body: SyncRequest, request: Request):
             period_start=body.period_start,
             period_end=body.period_end,
             top_k=body.top_k,
-            note=body.note,
-            actor=actor,
             request_id=get_request_id(),
+        )
+
+        return SyncResponse(
+            sync_log_id=sync_log.id,
+            sync_type=body.extract_type,
+            status="RUNNING",
+            total_extracted=0,
+            total_imported=0,
+            total_pending=0,
+            imported_ids=[],
+            pending_ids=[],
+            errors=[],
         )
     finally:
         db.close()
 
 
 @router.post("/sync-batch")
-def sync_batch(body: SyncBatchRequest, request: Request):
+def sync_batch(body: SyncBatchRequest, request: Request, background_tasks: BackgroundTasks):
     """批量同步：按类型列表逐一同步。"""
     actor = current_actor(request)
     results: list[SyncResponse] = []
@@ -1519,34 +1873,57 @@ def sync_batch(body: SyncBatchRequest, request: Request):
         )
 
         for extract_type in body.extract_types:
-            try:
-                result = _do_sync(
-                    db=db,
-                    project_id=body.project_id,
-                    rag_project_id=rag_project_id,
-                    rag_url=rag_url,
-                    rag_api_key=rag_api_key,
-                    extract_type=extract_type,
-                    period_start=body.period_start,
-                    period_end=body.period_end,
-                    top_k=30,
-                    note=body.note,
-                    actor=actor,
-                    request_id=get_request_id(),
-                )
-                results.append(result)
-            except Exception as e:
-                results.append(SyncResponse(
-                    sync_log_id=0,
-                    sync_type=extract_type,
-                    status="FAILED",
-                    total_extracted=0,
-                    total_imported=0,
-                    total_pending=0,
-                    imported_ids=[],
-                    pending_ids=[],
-                    errors=[str(e)],
-                ))
+            sync_log = SyncLog(
+                project_id=body.project_id,
+                sync_type=extract_type,
+                rag_project_id=rag_project_id,
+                rag_chunk_ids_json="[]",
+                rag_document_ids_json="[]",
+                tax_record_ids_json="[]",
+                status="RUNNING",
+                total_chunks=0,
+                total_extracted=0,
+                total_imported=0,
+                total_pending=0,
+                errors_json="[]",
+                synced_at=_now(),
+                synced_by=actor,
+                note=body.note,
+            )
+            db.add(sync_log)
+            db.commit()
+            db.refresh(sync_log)
+
+            _LOGGER.info(
+                "rag_sync_batch_dispatched sync_log_id=%s project_id=%s extract_type=%s request_id=%s",
+                sync_log.id, body.project_id, extract_type, get_request_id(),
+            )
+
+            background_tasks.add_task(
+                _do_sync_background,
+                sync_log_id=sync_log.id,
+                project_id=body.project_id,
+                rag_project_id=rag_project_id,
+                rag_url=rag_url,
+                rag_api_key=rag_api_key,
+                extract_type=extract_type,
+                period_start=body.period_start,
+                period_end=body.period_end,
+                top_k=30,
+                request_id=get_request_id(),
+            )
+
+            results.append(SyncResponse(
+                sync_log_id=sync_log.id,
+                sync_type=extract_type,
+                status="RUNNING",
+                total_extracted=0,
+                total_imported=0,
+                total_pending=0,
+                imported_ids=[],
+                pending_ids=[],
+                errors=[],
+            ))
 
         return {"project_id": body.project_id, "results": [r.model_dump() for r in results]}
     finally:
@@ -1629,24 +2006,7 @@ def sync_pending_list(
             "page": page,
             "page_size": page_size,
             "total": total,
-            "items": [
-                {
-                    "id": p.id,
-                    "sync_log_id": p.sync_log_id,
-                    "project_id": p.project_id,
-                    "sync_type": p.sync_type,
-                    "source_chunk_id": p.source_chunk_id,
-                    "filename": p.filename,
-                    "page_start": p.page_start,
-                    "confidence": float(p.confidence),
-                    "fields": json.loads(p.fields_json or "{}"),
-                    "status": p.status,
-                    "confirmed_record_id": p.confirmed_record_id,
-                    "confirmed_at": p.confirmed_at,
-                    "note": p.note,
-                }
-                for p in items
-            ],
+            "items": [_pending_list_item(p) for p in items],
         }
     finally:
         db.close()
@@ -1667,7 +2027,11 @@ def confirm_pending(pending_id: int, request: Request):
 
         fields = json.loads(pending.fields_json or "{}")
 
-        record = _import_record(db, pending.project_id, pending.sync_type, fields)
+        try:
+            record = _import_record(db, pending.project_id, pending.sync_type, fields)
+        except SyncReviewRequired as exc:
+            db.rollback()
+            raise HTTPException(409, exc.reason) from exc
         db.flush()
 
         pending.status = "confirmed"
@@ -1682,6 +2046,76 @@ def confirm_pending(pending_id: int, request: Request):
             "record_id": record.id,
             "record_type": pending.sync_type,
         }
+    finally:
+        db.close()
+
+
+@router.post("/pending/{pending_id}/confirm-contract-and-create-parties")
+def confirm_contract_and_create_parties(
+    pending_id: int,
+    payload: ConfirmPendingContractRequest,
+    request: Request,
+):
+    """Confirm one reviewed contract and, only then, create its missing counterparties.
+
+    Party identities come exclusively from the immutable Tax-side pending row.
+    This protects the canonical master from browser-tampered names or tax ids,
+    while retaining a clear human approval boundary before the write.
+    """
+    user = admin_only(request)
+    actor = current_actor(request) or str(getattr(user, "username", "") or "admin")
+    db = SessionLocal()
+    try:
+        pending = db.query(SyncPending).filter(SyncPending.id == pending_id).with_for_update().first()
+        if not pending:
+            raise HTTPException(404, "待复核记录不存在")
+        if pending.status != "pending":
+            raise HTTPException(409, f"该记录状态为 {pending.status}，无法确认")
+        if pending.sync_type != "contract":
+            raise HTTPException(409, "仅合同待复核记录允许确认创建外部交易方")
+
+        try:
+            fields = json.loads(pending.fields_json or "{}")
+        except (TypeError, ValueError, json.JSONDecodeError) as exc:
+            raise HTTPException(409, "待复核合同字段已损坏，不能安全确认") from exc
+        if not isinstance(fields, dict):
+            raise HTTPException(409, "待复核合同字段格式无效，不能安全确认")
+
+        # All writes below are one transaction.  Any conflict rolls back both
+        # new master-data rows and the contract import.
+        created = _create_confirmed_external_parties(db, fields)
+        mapped = _map_contract_fields(db, fields, pending.project_id)
+        record = _existing_record_for_pending(db, pending.project_id, pending.sync_type, fields, mapped)
+        if record is None:
+            record = _import_record(
+                db, pending.project_id, pending.sync_type, fields, mapped=mapped,
+            )
+            db.flush()
+
+        pending.status = "confirmed"
+        pending.confirmed_record_id = record.id
+        pending.confirmed_at = _now()
+        pending.confirmed_by = actor
+        db.commit()
+        return {
+            "ok": True,
+            "pending_id": pending.id,
+            "record_id": record.id,
+            "record_type": pending.sync_type,
+            "created_external_parties": [
+                {"id": party.id, "code": party.code, "name": party.name, "tax_id": party.tax_id}
+                for party in created
+            ],
+        }
+    except HTTPException:
+        db.rollback()
+        raise
+    except SyncReviewRequired as exc:
+        db.rollback()
+        raise HTTPException(409, exc.reason) from exc
+    except Exception:
+        db.rollback()
+        raise
     finally:
         db.close()
 
