@@ -173,10 +173,14 @@ export function RiskCenterView({
                   >
                     呼叫智能助手协助取证
                   </button>
-                  {!isResolved && (
+                  {isResolved ? (
+                    <span className="px-3 py-1.5 rounded-lg bg-[#10B981]/15 text-[#10B981] text-[12px] font-bold border border-[#10B981]/30 flex items-center gap-1">
+                      ✓ 已完成闭环整改
+                    </span>
+                  ) : (
                     <button
                       onClick={() => onResolveRisk(risk.id)}
-                      className="px-3 py-1.5 rounded-lg bg-[#10B981] hover:bg-[#10B981]/80 text-[#0b1326] text-[12px] font-bold transition-colors cursor-pointer"
+                      className="px-3 py-1.5 rounded-lg bg-[#10B981] hover:bg-[#10B981]/80 text-[#0b1326] text-[12px] font-bold transition-colors cursor-pointer shadow-sm active:scale-95"
                     >
                       完成闭环整改
                     </button>
