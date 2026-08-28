@@ -93,11 +93,17 @@ def _persist_result(
     )
     if persistence.get("stored") and persistence.get("document_id"):
         keep_review_id = persistence.get("review_id")
-        persistence["superseded_reviews"] = supersede_pending_reviews(
-            repository,
-            persistence["document_id"],
-            keep_review_id=keep_review_id,
-        )
+        try:
+            persistence["superseded_reviews"] = supersede_pending_reviews(
+                repository,
+                persistence["document_id"],
+                keep_review_id=keep_review_id,
+            )
+        except psycopg.Error as exc:
+            # The primary persistence transaction has already committed. A
+            # cleanup failure must not be reported as if the document itself
+            # was lost; expose it separately for operators to retry/inspect.
+            persistence["supersede_error"] = f"{type(exc).__name__}: {exc}"
     return persistence
 
 
