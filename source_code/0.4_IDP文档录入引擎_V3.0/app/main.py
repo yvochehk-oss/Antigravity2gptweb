@@ -16,6 +16,12 @@ from .granite_client import GraniteAuditClient
 from .ling_client import LingClient
 from .ocr import PaddleOCRAdapter
 from .parsers import DocumentParser
+from .persistence_service import (
+    get_document_for_reprocess,
+    get_latest_result_by_sha,
+    supersede_pending_reviews,
+    validate_stored_path,
+)
 from .pipeline import IDPPipeline
 from .repository import DuplicateBusinessRecordError, IDPRepository
 
@@ -69,6 +75,32 @@ def _store_original(tmp_path: Path, sha256: str, suffix: str) -> Path:
     return destination
 
 
+def _persist_result(
+    *,
+    filename: str,
+    file_type: str,
+    file_path: str,
+    raw_text: str,
+    result: Dict[str, Any],
+) -> Dict[str, Any]:
+    persistence = repository.persist_result(
+        filename=filename,
+        file_type=file_type,
+        file_path=file_path,
+        raw_text=raw_text,
+        result=result,
+        model_name=ling_client.model if ling_client else "rules-only",
+    )
+    if persistence.get("stored") and persistence.get("document_id"):
+        keep_review_id = persistence.get("review_id")
+        persistence["superseded_reviews"] = supersede_pending_reviews(
+            repository,
+            persistence["document_id"],
+            keep_review_id=keep_review_id,
+        )
+    return persistence
+
+
 @app.get("/health")
 def health() -> dict:
     return {
@@ -88,7 +120,10 @@ def health() -> dict:
 
 
 @app.post("/api/v3/documents/process")
-async def process_document(file: UploadFile = File(...)) -> dict:
+async def process_document(
+    file: UploadFile = File(...),
+    force: bool = Query(default=False, description="Reprocess an identical SHA instead of returning its latest result"),
+) -> dict:
     filename = file.filename or "upload.bin"
     suffix = Path(filename).suffix.lower()
     if suffix not in {".pdf", ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp"}:
@@ -99,18 +134,27 @@ async def process_document(file: UploadFile = File(...)) -> dict:
         tmp_path = Path(tmp.name)
 
     try:
+        sha256 = pipeline.sha256(tmp_path)
+        if repository.enabled and not force:
+            try:
+                existing = get_latest_result_by_sha(repository, sha256)
+            except psycopg.Error:
+                existing = None
+            if existing is not None:
+                existing["duplicate"] = True
+                return existing
+
         result = pipeline.process(tmp_path)
         raw_text = str(result.pop("_raw_text", ""))
         durable_path = _store_original(tmp_path, result["sha256"], suffix)
 
         try:
-            persistence = repository.persist_result(
+            persistence = _persist_result(
                 filename=filename,
                 file_type=suffix.lstrip("."),
                 file_path=str(durable_path) if store_originals else "",
                 raw_text=raw_text,
                 result=result,
-                model_name=ling_client.model if ling_client else "rules-only",
             )
         except psycopg.Error as exc:
             persistence = {
@@ -119,6 +163,7 @@ async def process_document(file: UploadFile = File(...)) -> dict:
                 "error": f"{type(exc).__name__}: {exc}",
             }
 
+        persistence["forced_reprocess"] = force
         result["persistence"] = persistence
         if persistence.get("status"):
             result["status"] = persistence["status"]
@@ -136,10 +181,58 @@ async def process_document(file: UploadFile = File(...)) -> dict:
 @app.get("/api/v3/documents/by-sha/{sha256}")
 def get_document_by_sha(sha256: str) -> dict:
     _require_database()
-    document = repository.get_document_by_sha(sha256)
+    try:
+        result = get_latest_result_by_sha(repository, sha256)
+    except psycopg.Error as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    if not result:
+        raise HTTPException(status_code=404, detail="document_not_found")
+    return result
+
+
+@app.get("/api/v3/documents/{document_id}")
+def get_document(document_id: str) -> dict:
+    _require_database()
+    try:
+        document = get_document_for_reprocess(repository, document_id)
+    except (psycopg.Error, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     if not document:
         raise HTTPException(status_code=404, detail="document_not_found")
     return document
+
+
+@app.post("/api/v3/documents/{document_id}/reprocess")
+def reprocess_document(document_id: str) -> dict:
+    _require_database()
+    try:
+        document = get_document_for_reprocess(repository, document_id)
+        if not document:
+            raise HTTPException(status_code=404, detail="document_not_found")
+        stored_path = validate_stored_path(document)
+
+        result = pipeline.process(stored_path)
+        raw_text = str(result.pop("_raw_text", ""))
+        persistence = _persist_result(
+            filename=str(document.get("filename") or stored_path.name),
+            file_type=str(document.get("file_type") or stored_path.suffix.lstrip(".")),
+            file_path=str(stored_path),
+            raw_text=raw_text,
+            result=result,
+        )
+        persistence["forced_reprocess"] = True
+        result["persistence"] = persistence
+        if persistence.get("status"):
+            result["status"] = persistence["status"]
+        return result
+    except HTTPException:
+        raise
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except (psycopg.Error, RuntimeError) as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @app.get("/api/v3/reviews")
