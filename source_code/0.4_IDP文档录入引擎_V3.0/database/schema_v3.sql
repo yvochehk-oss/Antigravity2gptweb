@@ -1,6 +1,6 @@
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
-CREATE TABLE IF NOT EXISTS documents (
+CREATE TABLE IF NOT EXISTS idp_documents (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     sha256 VARCHAR(64) NOT NULL UNIQUE,
     filename VARCHAR(500),
@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS documents (
 
 CREATE TABLE IF NOT EXISTS document_extractions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    document_id UUID NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    document_id UUID NOT NULL REFERENCES idp_documents(id) ON DELETE CASCADE,
     extractor_version VARCHAR(50) NOT NULL DEFAULT 'v3.0',
     model_name VARCHAR(100),
     schema_version VARCHAR(20) NOT NULL DEFAULT '3.0',
@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS document_extractions (
 
 CREATE TABLE IF NOT EXISTS contracts_v3 (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    document_id UUID NOT NULL REFERENCES documents(id),
+    document_id UUID NOT NULL REFERENCES idp_documents(id),
     extraction_id UUID REFERENCES document_extractions(id),
     contract_no VARCHAR(200),
     contract_name TEXT,
@@ -62,7 +62,7 @@ CREATE INDEX IF NOT EXISTS idx_contracts_v3_project_name ON contracts_v3(project
 
 CREATE TABLE IF NOT EXISTS invoices_v3 (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    document_id UUID NOT NULL REFERENCES documents(id),
+    document_id UUID NOT NULL REFERENCES idp_documents(id),
     extraction_id UUID REFERENCES document_extractions(id),
     invoice_type VARCHAR(100),
     invoice_code VARCHAR(100),
@@ -89,7 +89,7 @@ WHERE invoice_no IS NOT NULL AND seller_tax_id IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS document_reviews (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    document_id UUID NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    document_id UUID NOT NULL REFERENCES idp_documents(id) ON DELETE CASCADE,
     extraction_id UUID REFERENCES document_extractions(id) ON DELETE CASCADE,
     review_data JSONB NOT NULL DEFAULT '{}'::jsonb,
     reason JSONB NOT NULL DEFAULT '[]'::jsonb,

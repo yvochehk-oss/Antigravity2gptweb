@@ -46,7 +46,7 @@ def get_latest_result_by_sha(repository: IDPRepository, sha256: str) -> Optional
                 e.status AS extraction_status,
                 r.id AS review_id,
                 r.status AS review_status
-            FROM documents d
+            FROM idp_documents d
             LEFT JOIN LATERAL (
                 SELECT id, extracted_data, validation_result, status
                 FROM document_extractions
@@ -104,7 +104,7 @@ def get_document_for_reprocess(repository: IDPRepository, document_id: str | UUI
         cur.execute(
             """
             SELECT id, sha256, filename, file_type, file_path, document_type, status
-            FROM documents
+            FROM idp_documents
             WHERE id = %s
             LIMIT 1
             """,

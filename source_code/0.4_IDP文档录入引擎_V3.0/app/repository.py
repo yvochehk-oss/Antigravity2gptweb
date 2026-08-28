@@ -118,7 +118,7 @@ class IDPRepository:
             cur.execute(
                 """
                 SELECT id, sha256, filename, document_type, status, created_at, updated_at
-                FROM documents WHERE sha256 = %s
+                FROM idp_documents WHERE sha256 = %s
                 """,
                 (sha256,),
             )
@@ -145,13 +145,13 @@ class IDPRepository:
         confidence = data.get("confidence") or {}
 
         with self.connection() as conn, conn.cursor() as cur:
-            cur.execute("SELECT id FROM documents WHERE sha256 = %s", (result["sha256"],))
+            cur.execute("SELECT id FROM idp_documents WHERE sha256 = %s", (result["sha256"],))
             existing = cur.fetchone()
             duplicate_file = existing is not None
 
             cur.execute(
                 """
-                INSERT INTO documents (
+                INSERT INTO idp_documents (
                     sha256, filename, file_type, document_type, file_path,
                     page_count, parser, raw_text, ocr_confidence, status
                 ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
@@ -205,7 +205,7 @@ class IDPRepository:
             if effective_status == "approved":
                 self._commit_business_entity(cur, result.get("document_type"), data, document_id, extraction_id)
                 cur.execute(
-                    "UPDATE documents SET status='committed', updated_at=NOW() WHERE id=%s",
+                    "UPDATE idp_documents SET status='committed', updated_at=NOW() WHERE id=%s",
                     (document_id,),
                 )
                 cur.execute(
@@ -227,7 +227,7 @@ class IDPRepository:
                 )
                 review_id = cur.fetchone()["id"]
                 cur.execute(
-                    "UPDATE documents SET status=%s, updated_at=NOW() WHERE id=%s",
+                    "UPDATE idp_documents SET status=%s, updated_at=NOW() WHERE id=%s",
                     (effective_status, document_id),
                 )
 
@@ -255,7 +255,7 @@ class IDPRepository:
                        r.status, r.reviewer, r.reviewed_at, r.created_at,
                        d.filename, d.document_type, d.parser, d.ocr_confidence
                 FROM document_reviews r
-                JOIN documents d ON d.id = r.document_id
+                JOIN idp_documents d ON d.id = r.document_id
                 WHERE r.status = %s
                 ORDER BY r.created_at ASC
                 LIMIT %s
@@ -273,7 +273,7 @@ class IDPRepository:
                 SELECT r.*, d.filename, d.document_type, d.raw_text, d.parser,
                        e.validation_result, e.extracted_data
                 FROM document_reviews r
-                JOIN documents d ON d.id = r.document_id
+                JOIN idp_documents d ON d.id = r.document_id
                 JOIN document_extractions e ON e.id = r.extraction_id
                 WHERE r.id = %s
                 """,
@@ -300,7 +300,7 @@ class IDPRepository:
                 """
                 SELECT r.*, d.document_type, e.extracted_data
                 FROM document_reviews r
-                JOIN documents d ON d.id = r.document_id
+                JOIN idp_documents d ON d.id = r.document_id
                 JOIN document_extractions e ON e.id = r.extraction_id
                 WHERE r.id = %s FOR UPDATE
                 """,
@@ -348,7 +348,7 @@ class IDPRepository:
                 (Jsonb(final_data), extraction_status, review["extraction_id"]),
             )
             cur.execute(
-                "UPDATE documents SET status=%s, updated_at=NOW() WHERE id=%s",
+                "UPDATE idp_documents SET status=%s, updated_at=NOW() WHERE id=%s",
                 (document_status, review["document_id"]),
             )
             conn.commit()

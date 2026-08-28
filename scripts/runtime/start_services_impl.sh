@@ -473,6 +473,16 @@ start_local_llm() {
   log "本地 LLM 已启动（PID ${pid}）；日志：$LOCAL_LLM_LOG_FILE"
 }
 
+resolve_idp_python() {
+  if [ -x "$IDP_DIR/.venv/bin/python" ]; then
+    printf '%s' "$IDP_DIR/.venv/bin/python"
+  elif [ -x "$PROJECT_DIR/.venv/bin/python" ]; then
+    printf '%s' "$PROJECT_DIR/.venv/bin/python"
+  else
+    return 1
+  fi
+}
+
 run_migrations_if_requested() {
   [ "$RUN_MIGRATIONS" = true ] || return 0
   log "执行 Tax Alembic 迁移（第一阶段）..."
@@ -480,9 +490,10 @@ run_migrations_if_requested() {
   log "执行 RAG Alembic 迁移（第二阶段）..."
   (cd "$RAG_DIR" && "$RAG_DIR/.venv/bin/python" -m alembic -c alembic.ini upgrade head)
   if idp_is_enabled; then
-    [ -x "$IDP_DIR/.venv/bin/python" ] || die "IDP Python 运行时不存在，无法初始化 IDP schema：$IDP_DIR/.venv/bin/python（请先运行 ./start_all.sh install）"
+    local idp_py
+    idp_py="$(resolve_idp_python)" || die "IDP Python 运行时不存在，无法初始化 IDP schema（请先运行 ./start_all.sh install）"
     log "执行 IDP schema 初始化（第三阶段）..."
-    "$IDP_DIR/.venv/bin/python" - "$IDP_DIR/database/schema_v3.sql" <<'PY'
+    "$idp_py" - "$IDP_DIR/database/schema_v3.sql" <<'PY'
 import os
 import sys
 from pathlib import Path
@@ -542,13 +553,13 @@ idp_is_enabled() {
 }
 
 start_idp() {
-  local port="${1:-}" pid
+  local port="${1:-}" pid idp_py
   [ -n "$port" ] || die "IDP 端口未解析，拒绝启动"
-  [ -x "$IDP_DIR/.venv/bin/python" ] || die "IDP Python 运行时不存在：$IDP_DIR/.venv/bin/python（请先运行 ./start_all.sh install）"
+  idp_py="$(resolve_idp_python)" || die "IDP Python 运行时不存在（请先运行 ./start_all.sh install）"
   log "启动 IDP（端口 ${port}）..."
   (
     cd "$IDP_DIR"
-    exec nohup "$IDP_DIR/.venv/bin/python" -m uvicorn app.main:app --host "$IDP_HOST" --port "$port"
+    exec nohup "$idp_py" -m uvicorn app.main:app --host "$IDP_HOST" --port "$port"
   ) >"$IDP_LOG_FILE" 2>&1 < /dev/null &
   pid=$!
   echo "$pid" > "$IDP_PID_FILE"
