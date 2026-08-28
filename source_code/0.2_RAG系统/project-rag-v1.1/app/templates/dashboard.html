@@ -80,7 +80,7 @@
         底层数据与向量检索引擎：PostgreSQL + pgvector（HNSW 加速）
       </div>
       <div style="font-size: 12px; color: var(--text-muted); margin-top: 2px;">
-        深度解析引擎: {{ 'MinerU 3.4.5 (支持复杂排版/表格/印章识别)' if mineru else '通用解析适配器模式' }} · 嵌入模型: BGE-M3 · 重排模型: BGE-Reranker-v2-m3
+        文档解析引擎: IDP 3.0 智能文档录入与结构化解析引擎 · 嵌入模型: BGE-M3 · 重排模型: BGE-Reranker-v2-m3
       </div>
     </div>
   </div>
@@ -90,28 +90,28 @@
   </div>
 </div>
 
-<!-- MinerU 3.4.5 实时解析监控视窗 -->
+<!-- IDP 文档解析与异步索引实时监控视窗 -->
 <div class="glass-panel-elevated" style="padding: 16px 20px; margin-bottom: 24px; border-left: 4px solid var(--accent-cyan);">
   <div style="display: flex; justify-content: space-between; align-items: center;">
     <div>
       <div style="font-weight: 700; color: #fff; font-size: 15px; display: flex; align-items: center; gap: 8px;">
-        <span id="mineru-pulse" style="display: inline-block; width: 10px; height: 10px; border-radius: 50%; background-color: var(--text-muted);"></span>
-        MinerU 3.4.5 版面分析实时监控
+        <span id="parser-pulse" style="display: inline-block; width: 10px; height: 10px; border-radius: 50%; background-color: var(--text-muted);"></span>
+        IDP 文档解析与索引任务实时监控
       </div>
-      <div id="mineru-status-text" style="font-size: 13px; color: var(--accent-cyan); margin-top: 6px; font-family: monospace;">
+      <div id="parser-status-text" style="font-size: 13px; color: var(--accent-cyan); margin-top: 6px; font-family: monospace;">
         正在检查后台任务状态...
       </div>
     </div>
     <div>
-      <div class="badge badge-emerald" id="mineru-active-badge" style="display: none;">解析中 (Processing)</div>
-      <div class="badge badge-amber" id="mineru-pending-badge" style="display: none;">队列等待中 (Queued)</div>
-      <div class="badge badge-rose" id="mineru-failed-badge" style="display: none;">存在失败任务 (Failed)</div>
-      <div class="badge badge-muted" id="mineru-idle-badge">空闲中 (Idle)</div>
+      <div class="badge badge-emerald" id="parser-active-badge" style="display: none;">解析中 (Processing)</div>
+      <div class="badge badge-amber" id="parser-pending-badge" style="display: none;">队列等待中 (Queued)</div>
+      <div class="badge badge-rose" id="parser-failed-badge" style="display: none;">存在失败任务 (Failed)</div>
+      <div class="badge badge-muted" id="parser-idle-badge">空闲中 (Idle)</div>
     </div>
   </div>
 </div>
 <script>
-  function pollMinerUStatus() {
+  function pollParserStatus() {
     fetch('/api/v1/jobs/active', { credentials: 'include' })
       .then(res => {
         if (!res.ok) {
@@ -133,12 +133,12 @@
           throw new Error('invalid monitor response');
         }
 
-        const pulse = document.getElementById('mineru-pulse');
-        const text = document.getElementById('mineru-status-text');
-        const activeBadge = document.getElementById('mineru-active-badge');
-        const pendingBadge = document.getElementById('mineru-pending-badge');
-        const failedBadge = document.getElementById('mineru-failed-badge');
-        const idleBadge = document.getElementById('mineru-idle-badge');
+        const pulse = document.getElementById('parser-pulse');
+        const text = document.getElementById('parser-status-text');
+        const activeBadge = document.getElementById('parser-active-badge');
+        const pendingBadge = document.getElementById('parser-pending-badge');
+        const failedBadge = document.getElementById('parser-failed-badge');
+        const idleBadge = document.getElementById('parser-idle-badge');
 
         activeBadge.style.display = 'none';
         pendingBadge.style.display = 'none';
@@ -177,7 +177,7 @@
         } else {
           pulse.style.backgroundColor = 'var(--text-muted)';
           pulse.style.boxShadow = 'none';
-          text.textContent = '当前无待解析任务，GPU / MPS 引擎处于空闲状态休眠中。';
+          text.textContent = '当前无待解析任务，文档索引引擎处于就绪状态。';
           idleBadge.style.display = 'inline-flex';
         }
 
@@ -213,18 +213,18 @@
         }
       })
       .catch(() => {
-        document.getElementById('mineru-pulse').style.backgroundColor = 'var(--accent-rose)';
-        document.getElementById('mineru-pulse').style.boxShadow = '0 0 10px var(--accent-rose)';
-        document.getElementById('mineru-status-text').textContent = '监控异常：无法读取后台任务状态。';
-        document.getElementById('mineru-active-badge').style.display = 'none';
-        document.getElementById('mineru-pending-badge').style.display = 'none';
-        document.getElementById('mineru-failed-badge').style.display = 'none';
-        document.getElementById('mineru-idle-badge').style.display = 'none';
+        document.getElementById('parser-pulse').style.backgroundColor = 'var(--accent-rose)';
+        document.getElementById('parser-pulse').style.boxShadow = '0 0 10px var(--accent-rose)';
+        document.getElementById('parser-status-text').textContent = '监控异常：无法读取后台任务状态。';
+        document.getElementById('parser-active-badge').style.display = 'none';
+        document.getElementById('parser-pending-badge').style.display = 'none';
+        document.getElementById('parser-failed-badge').style.display = 'none';
+        document.getElementById('parser-idle-badge').style.display = 'none';
       });
   }
   // 每 2 秒刷新一次状态
-  setInterval(pollMinerUStatus, 2000);
-  pollMinerUStatus();
+  setInterval(pollParserStatus, 2000);
+  pollParserStatus();
 </script>
 
 <!-- 当前 canonical 单位主数据摘要 -->

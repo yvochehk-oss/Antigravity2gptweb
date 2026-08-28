@@ -602,7 +602,7 @@ def api_project_audit(project_id: int):
             if not d.business_category:
                 counts["missing_business_category"] += 1
         issues, recommendations = [], []
-        for key, msg in [("waiting_mineru", "存在等待MinerU解析的资料"), ("parse_failed", "存在解析失败资料"), ("unclassified", "存在未分类资料，需要确认元数据"), ("duplicates", "存在重复文件，系统已阻止重复索引")]:
+        for key, msg in [("waiting_mineru", "存在等待异步解析的资料"), ("parse_failed", "存在解析失败资料"), ("unclassified", "存在未分类资料，需要确认元数据"), ("duplicates", "存在重复文件，系统已阻止重复索引")]:
             if counts[key]:
                 issues.append({"type": key.upper(), "count": counts[key], "message": msg})
         if "main_contract" not in types:

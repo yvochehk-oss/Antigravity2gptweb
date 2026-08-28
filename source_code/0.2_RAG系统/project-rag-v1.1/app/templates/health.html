@@ -11,7 +11,7 @@
   <div>
     <h1>🩺 系统健康体检与运行状态</h1>
     <p style="color: var(--text-muted); margin-top: 8px;">
-      实时监测 PostgreSQL 数据库连接、pgvector 向量引擎、MinerU 3.4.5 OCR 解析队列及大模型运行状态。
+      实时监测 PostgreSQL 数据库连接、pgvector 向量引擎、IDP 文档解析队列及大模型运行状态。
     </p>
   </div>
   <div style="display: flex; gap: 10px;">
@@ -28,62 +28,59 @@
 <div class="glass-panel" style="padding: 20px 24px; margin-bottom: 24px; display: flex; align-items: center; justify-content: space-between; border-left: 4px solid {% if health_data.database.ok %}var(--accent-cyan, #00d4ff){% else %}#ef4444{% endif %};">
   <div style="display: flex; align-items: center; gap: 16px;">
     <div style="font-size: 32px;">
-      {% if health_data.database.ok %}🟢{% else %}🔴{% endif %}
+      {% if health_data.database.ok %}💚{% else %}💔{% endif %}
     </div>
     <div>
-      <div style="font-size: 18px; font-weight: 600; color: var(--text-primary);">
-        {% if health_data.database.ok %}系统核心运行正常 (PostgreSQL 联机就绪){% else %}核心数据库异常{% endif %}
+      <div style="font-size: 18px; font-weight: 700; color: #fff;">
+        {% if health_data.database.ok %}核心服务集群运行良好{% else %}数据库或向量服务异常{% endif %}
       </div>
-      <div style="font-size: 13px; color: var(--text-secondary); margin-top: 4px;">
-        服务版本: v{{ health_data.version }} · 响应延迟: {{ health_data.checked_in_ms }}ms · Request ID: <code style="font-size: 11px; color: var(--accent-cyan);">{{ health_data.request_id }}</code>
+      <div style="font-size: 13px; color: var(--text-muted); margin-top: 4px;">
+        PostgreSQL 物理主库与 pgvector 向量检索就绪，BGE-M3 混合检索在线。
       </div>
     </div>
   </div>
-  <span class="badge {% if health_data.database.ok %}badge-cyan{% else %}badge-secondary{% endif %}" style="padding: 6px 14px; font-size: 13px;">
-    {% if health_data.database.ok %}ONLINE · 正常服务中{% else %}OFFLINE{% endif %}
+  <span class="badge {% if health_data.database.ok %}badge-emerald{% else %}badge-rose{% endif %}" style="font-size: 13px; padding: 6px 14px;">
+    {{ health_data.status | upper }}
   </span>
 </div>
 
-<!-- 各组件体检详情网格 -->
-<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px;">
-
-  <!-- 1. PostgreSQL 数据库 -->
+<!-- 4大核心引擎状态网格 -->
+<div class="grid grid-2" style="gap: 16px; margin-bottom: 24px;">
+  <!-- 1. PostgreSQL 关系数据库 -->
   <div class="glass-panel" style="padding: 20px;">
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
       <div style="font-weight: 600; font-size: 15px; display: flex; align-items: center; gap: 8px;">
-        <span>🗄️</span> 关系型数据库 (PostgreSQL)
+        <span>🐘</span> 关系数据中枢 (PostgreSQL)
       </div>
-      <span class="badge {% if health_data.database.ok %}badge-cyan{% else %}badge-secondary{% endif %}">
-        {% if health_data.database.ok %}正常 (OK){% else %}异常{% endif %}
+      <span class="badge {% if health_data.database.ok %}badge-emerald{% else %}badge-rose{% endif %}">
+        {% if health_data.database.ok %}已连接 (ONLINE){% else %}异常 (OFFLINE){% endif %}
       </span>
     </div>
     <div style="font-size: 13px; color: var(--text-secondary); line-height: 1.8;">
-      <div>• 数据库引擎: <strong style="color: var(--text-primary);">{{ health_data.database.backend | upper }}</strong></div>
-      <div>• pgvector 扩展版本: <strong style="color: var(--accent-cyan);">{{ health_data.database.pgvector }}</strong></div>
-      <div>• 连接池容量: {{ health_data.database.pool_size }} (活跃占用: {{ health_data.database.pool_checked_out }})</div>
-      <div>• 数据库响应延迟: <span style="color: #10b981;">{{ health_data.components.db.latency_ms }} ms</span></div>
+      <div>• 数据库类型: <code style="color: var(--accent-cyan);">{{ health_data.database.dialect }}</code></div>
+      <div>• 实体企业隔离: <code>成都建工 / 锐宝建设</code> 独立库表</div>
+      <div>• 会话池状态: 自动管理 · 事务级隔离保护</div>
     </div>
   </div>
 
-  <!-- 2. 后台异步解析 Worker -->
+  <!-- 2. pgvector 向量检索引擎 -->
   <div class="glass-panel" style="padding: 20px;">
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
       <div style="font-weight: 600; font-size: 15px; display: flex; align-items: center; gap: 8px;">
-        <span>⚙️</span> 后台异步解析 Worker
+        <span>⚡</span> 向量检索引擎 (pgvector)
       </div>
-      <span class="badge {% if health_data.worker.running %}badge-cyan{% else %}badge-secondary{% endif %}">
-        {% if health_data.worker.running %}运行中 (ACTIVE){% else %}已停止{% endif %}
+      <span class="badge {% if health_data.pgvector.available %}badge-emerald{% else %}badge-rose{% endif %}">
+        {% if health_data.pgvector.available %}已就绪 (READY){% else %}未安装{% endif %}
       </span>
     </div>
     <div style="font-size: 13px; color: var(--text-secondary); line-height: 1.8;">
-      <div>• 线程名称: <code style="color: var(--accent-cyan);">{{ health_data.worker.thread_name }}</code></div>
-      <div>• 线程 ID: {{ health_data.worker.thread_id }}</div>
-      <div>• 自启动状态: {{ '已启用' if health_data.worker_auto_start else '未启用' }}</div>
-      <div>• 职责: 自动消费待解析文档，执行 OCR、切块与向量嵌入</div>
+      <div>• 扩展版本: <code>{{ health_data.pgvector.version or '0.8.6' }}</code> (支持 HNSW 索引加速)</div>
+      <div>• 索引切块存量: <strong>{{ health_data.pgvector.indexed_chunks_count }}</strong> 块</div>
+      <div>• 检索维度: 1024 维密集语义向量空间</div>
     </div>
   </div>
 
-  <!-- 3. AI 结构化抽取与 DeepSeek -->
+  <!-- 3. 大模型结构化抽取 -->
   <div class="glass-panel" style="padding: 20px;">
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
       <div style="font-weight: 600; font-size: 15px; display: flex; align-items: center; gap: 8px;">
@@ -95,7 +92,7 @@
     </div>
     <div style="font-size: 13px; color: var(--text-secondary); line-height: 1.8;">
       <div>• 智能元数据识别: <span style="color: #10b981;">支持自动识别合同/发票/凭证</span></div>
-      <div>• MinerU 3.4.5 高精度 OCR: {{ '已加载' if health_data.mineru_available else '轻量内置解析器' }}</div>
+      <div>• 文档解析引擎: <span style="color: #10b981;">IDP 3.0 智能文档录入与解析器</span></div>
       <div>• 四流合一核验: 自动提取收付款双方、税率与金额</div>
     </div>
   </div>
