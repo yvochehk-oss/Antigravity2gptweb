@@ -5,11 +5,11 @@ PyMuPDF>=1.24,<2.0
 python-multipart>=0.0.9,<1.0
 httpx>=0.27,<1.0
 psycopg[binary]>=3.2,<4.0
-SQLAlchemy>=2.0,<3.0
 
-# OCR 作为按需组件安装：
+# OCR is optional and lazy-loaded only for scans/images:
 # paddleocr
 # paddlepaddle
 
-# Ling-3.0-tiny 建议由本机独立推理服务提供 OpenAI-compatible API。
-# MinerU 仅作为复杂 PDF fallback，不属于 V3 最小依赖。
+# Ling-3.0-tiny and optional Granite 4.2 3B are served by local
+# OpenAI-compatible inference endpoints; their Python runtimes are not part of
+# the IDP process. MinerU remains an optional complex-PDF fallback only.
