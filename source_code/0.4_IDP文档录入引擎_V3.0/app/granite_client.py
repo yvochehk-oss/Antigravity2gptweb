@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import json
 import os
-from decimal import Decimal
-from typing import Any, Dict
+from decimal import Decimal, InvalidOperation
+from typing import Any, Dict, Optional
 
 import httpx
 
@@ -20,7 +20,26 @@ class GraniteAuditClient:
         self.model = os.getenv("GRANITE_MODEL", "granite-4.2-3b")
         self.api_key = os.getenv("GRANITE_API_KEY", "local")
         self.timeout = float(os.getenv("GRANITE_TIMEOUT_SECONDS", "180"))
-        self.amount_threshold = Decimal(os.getenv("GRANITE_MIN_AMOUNT", "500000"))
+        self.amount_threshold = self._amount_threshold_from_env()
+
+    @staticmethod
+    def _amount_threshold_from_env() -> Optional[Decimal]:
+        """Return the operator-configured high-amount threshold.
+
+        There is deliberately no business-policy default. Empty/zero values
+        disable amount-only triggering so deployments must choose their own
+        materiality threshold instead of inheriting an arbitrary number.
+        """
+        raw = os.getenv("GRANITE_MIN_AMOUNT", "").strip()
+        if not raw:
+            return None
+        try:
+            value = Decimal(raw)
+        except InvalidOperation as exc:
+            raise ValueError("GRANITE_MIN_AMOUNT must be a valid non-negative number") from exc
+        if value < 0:
+            raise ValueError("GRANITE_MIN_AMOUNT must be non-negative")
+        return value if value > 0 else None
 
     def should_audit(
         self,
@@ -35,16 +54,17 @@ class GraniteAuditClient:
         if validation.get("warnings"):
             reasons.append("validation_warning")
 
-        for key in ("amount_tax_included", "amount_including_tax", "amount_excluding_tax"):
-            value = data.get(key)
-            if value in (None, ""):
-                continue
-            try:
-                if Decimal(str(value)) >= self.amount_threshold:
-                    reasons.append("high_amount")
-                    break
-            except Exception:
-                pass
+        if self.amount_threshold is not None:
+            for key in ("amount_tax_included", "amount_including_tax", "amount_excluding_tax"):
+                value = data.get(key)
+                if value in (None, ""):
+                    continue
+                try:
+                    if Decimal(str(value)) >= self.amount_threshold:
+                        reasons.append("high_amount")
+                        break
+                except (InvalidOperation, TypeError, ValueError):
+                    continue
 
         head = text[:12000]
         suspicious_terms = (
@@ -75,8 +95,10 @@ class GraniteAuditClient:
 
         system = (
             "你是成都建工财税风险二审模型。只根据提供的结构化字段、校验结果和原文证据判断。"
-            "不要因为材料未提及外部备案、复试、环保等信息而推测风险。"
-            "只有存在明确文本证据或字段冲突时才报告风险。"
+            "不要因为材料未提及外部备案、复试、环保、资质或其他外部信息而推测风险。"
+            "未提供的信息只能标记为未提供，不能自动等同于异常、违规或缺失。"
+            "只有存在明确文本证据、确定性校验异常或字段冲突时才报告风险。"
+            "每一条风险必须引用本次输入中可核对的 evidence；没有证据就不要生成该风险。"
             "如果核心字段在已提供证据中一致，不要发散未提供的外部条件。"
             "返回严格 JSON，不要输出思考过程。"
         )
