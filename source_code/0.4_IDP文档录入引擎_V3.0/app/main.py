@@ -34,6 +34,8 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / ".env")
 
 app = FastAPI(title="成都建工 IDP V3.0", version="3.0.0")
+from starlette.middleware.gzip import GZipMiddleware
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 logger = logging.getLogger("cdjg.idp")
 
 
