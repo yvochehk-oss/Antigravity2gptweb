@@ -36,9 +36,9 @@ class GraniteAuditClient:
         try:
             value = Decimal(raw)
         except InvalidOperation as exc:
-            raise ValueError("GRANITE_MIN_AMOUNT must be a valid non-negative number") from exc
-        if value < 0:
-            raise ValueError("GRANITE_MIN_AMOUNT must be non-negative")
+            raise ValueError("GRANITE_MIN_AMOUNT must be a finite non-negative number") from exc
+        if not value.is_finite() or value < 0:
+            raise ValueError("GRANITE_MIN_AMOUNT must be a finite non-negative number")
         return value if value > 0 else None
 
     def should_audit(
@@ -60,7 +60,8 @@ class GraniteAuditClient:
                 if value in (None, ""):
                     continue
                 try:
-                    if Decimal(str(value)) >= self.amount_threshold:
+                    amount = Decimal(str(value))
+                    if amount.is_finite() and amount >= self.amount_threshold:
                         reasons.append("high_amount")
                         break
                 except (InvalidOperation, TypeError, ValueError):
