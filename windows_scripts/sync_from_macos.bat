@@ -1,36 +1,96 @@
 @echo off
+setlocal EnableExtensions EnableDelayedExpansion
 chcp 65001 >nul
+cd /d "%~dp0.."
+
 echo ==============================================================================
-echo  成都建工 V2.0 - Windows 本地一键从 macOS 分支同步最新功能、排版与样式
+echo  成都建工 V2.0 - Windows 本地统一主体代码同步
+echo  main / macos / windows 为同一主体代码的三个镜像引用
 echo ==============================================================================
 
-echo [1/3] 正在拉取远程最新分支与提交...
-git fetch origin macos
-if %errorlevel% neq 0 (
-    echo [ERROR] 无法连接远程 GitHub 仓库，请检查网络与代理配置。
+echo [1/4] 检查本地工作区...
+set "DIRTY="
+for /f "delims=" %%S in ('git status --porcelain') do set "DIRTY=1"
+if defined DIRTY (
+    echo [ERROR] 工作区存在未提交修改。请先提交或暂存，禁止自动覆盖本地工作。
     pause
-    exit /b %errorlevel%
+    exit /b 1
 )
 
-echo [2/3] 正在将 macOS 分支的功能、前端排版、字体与样式合并到 Windows 分支...
-git merge origin/macos --no-edit -m "sync: 从 macos 分支同步最新功能、UI排版与样式规范"
-if %errorlevel% neq 0 (
-    echo [INFO] 检测到平台特异性差异，自动优先采纳跨平台源码并保留本地 Windows 启动脚本...
-    git checkout --theirs source_code/
-    git checkout --ours windows_scripts/ START_WINDOWS.bat 一键启动_Windows.bat
-    git add -A
-    git commit -m "sync: 自动完成跨平台功能与排版合并（保留 Windows 启动配置）"
+echo [2/4] 拉取 main / macos / windows 镜像...
+git fetch origin main macos windows --prune
+if errorlevel 1 (
+    echo [ERROR] 无法拉取远程仓库，请检查 GitHub 网络与凭据。
+    pause
+    exit /b 2
 )
 
-echo [3/3] 正在重新编译前端以生效最新排版与样式...
-if exist "source_code\0.1_税务管理\gtp_V1.0_FULL\01_当前完整系统_V1.0\frontend_stitch" (
-    cd source_code\0.1_税务管理\gtp_V1.0_FULL\01_当前完整系统_V1.0\frontend_stitch
-    call npm run build
-    call npm run sync:tax-static
-    cd ..\..\..\..\..
+for /f %%S in ('git rev-parse origin/main') do set "MAIN_SHA=%%S"
+for /f %%S in ('git rev-parse origin/macos') do set "MACOS_SHA=%%S"
+for /f %%S in ('git rev-parse origin/windows') do set "WINDOWS_SHA=%%S"
+
+if not "!MAIN_SHA!"=="!MACOS_SHA!" goto :remote_diverged
+if not "!MAIN_SHA!"=="!WINDOWS_SHA!" goto :remote_diverged
+
+echo [3/4] 快进本地 Windows 分支到统一主体代码...
+git show-ref --verify --quiet refs/heads/windows
+if errorlevel 1 (
+    git switch --track -c windows origin/windows
+) else (
+    git switch windows
+)
+if errorlevel 1 goto :git_failed
+
+git merge --ff-only origin/windows
+if errorlevel 1 (
+    echo [ERROR] 本地 Windows 分支与远程发生分叉，已停止；不会自动解冲突或覆盖文件。
+    pause
+    exit /b 3
 )
 
-echo ==================================================================
-echo [SUCCESS] macOS 分支最新功能、排版、字体与样式已成功同步至 Windows 分支！
-echo ==================================================================
+echo [4/4] 重新构建并同步 Tax 前端静态资源...
+set "FRONTEND_DIR=source_code\0.1_税务管理\gtp_V1.0_FULL\01_当前完整系统_V1.0\frontend_stitch"
+if exist "!FRONTEND_DIR!" (
+    set "BASH_EXE="
+    where bash >nul 2>&1
+    if not errorlevel 1 set "BASH_EXE=bash"
+    if not defined BASH_EXE if exist "%ProgramFiles%\Git\bin\bash.exe" set "BASH_EXE=%ProgramFiles%\Git\bin\bash.exe"
+    if not defined BASH_EXE if exist "%LocalAppData%\Programs\Git\bin\bash.exe" set "BASH_EXE=%LocalAppData%\Programs\Git\bin\bash.exe"
+    if not defined BASH_EXE (
+        echo [ERROR] 未找到 Git Bash，无法执行 scripts\sync-tax-static.sh。
+        echo         请安装 Git for Windows，或把 bash.exe 加入 PATH。
+        pause
+        exit /b 4
+    )
+
+    pushd "!FRONTEND_DIR!"
+    "!BASH_EXE!" scripts/sync-tax-static.sh
+    if errorlevel 1 (
+        popd
+        echo [ERROR] 前端构建或静态资源同步失败。
+        pause
+        exit /b 5
+    )
+    popd
+)
+
+echo ==============================================================================
+echo [SUCCESS] Windows 已同步到统一主体提交：!MAIN_SHA!
+echo [SUCCESS] main / macos / windows 远程代码一致。
+echo ==============================================================================
 pause
+exit /b 0
+
+:remote_diverged
+echo [ERROR] 远程三个主体分支尚未镜像到同一提交，停止本地同步。
+echo main    = !MAIN_SHA!
+echo macos   = !MACOS_SHA!
+echo windows = !WINDOWS_SHA!
+echo 请先检查 GitHub 的 Canonical Branch Mirror 工作流；禁止本地自动解冲突。
+pause
+exit /b 6
+
+:git_failed
+echo [ERROR] Git 分支切换失败。
+pause
+exit /b 7
