@@ -33,3 +33,15 @@ cookies.txt
 *.db
 models/mineru_weights/
 
+
+# Database binaries, downloaded wheels and large packages
+database/
+windows_scripts/tools/
+*.whl
+*.zip
+*.tar.gz
+*.iso
+*.bak
+*.sqlite.bak
+.gemini/
+.system_generated/
