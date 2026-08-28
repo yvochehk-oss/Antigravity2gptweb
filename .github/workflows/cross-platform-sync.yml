@@ -1,0 +1,54 @@
+name: Cross-Platform Branch Auto Sync
+
+on:
+  push:
+    branches:
+      - windows
+      - macos
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure Git Identity
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Sync Windows -> macOS
+        if: github.ref == 'refs/heads/windows'
+        run: |
+          echo "Triggered by push to windows branch. Syncing changes to macos branch..."
+          git checkout macos
+          git merge origin/windows --no-edit -m "ci(sync): 自动同步 windows 分支最新功能至 macos" || {
+            echo "Auto-merge failed, attempting ours strategy for platform-specific scripts..."
+            git checkout --theirs source_code/ || true
+            git checkout --ours start_all.sh stop_all.sh || true
+            git add -A
+            git commit -m "ci(sync): 智能合并 windows 分支核心功能（保持平台脚本独立）" || true
+          }
+          git push origin macos
+
+      - name: Sync macOS -> Windows
+        if: github.ref == 'refs/heads/macos'
+        run: |
+          echo "Triggered by push to macos branch. Syncing changes to windows branch..."
+          git checkout windows
+          git merge origin/macos --no-edit -m "ci(sync): 自动同步 macos 分支最新功能至 windows" || {
+            echo "Auto-merge failed, attempting ours strategy for platform-specific scripts..."
+            git checkout --theirs source_code/ || true
+            git checkout --ours windows_scripts/ START_WINDOWS.bat || true
+            git add -A
+            git commit -m "ci(sync): 智能合并 macos 分支核心功能（保持平台脚本独立）" || true
+          }
+          git push origin windows
