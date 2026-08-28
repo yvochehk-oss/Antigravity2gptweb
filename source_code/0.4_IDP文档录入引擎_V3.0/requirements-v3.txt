@@ -3,6 +3,7 @@ uvicorn[standard]>=0.30,<1.0
 pydantic>=2.8,<3.0
 PyMuPDF>=1.24,<2.0
 python-multipart>=0.0.9,<1.0
+httpx>=0.27,<1.0
 psycopg[binary]>=3.2,<4.0
 SQLAlchemy>=2.0,<3.0
 
@@ -10,4 +11,5 @@ SQLAlchemy>=2.0,<3.0
 # paddleocr
 # paddlepaddle
 
+# Ling-3.0-tiny 建议由本机独立推理服务提供 OpenAI-compatible API。
 # MinerU 仅作为复杂 PDF fallback，不属于 V3 最小依赖。
