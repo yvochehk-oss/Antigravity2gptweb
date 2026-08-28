@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from app.extractors import HybridExtractor
 from app.granite_client import GraniteAuditClient
 
@@ -48,3 +50,11 @@ def test_granite_amount_trigger_uses_explicit_business_threshold(monkeypatch):
 
     assert should_run is True
     assert reasons == ["high_amount"]
+
+
+@pytest.mark.parametrize("value", ["-1", "NaN", "Infinity", "not-a-number"])
+def test_granite_rejects_invalid_business_threshold(monkeypatch, value):
+    monkeypatch.setenv("GRANITE_MIN_AMOUNT", value)
+
+    with pytest.raises(ValueError, match="finite non-negative"):
+        GraniteAuditClient()
