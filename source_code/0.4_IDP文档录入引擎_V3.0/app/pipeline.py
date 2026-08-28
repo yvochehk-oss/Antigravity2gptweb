@@ -81,7 +81,7 @@ class IDPPipeline:
                     "risks": [],
                     "error": f"{type(exc).__name__}: {exc}",
                 }
-                # Audit is advisory, so model failure must not destroy extraction.
+                # Audit is advisory: failure routes to review, never destroys extraction.
                 status = "needs_review"
 
         return {
@@ -94,4 +94,6 @@ class IDPPipeline:
             "validation": validation,
             "audit": audit,
             "status": status,
+            # Internal-only transport field. API removes it after persistence.
+            "_raw_text": parsed.text,
         }
