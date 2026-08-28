@@ -136,6 +136,14 @@
               style="padding: 4px 8px; font-size: 11px;">
               {% if u.active %}⛔ 禁用{% else %}✅ 启用{% endif %}
             </button>
+            <button type="button"
+              class="btn btn-sm btn-delete-user"
+              data-id="{{ u.id }}"
+              data-username="{{ u.username }}"
+              {% if u.username == principal.username %}disabled title="无法删除当前登录账户"{% endif %}
+              style="padding: 4px 8px; font-size: 11px; background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); {% if u.username == principal.username %}opacity: 0.4; cursor: not-allowed;{% endif %}">
+              🗑️ 删除
+            </button>
           </div>
         </td>
       </tr>
@@ -387,6 +395,27 @@ async function toggleUserActive(userId, username, currentActive) {
   }
 }
 
+async function handleDeleteUser(userId, username) {
+  if (!confirm(`⚠️ 危险操作：\n确定要永久删除用户【${username}】吗？\n删除后该账户将无法登录系统，且此操作不可逆！`)) return;
+
+  try {
+    const res = await fetch(`/api/v1/users/${userId}/delete`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" }
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      alert("删除失败: " + (err.detail || err.message || "未知错误"));
+      return;
+    }
+    const data = await res.json().catch(() => ({}));
+    alert("✅ " + (data.message || `用户【${username}】已成功删除！`));
+    location.reload();
+  } catch (err) {
+    alert("网络异常: " + err);
+  }
+}
+
 // 绑定 DOM 事件
 document.addEventListener("DOMContentLoaded", () => {
   // 点击遮罩层空白处关闭弹窗
@@ -428,6 +457,16 @@ document.addEventListener("DOMContentLoaded", () => {
       const username = btn.dataset.username;
       const currentActive = btn.dataset.active === "true";
       toggleUserActive(id, username, currentActive);
+    });
+  });
+
+  // 删除用户按钮
+  document.querySelectorAll(".btn-delete-user").forEach(btn => {
+    btn.addEventListener("click", () => {
+      if (btn.disabled) return;
+      const id = btn.dataset.id;
+      const username = btn.dataset.username;
+      handleDeleteUser(id, username);
     });
   });
 });

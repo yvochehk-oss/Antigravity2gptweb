@@ -254,3 +254,30 @@ def api_toggle_active(
         db.rollback()
         logger.exception("Failed to toggle active status for user %s", user_id)
         raise HTTPException(status_code=500, detail="切换状态失败，事务已回滚") from exc
+
+
+@router.post("/api/v1/users/{user_id}/delete")
+@router.delete("/api/v1/users/{user_id}")
+def api_delete_user(
+    user_id: int,
+    principal: TaxPrincipal = Depends(require_web_or_service_role("admin")),
+    db: Session = Depends(get_user_center_db),
+):
+    """永久删除独立用户库中的指定账号（仅管理员）。"""
+    user = db.get(UserAccount, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="用户不存在")
+
+    if user.username == principal.username:
+        raise HTTPException(status_code=400, detail="禁止删除当前登录的管理员账户")
+
+    deleted_username = user.username
+    db.delete(user)
+    try:
+        db.commit()
+        logger.info("Deleted user account %s (id=%s) from user_center.db by %s", deleted_username, user_id, principal.username)
+        return {"status": "ok", "message": f"用户【{deleted_username}】已永久删除"}
+    except Exception as exc:
+        db.rollback()
+        logger.exception("Failed to delete user %s from user_center.db", user_id)
+        raise HTTPException(status_code=500, detail="删除用户失败，事务已回滚") from exc

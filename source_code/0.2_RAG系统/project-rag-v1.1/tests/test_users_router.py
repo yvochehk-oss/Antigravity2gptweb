@@ -92,6 +92,7 @@ def test_users_page_renders_with_admin(client, admin_cookie):
     assert "统一用户权限管理中心" in res.text
     assert "btn-edit-user" in res.text
     assert "btn-reset-password" in res.text
+    assert "btn-delete-user" in res.text
 
 
 def test_users_api_list(client, admin_cookie):
@@ -104,7 +105,7 @@ def test_users_api_list(client, admin_cookie):
     assert any(u["username"] == "operator" for u in data)
 
 
-def test_create_update_reset_toggle_user_lifecycle(client, admin_cookie):
+def test_create_update_reset_toggle_delete_user_lifecycle(client, admin_cookie):
     client.cookies.update(admin_cookie)
     ts = int(time.time() * 1000)
     unique_user = f"testuser_{ts}"
@@ -164,7 +165,16 @@ def test_create_update_reset_toggle_user_lifecycle(client, admin_cookie):
     assert res.status_code == 200
     assert res.json()["active"] is False
 
-    # Toggle active again
-    res = client.post(f"/api/v1/users/{user_id}/toggle-active", headers=ORIGIN_HEADER)
+    # 5. Prevent deleting currently logged in admin
+    res = client.post("/api/v1/users/1/delete", headers=ORIGIN_HEADER)
+    assert res.status_code == 400
+    assert "禁止删除当前登录的管理员账户" in res.text
+
+    # 6. Delete newly created user
+    res = client.post(f"/api/v1/users/{user_id}/delete", headers=ORIGIN_HEADER)
     assert res.status_code == 200
-    assert res.json()["active"] is True
+    assert res.json()["status"] == "ok"
+
+    # Verify user is gone
+    res = client.get("/api/v1/users")
+    assert not any(u["id"] == user_id for u in res.json())
