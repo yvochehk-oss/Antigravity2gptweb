@@ -1,62 +1,98 @@
-# 成都建工 V2.0 分支同步规范
+# 成都建工跨平台分支同步规范
 
-## 唯一主体代码
+## 核心原则
 
-`main` 是唯一主体代码基线。`macos` 与 `windows` 是同一主体代码的镜像引用，三者正常状态必须指向同一个 commit SHA。
+平台分支不是两套业务源码。macOS 与 Windows 只承担部署入口和运行环境差异；Tax、RAG、IDP、数据库迁移、业务规则与 API 必须保持同一套源码。
 
-平台差异通过同一代码树中的启动/部署脚本表达，而不是通过业务源码分叉：
+正式分为两组三分支镜像：
 
-- macOS：`start_all.sh`、`stop_all.sh` 等脚本；
-- Windows：`START_WINDOWS.bat`、`windows_scripts/` 等脚本；
-- Tax / RAG / Boss / 前端 / 数据库迁移均只有一套共享源码。
+### V2 稳定组
+
+- `main`：V2 主体代码基线
+- `macos`：V2 macOS 镜像引用
+- `windows`：V2 Windows 镜像引用
+
+正常状态必须满足：
+
+```text
+main == macos == windows
+```
+
+### V3 开发组
+
+- `v3.0`：V3 主体代码基线
+- `v3.0-macos`：V3 macOS 镜像引用
+- `v3.0-windows`：V3 Windows 镜像引用
+
+正常状态必须满足：
+
+```text
+v3.0 == v3.0-macos == v3.0-windows
+```
+
+## 平台差异如何表达
+
+平台差异只能通过同一代码树中的脚本、路径和部署文档表达，不允许复制业务源码后分别维护。
+
+典型差异包括：
+
+- macOS：shell / Homebrew / Apple Silicon 或 Intel Python 环境；
+- Windows：BAT / PowerShell / Windows Python 与服务启动方式；
+- 本地模型服务地址、模型文件绝对路径、PostgreSQL 安装位置；
+- 文件系统路径和进程管理方式。
+
+以下内容必须跨平台共用：
+
+- `source_code/0.1_税务管理/`
+- `source_code/0.2_RAG系统/`
+- `source_code/0.4_IDP文档录入引擎_V3.0/app/`
+- PostgreSQL schema / migrations
+- Python 业务规则、Pydantic Schema、API 契约
+- Ling / Granite / BGE-M3 / Reranker 的职责边界
 
 ## 自动同步
 
-`.github/workflows/cross-platform-sync.yml` 监听 `main`、`macos`、`windows`。
+`.github/workflows/cross-platform-sync.yml` 同时监听 V2 与 V3 两组三分支。
 
-任意一个分支产生正常的单向新提交时，工作流会：
+一次提交只在所属版本组三个分支之间镜像：
 
-1. 校验另外两个分支是否都是该提交的祖先；
-2. 只允许 fast-forward，不自动解决冲突、不覆盖独立提交；
-3. 原子更新另外两个分支到同一个 SHA；
-4. 最终验证 `main == macos == windows`。
+- V2 的提交不会推进 V3；
+- V3 的提交不会覆盖 V2；
+- 同一版本组只允许 fast-forward；
+- 自动同步不会解决冲突，也不会用 `ours/theirs` 覆盖独立修改。
 
-GitHub Actions 使用 `GITHUB_TOKEN` 推送镜像引用，不会递归触发新的同步运行，因此不会产生同步循环。
+如果同组两个平台分支产生独立提交，工作流必须失败，等待人工把有效修改归并到该版本的主体基线后，再恢复三个引用到同一 SHA。
 
-## 分叉处理原则
+## V3 平台部署入口
 
-如果两个平台在尚未同步完成时分别产生独立提交，工作流会明确失败，而不是选择 `ours/theirs` 或整目录覆盖。
+V3 的平台启动文件也保存在同一代码树：
 
-此时必须把双方有效修改人工归并到 `main`，验证后再将三个正式分支恢复到同一 SHA。
-
-禁止使用以下方式自动处理业务源码冲突：
-
-- `git checkout --theirs source_code/`
-- `git checkout --ours source_code/`
-- `git add -A` 后无审查自动提交冲突结果
-- `--allow-unrelated-histories` 强行拼接平台分支
-
-## 本地同步
-
-macOS 可运行：
-
-```bash
-./sync_from_windows.sh
+```text
+source_code/0.4_IDP文档录入引擎_V3.0/
+  START_IDP_MACOS.sh
+  START_IDP_WINDOWS.bat
+  platform/
+    macos/
+    windows/
 ```
 
-Windows 可运行：
+这些文件只处理环境准备、路径、Python 虚拟环境和进程启动，不复制 `app/` 业务源码。
 
-```bat
-一键同步_macOS最新功能.bat
-```
+## 禁止事项
 
-保留上述旧文件名是为了兼容已有使用习惯；脚本内部已经不再执行平台间 merge，而是验证远程三分支同 SHA 后，仅 fast-forward 本机对应分支并重新构建前端。
+禁止：
 
-## 2026-08-28 治理归档
+- 在 `v3.0-macos` 和 `v3.0-windows` 分别修改业务逻辑；
+- 使用整目录 `ours/theirs` 自动解决源码冲突；
+- 让某个平台拥有独立数据库 schema；
+- 为平台差异复制一套 IDP/RAG Python 源码；
+- 用 `--allow-unrelated-histories` 强行拼接正式平台分支。
 
-分支历史统一前保留：
+## 历史归档
+
+V2 分支治理前历史保留：
 
 - `archive/macos-pre-unify-20260828`
 - `archive/windows-pre-unify-20260828`
 
-归档仅用于追溯旧平台历史，不参与日常开发或自动镜像。
+归档只用于追溯，不参与 V2/V3 日常同步。
