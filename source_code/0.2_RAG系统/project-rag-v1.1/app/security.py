@@ -73,9 +73,11 @@ WEB_AUTH_EXACT_GET_PATHS = frozenset({
     "/search",
     "/regulations",
     "/mounts",
+    "/users",
     "/api/v1/llm-models",
     "/api/v1/mounts/fs",
     "/api/v1/jobs/active",
+    "/api/v1/users",
 })
 WEB_AUTH_DYNAMIC_GET_ROOTS = frozenset({"/projects", "/documents", "/entities"})
 
@@ -94,6 +96,7 @@ WEB_AUTH_MUTATION_EXACT_PATHS = frozenset({
     "/api/v1/mounts",
     "/api/v1/mounts/scan",
     "/api/v1/entities/import-file",
+    "/api/v1/users",
 })
 
 
@@ -297,6 +300,8 @@ def _is_web_mutation_route(path: str, method: str) -> bool:
     ):
         # Keep model setting mutations on the explicit browser-session
         # boundary; unrelated /api/v1 paths must not inherit this policy.
+        return True
+    if len(segments) >= 4 and segments[:3] == ["api", "v1", "users"]:
         return True
     return False
 

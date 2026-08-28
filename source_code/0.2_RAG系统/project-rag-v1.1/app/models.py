@@ -562,3 +562,23 @@ class RegulationChunk(Base):
     search_text: Mapped[str] = mapped_column(Text, default="")
     embedding_json: Mapped[str] = mapped_column(Text, default="[]")
     embedding: Mapped[list | None] = mapped_column(Vector(EMBEDDING_DIM), nullable=True)
+
+
+class User(Base):
+    """Canonical system-wide user account shared between Tax and RAG."""
+
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    username: Mapped[str] = mapped_column(String(50), unique=True, index=True)
+    password_hash: Mapped[str] = mapped_column(String(200))
+    role: Mapped[str] = mapped_column(String(20), index=True)
+    display_name: Mapped[str] = mapped_column(String(80))
+    active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=True,
+    )
+    last_login: Mapped[str] = mapped_column(String(30), default="")
+

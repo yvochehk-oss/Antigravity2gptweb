@@ -1,0 +1,358 @@
+{% extends "base.html" %}
+
+{% block title %}统一用户管理与权限中心{% endblock %}
+
+{% block breadcrumbs %}
+<span class="current">用户权限管理</span>
+{% endblock %}
+
+{% block body %}
+<div class="content-header" style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px;">
+  <div>
+    <h1 style="font-size: 22px; font-weight: 700; margin: 0 0 6px 0; display: flex; align-items: center; gap: 10px;">
+      <span>👥</span> 统一用户权限管理中心
+    </h1>
+    <p style="color: var(--text-muted); font-size: 13px; margin: 0;">
+      独立用户数据库 (<code style="background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 4px; color: var(--accent-cyan);">data/user_center.db</code>) 与项目业务库物理彻底隔离，统一调度 Tax 与 RAG 两端全平台账户。
+    </p>
+  </div>
+  <button onclick="openCreateUserModal()" class="btn btn-primary" style="display: flex; align-items: center; gap: 8px; padding: 8px 16px;">
+    <span>＋</span> 新增系统用户
+  </button>
+</div>
+
+<!-- 概览指标卡片 -->
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px;">
+  <div class="glass-panel" style="padding: 16px 20px; border-left: 4px solid var(--accent-cyan);">
+    <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">全平台总账户</div>
+    <div style="font-size: 24px; font-weight: 700; color: var(--text-bright);">{{ stats.total }} <span style="font-size: 12px; font-weight: normal; color: var(--text-muted);">人</span></div>
+  </div>
+  <div class="glass-panel" style="padding: 16px 20px; border-left: 4px solid #a855f7;">
+    <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">系统管理员 (Admin)</div>
+    <div style="font-size: 24px; font-weight: 700; color: #c084fc;">{{ stats.admin }} <span style="font-size: 12px; font-weight: normal; color: var(--text-muted);">人</span></div>
+  </div>
+  <div class="glass-panel" style="padding: 16px 20px; border-left: 4px solid #3b82f6;">
+    <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">业务操作员 (Operator)</div>
+    <div style="font-size: 24px; font-weight: 700; color: #60a5fa;">{{ stats.operator }} <span style="font-size: 12px; font-weight: normal; color: var(--text-muted);">人</span></div>
+  </div>
+  <div class="glass-panel" style="padding: 16px 20px; border-left: 4px solid #10b981;">
+    <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">正常在用状态</div>
+    <div style="font-size: 24px; font-weight: 700; color: #34d399;">{{ stats.active }} <span style="font-size: 12px; font-weight: normal; color: var(--text-muted);">人</span></div>
+  </div>
+</div>
+
+<!-- 用户列表表格 -->
+<div class="glass-panel" style="padding: 20px; border-radius: 12px;">
+  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+    <h2 style="font-size: 15px; font-weight: 600; margin: 0;">已注册系统账户</h2>
+    <span style="font-size: 12px; color: var(--text-muted);">共 {{ users|length }} 个独立账户</span>
+  </div>
+
+  <table class="table" style="width: 100%; text-align: left; border-collapse: collapse; font-size: 13px;">
+    <thead>
+      <tr style="border-bottom: 1px solid rgba(255,255,255,0.08); color: var(--text-muted);">
+        <th style="padding: 12px 16px;">用户账号</th>
+        <th style="padding: 12px 16px;">姓名 / 昵称</th>
+        <th style="padding: 12px 16px;">系统角色</th>
+        <th style="padding: 12px 16px;">联系电话 / 邮箱</th>
+        <th style="padding: 12px 16px;">账号状态</th>
+        <th style="padding: 12px 16px;">创建时间</th>
+        <th style="padding: 12px 16px; text-align: right;">管理操作</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for u in users %}
+      <tr style="border-bottom: 1px solid rgba(255,255,255,0.05); transition: background 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.02)'" onmouseout="this.style.background='transparent'">
+        <td style="padding: 12px 16px; font-weight: 600;">
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <div style="width: 32px; height: 32px; border-radius: 50%; background: linear-gradient(135deg, #3b82f6, #8b5cf6); display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: bold; color: #fff;">
+              {{ u.username[:1].upper() }}
+            </div>
+            <span>{{ u.username }}</span>
+          </div>
+        </td>
+        <td style="padding: 12px 16px; color: var(--text-bright);">
+          {{ u.nickname or u.display_name or "—" }}
+        </td>
+        <td style="padding: 12px 16px;">
+          {% if u.role == "admin" %}
+          <span style="display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; background: rgba(168, 85, 247, 0.15); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.3);">
+            👑 系统管理员
+          </span>
+          {% elif u.role == "operator" %}
+          <span style="display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3);">
+            👷 业务操作员
+          </span>
+          {% else %}
+          <span style="display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; background: rgba(100, 116, 139, 0.15); color: #94a3b8; border: 1px solid rgba(100, 116, 139, 0.3);">
+            👀 只读访客
+          </span>
+          {% endif %}
+        </td>
+        <td style="padding: 12px 16px; color: var(--text-muted); font-size: 12px;">
+          <div>{{ u.phone or "未绑定手机" }}</div>
+          <div style="font-size: 11px; opacity: 0.8;">{{ u.email or "未绑定邮箱" }}</div>
+        </td>
+        <td style="padding: 12px 16px;">
+          {% if u.active %}
+          <span style="display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: #34d399;">
+            <span style="width: 6px; height: 6px; border-radius: 50%; background: #10b981;"></span> 正常在用
+          </span>
+          {% else %}
+          <span style="display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: #ef4444;">
+            <span style="width: 6px; height: 6px; border-radius: 50%; background: #ef4444;"></span> 已封禁
+          </span>
+          {% endif %}
+        </td>
+        <td style="padding: 12px 16px; color: var(--text-muted); font-size: 12px;">
+          {{ u.created_at }}
+        </td>
+        <td style="padding: 12px 16px; text-align: right;">
+          <div style="display: inline-flex; gap: 6px;">
+            <button onclick='openEditUserModal({{ u.id }}, {{ u.username|tojson }}, {{ u.nickname|tojson }}, {{ u.role|tojson }}, {{ u.email|tojson }}, {{ u.phone|tojson }}, {{ "true" if u.active else "false" }})' class="btn btn-sm btn-secondary" style="padding: 4px 8px; font-size: 11px;">
+              ✏️ 编辑
+            </button>
+            <button onclick='openResetPasswordModal({{ u.id }}, {{ u.username|tojson }})' class="btn btn-sm btn-secondary" style="padding: 4px 8px; font-size: 11px;">
+              🔑 重置密码
+            </button>
+            <button onclick="toggleUserActive({{ u.id }}, {{ u.username|tojson }}, {{ true if u.active else false }})" class="btn btn-sm {% if u.active %}btn-secondary{% else %}btn-primary{% endif %}" style="padding: 4px 8px; font-size: 11px;">
+              {% if u.active %}⛔ 禁用{% else %}✅ 启用{% endif %}
+            </button>
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<!-- 新增用户弹窗 -->
+<div id="modal-create-user" class="modal-overlay" style="display:none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 999; display: none; align-items: center; justify-content: center;">
+  <div class="glass-panel" style="background: #181c24; border: 1px solid rgba(255,255,255,0.1); width: 440px; border-radius: 12px; padding: 24px;">
+    <h3 style="margin: 0 0 16px 0; font-size: 16px; display: flex; justify-content: space-between; align-items: center;">
+      <span>＋ 新增系统账户</span>
+      <span onclick="closeModal('modal-create-user')" style="cursor: pointer; opacity: 0.6;">✕</span>
+    </h3>
+    <form id="form-create-user" onsubmit="handleCreateUser(event)">
+      <div style="margin-bottom: 12px;">
+        <label style="display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">登录用户名 *</label>
+        <input type="text" id="new-username" required minlength="3" placeholder="例如：zhangsan" style="width: 100%; padding: 8px 12px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; color: #fff; font-size: 13px; box-sizing: border-box;">
+      </div>
+      <div style="margin-bottom: 12px;">
+        <label style="display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">用户真实姓名 / 昵称 *</label>
+        <input type="text" id="new-nickname" required placeholder="例如：张三（技术主管）" style="width: 100%; padding: 8px 12px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; color: #fff; font-size: 13px; box-sizing: border-box;">
+      </div>
+      <div style="margin-bottom: 12px;">
+        <label style="display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">初始密码 *</label>
+        <input type="password" id="new-password" required minlength="6" placeholder="至少 6 位字符" style="width: 100%; padding: 8px 12px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; color: #fff; font-size: 13px; box-sizing: border-box;">
+      </div>
+      <div style="margin-bottom: 12px;">
+        <label style="display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">系统角色 *</label>
+        <select id="new-role" style="width: 100%; padding: 8px 12px; background: #1f242e; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; color: #fff; font-size: 13px; box-sizing: border-box;">
+          <option value="operator">👷 业务操作员 (Operator)</option>
+          <option value="admin">👑 系统管理员 (Admin)</option>
+          <option value="viewer">👀 只读访客 (Viewer)</option>
+        </select>
+      </div>
+      <div style="display: flex; gap: 10px; margin-top: 20px;">
+        <button type="button" onclick="closeModal('modal-create-user')" class="btn btn-secondary" style="flex: 1;">取消</button>
+        <button type="submit" class="btn btn-primary" style="flex: 1;">确定创建</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- 编辑用户弹窗 -->
+<div id="modal-edit-user" class="modal-overlay" style="display:none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 999; display: none; align-items: center; justify-content: center;">
+  <div class="glass-panel" style="background: #181c24; border: 1px solid rgba(255,255,255,0.1); width: 440px; border-radius: 12px; padding: 24px;">
+    <h3 style="margin: 0 0 16px 0; font-size: 16px; display: flex; justify-content: space-between; align-items: center;">
+      <span>✏️ 编辑账户信息</span>
+      <span onclick="closeModal('modal-edit-user')" style="cursor: pointer; opacity: 0.6;">✕</span>
+    </h3>
+    <form id="form-edit-user" onsubmit="handleEditUser(event)">
+      <input type="hidden" id="edit-user-id">
+      <div style="margin-bottom: 12px;">
+        <label style="display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">登录用户名</label>
+        <input type="text" id="edit-username" disabled style="width: 100%; padding: 8px 12px; background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.05); border-radius: 6px; color: var(--text-muted); font-size: 13px; box-sizing: border-box;">
+      </div>
+      <div style="margin-bottom: 12px;">
+        <label style="display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">姓名 / 昵称 *</label>
+        <input type="text" id="edit-nickname" required style="width: 100%; padding: 8px 12px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; color: #fff; font-size: 13px; box-sizing: border-box;">
+      </div>
+      <div style="margin-bottom: 12px;">
+        <label style="display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">系统角色 *</label>
+        <select id="edit-role" style="width: 100%; padding: 8px 12px; background: #1f242e; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; color: #fff; font-size: 13px; box-sizing: border-box;">
+          <option value="operator">👷 业务操作员 (Operator)</option>
+          <option value="admin">👑 系统管理员 (Admin)</option>
+          <option value="viewer">👀 只读访客 (Viewer)</option>
+        </select>
+      </div>
+      <div style="margin-bottom: 12px;">
+        <label style="display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">绑定手机号</label>
+        <input type="text" id="edit-phone" placeholder="选填" style="width: 100%; padding: 8px 12px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; color: #fff; font-size: 13px; box-sizing: border-box;">
+      </div>
+      <div style="margin-bottom: 12px;">
+        <label style="display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">绑定邮箱</label>
+        <input type="email" id="edit-email" placeholder="选填" style="width: 100%; padding: 8px 12px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; color: #fff; font-size: 13px; box-sizing: border-box;">
+      </div>
+      <div style="display: flex; gap: 10px; margin-top: 20px;">
+        <button type="button" onclick="closeModal('modal-edit-user')" class="btn btn-secondary" style="flex: 1;">取消</button>
+        <button type="submit" class="btn btn-primary" style="flex: 1;">保存更改</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- 重置密码弹窗 -->
+<div id="modal-reset-password" class="modal-overlay" style="display:none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 999; display: none; align-items: center; justify-content: center;">
+  <div class="glass-panel" style="background: #181c24; border: 1px solid rgba(255,255,255,0.1); width: 400px; border-radius: 12px; padding: 24px;">
+    <h3 style="margin: 0 0 16px 0; font-size: 16px; display: flex; justify-content: space-between; align-items: center;">
+      <span>🔑 重置账户密码</span>
+      <span onclick="closeModal('modal-reset-password')" style="cursor: pointer; opacity: 0.6;">✕</span>
+    </h3>
+    <form id="form-reset-password" onsubmit="handleResetPassword(event)">
+      <input type="hidden" id="reset-user-id">
+      <div style="margin-bottom: 12px;">
+        <label style="display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">目标用户</label>
+        <input type="text" id="reset-username" disabled style="width: 100%; padding: 8px 12px; background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.05); border-radius: 6px; color: var(--accent-cyan); font-weight: bold; font-size: 13px; box-sizing: border-box;">
+      </div>
+      <div style="margin-bottom: 16px;">
+        <label style="display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">设置新密码 *</label>
+        <input type="password" id="reset-new-password" required minlength="6" placeholder="输入新密码（至少 6 位）" style="width: 100%; padding: 8px 12px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; color: #fff; font-size: 13px; box-sizing: border-box;">
+      </div>
+      <div style="display: flex; gap: 10px;">
+        <button type="button" onclick="closeModal('modal-reset-password')" class="btn btn-secondary" style="flex: 1;">取消</button>
+        <button type="submit" class="btn btn-primary" style="flex: 1;">确认重置</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+function openModal(id) {
+  const el = document.getElementById(id);
+  if (el) el.style.display = "flex";
+}
+function closeModal(id) {
+  const el = document.getElementById(id);
+  if (el) el.style.display = "none";
+}
+
+function openCreateUserModal() {
+  document.getElementById("form-create-user").reset();
+  openModal("modal-create-user");
+}
+
+function openEditUserModal(id, username, nickname, role, email, phone, active) {
+  document.getElementById("edit-user-id").value = id;
+  document.getElementById("edit-username").value = username;
+  document.getElementById("edit-nickname").value = nickname || username;
+  document.getElementById("edit-role").value = role || "operator";
+  document.getElementById("edit-email").value = email || "";
+  document.getElementById("edit-phone").value = phone || "";
+  openModal("modal-edit-user");
+}
+
+function openResetPasswordModal(id, username) {
+  document.getElementById("reset-user-id").value = id;
+  document.getElementById("reset-username").value = username;
+  document.getElementById("reset-new-password").value = "";
+  openModal("modal-reset-password");
+}
+
+async function handleCreateUser(e) {
+  e.preventDefault();
+  const username = document.getElementById("new-username").value.trim();
+  const nickname = document.getElementById("new-nickname").value.trim();
+  const password = document.getElementById("new-password").value;
+  const role = document.getElementById("new-role").value;
+
+  try {
+    const res = await fetch("/api/v1/users", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, nickname, password, role })
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      alert("创建失败: " + (err.detail || "未知错误"));
+      return;
+    }
+    alert("✅ 账户创建成功！");
+    location.reload();
+  } catch (err) {
+    alert("网络异常: " + err);
+  }
+}
+
+async function handleEditUser(e) {
+  e.preventDefault();
+  const userId = document.getElementById("edit-user-id").value;
+  const nickname = document.getElementById("edit-nickname").value.trim();
+  const role = document.getElementById("edit-role").value;
+  const phone = document.getElementById("edit-phone").value.trim();
+  const email = document.getElementById("edit-email").value.trim();
+
+  try {
+    const res = await fetch(`/api/v1/users/${userId}/update`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ nickname, role, phone, email })
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      alert("保存失败: " + (err.detail || "未知错误"));
+      return;
+    }
+    alert("✅ 账户信息更新成功！");
+    location.reload();
+  } catch (err) {
+    alert("网络异常: " + err);
+  }
+}
+
+async function handleResetPassword(e) {
+  e.preventDefault();
+  const userId = document.getElementById("reset-user-id").value;
+  const newPassword = document.getElementById("reset-new-password").value;
+
+  try {
+    const res = await fetch(`/api/v1/users/${userId}/reset-password`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ new_password: newPassword })
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      alert("重置密码失败: " + (err.detail || "未知错误"));
+      return;
+    }
+    const data = await res.json();
+    alert("✅ " + data.message);
+    closeModal("modal-reset-password");
+  } catch (err) {
+    alert("网络异常: " + err);
+  }
+}
+
+async function toggleUserActive(userId, username, currentActive) {
+  const actionText = currentActive ? "禁用" : "启用";
+  if (!confirm(`确定要${actionText}用户【${username}】吗？`)) return;
+
+  try {
+    const res = await fetch(`/api/v1/users/${userId}/toggle-active`, {
+      method: "POST"
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      alert("操作失败: " + (err.detail || "未知错误"));
+      return;
+    }
+    alert(`✅ 用户【${username}】已成功${actionText}！`);
+    location.reload();
+  } catch (err) {
+    alert("网络异常: " + err);
+  }
+}
+</script>
+{% endblock %}

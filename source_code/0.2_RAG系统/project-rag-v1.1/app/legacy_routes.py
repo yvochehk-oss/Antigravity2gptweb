@@ -51,6 +51,7 @@ from .routers.auth import router as auth_router
 from .routers.executive_mobile import router as executive_mobile_router
 from .routers.llm_models import router as llm_models_router
 from .routers.mounts import router as mounts_router
+from .routers.users import router as users_router
 from .schemas import (
     DocumentMetadataPatch,
     EntityCreate,
@@ -273,6 +274,7 @@ app.include_router(mounts_router)
 app.include_router(adaptive_retrieval_router)
 app.include_router(executive_mobile_router)
 app.include_router(llm_models_router)
+app.include_router(users_router)
 
 if _HAS_V1_LEGACY:
     try:

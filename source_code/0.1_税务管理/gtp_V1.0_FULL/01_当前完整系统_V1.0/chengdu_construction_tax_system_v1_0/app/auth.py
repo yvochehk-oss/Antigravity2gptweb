@@ -244,26 +244,49 @@ def clear_session(response: Response) -> None:
 # ---------------------------------------------------------------------------
 # 请求上下文：从 cookie 读取当前用户
 # ---------------------------------------------------------------------------
-def current_user_from_request(request: Request) -> User | None:
-    """从请求 header (Bearer JWT) 或 cookie 解析当前登录用户，返回 User 或 None。"""
+def _get_user_by_id(user_id: int):
+    """统一从独立用户数据库 user_center.db 读取用户实体，回退到主库。"""
+    from .user_center.db import UserCenterSessionLocal
+    from .user_center.models import UserAccount
+    
+    uc_db = UserCenterSessionLocal()
+    try:
+        u_acc = uc_db.get(UserAccount, user_id)
+        if u_acc and getattr(u_acc, "active", True):
+            class UserPrincipalCompat:
+                def __init__(self, acc: UserAccount):
+                    self.id = acc.id
+                    self.username = acc.username
+                    self.role = acc.role or "operator"
+                    self.display_name = acc.nickname or acc.username
+                    self.active = bool(getattr(acc, "active", True))
+                    self.avatar_url = acc.avatar_url or "/static/avatars/default.png"
+            return UserPrincipalCompat(u_acc)
+    except Exception:
+        pass
+    finally:
+        uc_db.close()
+
+    db = SessionLocal()
+    try:
+        return db.query(User).filter(User.id == user_id, User.active == True).first()
+    finally:
+        db.close()
+
+
+def current_user_from_request(request: Request) -> Any | None:
+    """从请求 header (Bearer JWT) 或 cookie 解析当前登录用户。"""
     # 1. 优先尝试从 Authorization Header 读取 Bearer JWT
     auth_header = request.headers.get("authorization", "").strip()
     if auth_header.lower().startswith("bearer "):
         token_str = auth_header[7:].strip()
         payload = verify_jwt(token_str, expected_type="access")
         if payload and payload.get("sub"):
-            db = SessionLocal()
             try:
-                user = db.query(User).filter(
-                    User.id == int(payload["sub"]),
-                    User.active == True,  # noqa: E712
-                ).first()
-                if user:
-                    return user
+                user_id = int(payload["sub"])
+                return _get_user_by_id(user_id)
             except (ValueError, TypeError):
                 pass
-            finally:
-                db.close()
 
     # 2. 尝试从 cookie 读取 Session Token
     token = request.cookies.get(COOKIE_NAME)
@@ -272,19 +295,41 @@ def current_user_from_request(request: Request) -> User | None:
     user_id = _parse_token(token)
     if user_id is None:
         return None
-    db = SessionLocal()
+    return _get_user_by_id(user_id)
+
+
+def login(username: str, password: str) -> Any | None:
+    """验证用户名密码，优先从独立用户库 user_center.db 验证，回退到主库。"""
+    from .user_center.db import UserCenterSessionLocal
+    from .user_center.models import UserAccount
+    from .user_center.security import verify_password as verify_user_center_pw
+
+    # 1. 优先从独立用户数据库 user_center.db 验证
+    uc_db = UserCenterSessionLocal()
     try:
-        user = db.query(User).filter(
-            User.id == user_id,
-            User.active == True,  # noqa: E712
+        u_acc = uc_db.query(UserAccount).filter(
+            UserAccount.username == username,
+            UserAccount.active == True,
         ).first()
-        return user
+        if u_acc:
+            if verify_user_center_pw(password, u_acc.password_hash):
+                u_acc.updated_at = datetime.now(timezone.utc)
+                uc_db.commit()
+                class UserPrincipalCompat:
+                    def __init__(self, acc: UserAccount):
+                        self.id = acc.id
+                        self.username = acc.username
+                        self.role = acc.role or "operator"
+                        self.display_name = acc.nickname or acc.username
+                        self.active = bool(getattr(acc, "active", True))
+                        self.avatar_url = acc.avatar_url or "/static/avatars/default.png"
+                return UserPrincipalCompat(u_acc)
+    except Exception:
+        pass
     finally:
-        db.close()
+        uc_db.close()
 
-
-def login(username: str, password: str) -> User | None:
-    """验证用户名密码，成功返回 User，失败返回 None。"""
+    # 2. 回退到 PostgreSQL users 表
     db = SessionLocal()
     try:
         user = db.query(User).filter(
@@ -293,16 +338,16 @@ def login(username: str, password: str) -> User | None:
         ).first()
         if user is None:
             return None
-        # 密码字段格式: hash_hex:salt_hex
         parts = user.password_hash.split(":")
-        if len(parts) != 2:
-            return None
-        hash_hex, salt_hex = parts
-        if verify_password(password, hash_hex, salt_hex):
-            # 记录最后登录时间
-            user.last_login = datetime.now(timezone.utc).isoformat(timespec="seconds")
-            db.commit()
-            return user
+        if len(parts) == 2:
+            hash_hex, salt_hex = parts
+            if verify_password(password, hash_hex, salt_hex):
+                user.last_login = datetime.now(timezone.utc).isoformat(timespec="seconds")
+                db.commit()
+                return user
+        elif "$" in user.password_hash:
+            if verify_user_center_pw(password, user.password_hash):
+                return user
         return None
     finally:
         db.close()
