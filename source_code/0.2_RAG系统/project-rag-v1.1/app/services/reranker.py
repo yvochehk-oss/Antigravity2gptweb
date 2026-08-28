@@ -4,17 +4,18 @@ BGE-M3 remains the semantic embedding model.  The cross-encoder reranker is an
 optional accuracy boost and is disabled by default so low-resource Windows
 hosts do not load a second transformer model unless explicitly requested.
 """
-import os
 
-from ..config import RERANKER_BACKEND, RERANKER_MODEL, RERANK_TOP_N
+from ..config import (
+    RERANKER_BACKEND,
+    RERANKER_ENABLED,
+    RERANKER_MODEL,
+    RERANK_TOP_N,
+)
 from ..logging_config import get_logger
 
 logger = get_logger(__name__)
 
 MAX_RERANK_INPUT = 100
-RERANKER_ENABLED = os.getenv("PROJECT_RAG_RERANKER_ENABLED", "0").strip().lower() in {
-    "1", "true", "yes", "on",
-}
 
 
 class RerankerError(Exception):
