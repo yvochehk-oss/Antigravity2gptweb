@@ -40,23 +40,24 @@ _active_job_ids: set[int] = set()
 _active_job_ids_lock = threading.Lock()
 
 
-def now() -> str:
-    """Get current UTC timestamp."""
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+from datetime import datetime, timezone, timedelta
+
+def now() -> datetime:
+    """Get current UTC datetime."""
+    return datetime.now(timezone.utc)
 
 
-def _calculate_next_retry(attempts: int) -> str:
+def _calculate_next_retry(attempts: int) -> datetime:
     """Calculate next retry time with exponential backoff.
 
     Args:
         attempts: Current attempt number
 
     Returns:
-        ISO timestamp for next retry
+        UTC datetime for next retry
     """
     backoff_seconds = JOB_RETRY_BACKOFF_SECONDS * (2**attempts)
-    next_time = datetime.now(timezone.utc).timestamp() + backoff_seconds
-    return datetime.fromtimestamp(next_time, tz=timezone.utc).isoformat(timespec="seconds")
+    return datetime.now(timezone.utc) + timedelta(seconds=backoff_seconds)
 
 
 def enqueue_parse(db, document_id: int) -> IngestJob:
@@ -161,7 +162,7 @@ def recover_stale_running_jobs() -> int:
                         )
                     else:
                         job.status = "FAILED"
-                        job.next_retry_at = ""
+                        job.next_retry_at = None
                         job.message = (
                             "Recovered abandoned RUNNING job as FAILED; "
                             f"max retries ({max_attempts}) exceeded"
@@ -222,7 +223,10 @@ def process_job(job_id: int) -> bool:
 
         # Check if job should wait for retry backoff
         if job.status == "RETRY" and job.next_retry_at:
-            next_retry = datetime.fromisoformat(job.next_retry_at.replace("Z", "+00:00"))
+            if isinstance(job.next_retry_at, str):
+                next_retry = datetime.fromisoformat(job.next_retry_at.replace("Z", "+00:00"))
+            else:
+                next_retry = job.next_retry_at
             if datetime.now(timezone.utc) < next_retry:
                 return False
 
@@ -247,10 +251,8 @@ def process_job(job_id: int) -> bool:
             job.status = "COMPLETED"
             job.message = doc.parse_message
             # A successful retry supersedes the prior failure/backoff state.
-            # These columns are NOT NULL in the runtime schema, so use the
-            # contract's empty-string sentinel rather than assigning None.
             job.last_error = ""
-            job.next_retry_at = ""
+            job.next_retry_at = None
             logger.info(f"Job {job_id} completed successfully: {doc.parse_message}")
         else:
             raise RuntimeError(doc.parse_message or "Parsing did not result in INDEXED status")
@@ -316,7 +318,6 @@ def process_next() -> bool:
             IngestJob.status == "RETRY",
             or_(
                 IngestJob.next_retry_at.is_(None),
-                IngestJob.next_retry_at == "",
                 IngestJob.next_retry_at <= now(),
             ),
         )

@@ -114,8 +114,11 @@ export function parseAiModelStatus(payload: unknown): AiModelStatus {
   const hasMalformedEndpoint = parsedEndpoints.some(endpoint => endpoint === null);
   const endpoints = parsedEndpoints.filter((item): item is AiModelEndpointHealth => item !== null);
   const hasHealthyEndpoint = endpoints.some(endpoint => endpoint.status === 'ok');
-  if (hasHealthyEndpoint) {
+  if (backendStatus === 'ok' && !hasMalformedEndpoint && endpoints.length > 0 && endpoints.every(endpoint => endpoint.status === 'ok')) {
     return { state: 'READY', message: 'AI 模型已就绪', endpoints };
+  }
+  if (backendStatus === 'degraded' && hasHealthyEndpoint) {
+    return { state: 'DEGRADED', message: 'AI 模型降级', endpoints };
   }
   return { state: 'UNAVAILABLE', message: 'AI 模型暂不可用', endpoints };
 }
@@ -1190,12 +1193,3 @@ export async function askProjectAi(projectId: number, question: string, endpoint
     metadata: extractAiExecutionMetadata(payload),
   };
 }
-
-export async function resolveRisk(riskId: string | number, signal?: AbortSignal): Promise<{ status: string; message: string }> {
-  return await postJson<{ status: string; message: string }>(
-    `/api/risks/${riskId}/resolve`,
-    {},
-    signal
-  );
-}
-

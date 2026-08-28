@@ -56,8 +56,8 @@ class Project(Base):
     location: Mapped[str] = mapped_column(String(200), nullable=False)
     project_type: Mapped[str] = mapped_column(String(32), default="")
     note: Mapped[str] = mapped_column(Text, default="")
-    created_at: Mapped[str] = mapped_column(String(40), default="")
-    updated_at: Mapped[str] = mapped_column(String(40), default="")
+    created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=True)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=True)
 
 
 class Document(Base):
@@ -146,8 +146,8 @@ class Document(Base):
     metadata_source: Mapped[str] = mapped_column(String(32), default="filename")
 
     # Timestamps
-    created_at: Mapped[str] = mapped_column(String(40), default="")
-    updated_at: Mapped[str] = mapped_column(String(40), default="")
+    created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=True)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=True)
 
 
 class Chunk(Base):
@@ -195,7 +195,7 @@ class QueryLog(Base):
     embedding_backend: Mapped[str] = mapped_column(String(40), default="")
     reranker_backend: Mapped[str] = mapped_column(String(40), default="")
     response_time_ms: Mapped[int] = mapped_column(Integer, default=0)  # NEW: track latency
-    created_at: Mapped[str] = mapped_column(String(40), default="")
+    created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=True)
 
     # === V0.3 Query log fields ===
     rewrite_result_json: Mapped[str] = mapped_column(Text, default="")
@@ -221,8 +221,8 @@ class MountConfig(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     path: Mapped[str] = mapped_column(String(500), unique=True)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
-    last_scan_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+    last_scan_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 class IngestJob(Base):
     """Ingest job queue with retry support."""
@@ -240,10 +240,10 @@ class IngestJob(Base):
     max_attempts: Mapped[int] = mapped_column(Integer, default=3)  # NEW: configurable retry limit
     message: Mapped[str] = mapped_column(Text, default="")
     last_error: Mapped[str] = mapped_column(Text, default="")  # NEW: store last error
-    created_at: Mapped[str] = mapped_column(String(40), default="")
-    started_at: Mapped[str] = mapped_column(String(40), default="")
-    finished_at: Mapped[str] = mapped_column(String(40), default="")
-    next_retry_at: Mapped[str] = mapped_column(String(40), default="")  # NEW: for exponential backoff
+    created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    next_retry_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # === V0.3 Parse quality fields ===
     parse_quality_score: Mapped[float] = mapped_column(Float, default=0.0)

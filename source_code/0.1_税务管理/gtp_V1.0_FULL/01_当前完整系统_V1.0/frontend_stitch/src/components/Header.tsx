@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { 
   Search, 
   Bell, 
@@ -6,9 +6,11 @@ import {
   Sparkles, 
   Menu, 
   Radio,
+  User as UserIcon,
 } from 'lucide-react';
 import { DataStatus, SystemSettings } from '../types';
 import { SettingsModal } from './SettingsModal';
+import { UserProfileModal } from './UserProfileModal';
 
 interface HeaderProps {
   onToggleAi: () => void;
@@ -36,7 +38,20 @@ export function Header({
 }: HeaderProps) {
   const [showNotificationList, setShowNotificationList] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [showProfileModal, setShowProfileModal] = useState(false);
+  const [userProfile, setUserProfile] = useState<{ nickname?: string; avatar_url?: string; role?: string } | null>(null);
+
   const hasUnreadRisks = riskStatus === 'READY' && unresolvedRiskCount > 0;
+
+  // 加载顶部头像与昵称
+  useEffect(() => {
+    fetch('/api/v1/user-center/profile')
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        if (data) setUserProfile(data);
+      })
+      .catch(() => {});
+  }, []);
 
   return (
     <header className="fixed top-0 right-0 left-0 md:left-48 h-16 bg-[#0b1326]/80 backdrop-blur-md border-b border-[#444653]/30 z-30 flex items-center justify-between px-4 md:px-6 gap-4">
@@ -68,8 +83,8 @@ export function Header({
         </div>
       </div>
 
-      {/* 右侧：快捷工具与AI助手 */}
-      <div className="flex items-center gap-1.5 sm:gap-4 flex-shrink-0">
+      {/* 右侧：快捷工具、用户头像与AI助手 */}
+      <div className="flex items-center gap-1.5 sm:gap-3 flex-shrink-0">
 
         {/* AI助手唤醒按钮 */}
         <button
@@ -132,7 +147,7 @@ export function Header({
           )}
         </div>
 
-        {/* 系统设置与风控参数配置 */}
+        {/* 系统设置 */}
         <button
           onClick={() => setShowSettingsModal(true)}
           className="p-2 rounded-full text-[#c4c5d5] hover:text-[#dae2fd] hover:bg-[#222a3d] transition-colors cursor-pointer relative group"
@@ -141,6 +156,32 @@ export function Header({
           <Settings className="w-4 h-4 group-hover:rotate-45 transition-transform" />
           <span className="sr-only">系统参数设置</span>
         </button>
+
+        {/* 用户个人中心与头像入口 */}
+        <button
+          onClick={() => setShowProfileModal(true)}
+          className="flex items-center gap-2 pl-2 pr-2.5 py-1 rounded-full bg-[#131b2e] border border-[#444653]/40 hover:border-[#a78bfa]/60 transition-all cursor-pointer group"
+          title="个人中心与账号安全"
+        >
+          <img
+            src={userProfile?.avatar_url || '/static/avatars/default.png'}
+            alt="头像"
+            onError={(e) => {
+              (e.target as HTMLImageElement).src = 'https://api.dicebear.com/7.x/bottts/svg?seed=admin';
+            }}
+            className="w-6 h-6 rounded-full object-cover border border-[#a78bfa]/40 bg-[#0b1326]"
+          />
+          <span className="text-[12px] font-medium text-[#dae2fd] group-hover:text-[#dde1ff] hidden sm:inline max-w-[80px] truncate">
+            {userProfile?.nickname || '管理员'}
+          </span>
+        </button>
+
+        {/* 个人中心弹窗 */}
+        <UserProfileModal
+          isOpen={showProfileModal}
+          onClose={() => setShowProfileModal(false)}
+          onProfileUpdated={(updated) => setUserProfile(updated)}
+        />
 
         {/* 交互式系统设置弹窗 */}
         <SettingsModal

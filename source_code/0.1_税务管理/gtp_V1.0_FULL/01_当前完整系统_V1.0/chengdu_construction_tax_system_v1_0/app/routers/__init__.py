@@ -15,6 +15,7 @@ from .rag_sync import router as rag_sync_router
 from .tasks import router as tasks_router
 from .tax import router as tax_router
 from .users import router as users_router
+from ..user_center.router import router as user_center_router
 
 ALL_ROUTERS = [
     auth_router,
@@ -25,6 +26,7 @@ ALL_ROUTERS = [
     prompts_router, models_router, api_router,
     rag_sync_router,
     users_router,
+    user_center_router,
 ]
 
 __all__ = ["ALL_ROUTERS"]

@@ -1,4 +1,5 @@
 import hashlib
+from pathlib import Path
 import re
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -12,6 +13,123 @@ from .documents import register_local_path
 from .storage import SAFE_EXTS, PathTraversalError, StorageError, validate_safe_directory
 
 logger = get_logger(__name__)
+
+CATEGORY_KEYWORDS = (
+    "合同", "发票", "磅单", "流水", "凭证", "报告", "立项", "招投标",
+    "施工", "监理", "材料", "结算", "检测", "进度", "计量", "税", "图纸",
+    "分包", "验收", "签证", "变更", "预算", "决算", "对账", "支付", "银行", "资料"
+)
+
+
+def _is_category_folder(name: str) -> bool:
+    """Return True if a folder name represents a document category/stage rather than a separate project."""
+    clean = name.strip()
+    if not clean or clean.startswith("."):
+        return True
+    if re.match(r"^0\d_", clean) or re.match(r"^\d{1,2}_", clean):
+        # E.g. "01_项目立项与招投标文件", "02_专业分包与施工合同"
+        return any(kw in clean for kw in CATEGORY_KEYWORDS)
+    if re.match(r"^DOC-", clean, re.IGNORECASE):
+        return True
+    if re.match(r"^\d{1,2}$", clean):  # e.g., "1", "2", "3"
+        return True
+    return any(kw in clean for kw in CATEGORY_KEYWORDS)
+
+
+def _find_or_create_project(db: Session, project_raw_name: str) -> tuple[Project | None, bool]:
+    """Find existing project by code/name or auto-create a clean project entity.
+    
+    Returns (project, is_created).
+    """
+    parts = project_raw_name.split("_")
+    code_candidate = parts[-1].strip() if len(parts) > 1 else project_raw_name.strip()
+
+    # 1. Match exact project code or name
+    project = db.scalar(
+        select(Project).where(
+            (Project.project_code == project_raw_name)
+            | (Project.name == project_raw_name)
+            | (Project.project_code == code_candidate)
+        )
+    )
+    if not project:
+        all_projects = db.execute(select(Project)).scalars().all()
+        for p in all_projects:
+            if p.project_code and (p.project_code in project_raw_name or project_raw_name in p.project_code):
+                project = p
+                break
+
+    if project:
+        return project, False
+
+    safe_slug = re.sub(r"[^A-Z0-9_-]+", "-", code_candidate.upper()).strip("-") or "PROJECT"
+    suffix = hashlib.sha1(project_raw_name.encode("utf-8")).hexdigest()[:6].upper()
+    if re.match(r"^[A-Z0-9]+-[A-Z0-9]+-[A-Z0-9]+$", code_candidate, re.IGNORECASE):
+        final_code = code_candidate.upper()
+    else:
+        final_code = f"AUTO-{safe_slug[:40]}-{suffix}"
+
+    # Clean display name: e.g. "01_天府国际金融中心二期_CD-TF-001" -> "天府国际金融中心二期"
+    if len(parts) >= 3 and re.match(r"^\d+$", parts[0]):
+        display_name = "_".join(parts[1:-1])
+    else:
+        display_name = project_raw_name
+
+    project = Project(
+        project_code=final_code,
+        name=display_name,
+        status="ACTIVE",
+        contract_amount=Decimal("0.00"),
+        location="未填写",
+        note="由安全挂载扫描自动创建；contract_amount/location 待业务补录",
+        created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc),
+    )
+    db.add(project)
+    try:
+        db.commit()
+        db.refresh(project)
+        logger.info("Auto-created project: %s (code: %s)", project.name, project.project_code)
+        return project, True
+    except Exception:
+        db.rollback()
+        logger.exception("Failed to auto-create project %s", project_raw_name)
+        return None, False
+
+
+def _resolve_project_targets(root_path: Path) -> list[tuple[str, Path]]:
+    """Determine whether root_path is a single project directory or a multi-project container."""
+    try:
+        subdirs = [
+            item for item in root_path.iterdir()
+            if item.is_dir() and not item.is_symlink() and not item.name.startswith(".")
+        ]
+        direct_files = [
+            item for item in root_path.iterdir()
+            if item.is_file() and not item.is_symlink() and not item.name.startswith(".")
+            and item.suffix.lower() in SAFE_EXTS
+        ]
+    except (PermissionError, OSError) as exc:
+        logger.warning("Cannot inspect directory %s: %s", root_path, exc)
+        return []
+
+    # If there are direct documents in root_path, root_path is definitely a single project
+    if direct_files:
+        return [(root_path.name, root_path)]
+
+    if not subdirs:
+        return [(root_path.name, root_path)]
+
+    # Check if subdirs are category subfolders
+    category_subdir_count = sum(1 for d in subdirs if _is_category_folder(d.name))
+    
+    # If all or most subdirs are category folders, root_path itself is ONE project
+    if category_subdir_count > 0 and (category_subdir_count >= len(subdirs) / 2 or category_subdir_count >= 2):
+        return [(root_path.name, root_path)]
+
+    # Otherwise, each subdir is considered a separate project
+    return [(d.name, d) for d in subdirs]
+
 
 def sync_all_mounts(db: Session) -> dict:
     """Scan all active mount points and sync documents."""
@@ -28,64 +146,17 @@ def sync_all_mounts(db: Session) -> dict:
             continue
 
         try:
-            for item in root_path.iterdir():
-                if not item.is_dir():
-                    continue
-
-                # Each subdirectory is considered a project folder
-                if item.is_symlink() or not item.is_dir():
-                    continue
-                project_name = item.name
-                if project_name.startswith('.'):
-                    continue
-
-                # 1. Find or create Project (support folder names like 01_天府国际金融中心二期_CD-TF-001)
-                parts = project_name.split('_')
-                code_candidate = parts[-1] if len(parts) > 1 else project_name
-                project = db.scalar(
-                    select(Project).where(
-                        (Project.project_code == project_name)
-                        | (Project.name == project_name)
-                        | (Project.project_code == code_candidate)
-                    )
-                )
+            project_targets = _resolve_project_targets(root_path)
+            for project_name, project_dir in project_targets:
+                project, is_created = _find_or_create_project(db, project_name)
                 if not project:
-                    all_projects = db.execute(select(Project)).scalars().all()
-                    for p in all_projects:
-                        if p.project_code and p.project_code in project_name:
-                            project = p
-                            break
-
-                if not project:
-                    # Create new project
-                    safe_slug = re.sub(r"[^A-Z0-9_-]+", "-", project_name.upper()).strip("-") or "PROJECT"
-                    suffix = hashlib.sha1(project_name.encode("utf-8")).hexdigest()[:8].upper()
-                    project = Project(
-                        project_code=f"AUTO-{safe_slug[:45]}-{suffix}",
-                        name=project_name,
-                        status="planning",
-                        # A scanner cannot invent a contract value or site.
-                        # Keep the row importable with explicit placeholders;
-                        # business users must fill these facts before using
-                        # deterministic analytics.
-                        contract_amount=Decimal("0.00"),
-                        location="未填写",
-                        note="由安全挂载扫描自动创建；contract_amount/location 待业务补录",
-                    )
-                    db.add(project)
-                    try:
-                        db.commit()
-                        db.refresh(project)
-                    except Exception:
-                        db.rollback()
-                        logger.exception("Failed to auto-create project %s", project_name)
-                        results["errors"] += 1
-                        continue
+                    results["errors"] += 1
+                    continue
+                if is_created:
                     results["projects_created"] += 1
-                    logger.info(f"Auto-created project: {project.name}")
 
-                # 2. Scan files in project directory
-                for filepath in item.rglob("*"):
+                # Scan all files recursively inside this project directory
+                for filepath in project_dir.rglob("*"):
                     if filepath.is_symlink() or not filepath.is_file():
                         continue
                     if filepath.suffix.lower() not in SAFE_EXTS or filepath.name.startswith("."):
@@ -93,7 +164,6 @@ def sync_all_mounts(db: Session) -> dict:
 
                     results["scanned"] += 1
 
-                    # Check if this exact canonical path already exists in documents.
                     try:
                         resolved_file = filepath.resolve()
                         validate_safe_directory(resolved_file.parent)
@@ -101,6 +171,7 @@ def sync_all_mounts(db: Session) -> dict:
                         logger.warning("Skipping unsafe local file %s: %s", filepath, exc)
                         results["errors"] += 1
                         continue
+
                     abs_path_str = str(resolved_file)
                     exists = db.scalar(
                         select(Document).where(Document.original_path == abs_path_str).limit(1)

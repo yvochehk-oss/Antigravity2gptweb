@@ -45,8 +45,10 @@ PUBLIC_PREFIXES = (
     "/docs/",
     "/redoc/",
     "/assets/",
+    "/avatars/",
     "/ui/",
     "/api/v1/auth/",
+    "/api/v1/user-center/",
 )
 
 

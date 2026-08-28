@@ -14,7 +14,7 @@ import { NewTaxRecordModal } from './components/NewTaxRecordModal';
 import { ExportReportModal } from './components/ExportReportModal';
 import { DataStatusCard } from './components/DataStatusCard';
 import { DEFAULT_SETTINGS } from './components/SettingsModal';
-import { askProjectAi, ApiError, fetchAiModelStatus, fetchConfiguredProjects, fetchRiskEvents, fetchTaxLedger, rebuildTaxLedger, resolveRisk } from './api';
+import { askProjectAi, ApiError, fetchAiModelStatus, fetchConfiguredProjects, fetchRiskEvents, fetchTaxLedger, rebuildTaxLedger } from './api';
 import {
   AssistantMessage,
   AiModelStatus,
@@ -221,14 +221,8 @@ export default function App() {
     setIsMobileMenuOpen(false);
   };
 
-  const handleResolveRisk = async (id: string) => {
-    try {
-      const res = await resolveRisk(id);
-      setActionNotice(res.message || '已成功完成闭环整改！');
-      await loadProjects();
-    } catch (error) {
-      setActionNotice(`闭环整改失败：${error instanceof Error ? error.message : '接口不可用'}`);
-    }
+  const handleResolveRisk = () => {
+    setActionNotice('风险处置接口尚未接通，未在浏览器本地修改风险状态。');
   };
 
   const handleRagSyncCompleted = () => {

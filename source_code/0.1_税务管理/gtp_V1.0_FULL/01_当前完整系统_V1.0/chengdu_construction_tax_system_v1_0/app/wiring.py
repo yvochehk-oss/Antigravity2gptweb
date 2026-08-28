@@ -122,8 +122,15 @@ def create_app() -> FastAPI:
 
 
 def _mount_static_assets(app: FastAPI) -> None:
-    """Mount Vite-built frontend assets when the dist directory exists."""
+    """Mount Vite-built frontend assets and avatar uploads when the dist directory exists."""
     static_dist = Path(__file__).resolve().parent / "static_dist"
+    avatars_dir = static_dist / "avatars"
+    avatars_dir.mkdir(parents=True, exist_ok=True)
+    app.mount(
+        "/avatars",
+        StaticFiles(directory=str(avatars_dir)),
+        name="avatars",
+    )
     if static_dist.exists() and (static_dist / "assets").exists():
         app.mount(
             "/assets",
