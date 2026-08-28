@@ -4,9 +4,15 @@ on:
   push:
     branches:
       - main
+      - v3.0
+      - v3.0-macos
+      - v3.0-windows
   pull_request:
     branches:
       - main
+      - v3.0
+      - v3.0-macos
+      - v3.0-windows
   workflow_dispatch:
 
 permissions:
@@ -147,3 +153,36 @@ jobs:
 
       - name: Build
         run: npm run build
+
+  idp:
+    name: IDP - static check & test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    defaults:
+      run:
+        working-directory: source_code/0.4_IDP文档录入引擎_V3.0
+
+    env:
+      APP_ENV: test
+      # Unit/API tests use a disabled persistence path unless a test explicitly
+      # provides a repository double; no live database is touched in CI.
+      DATABASE_URL: ""
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements-dev-v3.txt
+
+      - name: Python compile check
+        run: python -m compileall -q app tests
+
+      - name: Pytest
+        run: pytest -q

@@ -25,31 +25,40 @@ init_user_center_db()
 _STATIC_DIST_AVATARS = Path(__file__).resolve().parent.parent / "static_dist" / "avatars"
 _STATIC_DIST_AVATARS.mkdir(parents=True, exist_ok=True)
 
-# 默认内置初始管理员
-def _ensure_default_user(db: Session, username: str = "admin") -> UserAccount:
-    user = db.query(UserAccount).filter(UserAccount.username == username).first()
-    if not user:
-        user = UserAccount(
-            username=username,
-            password_hash=hash_password("888888"),
-            nickname="系统管理员",
-            avatar_url="/static/avatars/default.png",
-            email="admin@cd-construction.com",
-            email_verified=True,
-            phone="13800008888",
-            phone_verified=True,
-            role="admin",
-        )
-        db.add(user)
-        db.commit()
-        db.refresh(user)
-    return user
-
 def _get_current_user(request: Request, db: Session = Depends(get_user_center_db)) -> UserAccount:
-    """获取当前登录用户（优先读取 session/header，默认管理员）"""
-    # 从 session 或 token 读取用户名，默认 admin
-    username = getattr(request.state, "username", None) or "admin"
-    return _ensure_default_user(db, username)
+    """获取当前登录用户；缺少有效认证时明确拒绝请求。
+
+    The test administrator is seeded once when the user-center database is
+    initialized, but a database record must never be treated as a session.
+    ``AuthMiddleware`` resolves the signed Tax session/JWT and stores the
+    principal on ``request.state`` before this dependency runs.
+    """
+    principal = getattr(request.state, "current_user", None)
+    user_id = getattr(principal, "id", None)
+    principal_source = str(getattr(principal, "auth_source", "") or "").strip().lower()
+    if user_id is None or principal_source != "user_center":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="请先登录",
+            headers={"WWW-Authenticate": "Session"},
+        )
+
+    try:
+        user = db.get(UserAccount, int(user_id))
+    except (TypeError, ValueError):
+        user = None
+    principal_username = str(getattr(principal, "username", "") or "").strip()
+    if (
+        user is None
+        or not bool(user.active)
+        or (principal_username and user.username != principal_username)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="登录已失效，请重新登录",
+            headers={"WWW-Authenticate": "Session"},
+        )
+    return user
 
 # --- 请求模型 ---
 class SendCodeRequest(BaseModel):
@@ -186,7 +195,6 @@ def send_verification_code(
         "message": f"验证码已发送至 {target}，有效期 5 分钟",
         "channel": req.channel,
         "cooldown_seconds": 60,
-        "debug_code": code,  # 开发环境调试友好提示
     }
 
 @router.post("/bind-account")

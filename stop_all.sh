@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# 成都建工 V2.0 优雅、幂等停止脚本。
-# 只处理由 V2.0 PID 文件确认的 Tax/RAG 进程，不按端口盲杀其他程序。
+# 成都建工 V3.0 优雅、幂等停止脚本。
+# 只处理由 V3.0 PID 文件确认的 IDP/Tax/RAG/LLM 进程，不按端口盲杀其他程序。
 
 set -Eeuo pipefail
 
@@ -8,9 +8,12 @@ PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_ENV_FILE="$PROJECT_DIR/.env"
 TAX_PID_FILE="$PROJECT_DIR/.tax.pid"
 RAG_PID_FILE="$PROJECT_DIR/.rag.pid"
+IDP_PID_FILE="$PROJECT_DIR/.idp.pid"
 LOCAL_LLM_PID_FILE="$PROJECT_DIR/.local_llm.pid"
 _LOCAL_LLM_PORT_WAS_SET="${LOCAL_LLM_PORT+x}"
 _LOCAL_LLM_PORT_OVERRIDE="${LOCAL_LLM_PORT-}"
+_IDP_PORT_WAS_SET="${IDP_PORT+x}"
+_IDP_PORT_OVERRIDE="${IDP_PORT-}"
 if [ -f "$ROOT_ENV_FILE" ]; then
   set -a
   # shellcheck disable=SC1090
@@ -18,8 +21,10 @@ if [ -f "$ROOT_ENV_FILE" ]; then
   set +a
 fi
 if [ "$_LOCAL_LLM_PORT_WAS_SET" = x ]; then LOCAL_LLM_PORT="$_LOCAL_LLM_PORT_OVERRIDE"; fi
+if [ "$_IDP_PORT_WAS_SET" = x ]; then IDP_PORT="$_IDP_PORT_OVERRIDE"; fi
 TAX_PORT="${TAX_PORT:-8921}"
 RAG_PORT="${PROJECT_RAG_PORT:-8922}"
+IDP_PORT="${IDP_PORT:-8933}"
 LOCAL_LLM_PORT="${LOCAL_LLM_PORT:-8930}"
 STOP_TIMEOUT_SECONDS="${STOP_TIMEOUT_SECONDS:-20}"
 
@@ -153,8 +158,9 @@ stop_local_llm() {
   return 1
 }
 
-log "停止成都建工 V2.0 服务..."
+log "停止成都建工 V3.0 服务..."
 stop_local_llm
+stop_service "IDP" "$IDP_PID_FILE" "$IDP_PORT"
 stop_service "RAG" "$RAG_PID_FILE" "$RAG_PORT"
 stop_service "Tax" "$TAX_PID_FILE" "$TAX_PORT"
 log "停止流程完成（不操作 PostgreSQL 数据或 schema）"

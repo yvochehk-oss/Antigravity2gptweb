@@ -15,6 +15,7 @@ def test_reprocess_uses_stored_original_and_marks_forced(monkeypatch, tmp_path):
     stored.write_bytes(b"%PDF-1.4\n")
 
     monkeypatch.setattr(main, "repository", SimpleNamespace(enabled=True))
+    monkeypatch.setattr(main, "storage_dir", tmp_path)
     monkeypatch.setattr(
         main,
         "get_document_for_reprocess",

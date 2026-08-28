@@ -2,16 +2,24 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker, Session
 
-# 统一指向 V3.0 项目根目录下的独立用户数据库 (data/user_center.db)
-_V3_ROOT = Path(__file__).resolve().parents[5]
+# 统一指向 V3.0 项目根目录下的独立用户数据库 (data/user_center.db)。
+# 环境变量允许测试/部署显式覆盖，默认路径通过项目目录名解析，避免
+# 依赖 source_code 层级数量的脆弱 parents[N] 计算。
+_V3_ROOT = next(
+    (parent for parent in Path(__file__).resolve().parents if parent.name == "V3.0"),
+    None,
+)
+if _V3_ROOT is None:
+    raise RuntimeError("无法定位 V3.0 项目根目录")
 _ROOT_DATA_DIR = _V3_ROOT / "data"
 _ROOT_DATA_DIR.mkdir(parents=True, exist_ok=True)
 _DEFAULT_DB_FILE = _ROOT_DATA_DIR / "user_center.db"
 
-USER_CENTER_DB_URL = os.getenv("USER_CENTER_DB_URL", f"sqlite:///{_DEFAULT_DB_FILE}")
+USER_CENTER_DB_URL = os.getenv("USER_CENTER_DB_URL", "").strip() or f"sqlite:///{_DEFAULT_DB_FILE}"
 
 engine = create_engine(
     USER_CENTER_DB_URL,
@@ -39,3 +47,43 @@ def init_user_center_db():
     """初始化独立用户中心数据库表结构"""
     from . import models  # noqa: F401
     UserCenterBase.metadata.create_all(bind=engine)
+    _ensure_test_admin()
+
+
+def _ensure_test_admin() -> None:
+    """Seed the retained test admin only when the account is absent.
+
+    This is a bootstrap convenience for the local test environment.  It does
+    not reset an existing account's password or role, and it is not used as an
+    authentication fallback for anonymous requests.
+    """
+    environment = os.getenv("APP_ENV", os.getenv("ENVIRONMENT", "development")).strip().lower()
+    if environment not in {"test", "testing", "development", "dev", "local"}:
+        return
+
+    from .models import UserAccount
+    from .security import hash_password
+
+    db = UserCenterSessionLocal()
+    try:
+        if db.query(UserAccount).filter(UserAccount.username == "admin").first():
+            return
+        db.add(UserAccount(
+            username="admin",
+            password_hash=hash_password("888888"),
+            nickname="系统管理员",
+            avatar_url="/static/avatars/default.png",
+            email="admin@cd-construction.com",
+            email_verified=True,
+            phone="13800008888",
+            phone_verified=True,
+            role="admin",
+            active=True,
+        ))
+        try:
+            db.commit()
+        except IntegrityError:
+            # Another process may initialize the same SQLite file at startup.
+            db.rollback()
+    finally:
+        db.close()

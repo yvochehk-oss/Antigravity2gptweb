@@ -13,8 +13,8 @@ echo ===========================================================================
 echo [1/4] 正在关闭 llama-server (Port 8930)...
 taskkill /F /IM llama-server.exe >nul 2>nul
 
-echo [2/4] 正在关闭 Python Uvicorn 进程 (Port 8921, 8922)...
-for /f "tokens=5" %%a in ('netstat -aon ^| findstr ":8921 :8922"') do (
+echo [2/4] 正在关闭 Python Uvicorn 进程 (Port 8921, 8922, 8933)...
+for /f "tokens=5" %%a in ('netstat -aon ^| findstr ":8921 :8922 :8933"') do (
     taskkill /F /PID %%a >nul 2>nul
 )
 

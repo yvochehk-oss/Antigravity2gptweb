@@ -92,18 +92,20 @@ V3.0 将“业务字段录入”和“知识检索问答”明确拆成两条链
 
 ## IDP 快速启动
 
+从 V3.0 根目录运行 `./start_all.sh install` 会同时准备 Tax、RAG、IDP 与老板端依赖；随后运行 `./start_all.sh start` 会启动全部本地服务。IDP 默认监听 `8933`，本地 LLM 仍监听 `8930`，两者不会冲突。
+
 ```bash
 cd source_code/0.4_IDP文档录入引擎_V3.0
 pip install -r requirements-v3.txt
 cp .env.example .env
-uvicorn app.main:app --host 127.0.0.1 --port 8930
+uvicorn app.main:app --host 127.0.0.1 --port 8933
 ```
 
 Windows PowerShell 可使用：
 
 ```powershell
 Copy-Item .env.example .env
-uvicorn app.main:app --host 127.0.0.1 --port 8930
+uvicorn app.main:app --host 127.0.0.1 --port 8933
 ```
 
 健康检查：`GET /health`

@@ -65,8 +65,9 @@ def test_unlisted_origin_preflight_is_rejected(monkeypatch):
 def test_explicit_cors_override_does_not_become_wildcard(monkeypatch):
     """LAN access remains opt-in through an explicit origin list."""
     monkeypatch.setenv("RAG_CORS_ALLOW_ORIGINS", "http://192.168.10.36:5173")
-    from app import main
+    from app import legacy_routes, main
 
+    importlib.reload(legacy_routes)
     client = TestClient(importlib.reload(main).app)
     allowed = _preflight(client, "http://192.168.10.36:5173")
     rejected = _preflight(client, "http://192.168.10.37:5173")

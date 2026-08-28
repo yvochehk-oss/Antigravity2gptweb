@@ -17,24 +17,30 @@ echo [1/4] 正在启动本地大模型服务 (Port 8930)...
 start "01_本地大模型服务 (Port 8930)" cmd /k "call "%SCRIPT_DIR%01_START_LLM.bat""
 timeout /t 3 /nobreak >nul
 
-echo [2/4] 正在启动 RAG 智能文档与事实中台 (Port 8922)...
+echo [2/5] 正在启动 RAG 智能文档与事实中台 (Port 8922)...
 start "02_RAG事实中台 (Port 8922)" cmd /k "call "%SCRIPT_DIR%02_START_RAG.bat""
 timeout /t 2 /nobreak >nul
 
-echo [3/4] 正在启动 税务管理与风控后端 (Port 8921)...
+echo [3/5] 正在启动 IDP 文档录入引擎 (Port 8933)...
+set "IDP_PORT=8933"
+start "03_IDP文档录入引擎 (Port 8933)" cmd /k "call "%SCRIPT_DIR%..\source_code\0.4_IDP文档录入引擎_V3.0\START_IDP_WINDOWS.bat""
+timeout /t 2 /nobreak >nul
+
+echo [4/5] 正在启动 税务管理与风控后端 (Port 8921)...
 start "03_税务管理系统 (Port 8921)" cmd /k "call "%SCRIPT_DIR%03_START_TAX.bat""
 timeout /t 2 /nobreak >nul
 
-echo [4/4] 正在启动 老板端 Web 移动驾驶舱 (Port 5173)...
+echo [5/5] 正在启动 老板端 Web 移动驾驶舱 (Port 5173)...
 start "04_老板端Web (Port 5173)" cmd /k "call "%SCRIPT_DIR%04_START_WEB.bat""
 timeout /t 3 /nobreak >nul
 
 echo.
 echo ==============================================================================
-echo   全部 4 个系统子服务已成功拉起！
+echo   全部 5 个系统子服务已成功拉起！
 echo   老板端驾驶舱访问入口: http://127.0.0.1:5173
 echo   税务管理后台接口:     http://127.0.0.1:8921/docs
 echo   RAG 事实中台接口:      http://127.0.0.1:8922/docs
+echo   IDP 文档录入接口:      http://127.0.0.1:8933/docs
 echo   本地大模型状态接口:    http://127.0.0.1:8930/v1/models
 echo ==============================================================================
 echo.

@@ -27,7 +27,7 @@ def test_executive_after_tax_profit_uses_the_ui_formula_not_real_profit_alias():
 
 
 def test_project_audit_tax_categories_are_a_stable_list():
-    source = (ROOT / "app" / "main.py").read_text(encoding="utf-8")
+    source = (ROOT / "app" / "legacy_routes.py").read_text(encoding="utf-8")
 
     assert 'coverage["tax_detail"] = sorted(tax_cats)' in source
     assert "dict(tax_cats)" not in source

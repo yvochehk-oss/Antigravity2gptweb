@@ -70,7 +70,7 @@ def _truth_safe_planning_response(payload: Any) -> Any:
         basis["profit_definition"] = PLANNING_MARGIN_DEFINITION
         basis["note"] = (
             "package_amount应为尚未计入real_costs的待规划净额；"
-            "方案余量仅用于当前已知成本条件下的情景比较，不代表项目最终/EAC利润；"
+            "方案余量仅用于当前已知成本条件下的情景比较，不是项目最终/EAC利润；"
             "结果为规划估算，不替代法定申报税额。"
         )
 

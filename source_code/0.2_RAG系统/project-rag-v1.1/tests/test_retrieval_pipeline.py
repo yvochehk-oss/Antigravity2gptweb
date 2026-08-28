@@ -7,7 +7,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.services import query_rewrite, retrieval
+import app.services.retrieval as retrieval
+from app.services import query_rewrite
 from app.services.quality_gate import assess_quality
 
 
@@ -69,9 +70,12 @@ def test_adaptive_pipeline_uses_actual_helper_signatures(monkeypatch):
         rewrite_query=rewrite_query,
         hyde_generate=hyde_generate,
     )
-    monkeypatch.setattr(retrieval, "_get_query_rewrite_module", lambda: helper)
+    target_module = getattr(retrieval, "legacy", retrieval)
+    monkeypatch.setattr(target_module, "ENABLE_QUERY_REWRITE", True)
+    monkeypatch.setattr(target_module, "ENABLE_HYDE", True)
+    monkeypatch.setattr(target_module, "_get_query_rewrite_module", lambda: helper)
     monkeypatch.setattr(
-        retrieval,
+        target_module,
         "_hybrid_search",
         lambda *args, **kwargs: [{**_candidate(), "score": 0.0}],
     )
@@ -109,8 +113,11 @@ def test_adaptive_helper_failure_is_explicit(monkeypatch):
         raise RuntimeError("rewrite contract exploded")
 
     helper = SimpleNamespace(rewrite_query=broken_rewrite)
-    monkeypatch.setattr(retrieval, "_get_query_rewrite_module", lambda: helper)
-    monkeypatch.setattr(retrieval, "_hybrid_search", lambda *args, **kwargs: [])
+    target_module = getattr(retrieval, "legacy", retrieval)
+    monkeypatch.setattr(target_module, "ENABLE_QUERY_REWRITE", True)
+    monkeypatch.setattr(target_module, "ENABLE_HYDE", True)
+    monkeypatch.setattr(target_module, "_get_query_rewrite_module", lambda: helper)
+    monkeypatch.setattr(target_module, "_hybrid_search", lambda *args, **kwargs: [])
 
     result = retrieval.retrieve(
         db,

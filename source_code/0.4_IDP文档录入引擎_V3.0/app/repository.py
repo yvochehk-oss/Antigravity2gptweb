@@ -9,9 +9,65 @@ import psycopg
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
+from pydantic import ValidationError
+
+from .schemas import ContractData, InvoiceData
+from .validators import validate_contract, validate_invoice
+
 
 class DuplicateBusinessRecordError(RuntimeError):
     pass
+
+
+class ReviewDataValidationError(ValueError):
+    """Raised when human-approved data is not a supported valid data model."""
+
+
+def validate_review_data(document_type: Optional[str], raw_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Validate and normalize data immediately before a business-table write."""
+    models = {"contract": ContractData, "invoice": InvoiceData}
+    model = models.get(document_type)
+    if model is None:
+        raise ReviewDataValidationError("unsupported_document_type")
+
+    candidate = dict(raw_data)
+    # Extraction metadata is internal transport state, not a business field.
+    candidate.pop("_meta", None)
+    try:
+        normalized = model.model_validate(candidate).model_dump(mode="json")
+    except ValidationError as exc:
+        raise ReviewDataValidationError(
+            "review_data_schema_invalid: " + "; ".join(
+                error.get("loc", ()) and ".".join(map(str, error["loc"])) or "data"
+                for error in exc.errors()
+            )
+        ) from exc
+
+    confidence = normalized.get("confidence") or {}
+    for field, value in confidence.items():
+        try:
+            confidence_value = float(value)
+        except (TypeError, ValueError):
+            raise ReviewDataValidationError(f"confidence_invalid: {field}") from None
+        if not 0 <= confidence_value <= 1:
+            raise ReviewDataValidationError(f"confidence_out_of_range: {field}")
+
+    validation = validate_contract(normalized) if document_type == "contract" else validate_invoice(normalized)
+    if document_type == "contract":
+        for index, term in enumerate(normalized.get("payment_terms") or []):
+            amount = term.get("amount")
+            if amount is None:
+                continue
+            try:
+                if float(amount) < 0:
+                    raise ReviewDataValidationError(f"payment_terms[{index}].amount_negative")
+            except (TypeError, ValueError):
+                raise ReviewDataValidationError(f"payment_terms[{index}].amount_invalid_number") from None
+    if validation.get("errors"):
+        raise ReviewDataValidationError(
+            "review_data_business_invalid: " + ",".join(validation["errors"])
+        )
+    return normalized
 
 
 class IDPRepository:
@@ -34,6 +90,16 @@ class IDPRepository:
             raise RuntimeError("DATABASE_URL is not configured")
         with psycopg.connect(self.database_url, row_factory=dict_row) as conn:
             yield conn
+
+    @contextmanager
+    def processing_lock(self, sha256: str) -> Iterator[None]:
+        """Serialize processing for one SHA across workers and processes."""
+        if not self.enabled:
+            yield
+            return
+        with self.connection() as conn, conn.cursor() as cur:
+            cur.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (sha256,))
+            yield
 
     def health(self) -> bool:
         if not self.enabled:
@@ -246,7 +312,11 @@ class IDPRepository:
             if review["status"] != "pending":
                 raise ValueError("review_already_completed")
 
-            final_data = review_data if review_data is not None else dict(review["extracted_data"] or {})
+            raw_final_data = review_data if review_data is not None else dict(review["extracted_data"] or {})
+            if action == "approve" or review_data is not None:
+                final_data = validate_review_data(review["document_type"], raw_final_data)
+            else:
+                final_data = raw_final_data
             if action == "approve":
                 duplicate_business = self._find_business_duplicate(
                     cur, review["document_type"], final_data, review["document_id"]
@@ -352,7 +422,8 @@ class IDPRepository:
         row = cur.fetchone()
         values = (
             extraction_id, data.get("contract_no"), data.get("contract_name"),
-            party_a.get("name"), party_a.get("credit_code"), party_b.get("name"), party_b.get("credit_code"),
+            party_a.get("name"), party_a.get("credit_code") or party_a.get("tax_id"),
+            party_b.get("name"), party_b.get("credit_code") or party_b.get("tax_id"),
             data.get("project_name"), data.get("sign_date"), data.get("currency") or "CNY",
             data.get("amount_tax_included"), data.get("amount_tax_excluded"), data.get("tax_amount"), data.get("tax_rate"),
             Jsonb(data.get("payment_terms") or []), data.get("contract_start_date"), data.get("contract_end_date"),

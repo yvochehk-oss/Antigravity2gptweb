@@ -98,3 +98,9 @@ CREATE TABLE IF NOT EXISTS document_reviews (
     reviewed_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+CREATE INDEX IF NOT EXISTS idx_document_reviews_status_created_at
+ON document_reviews(status, created_at);
+
+CREATE INDEX IF NOT EXISTS idx_document_extractions_document_created_at
+ON document_extractions(document_id, created_at DESC);

@@ -155,9 +155,9 @@ def install_bulk_facts_loading() -> None:
         if project_codes is None:
             return dict(loaded)
         return {
-            code: loaded.get(code)
-            or fp._degraded_response(code, f"no canonical facts for project_code={code}")
-            for code in project_codes
+            p_code: loaded.get(p_code)
+            or fp._degraded_response(p_code, f"no canonical facts for project_code={p_code}")
+            for p_code in project_codes
         }
 
     fp.FactsProvider.get_facts = get_facts

@@ -10,7 +10,7 @@ from tempfile import TemporaryDirectory
 TESTS_DIR = Path(__file__).resolve().parent
 RAG_DIR = TESTS_DIR.parent
 V2_ROOT = RAG_DIR.parents[2]
-STARTUP_SCRIPT = V2_ROOT / "start_all.sh"
+STARTUP_SCRIPT = V2_ROOT / "scripts" / "runtime" / "start_services_impl.sh"
 
 
 def _run_jwt_contract(*, tax_env: str, rag_env: str, jwt_override: str | None = None):
@@ -23,8 +23,9 @@ def _run_jwt_contract(*, tax_env: str, rag_env: str, jwt_override: str | None = 
         rag_dir.mkdir(parents=True)
         (tax_dir / ".env").write_text(tax_env, encoding="utf-8")
         (rag_dir / ".env").write_text(rag_env, encoding="utf-8")
+        shutil.copytree(V2_ROOT / "scripts", root / "scripts")
         script = root / "start_all.sh"
-        shutil.copy2(STARTUP_SCRIPT, script)
+        shutil.copy2(V2_ROOT / "start_all.sh", script)
         script.chmod(0o755)
         environment = os.environ.copy()
         environment["START_ALL_VALIDATE_JWT_ONLY"] = "1"
@@ -79,10 +80,8 @@ def test_rag_lifespan_removes_demo_write_and_fails_on_model_prewarm():
 
 
 def test_main_compatibility_timestamp_helper_remains_available():
-    wiring = (RAG_DIR / "app" / "wiring.py").read_text(encoding="utf-8")
-    main = (RAG_DIR / "app" / "main.py").read_text(encoding="utf-8")
-    assert "def now() -> str:" in wiring
-    assert "    now," in main
+    from app.main import now
+    assert callable(now)
 
 
 def test_root_launcher_uses_owned_pids_and_explicit_effective_ports():

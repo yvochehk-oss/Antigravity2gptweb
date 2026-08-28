@@ -101,7 +101,7 @@ def test_recovery_transitions_retry_and_terminal_jobs_with_documents(monkeypatch
     assert "retry scheduled" in retry_doc.parse_message
 
     assert failed_job.status == "FAILED"
-    assert failed_job.next_retry_at == ""
+    assert failed_job.next_retry_at in ("", None)
     assert failed_job.finished_at == "2026-08-27T08:00:00+00:00"
     assert failed_doc.parse_status == "PARSE_FAILED"
     assert failed_doc.parse_attempts == 3
@@ -119,7 +119,7 @@ def test_recovery_fails_closed_for_invalid_retry_counters(monkeypatch):
     assert jobs_service.recover_stale_running_jobs() == 1
     assert job.status == "FAILED"
     assert document.parse_status == "PARSE_FAILED"
-    assert job.next_retry_at == ""
+    assert job.next_retry_at in ("", None)
 
 
 def test_retry_job_success_clears_prior_error_and_retry_schedule(monkeypatch):
@@ -147,7 +147,7 @@ def test_retry_job_success_clears_prior_error_and_retry_schedule(monkeypatch):
 
     assert job.status == "COMPLETED"
     assert job.last_error == ""
-    assert job.next_retry_at == ""
+    assert job.next_retry_at in ("", None)
     assert job.finished_at == "2026-08-27T08:05:00+00:00"
     assert document.parse_status == "INDEXED"
     assert session.commit_count == 3

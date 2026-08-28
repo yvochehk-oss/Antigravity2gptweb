@@ -12,6 +12,7 @@ from ..auth import (
     issue_jwt,
     refresh_access_token,
     verify_jwt,
+    _auth_source_for_user,
 )
 from ..auth import login as auth_login
 from ..templates import templates
@@ -42,7 +43,7 @@ def login_submit(
             status_code=302,
         )
     response = RedirectResponse("/", status_code=302)
-    create_session(response, user.id)
+    create_session(response, user.id, _auth_source_for_user(user))
     return response
 
 

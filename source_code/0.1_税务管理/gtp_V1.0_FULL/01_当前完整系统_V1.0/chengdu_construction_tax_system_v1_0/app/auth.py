@@ -73,6 +73,22 @@ if not _JWT_SECRET:
 JWT_ALGORITHM = "HS256"
 JWT_ACCESS_TOKEN_EXPIRE_MINUTES = 60
 JWT_REFRESH_TOKEN_EXPIRE_DAYS = 7
+AUTH_SOURCE_CLAIM = "auth_source"
+USER_CENTER_SOURCE = "user_center"
+LEGACY_SOURCE = "legacy"
+_AUTH_SOURCES = frozenset({USER_CENTER_SOURCE, LEGACY_SOURCE})
+
+
+def _auth_source_for_user(user: Any) -> str:
+    """Return the issuer namespace for a principal.
+
+    User-center compatibility principals are explicitly marked at the
+    boundary.  The legacy SQLAlchemy ``User`` model remains the fallback
+    source, preserving existing Tax users without allowing an ID lookup to
+    cross databases.
+    """
+    source = str(getattr(user, "auth_source", "") or "").strip().lower()
+    return source if source in _AUTH_SOURCES else LEGACY_SOURCE
 
 
 def _build_jwt_payload(user: User, role: str, *, token_type: str = "access") -> dict[str, Any]:
@@ -83,9 +99,12 @@ def _build_jwt_payload(user: User, role: str, *, token_type: str = "access") -> 
         exp_delta = JWT_REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60
     return {
         "sub": str(user.id),
+        AUTH_SOURCE_CLAIM: _auth_source_for_user(user),
         "username": user.username,
         "role": user.role,
-        "display_name": user.display_name,
+        "display_name": getattr(user, "display_name", None)
+        or getattr(user, "nickname", None)
+        or user.username,
         "type": token_type,
         "iat": int(now.timestamp()),
         "exp": int(now.timestamp()) + exp_delta,
@@ -105,10 +124,14 @@ def issue_jwt(user: User) -> tuple[str, str]:
 
 
 def verify_jwt(token: str, *, expected_type: str = "access") -> dict[str, Any] | None:
-    """校验 JWT 并返回 payload；校验失败或类型不匹配返回 None。"""
+    """校验 JWT，并拒绝没有来源命名空间的旧/不完整令牌。"""
     try:
         payload = jwt.decode(token, _JWT_SECRET, algorithms=[JWT_ALGORITHM])
         if payload.get("type") != expected_type:
+            return None
+        if payload.get(AUTH_SOURCE_CLAIM) not in _AUTH_SOURCES:
+            # Numeric-only legacy subjects are ambiguous across the two user
+            # stores; fail closed instead of guessing a database.
             return None
         return payload
     except jwt.PyJWTError:
@@ -122,10 +145,16 @@ def refresh_access_token(refresh_token: str) -> tuple[str, str] | None:
         return None
     db = SessionLocal()
     try:
-        user = db.query(User).filter(
-            User.id == int(payload["sub"]),
-            User.active == True,  # noqa: E712
-        ).first()
+        source = payload.get(AUTH_SOURCE_CLAIM)
+        if source == USER_CENTER_SOURCE:
+            user = _get_user_by_id(int(payload["sub"]), source)
+        elif source == LEGACY_SOURCE:
+            user = db.query(User).filter(
+                User.id == int(payload["sub"]),
+                User.active == True,  # noqa: E712
+            ).first()
+        else:
+            return None
         if not user:
             return None
         return issue_jwt(user)
@@ -180,15 +209,17 @@ def validate_password_strength(password: str, username: str = "") -> None:
 # ---------------------------------------------------------------------------
 # Session 管理
 # ---------------------------------------------------------------------------
-def _session_token(user_id: int) -> str:
-    """生成 HMAC 签名的 session token。"""
-    payload = f"{user_id}:{int(time.time())}".encode()
+def _session_token(user_id: int, auth_source: str = LEGACY_SOURCE) -> str:
+    """生成带来源命名空间的 HMAC session token。"""
+    if auth_source not in _AUTH_SOURCES:
+        raise ValueError("invalid authentication source")
+    payload = f"{auth_source}:{user_id}:{int(time.time())}".encode()
     sig = hmac.new(_SECRET.encode(), payload, "sha256").hexdigest()[:32]
     return payload.decode() + ":" + sig
 
 
-def _parse_token(token: str) -> int | None:
-    """解析并校验 session token，返回 user_id 或 None。
+def _parse_token(token: str) -> tuple[str, int] | None:
+    """解析并校验 session token，返回 (auth_source, user_id) 或 None。
 
     The browser ``max_age`` is not an authorization boundary.  The server
     also validates the signed issue time so a copied cookie expires after the
@@ -200,21 +231,22 @@ def _parse_token(token: str) -> int | None:
         if not hmac.compare_digest(sig, expected):
             return None
         parts = payload.split(":")
-        if len(parts) != 2:
+        if len(parts) != 3 or parts[0] not in _AUTH_SOURCES:
             return None
-        user_id = int(parts[0])
-        issued_at = int(parts[1])
+        auth_source = parts[0]
+        user_id = int(parts[1])
+        issued_at = int(parts[2])
         now = int(time.time())
         if issued_at > now + MAX_CLOCK_SKEW or now - issued_at > COOKIE_MAX_AGE:
             return None
-        return user_id
+        return auth_source, user_id
     except (ValueError, IndexError, TypeError):
         return None
 
 
-def create_session(response: Response, user_id: int) -> None:
-    """在 Response 中写入签名的 session cookie。"""
-    token = _session_token(user_id)
+def create_session(response: Response, user_id: int, auth_source: str = LEGACY_SOURCE) -> None:
+    """在 Response 中写入带来源命名空间的签名 session cookie。"""
+    token = _session_token(user_id, auth_source)
     response.set_cookie(
         key=COOKIE_NAME,
         value=token,
@@ -244,34 +276,38 @@ def clear_session(response: Response) -> None:
 # ---------------------------------------------------------------------------
 # 请求上下文：从 cookie 读取当前用户
 # ---------------------------------------------------------------------------
-def _get_user_by_id(user_id: int):
-    """统一从独立用户数据库 user_center.db 读取用户实体，回退到主库。"""
-    from .user_center.db import UserCenterSessionLocal
-    from .user_center.models import UserAccount
-    
-    uc_db = UserCenterSessionLocal()
-    try:
-        u_acc = uc_db.get(UserAccount, user_id)
-        if u_acc and getattr(u_acc, "active", True):
-            class UserPrincipalCompat:
-                def __init__(self, acc: UserAccount):
-                    self.id = acc.id
-                    self.username = acc.username
-                    self.role = acc.role or "operator"
-                    self.display_name = acc.nickname or acc.username
-                    self.active = bool(getattr(acc, "active", True))
-                    self.avatar_url = acc.avatar_url or "/static/avatars/default.png"
-            return UserPrincipalCompat(u_acc)
-    except Exception:
-        pass
-    finally:
-        uc_db.close()
+def _get_user_by_id(user_id: int, auth_source: str):
+    """从令牌声明的来源数据库读取用户，绝不跨库回退。"""
+    if auth_source == USER_CENTER_SOURCE:
+        from .user_center.db import UserCenterSessionLocal
+        from .user_center.models import UserAccount
 
-    db = SessionLocal()
-    try:
-        return db.query(User).filter(User.id == user_id, User.active == True).first()
-    finally:
-        db.close()
+        uc_db = UserCenterSessionLocal()
+        try:
+            u_acc = uc_db.get(UserAccount, user_id)
+            if u_acc and getattr(u_acc, "active", True):
+                class UserPrincipalCompat:
+                    auth_source = USER_CENTER_SOURCE
+
+                    def __init__(self, acc: UserAccount):
+                        self.id = acc.id
+                        self.username = acc.username
+                        self.role = acc.role or "operator"
+                        self.display_name = acc.nickname or acc.username
+                        self.active = bool(getattr(acc, "active", True))
+                        self.avatar_url = acc.avatar_url or "/static/avatars/default.png"
+                return UserPrincipalCompat(u_acc)
+        finally:
+            uc_db.close()
+        return None
+
+    if auth_source == LEGACY_SOURCE:
+        db = SessionLocal()
+        try:
+            return db.query(User).filter(User.id == user_id, User.active == True).first()
+        finally:
+            db.close()
+    return None
 
 
 def current_user_from_request(request: Request) -> Any | None:
@@ -284,7 +320,7 @@ def current_user_from_request(request: Request) -> Any | None:
         if payload and payload.get("sub"):
             try:
                 user_id = int(payload["sub"])
-                return _get_user_by_id(user_id)
+                return _get_user_by_id(user_id, payload[AUTH_SOURCE_CLAIM])
             except (ValueError, TypeError):
                 pass
 
@@ -292,10 +328,11 @@ def current_user_from_request(request: Request) -> Any | None:
     token = request.cookies.get(COOKIE_NAME)
     if not token:
         return None
-    user_id = _parse_token(token)
-    if user_id is None:
+    parsed = _parse_token(token)
+    if parsed is None:
         return None
-    return _get_user_by_id(user_id)
+    auth_source, user_id = parsed
+    return _get_user_by_id(user_id, auth_source)
 
 
 def login(username: str, password: str) -> Any | None:
@@ -316,6 +353,8 @@ def login(username: str, password: str) -> Any | None:
                 u_acc.updated_at = datetime.now(timezone.utc)
                 uc_db.commit()
                 class UserPrincipalCompat:
+                    auth_source = USER_CENTER_SOURCE
+
                     def __init__(self, acc: UserAccount):
                         self.id = acc.id
                         self.username = acc.username

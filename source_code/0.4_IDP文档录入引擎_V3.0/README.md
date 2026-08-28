@@ -71,13 +71,13 @@ pip install paddleocr paddlepaddle
 初始化 PostgreSQL（数据库需先创建）：
 
 ```powershell
-psql -d chengdu_construction -f database/schema_v3.sql
+psql -d projectrag -f database/schema_v3.sql
 ```
 
 编辑 `.env` 中的 `DATABASE_URL`，然后启动：
 
 ```powershell
-uvicorn app.main:app --host 127.0.0.1 --port 8930
+uvicorn app.main:app --host 127.0.0.1 --port 8933
 ```
 
 健康检查：`GET /health`。
@@ -98,14 +98,19 @@ GRANITE_BASE_URL=http://127.0.0.1:8001/v1
 GRANITE_MODEL=granite-4.2-3b
 GRANITE_MIN_AMOUNT=
 
-DATABASE_URL=postgresql://postgres:password@127.0.0.1:5432/chengdu_construction
+DATABASE_URL=postgresql://yvoche@localhost:5432/projectrag
 STORE_ORIGINALS=1
 IDP_STORAGE_DIR=./storage/originals
+IDP_API_KEY=
+IDP_LOCALHOST_ONLY=1
+IDP_MAX_UPLOAD_BYTES=26214400
 ```
 
 `GRANITE_MIN_AMOUNT` 为空或 `0` 时不使用“金额达到阈值”作为单独触发条件；校验异常和明确风险关键词仍可触发 Granite。金额阈值应由业务制度决定，而不是由代码预设。
 
 `.env` 会在 FastAPI 初始化模型客户端之前自动读取。
+
+API 默认只允许本机回环访问。需要通过反向代理或局域网接入时，必须设置随机的 `IDP_API_KEY`，并在请求中发送 `X-IDP-API-Key`；未配置密钥时不会接受非本机请求。上传默认上限为 25 MiB，可通过 `IDP_MAX_UPLOAD_BYTES` 调整，服务会流式写入临时文件。
 
 ## API
 
@@ -179,6 +184,7 @@ IDP_STORAGE_DIR=./storage/originals
 ```
 
 `approve` 会再次检查业务重复，并写入确认后的 `contracts_v3` / `invoices_v3`；`reject` 会把材料状态转为 `correction`。
+人工批准时，`review_data` 必须匹配合同或发票 Pydantic 模型，未知字段、未知文档类型、无效数字和确定性金额校验错误都会被拒绝。
 
 ## PostgreSQL 分层
 

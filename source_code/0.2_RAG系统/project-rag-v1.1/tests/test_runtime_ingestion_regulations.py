@@ -111,7 +111,7 @@ def test_mount_browser_exposes_only_configured_safe_roots(tmp_path, monkeypatch)
 
 
 def test_regulation_article_route_uses_matching_path_parameter():
-    source = (Path(__file__).resolve().parents[1] / "app" / "main.py").read_text(encoding="utf-8")
+    source = (Path(__file__).resolve().parents[1] / "app" / "legacy_routes.py").read_text(encoding="utf-8")
     assert '@app.post("/api/v1/regulations/{regulation_id}/articles")' in source
     assert '@app.post("/api/v1/regulations/{registration_id}/articles")' not in source
 

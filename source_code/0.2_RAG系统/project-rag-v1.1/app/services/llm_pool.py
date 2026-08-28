@@ -441,15 +441,13 @@ def get_endpoint_catalog(
 
     if table_state == "available" and row_count == 0:
         candidates = []
-        if legacy_endpoint:
-            candidates.append(legacy_endpoint)
-        if local_fallback:
+        if local_fallback and routing_group == DEFAULT_ROUTING_GROUP:
             candidates.append(local_fallback)
         return EndpointCatalog(
             endpoints=tuple(candidates),
             table_state=table_state,
             row_count=row_count,
-            source="legacy_env_fallback" if legacy_endpoint else ("database_with_local_fallback" if local_fallback else "database_configured_empty"),
+            source="database_with_local_fallback" if candidates else "database_configured_empty",
         )
 
     if table_state == "available":

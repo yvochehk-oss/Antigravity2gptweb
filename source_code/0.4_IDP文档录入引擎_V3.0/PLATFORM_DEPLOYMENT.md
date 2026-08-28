@@ -24,7 +24,7 @@ bash START_IDP_MACOS.sh
 2. 首次创建 `.venv`；
 3. 安装/更新 `requirements-v3.txt`；
 4. `.env` 不存在时从 `.env.example` 创建；
-5. 默认在 `127.0.0.1:8930` 启动 IDP。
+5. 默认在 `127.0.0.1:8933` 启动 IDP。
 
 如该机器需要处理扫描件，可在启动前显式安装 OCR：
 
@@ -81,12 +81,17 @@ GRANITE_ENABLED=0
 GRANITE_BASE_URL=http://127.0.0.1:8001/v1
 GRANITE_MIN_AMOUNT=
 
-DATABASE_URL=postgresql://...
+DATABASE_URL=postgresql://yvoche@localhost:5432/projectrag
 STORE_ORIGINALS=1
 IDP_STORAGE_DIR=./storage/originals
+IDP_API_KEY=
+IDP_LOCALHOST_ONLY=1
+IDP_MAX_UPLOAD_BYTES=26214400
 ```
 
-`IDP_HOST` 与 `IDP_PORT` 是启动脚本变量，默认分别为 `127.0.0.1` 和 `8930`。
+`IDP_HOST` 与 `IDP_PORT` 是启动脚本变量，默认分别为 `127.0.0.1` 和 `8933`。
+
+API 默认只允许本机回环访问。通过反向代理或局域网接入前，必须在 `.env` 设置随机的 `IDP_API_KEY`，并使用 `X-IDP-API-Key` 请求头；没有密钥时非本机请求会被拒绝。上传默认上限为 25 MiB，可通过 `IDP_MAX_UPLOAD_BYTES` 调整。
 
 ## 本地模型原则
 
@@ -103,7 +108,7 @@ IDP_STORAGE_DIR=./storage/originals
 初始化示例：
 
 ```text
-psql -d chengdu_construction -f database/schema_v3.sql
+psql -d projectrag -f database/schema_v3.sql
 ```
 
 数据库连接差异只通过 `DATABASE_URL` 表达。
@@ -113,7 +118,7 @@ psql -d chengdu_construction -f database/schema_v3.sql
 启动后检查：
 
 ```text
-GET http://127.0.0.1:8930/health
+GET http://127.0.0.1:8933/health
 ```
 
 测试依赖与回归测试：

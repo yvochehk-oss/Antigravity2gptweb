@@ -4,7 +4,7 @@ from datetime import date
 from decimal import Decimal
 from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 DocumentType = Literal[
@@ -18,13 +18,18 @@ DocumentType = Literal[
 
 
 class Party(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     name: Optional[str] = None
     credit_code: Optional[str] = None
+    tax_id: Optional[str] = None
     address: Optional[str] = None
     legal_representative: Optional[str] = None
 
 
 class PaymentTerm(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     stage: str
     percentage: Optional[Decimal] = None
     amount: Optional[Decimal] = None
@@ -32,6 +37,8 @@ class PaymentTerm(BaseModel):
 
 
 class ContractData(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     contract_no: Optional[str] = None
     contract_name: Optional[str] = None
     party_a: Party = Field(default_factory=Party)
@@ -54,6 +61,8 @@ class ContractData(BaseModel):
 
 
 class InvoiceData(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     invoice_type: Optional[str] = None
     invoice_code: Optional[str] = None
     invoice_no: Optional[str] = None

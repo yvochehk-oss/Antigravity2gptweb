@@ -1,23 +1,26 @@
 #!/usr/bin/env bash
-# 成都建工 V2.0 一键启动：Tax + RAG + PostgreSQL
+# 成都建工 V3.0 一键启动：IDP + Tax + RAG + PostgreSQL
 #
-# 默认启动本地 llama.cpp 保底模型、Tax 与 RAG，不迁移、不 seed、不重置业务数据。
+# 默认启动本地 llama.cpp 保底模型、IDP、Tax 与 RAG，不迁移、不 seed、不重置业务数据。
 # 首次使用或数据库结构变更时显式执行：
 #   ./start_all.sh --migrate
 #
-# 只允许 PostgreSQL；本地 LLM 缺失时明确报告 DEGRADED，但不阻断 Tax/RAG。
+# 只允许 PostgreSQL；本地 LLM 缺失时明确报告 DEGRADED，但不阻断业务服务。
 
 set -Eeuo pipefail
 
-PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 TAX_DIR="$PROJECT_DIR/source_code/0.1_税务管理/gtp_V1.0_FULL/01_当前完整系统_V1.0/chengdu_construction_tax_system_v1_0"
 RAG_DIR="$PROJECT_DIR/source_code/0.2_RAG系统/project-rag-v1.1"
+IDP_DIR="$PROJECT_DIR/source_code/0.4_IDP文档录入引擎_V3.0"
 ROOT_ENV_FILE="$PROJECT_DIR/.env"
 TAX_PID_FILE="$PROJECT_DIR/.tax.pid"
 RAG_PID_FILE="$PROJECT_DIR/.rag.pid"
+IDP_PID_FILE="$PROJECT_DIR/.idp.pid"
 LOCAL_LLM_PID_FILE="$PROJECT_DIR/.local_llm.pid"
 TAX_LOG_FILE="$PROJECT_DIR/tax_runtime.log"
 RAG_LOG_FILE="$PROJECT_DIR/rag_runtime.log"
+IDP_LOG_FILE="$PROJECT_DIR/idp_runtime.log"
 LOCAL_LLM_LOG_FILE="$PROJECT_DIR/local_llm_runtime.log"
 
 # Root .env contains only orchestration/local-LLM settings.  Preserve values
@@ -87,6 +90,12 @@ _RAG_HOST_WAS_SET="${PROJECT_RAG_HOST+x}"
 _RAG_HOST_OVERRIDE="${PROJECT_RAG_HOST-}"
 _RAG_WORKER_WAS_SET="${PROJECT_RAG_AUTO_START_WORKER+x}"
 _RAG_WORKER_OVERRIDE="${PROJECT_RAG_AUTO_START_WORKER-}"
+_IDP_ENABLED_WAS_SET="${IDP_ENABLED+x}"
+_IDP_ENABLED_OVERRIDE="${IDP_ENABLED-}"
+_IDP_HOST_WAS_SET="${IDP_HOST+x}"
+_IDP_HOST_OVERRIDE="${IDP_HOST-}"
+_IDP_PORT_WAS_SET="${IDP_PORT+x}"
+_IDP_PORT_OVERRIDE="${IDP_PORT-}"
 _TAX_RAG_URL_WAS_SET="${TAX_RAG_SERVICE_URL+x}"
 _TAX_RAG_URL_OVERRIDE="${TAX_RAG_SERVICE_URL-}"
 _TAX_FACTS_URL_WAS_SET="${TAX_RAG_V1_FACTS_URL+x}"
@@ -101,14 +110,17 @@ _JWT_SECRET_WAS_SET="${JWT_SECRET_KEY+x}"
 _JWT_SECRET_OVERRIDE="${JWT_SECRET_KEY-}"
 TAX_PORT=""
 RAG_PORT=""
+IDP_PORT=""
 EFFECTIVE_TAX_PORT=""
 EFFECTIVE_RAG_PORT=""
+EFFECTIVE_IDP_PORT=""
 JWT_SECRET_MIN_LENGTH=32
 STARTUP_TIMEOUT_SECONDS="${STARTUP_TIMEOUT_SECONDS:-180}"
 MANAGE_POSTGRES=true
 RUN_MIGRATIONS=false
 STARTED_TAX_PID=""
 STARTED_RAG_PID=""
+STARTED_IDP_PID=""
 STARTED_LOCAL_LLM_PID=""
 LOCAL_LLM_ACTIVE=false
 
@@ -135,6 +147,9 @@ LOCAL_LLM_UBATCH_SIZE="${LOCAL_LLM_UBATCH_SIZE:-256}"
 LOCAL_LLM_GPU_LAYERS="${LOCAL_LLM_GPU_LAYERS:-0}"
 LOCAL_LLM_REASONING="${LOCAL_LLM_REASONING:-off}"
 LOCAL_LLM_STARTUP_TIMEOUT_SECONDS="${LOCAL_LLM_STARTUP_TIMEOUT_SECONDS:-180}"
+IDP_ENABLED="${IDP_ENABLED:-1}"
+IDP_HOST="${IDP_HOST:-127.0.0.1}"
+IDP_PORT="${IDP_PORT:-8933}"
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; NC='\033[0m'
 log()  { echo -e "${GREEN}[start_all]${NC} $1"; }
@@ -145,10 +160,10 @@ usage() {
   cat <<'EOF'
 用法：./start_all.sh [选项]
 
-默认行为：启动本地 llama.cpp 保底模型、Tax 与 RAG，不执行迁移，不执行 seed，不修改业务数据。
+默认行为：启动本地 llama.cpp 保底模型、IDP、Tax 与 RAG，不执行迁移，不执行 seed，不修改业务数据。
 
 选项：
-  --migrate         先执行 Tax Alembic，再执行 RAG Alembic，然后启动服务
+  --migrate         先执行 Tax Alembic、RAG Alembic 和 IDP schema，然后启动服务
   --skip-postgres   不管理 PostgreSQL 进程，但仍要求 PostgreSQL 已就绪
   --no-local-llm    本次启动跳过本地 llama.cpp（等同于 LOCAL_LLM_ENABLED=0）
   --help            显示帮助
@@ -372,12 +387,12 @@ prepare_local_llm_runtime() {
   elif command -v "$LOCAL_LLM_SERVER_BIN" >/dev/null 2>&1; then
     server_bin="$(command -v "$LOCAL_LLM_SERVER_BIN")"
   else
-    warn "LOCAL_LLM_ENABLED=1 但未找到 llama.cpp server：$LOCAL_LLM_SERVER_BIN（Tax/RAG 将继续启动，AI 保底状态为 DEGRADED）"
+    warn "LOCAL_LLM_ENABLED=1 但未找到 llama.cpp server：$LOCAL_LLM_SERVER_BIN（IDP/Tax/RAG 将继续启动，AI 保底状态为 DEGRADED）"
     return 1
   fi
   model="$(resolve_local_llm_model)"
   if [ ! -f "$model" ]; then
-    warn "本地 LLM 模型文件不存在：$model（请先运行 models/local-llm/download_ling3_tiny.sh 或 download_qwen35_2b.sh；Tax/RAG 将继续启动）"
+    warn "本地 LLM 模型文件不存在：$model（请先运行 models/local-llm/download_ling3_tiny.sh 或 download_qwen35_2b.sh；IDP/Tax/RAG 将继续启动）"
     return 1
   fi
   case "$LOCAL_LLM_PORT" in ''|*[!0-9]*) warn "LOCAL_LLM_PORT 必须是数字：$LOCAL_LLM_PORT"; return 1 ;; esac
@@ -415,7 +430,7 @@ prepare_local_llm_slot() {
     rm -f "$LOCAL_LLM_PID_FILE"
   fi
   if port_listening "$LOCAL_LLM_PORT"; then
-    warn "本地 LLM 端口 ${LOCAL_LLM_PORT} 已被占用，跳过本地 LLM（Tax/RAG 将继续启动）"
+    warn "本地 LLM 端口 ${LOCAL_LLM_PORT} 已被占用，跳过本地 LLM（IDP/Tax/RAG 将继续启动）"
     return 1
   fi
 }
@@ -464,7 +479,29 @@ run_migrations_if_requested() {
   (cd "$TAX_DIR" && uv run alembic -c alembic.ini upgrade head)
   log "执行 RAG Alembic 迁移（第二阶段）..."
   (cd "$RAG_DIR" && "$RAG_DIR/.venv/bin/python" -m alembic -c alembic.ini upgrade head)
-  log "Tax → RAG 迁移顺序完成"
+  if idp_is_enabled; then
+    [ -x "$IDP_DIR/.venv/bin/python" ] || die "IDP Python 运行时不存在，无法初始化 IDP schema：$IDP_DIR/.venv/bin/python（请先运行 ./start_all.sh install）"
+    log "执行 IDP schema 初始化（第三阶段）..."
+    "$IDP_DIR/.venv/bin/python" - "$IDP_DIR/database/schema_v3.sql" <<'PY'
+import os
+import sys
+from pathlib import Path
+
+import psycopg
+
+database_url = os.environ.get("DATABASE_URL", "").strip()
+if database_url.startswith("postgresql+psycopg://"):
+    database_url = "postgresql://" + database_url.removeprefix("postgresql+psycopg://")
+if not database_url:
+    raise SystemExit("DATABASE_URL is required for IDP schema initialization")
+schema_path = Path(sys.argv[1])
+with psycopg.connect(database_url) as connection:
+    with connection.cursor() as cursor:
+        cursor.execute(schema_path.read_text(encoding="utf-8"))
+    connection.commit()
+PY
+  fi
+  log "Tax → RAG → IDP 迁移顺序完成"
 }
 
 start_tax() {
@@ -497,6 +534,28 @@ start_rag() {
   log "RAG 已启动（PID ${pid}）；日志：$RAG_LOG_FILE"
 }
 
+idp_is_enabled() {
+  case "${IDP_ENABLED:-1}" in
+    1|true|TRUE|yes|YES|on|ON) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+start_idp() {
+  local port="${1:-}" pid
+  [ -n "$port" ] || die "IDP 端口未解析，拒绝启动"
+  [ -x "$IDP_DIR/.venv/bin/python" ] || die "IDP Python 运行时不存在：$IDP_DIR/.venv/bin/python（请先运行 ./start_all.sh install）"
+  log "启动 IDP（端口 ${port}）..."
+  (
+    cd "$IDP_DIR"
+    exec nohup "$IDP_DIR/.venv/bin/python" -m uvicorn app.main:app --host "$IDP_HOST" --port "$port"
+  ) >"$IDP_LOG_FILE" 2>&1 < /dev/null &
+  pid=$!
+  echo "$pid" > "$IDP_PID_FILE"
+  STARTED_IDP_PID="$pid"
+  log "IDP 已启动（PID ${pid}）；日志：$IDP_LOG_FILE"
+}
+
 stop_started_process() {
   local pid="${1:-}"
   if pid_alive "$pid"; then
@@ -521,6 +580,10 @@ cleanup_on_failure() {
     if [ -n "$STARTED_RAG_PID" ]; then
       stop_started_process "$STARTED_RAG_PID"
       remove_owned_pid_file "$RAG_PID_FILE" "$STARTED_RAG_PID"
+    fi
+    if [ -n "$STARTED_IDP_PID" ]; then
+      stop_started_process "$STARTED_IDP_PID"
+      remove_owned_pid_file "$IDP_PID_FILE" "$STARTED_IDP_PID"
     fi
     if [ -n "$STARTED_TAX_PID" ]; then
       stop_started_process "$STARTED_TAX_PID"
@@ -591,7 +654,12 @@ wait_for_health() {
   local deadline=$((SECONDS + STARTUP_TIMEOUT_SECONDS))
   local body pid log_file
   command -v curl >/dev/null 2>&1 || die "未找到 curl，无法执行健康检查"
-  if [ "$name" = "Tax" ]; then log_file="$TAX_LOG_FILE"; else log_file="$RAG_LOG_FILE"; fi
+  case "$name" in
+    Tax) log_file="$TAX_LOG_FILE" ;;
+    RAG) log_file="$RAG_LOG_FILE" ;;
+    IDP) log_file="$IDP_LOG_FILE" ;;
+    *) die "未知健康检查服务：$name" ;;
+  esac
   while [ "$SECONDS" -lt "$deadline" ]; do
     pid="$(tr -d '[:space:]' < "$pid_file" 2>/dev/null || :)"
     if ! pid_alive "$pid"; then
@@ -635,6 +703,15 @@ raise SystemExit(0 if healthy else 1)
 '
     return $?
   fi
+  if [ "$name" = "IDP" ]; then
+    printf '%s' "$body" | python3 -c '
+import json, sys
+data = json.load(sys.stdin)
+healthy = data.get("status") == "ok" and data.get("database_configured") is True and data.get("database_ok") is True
+raise SystemExit(0 if healthy else 1)
+'
+    return $?
+  fi
   printf '%s' "$body" | python3 -c '
 import json, sys
 data = json.load(sys.stdin)
@@ -647,7 +724,7 @@ raise SystemExit(0 if healthy else 1)
 '
 }
 
-log "=== 成都建工 V2.0 启动 ==="
+log "=== 成都建工 V3.0 启动 ==="
 # Keep the caller's JWT override separate from dotenv loading.  When no
 # caller value exists, clear the value between files so a missing key in one
 # service cannot be accidentally inherited from the other service's .env.
@@ -668,6 +745,8 @@ resolve_shared_jwt_secret "$_TAX_JWT_SECRET_CONFIGURED" "$_RAG_JWT_SECRET_CONFIG
 if [ "$_RAG_PORT_WAS_SET" = x ]; then RAG_PORT="$_RAG_PORT_OVERRIDE"; else RAG_PORT="${PROJECT_RAG_PORT:-8922}"; fi
 EFFECTIVE_TAX_PORT="$TAX_PORT"
 EFFECTIVE_RAG_PORT="$RAG_PORT"
+if [ "$_IDP_PORT_WAS_SET" = x ]; then IDP_PORT="$_IDP_PORT_OVERRIDE"; else IDP_PORT="${IDP_PORT:-8933}"; fi
+EFFECTIVE_IDP_PORT="$IDP_PORT"
 if [ "$_DATABASE_URL_WAS_SET" = x ]; then export DATABASE_URL="$_DATABASE_URL_OVERRIDE"; fi
 if [ "$_RAG_DB_URL_WAS_SET" = x ]; then export PROJECT_RAG_DB_URL="$_RAG_DB_URL_OVERRIDE"; fi
 if [ "$_RAG_HOST_WAS_SET" = x ]; then export PROJECT_RAG_HOST="$_RAG_HOST_OVERRIDE"; fi
@@ -676,6 +755,9 @@ if [ "$_TAX_RAG_URL_WAS_SET" = x ]; then export TAX_RAG_SERVICE_URL="$_TAX_RAG_U
 if [ "$_TAX_FACTS_URL_WAS_SET" = x ]; then export TAX_RAG_V1_FACTS_URL="$_TAX_FACTS_URL_OVERRIDE"; fi
 if [ "$_APP_ENV_WAS_SET" = x ]; then export APP_ENV="$_APP_ENV_OVERRIDE"; fi
 if [ "$_SHARED_KEY_WAS_SET" = x ]; then export RAG_SHARED_API_KEY="$_SHARED_KEY_OVERRIDE"; fi
+if [ "$_IDP_ENABLED_WAS_SET" = x ]; then export IDP_ENABLED="$_IDP_ENABLED_OVERRIDE"; fi
+if [ "$_IDP_HOST_WAS_SET" = x ]; then export IDP_HOST="$_IDP_HOST_OVERRIDE"; fi
+if [ "$_IDP_PORT_WAS_SET" = x ]; then export IDP_PORT="$_IDP_PORT_OVERRIDE"; fi
 resolve_shared_service_key
 
 # Used by the repository's static/subprocess contract tests.  It validates
@@ -690,7 +772,7 @@ fi
 if local_llm_is_enabled; then
   if ! start_local_llm; then
     LOCAL_LLM_ACTIVE=false
-    warn "本地 llama.cpp 未启动；继续启动 Tax/RAG，AI 本地保底状态为 DEGRADED"
+    warn "本地 llama.cpp 未启动；继续启动 IDP/Tax/RAG，AI 本地保底状态为 DEGRADED"
   elif ! wait_for_local_llm; then
     LOCAL_LLM_ACTIVE=false
     if [ -n "$STARTED_LOCAL_LLM_PID" ]; then
@@ -698,7 +780,7 @@ if local_llm_is_enabled; then
       remove_owned_pid_file "$LOCAL_LLM_PID_FILE" "$STARTED_LOCAL_LLM_PID"
       STARTED_LOCAL_LLM_PID=""
     fi
-    warn "本地 llama.cpp 未达到健康状态；继续启动 Tax/RAG，AI 本地保底状态为 DEGRADED"
+    warn "本地 llama.cpp 未达到健康状态；继续启动 IDP/Tax/RAG，AI 本地保底状态为 DEGRADED"
   fi
 else
   log "LOCAL_LLM_ENABLED=0，跳过本地 llama.cpp"
@@ -707,19 +789,35 @@ configure_rag_local_llm_fallback
 
 prepare_service_slot "Tax" "$TAX_PID_FILE" "$EFFECTIVE_TAX_PORT"
 prepare_service_slot "RAG" "$RAG_PID_FILE" "$EFFECTIVE_RAG_PORT"
+if idp_is_enabled; then
+  prepare_service_slot "IDP" "$IDP_PID_FILE" "$EFFECTIVE_IDP_PORT"
+else
+  log "IDP_ENABLED=0，跳过 IDP"
+fi
 start_postgres_and_wait
 prepare_tax_runtime
 prepare_rag_runtime
 run_migrations_if_requested
 start_tax "$EFFECTIVE_TAX_PORT"
 start_rag "$EFFECTIVE_RAG_PORT"
+if idp_is_enabled; then
+  start_idp "$EFFECTIVE_IDP_PORT"
+fi
 wait_for_health "RAG" "$RAG_PID_FILE" "$EFFECTIVE_RAG_PORT" "http://127.0.0.1:${EFFECTIVE_RAG_PORT}/api/v1/health"
 wait_for_health "Tax" "$TAX_PID_FILE" "$EFFECTIVE_TAX_PORT" "http://127.0.0.1:${EFFECTIVE_TAX_PORT}/healthz"
+if idp_is_enabled; then
+  wait_for_health "IDP" "$IDP_PID_FILE" "$EFFECTIVE_IDP_PORT" "http://127.0.0.1:${EFFECTIVE_IDP_PORT}/health"
+fi
 
 trap - EXIT
 log "=== 全部服务已启动且健康 ==="
 echo "  Tax : http://127.0.0.1:${EFFECTIVE_TAX_PORT}"
 echo "  RAG : http://127.0.0.1:${EFFECTIVE_RAG_PORT}"
+if idp_is_enabled; then
+  echo "  IDP : http://${IDP_HOST}:${EFFECTIVE_IDP_PORT}"
+else
+  echo "  IDP : disabled"
+fi
 if [ "$LOCAL_LLM_ACTIVE" = true ]; then
   echo "  Local LLM : http://${LOCAL_LLM_HOST}:${LOCAL_LLM_PORT}/v1 (model=${LOCAL_LLM_ALIAS})"
 else

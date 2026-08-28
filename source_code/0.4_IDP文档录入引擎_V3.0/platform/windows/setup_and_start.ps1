@@ -42,7 +42,7 @@ if ($InstallOcr -in @("1", "true", "yes", "on")) {
 
 $IdpHost = "127.0.0.1"
 if ($env:IDP_HOST) { $IdpHost = $env:IDP_HOST }
-$IdpPort = "8930"
+$IdpPort = "8933"
 if ($env:IDP_PORT) { $IdpPort = $env:IDP_PORT }
 
 Write-Host "Starting Chengdu Construction IDP V3 on http://$IdpHost`:$IdpPort"

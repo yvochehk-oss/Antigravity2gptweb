@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 成都建工 V2.0 runtime dispatcher.
+# 成都建工 V3.0 runtime dispatcher.
 set -Eeuo pipefail
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RUNTIME_DIR="$PROJECT_DIR/scripts/runtime"
@@ -9,10 +9,10 @@ usage() {
 用法：./start_all.sh [start|migrate|install|health] [选项]
 
 默认：start
-  start             启动本地 LLM、Tax、RAG（兼容原默认行为）
+  start             启动本地 LLM、IDP、Tax、RAG（兼容原默认行为）
   migrate           先迁移，再启动（兼容原 --migrate）
-  install           安装/同步 Tax、RAG、Boss 开发依赖
-  health            只检查已运行的 Tax/RAG 健康端点
+  install           安装/同步 Tax、RAG、IDP、Boss 开发依赖
+  health            只检查已运行的 IDP/Tax/RAG 健康端点
 
 兼容旧参数：
   --migrate         等同 migrate

@@ -6,7 +6,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def test_postgres_lexical_path_is_indexed_and_never_scans_corpus_in_python():
     source = (ROOT / "app" / "services" / "indexed_retrieval.py").read_text(encoding="utf-8")
-    migration = (ROOT / "alembic" / "versions" / "017_lexical_trigram_index.py").read_text(encoding="utf-8")
+    migration = (ROOT / "alembic" / "versions" / "018_lexical_trigram_index.py").read_text(encoding="utf-8")
     package = (ROOT / "app" / "services" / "__init__.py").read_text(encoding="utf-8")
 
     assert "gin_trgm_ops" in migration

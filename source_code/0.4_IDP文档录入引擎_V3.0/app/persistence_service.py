@@ -153,11 +153,16 @@ def supersede_pending_reviews(
         return int(updated or 0)
 
 
-def validate_stored_path(document: Dict[str, Any]) -> Path:
+def validate_stored_path(document: Dict[str, Any], storage_root: str | Path) -> Path:
     path_value = str(document.get("file_path") or "").strip()
     if not path_value:
         raise FileNotFoundError("stored_original_not_available")
-    path = Path(path_value)
+    root = Path(storage_root).expanduser().resolve()
+    path = Path(path_value).expanduser().resolve()
+    try:
+        path.relative_to(root)
+    except ValueError as exc:
+        raise FileNotFoundError("stored_original_outside_storage_root") from exc
     if not path.is_file():
         raise FileNotFoundError(f"stored_original_not_found: {path}")
     return path

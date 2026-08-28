@@ -225,6 +225,7 @@ def test_dashboard_project_stats_contract_is_non_negative_and_balanced(main_modu
     captured = {}
 
     monkeypatch.setattr(main_module, "get_db", lambda: _DbContext(session))
+    monkeypatch.setattr(main_module._legacy, "get_db", lambda: _DbContext(session))
     monkeypatch.setattr(main_module, "_canonical_entity_views", lambda db: [])
     monkeypatch.setattr(main_module, "mineru_available", lambda: False)
     monkeypatch.setattr(main_module, "get_worker_status", lambda: {})
@@ -249,16 +250,20 @@ def test_monitor_api_returns_json_instead_of_integer_path_validation_error(
     main_module, monkeypatch
 ):
     from app.auth import require_web_or_service_read
+    from app.legacy_routes import get_db
 
     session = _Session(
         {"RUNNING": 0, "QUEUED": 3, "RETRY": 2, "FAILED": 1},
         None,
     )
     monkeypatch.setattr(main_module, "get_db", lambda: _DbContext(session))
+    monkeypatch.setattr(main_module._legacy, "get_db", lambda: _DbContext(session))
+    main_module.app.dependency_overrides[get_db] = lambda: session
     main_module.app.dependency_overrides[require_web_or_service_read] = lambda: object()
     try:
         response = TestClient(main_module.app).get("/api/v1/jobs/active")
     finally:
+        main_module.app.dependency_overrides.pop(get_db, None)
         main_module.app.dependency_overrides.pop(require_web_or_service_read, None)
 
     assert response.status_code == 200

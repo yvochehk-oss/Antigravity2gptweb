@@ -37,7 +37,7 @@ case "${IDP_INSTALL_OCR:-0}" in
 esac
 
 IDP_HOST="${IDP_HOST:-127.0.0.1}"
-IDP_PORT="${IDP_PORT:-8930}"
+IDP_PORT="${IDP_PORT:-8933}"
 
 echo "Starting Chengdu Construction IDP V3 on http://${IDP_HOST}:${IDP_PORT}"
 echo "Ling is optional at runtime failure boundaries; Granite remains disabled unless GRANITE_ENABLED=1."
