@@ -1193,3 +1193,12 @@ export async function askProjectAi(projectId: number, question: string, endpoint
     metadata: extractAiExecutionMetadata(payload),
   };
 }
+
+export async function resolveRisk(riskId: string | number, signal?: AbortSignal): Promise<{ status: string; message: string }> {
+  return await postJson<{ status: string; message: string }>(
+    `/api/risks/${riskId}/resolve`,
+    {},
+    signal
+  );
+}
+

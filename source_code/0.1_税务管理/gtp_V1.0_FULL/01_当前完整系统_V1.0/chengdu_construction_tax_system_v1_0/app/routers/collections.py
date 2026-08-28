@@ -604,6 +604,47 @@ def risk_collection(
         db.close()
 
 
+@router.post(
+    "/api/risks/{risk_id}/resolve",
+    summary="完成风险闭环整改",
+)
+def resolve_risk_endpoint(
+    risk_id: int,
+    _user=_reader_dependency,
+) -> dict[str, Any]:
+    db = SessionLocal()
+    try:
+        risk = db.get(RiskEvent, risk_id)
+        if not risk:
+            raise HTTPException(status_code=404, detail="未找到指定的风险事件")
+        risk.resolved = True
+        actor = getattr(_user, "username", "operator") if hasattr(_user, "username") else "operator"
+        db.add(AuditLog(
+            actor=actor,
+            action="RESOLVE_RISK",
+            object_type="RiskEvent",
+            object_id=str(risk_id),
+            message=f"已成功完成风险事件【{risk.code}】的闭环整改。",
+        ))
+        db.commit()
+        return {
+            "status": "success",
+            "message": f"风险事件 #{risk_id} 已成功完成闭环整改！",
+            "risk_id": risk_id,
+            "resolved": True,
+        }
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:
+        db.rollback()
+        _LOGGER.exception("resolve risk failed")
+        raise HTTPException(status_code=500, detail=f"处置失败：{exc}")
+    finally:
+        db.close()
+
+
+
 def _project_entity_codes(db: Session, project_id: int) -> set[str]:
     codes = set(
         db.execute(
