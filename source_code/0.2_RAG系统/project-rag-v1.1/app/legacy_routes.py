@@ -18,6 +18,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 from sqlalchemy import and_, case, func, or_, select
+from sqlalchemy.orm import defer
 from sqlalchemy import delete as sa_delete
 
 from .auth import (
@@ -1645,7 +1646,7 @@ def web_regulations(
     role_filter = category_aliases.get(requested_role, "")
     category_meta = {"construction": {"order": 1, "label": "建筑施工业务角色", "badge": "badge-cyan"}, "trade": {"order": 2, "label": "商贸物资业务角色", "badge": "badge-emerald"}, "labor": {"order": 3, "label": "建筑劳务业务角色", "badge": "badge-purple"}, "equipment": {"order": 4, "label": "工程设备业务角色", "badge": "badge-amber"}, "national_vat": {"order": 5, "label": "国家增值税", "badge": "badge-cyan"}, "national_other": {"order": 6, "label": "国家其他税", "badge": "badge-cyan"}, "sichuan": {"order": 7, "label": "四川省规定", "badge": "badge-emerald"}, "chengdu": {"order": 8, "label": "成都市公告", "badge": "badge-amber"}}
     with get_db() as db:
-        stmt = select(Regulation)
+        stmt = select(Regulation).options(defer(Regulation.full_text))
         if q:
             stmt = stmt.where((Regulation.title.ilike(f"%{q}%")) | (Regulation.document_no.ilike(f"%{q}%")) | (Regulation.full_text.ilike(f"%{q}%")))
         if level:
@@ -1655,7 +1656,7 @@ def web_regulations(
         if status:
             stmt = stmt.where(Regulation.status.ilike(f"%{status}%"))
         raw_regs = db.execute(stmt).scalars().all()
-        all_raw_regs = db.execute(select(Regulation)).scalars().all()
+        all_raw_regs = db.execute(select(Regulation).options(defer(Regulation.full_text))).scalars().all()
         counts = {"all": len(all_raw_regs), "construction": 0, "trade": 0, "labor": 0, "equipment": 0, "national": 0, "sichuan": 0, "chengdu": 0, "valid": 0, "partial": 0}
         for r in all_raw_regs:
             cat = "national_other"
