@@ -90,19 +90,19 @@ def parse_entities_from_excel(file_bytes: bytes) -> list[dict[str, Any]]:
         for r_idx, row in enumerate(rows[:10]):
             row_str = [str(c or "").strip() for c in row]
             for c_idx, cell in enumerate(row_str):
-                if any(k in cell for k in ("代码", "主体代码", "单位代码", "编号")):
-                    col_map["code"] = c_idx
-                elif any(k in cell for k in ("全称", "单位名称", "企业名称", "公司名称", "名称")):
-                    col_map["name"] = c_idx
-                elif any(k in cell for k in ("简称", "企业简称", "主体简称")):
-                    col_map["short_name"] = c_idx
-                elif any(k in cell for k in ("税号", "统一社会信用代码", "纳税人识别号", "信用代码")):
+                if any(k in cell for k in ("统一社会信用代码", "纳税人识别号", "税号", "信用代码")):
                     col_map["tax_id"] = c_idx
-                elif any(k in cell for k in ("角色", "业务角色", "业务类型", "类别", "分类")):
+                elif any(k in cell for k in ("单位全称", "企业全称", "公司全称", "全称", "单位名称", "企业名称", "公司名称", "名称")):
+                    col_map["name"] = c_idx
+                elif any(k in cell for k in ("企业简称", "主体简称", "单位简称", "简称")):
+                    col_map["short_name"] = c_idx
+                elif any(k in cell for k in ("主体代码", "单位代码", "企业代码", "代码", "编号", "序号")):
+                    col_map["code"] = c_idx
+                elif any(k in cell for k in ("业务角色", "角色", "业务类型", "分类", "类别")):
                     col_map["role"] = c_idx
-                elif any(k in cell for k in ("法人", "法定代表人", "负责人")):
+                elif any(k in cell for k in ("法定代表人", "法人代表", "法人", "负责人")):
                     col_map["legal_rep"] = c_idx
-                elif any(k in cell for k in ("注册资本", "资本", "注册资金")):
+                elif any(k in cell for k in ("注册资本", "注册资金", "资本")):
                     col_map["capital"] = c_idx
                 elif any(k in cell for k in ("成立日期", "成立时间", "注册日期")):
                     col_map["date"] = c_idx
@@ -172,19 +172,19 @@ def parse_entities_from_docx(file_bytes: bytes) -> list[dict[str, Any]]:
         headers = [c.text.strip() for c in table.rows[0].cells]
         col_map = {}
         for c_idx, cell in enumerate(headers):
-            if any(k in cell for k in ("代码", "编号")):
-                col_map["code"] = c_idx
-            elif any(k in cell for k in ("全称", "单位名称", "企业名称", "公司名称", "名称")):
-                col_map["name"] = c_idx
-            elif any(k in cell for k in ("简称", "企业简称")):
-                col_map["short_name"] = c_idx
-            elif any(k in cell for k in ("税号", "统一社会信用代码", "纳税人识别号")):
+            if any(k in cell for k in ("统一社会信用代码", "纳税人识别号", "税号", "信用代码")):
                 col_map["tax_id"] = c_idx
-            elif any(k in cell for k in ("角色", "业务类型", "类别")):
+            elif any(k in cell for k in ("单位全称", "企业全称", "公司全称", "全称", "单位名称", "企业名称", "公司名称", "名称")):
+                col_map["name"] = c_idx
+            elif any(k in cell for k in ("企业简称", "主体简称", "单位简称", "简称")):
+                col_map["short_name"] = c_idx
+            elif any(k in cell for k in ("主体代码", "单位代码", "企业代码", "代码", "编号", "序号")):
+                col_map["code"] = c_idx
+            elif any(k in cell for k in ("业务角色", "角色", "业务类型", "类别", "分类")):
                 col_map["role"] = c_idx
-            elif any(k in cell for k in ("法人", "法定代表人")):
+            elif any(k in cell for k in ("法定代表人", "法人代表", "法人", "负责人")):
                 col_map["legal_rep"] = c_idx
-            elif any(k in cell for k in ("注册资本", "资本")):
+            elif any(k in cell for k in ("注册资本", "注册资金", "资本")):
                 col_map["capital"] = c_idx
 
         for row in table.rows[1:]:
