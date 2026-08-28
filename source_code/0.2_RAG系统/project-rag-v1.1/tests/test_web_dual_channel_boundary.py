@@ -56,6 +56,8 @@ def _app() -> FastAPI:
         "/api/v1/regulations/save-custom",
         "/api/v1/regulations/ai-parse-url",
         "/api/v1/regulations/ai-parse-file",
+        "/api/v1/regulations/batch-import-dir",
+        "/api/v1/regulations/pkulaw-sync",
         "/api/v1/mounts/scan",
     ):
         app.add_api_route(path, write, methods=["POST"])
@@ -101,6 +103,8 @@ def test_compatibility_get_supports_cookie_or_service_key(path):
         "/api/v1/regulations/save-custom",
         "/api/v1/regulations/ai-parse-url",
         "/api/v1/regulations/ai-parse-file",
+        "/api/v1/regulations/batch-import-dir",
+        "/api/v1/regulations/pkulaw-sync",
         "/api/v1/mounts/scan",
     ],
 )

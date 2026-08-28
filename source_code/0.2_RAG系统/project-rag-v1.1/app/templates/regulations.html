@@ -11,16 +11,24 @@
     <h1 style="margin: 0;">⚖️ 涉税法律法规与实操指引知识库</h1>
   </div>
 
-  <!-- 右侧并列操作区：AI 录入按钮 + 统计徽章 (强制右浮动对齐) -->
-  <div style="display: flex; align-items: center; gap: 14px; flex-shrink: 0;">
-    <button onclick="openCustomRegModal()" class="btn btn-primary" style="display: inline-flex; align-items: center; gap: 8px; padding: 10px 22px; font-size: 15px; font-weight: 700; border-radius: 8px; box-shadow: 0 4px 20px rgba(56, 189, 248, 0.35); background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%); border: 1px solid rgba(56, 189, 248, 0.5); cursor: pointer; transition: all 0.2s ease;">
-      <span style="font-size: 18px; line-height: 1;">➕</span>
-      <span>AI 录入与联网核验法规</span>
+  <!-- 右侧并列操作区：AI 录入按钮 + 目录批量导入 + 北大法宝同步 + 统计徽章 -->
+  <div style="display: flex; align-items: center; gap: 10px; flex-shrink: 0; flex-wrap: wrap;">
+    <button onclick="openCustomRegModal('dir')" class="btn btn-secondary" style="display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; font-size: 14px; font-weight: 600; border-radius: 8px; border: 1px solid rgba(56, 189, 248, 0.4); cursor: pointer;">
+      <span>📁</span>
+      <span>目录批量导入</span>
+    </button>
+    <button onclick="openCustomRegModal('pkulaw')" class="btn btn-secondary" style="display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; font-size: 14px; font-weight: 600; border-radius: 8px; border: 1px solid rgba(56, 189, 248, 0.4); color: #38bdf8; cursor: pointer;">
+      <span>⚖️</span>
+      <span>北大法宝同步</span>
+    </button>
+    <button onclick="openCustomRegModal('file')" class="btn btn-primary" style="display: inline-flex; align-items: center; gap: 6px; padding: 8px 18px; font-size: 14px; font-weight: 700; border-radius: 8px; box-shadow: 0 4px 15px rgba(56, 189, 248, 0.3); background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%); border: 1px solid rgba(56, 189, 248, 0.5); cursor: pointer;">
+      <span style="font-size: 16px; line-height: 1;">➕</span>
+      <span>AI 录入与核验</span>
     </button>
     
-    <span class="badge badge-emerald" style="font-size: 13px; padding: 9px 16px; font-weight: 600; border-radius: 8px; border: 1px solid rgba(16, 185, 129, 0.3); display: inline-flex; align-items: center; gap: 6px;">
+    <span class="badge badge-emerald" style="font-size: 12px; padding: 8px 14px; font-weight: 600; border-radius: 8px; border: 1px solid rgba(16, 185, 129, 0.3); display: inline-flex; align-items: center; gap: 6px;">
       <span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #10b981;"></span>
-      <span>已收录 {{ counts.all }} 份涉税法规与指引（100% 结构化入库）</span>
+      <span>已收录 {{ counts.all }} 份涉税法规（100% 结构化入库）</span>
     </span>
   </div>
 </div>
@@ -506,9 +514,10 @@
   });
 
   // ==================== 手工录入与联网核验逻辑 ====================
-  function openCustomRegModal() {
+  function openCustomRegModal(tab = 'file') {
     document.getElementById('customRegModal').style.display = 'flex';
     document.getElementById('verifyResultPanel').style.display = 'none';
+    switchIntakeTab(tab);
   }
 
   function closeCustomRegModal() {
@@ -648,15 +657,21 @@
     </div>
 
     <!-- 摄入模式 Tab 切换 -->
-    <div style="display: flex; gap: 10px; margin-bottom: 18px; background: rgba(255,255,255,0.03); padding: 4px; border-radius: 8px; border: 1px solid var(--border-subtle);">
-      <button onclick="switchIntakeTab('file')" id="tab_btn_file" class="btn btn-sm btn-primary" style="flex: 1; justify-content: center;">
-        📄 上传 PDF / 图片 / 扫描件文件
+    <div style="display: flex; gap: 6px; margin-bottom: 18px; background: rgba(255,255,255,0.03); padding: 4px; border-radius: 8px; border: 1px solid var(--border-subtle); flex-wrap: wrap;">
+      <button onclick="switchIntakeTab('file')" id="tab_btn_file" class="btn btn-sm btn-primary" style="flex: 1; min-width: 140px; justify-content: center;">
+        📄 上传单文件
       </button>
-      <button onclick="switchIntakeTab('url')" id="tab_btn_url" class="btn btn-sm btn-secondary" style="flex: 1; justify-content: center;">
-        🌐 抓取政务公示网页 URL
+      <button onclick="switchIntakeTab('dir')" id="tab_btn_dir" class="btn btn-sm btn-secondary" style="flex: 1; min-width: 160px; justify-content: center; font-weight: 700;">
+        📁 本地目录批量导入
       </button>
-      <button onclick="switchIntakeTab('text')" id="tab_btn_text" class="btn btn-sm btn-secondary" style="flex: 1; justify-content: center;">
-        ✍️ 直接粘贴 / 手工精细录入
+      <button onclick="switchIntakeTab('pkulaw')" id="tab_btn_pkulaw" class="btn btn-sm btn-secondary" style="flex: 1; min-width: 160px; justify-content: center; font-weight: 700; color: #38bdf8;">
+        ⚖️ 北大法宝 API 同步
+      </button>
+      <button onclick="switchIntakeTab('url')" id="tab_btn_url" class="btn btn-sm btn-secondary" style="flex: 1; min-width: 140px; justify-content: center;">
+        🌐 抓取政务 URL
+      </button>
+      <button onclick="switchIntakeTab('text')" id="tab_btn_text" class="btn btn-sm btn-secondary" style="flex: 1; min-width: 140px; justify-content: center;">
+        ✍️ 手工精细录入
       </button>
     </div>
 
@@ -693,6 +708,163 @@
       </div>
       <div style="font-size: 11px; color: var(--text-muted); margin-top: 6px;">
         系统将自动提取正文、清洗 HTML、识别发文字号与发布部门，并进行法条序号连续性自检。
+      </div>
+    </div>
+
+    <!-- 模式 C：本地目录一键批量导入区 -->
+    <div id="panel_intake_dir" style="display: none; margin-bottom: 18px;">
+      <div style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 18px;">
+        <div style="font-size: 13px; font-weight: 700; color: var(--text-primary); margin-bottom: 8px; display: flex; align-items: center; gap: 6px;">
+          <span>📁</span> 一键指定本地目录，全自动扫描解析并批量入库
+        </div>
+        <div style="display: flex; gap: 8px; margin-bottom: 10px;">
+          <input id="batch_dir_path" class="form-input font-mono" style="flex: 1;" placeholder="请输入本地/服务器法规文件夹绝对路径 (例如: /Users/yvoche/.../regulations_data)">
+          <button onclick="browseDirForBatch()" class="btn btn-secondary" type="button" style="flex-shrink: 0;">📂 浏览目录</button>
+        </div>
+        
+        <!-- 常用预填目录 -->
+        <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; align-items: center;">
+          <span style="font-size: 12px; color: var(--text-muted);">常用快捷目录:</span>
+          <button type="button" onclick="setBatchDir('regulations_data')" class="btn btn-sm btn-secondary" style="font-size: 11px; padding: 3px 10px;">📂 系统内置法规库 (regulations_data)</button>
+          <button type="button" onclick="setBatchDir('data/regulations_pkulaw')" class="btn btn-sm btn-secondary" style="font-size: 11px; padding: 3px 10px;">📂 北大法宝本地同步库 (data/regulations_pkulaw)</button>
+        </div>
+
+        <div style="display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.25); padding: 10px 14px; border-radius: 6px; margin-bottom: 14px; flex-wrap: wrap; gap: 10px;">
+          <label style="display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-primary); cursor: pointer;">
+            <input type="checkbox" id="batch_dir_recursive" checked>
+            <span>递归扫描所有子目录（支持 .md, .pdf, .docx, .txt 文件）</span>
+          </label>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span style="font-size: 12px; color: var(--text-muted);">默认业务角色:</span>
+            <select id="batch_dir_role" class="form-input" style="padding: 4px 8px; font-size: 12px;">
+              <option value="construction">🏗️ A 建筑施工</option>
+              <option value="trade">📦 B 商贸物资</option>
+              <option value="labor">👷 C 建筑劳务</option>
+              <option value="equipment">🚜 D 机械租赁</option>
+              <option value="national_vat">🇨🇳 国家增值税通用</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- 目录树状选择浮层 -->
+        <div id="dir_tree_picker" style="display: none; background: #0f172a; border: 1px solid var(--border-subtle); border-radius: 6px; padding: 12px; margin-bottom: 14px; max-height: 180px; overflow-y: auto;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; font-size: 12px; color: var(--accent-cyan); border-bottom: 1px solid var(--border-subtle); padding-bottom: 4px;">
+            <span id="tree_current_path">当前路径: /</span>
+            <button type="button" onclick="closeTreePicker()" class="btn btn-sm btn-secondary" style="padding: 2px 8px; font-size: 11px;">关闭</button>
+          </div>
+          <div id="tree_dirs_list" style="display: flex; flex-direction: column; gap: 4px;"></div>
+        </div>
+
+        <div style="text-align: right;">
+          <button id="btnStartBatchImport" onclick="startBatchDirImport()" class="btn btn-primary" style="display: inline-flex; align-items: center; gap: 8px; padding: 9px 24px; box-shadow: 0 4px 15px rgba(56, 189, 248, 0.25);">
+            <span>🚀 开始一键批量扫描并智能入库</span>
+          </button>
+        </div>
+
+        <div id="batchImportResultPanel" style="display: none; margin-top: 14px; background: rgba(0,0,0,0.4); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 14px;"></div>
+      </div>
+    </div>
+
+    <!-- 模式 D：北大法宝 API 智能同步区 -->
+    <div id="panel_intake_pkulaw" style="display: none; margin-bottom: 18px;">
+      <div style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 18px;">
+        
+        <div style="font-size: 13px; font-weight: 700; color: #38bdf8; margin-bottom: 8px; display: flex; align-items: center; gap: 6px;">
+          <span>⚖️</span> 北大法宝 (PKULaw) 开放平台 API 智能同步
+        </div>
+
+        <!-- API Token 输入 -->
+        <div style="margin-bottom: 14px;">
+          <label style="font-size: 12px; color: var(--text-muted); display: block; margin-bottom: 4px;">
+            北大法宝 Bearer Token <span style="color: var(--accent-cyan); font-size: 11px;">(如为空则自动使用环境变量 PKULAW_TOKEN 或内置权威法律库)</span>
+          </label>
+          <input id="pkulaw_api_key" class="form-input font-mono" style="width: 100%;" placeholder="请输入北大法宝 API Token (例如: eyJhbGciOi...)">
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px;">
+          <!-- 地区选择 -->
+          <div>
+            <label style="font-size: 12px; color: var(--text-muted); display: block; margin-bottom: 4px;">🌐 管辖地域</label>
+            <select id="pkulaw_jurisdiction" class="form-input" style="width: 100%;">
+              <option value="全国" selected>🇨🇳 全国 (中央法规库)</option>
+              <option value="四川省">🏔️ 四川省 (地方性法规/规章)</option>
+              <option value="成都市">🏙️ 成都市 (地方性规范文件)</option>
+              <option value="地方">🌐 地方其他省市</option>
+            </select>
+          </div>
+
+          <!-- 时效与条数限制 -->
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+            <div>
+              <label style="font-size: 12px; color: var(--text-muted); display: block; margin-bottom: 4px;">⚡ 时效状态</label>
+              <select id="pkulaw_timeliness" class="form-input" style="width: 100%;">
+                <option value="现行有效" selected>🟢 现行有效</option>
+                <option value="全部">全部状态</option>
+              </select>
+            </div>
+            <div>
+              <label style="font-size: 12px; color: var(--text-muted); display: block; margin-bottom: 4px;">🔢 同步数量</label>
+              <select id="pkulaw_limit" class="form-input" style="width: 100%;">
+                <option value="10">10 篇</option>
+                <option value="20" selected>20 篇</option>
+                <option value="50">50 篇</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- 法规种类多选 -->
+        <div style="margin-bottom: 14px;">
+          <label style="font-size: 12px; color: var(--text-muted); display: block; margin-bottom: 6px;">
+            🏷️ 法规业务种类 / 涉税专题 (可多选)
+          </label>
+          <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+            <label style="display: flex; align-items: center; gap: 6px; background: rgba(255,255,255,0.05); padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; border: 1px solid var(--border-subtle);">
+              <input type="checkbox" name="pkulaw_cat" value="建筑" checked>
+              <span>🏗️ 建筑工程 / 施工承包</span>
+            </label>
+            <label style="display: flex; align-items: center; gap: 6px; background: rgba(255,255,255,0.05); padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; border: 1px solid var(--border-subtle);">
+              <input type="checkbox" name="pkulaw_cat" value="财务" checked>
+              <span>📊 财务会计 / 成本核算</span>
+            </label>
+            <label style="display: flex; align-items: center; gap: 6px; background: rgba(255,255,255,0.05); padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; border: 1px solid var(--border-subtle);">
+              <input type="checkbox" name="pkulaw_cat" value="税务" checked>
+              <span>💰 增值税 / 所得税 / 印花税</span>
+            </label>
+            <label style="display: flex; align-items: center; gap: 6px; background: rgba(255,255,255,0.05); padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; border: 1px solid var(--border-subtle);">
+              <input type="checkbox" name="pkulaw_cat" value="材料" checked>
+              <span>🧱 建筑材料 / 物资采购 / 供应链</span>
+            </label>
+            <label style="display: flex; align-items: center; gap: 6px; background: rgba(255,255,255,0.05); padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; border: 1px solid var(--border-subtle);">
+              <input type="checkbox" name="pkulaw_cat" value="劳务" checked>
+              <span>👷 建筑劳务 / 用工分包 / 个税</span>
+            </label>
+            <label style="display: flex; align-items: center; gap: 6px; background: rgba(255,255,255,0.05); padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; border: 1px solid var(--border-subtle);">
+              <input type="checkbox" name="pkulaw_cat" value="租赁">
+              <span>🚜 机械租赁 / 设备租赁</span>
+            </label>
+          </div>
+        </div>
+
+        <!-- 补充关键词与本地保存目录 -->
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 16px;">
+          <div>
+            <label style="font-size: 12px; color: var(--text-muted); display: block; margin-bottom: 4px;">🔍 补充检索关键词 (可选)</label>
+            <input id="pkulaw_keywords" class="form-input" placeholder="例如：预缴税款 跨区域涉税 异地施工">
+          </div>
+          <div>
+            <label style="font-size: 12px; color: var(--text-muted); display: block; margin-bottom: 4px;">💾 本地保存目录 (保存标准 MD 副本)</label>
+            <input id="pkulaw_local_dir" class="form-input font-mono" placeholder="默认: data/regulations_pkulaw">
+          </div>
+        </div>
+
+        <div style="text-align: right;">
+          <button id="btnStartPkulawSync" onclick="startPkulawSync()" class="btn btn-primary" style="display: inline-flex; align-items: center; gap: 8px; padding: 9px 24px; background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%); box-shadow: 0 4px 15px rgba(56, 189, 248, 0.3);">
+            <span>⚡ 立即从北大法宝同步到本地并自动入库 ➔</span>
+          </button>
+        </div>
+
+        <div id="pkulawSyncResultPanel" style="display: none; margin-top: 14px; background: rgba(0,0,0,0.4); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 14px;"></div>
       </div>
     </div>
 
@@ -779,7 +951,7 @@
     </div>
 
     <!-- 底部操作区 -->
-    <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--border-subtle); padding-top: 16px; margin-top: 10px;">
+    <div id="modalBottomBar" style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--border-subtle); padding-top: 16px; margin-top: 10px;">
       <button id="btnVerifyOnline" type="button" onclick="triggerOnlineVerify()" class="btn btn-secondary" style="display: flex; align-items: center; gap: 6px; border-color: var(--accent-cyan); color: var(--accent-cyan);">
         <span>🌐</span>
         <span>联网核验真实性与条款完整性</span>
@@ -800,19 +972,226 @@
 
   function switchIntakeTab(tab) {
     currentIntakeTab = tab;
-    ['file', 'url', 'text'].forEach(t => {
+    ['file', 'dir', 'pkulaw', 'url', 'text'].forEach(t => {
       const btn = document.getElementById(`tab_btn_${t}`);
       const panel = document.getElementById(`panel_intake_${t}`);
-      if (t === tab) {
-        btn.classList.remove('btn-secondary');
-        btn.classList.add('btn-primary');
-        if (panel) panel.style.display = 'block';
-      } else {
-        btn.classList.remove('btn-primary');
-        btn.classList.add('btn-secondary');
-        if (panel) panel.style.display = 'none';
+      if (btn) {
+        if (t === tab) {
+          btn.classList.remove('btn-secondary');
+          btn.classList.add('btn-primary');
+        } else {
+          btn.classList.remove('btn-primary');
+          btn.classList.add('btn-secondary');
+        }
+      }
+      if (panel) {
+        panel.style.display = (t === tab) ? 'block' : 'none';
       }
     });
+
+    const metaSec = document.getElementById('aiExtractedMetaSection');
+    const bottomBar = document.getElementById('modalBottomBar');
+    // Hide single-item meta editor & bottom save bar for batch / pkulaw mode
+    if (tab === 'dir' || tab === 'pkulaw') {
+      if (metaSec) metaSec.style.display = 'none';
+      if (bottomBar) bottomBar.style.display = 'none';
+    } else {
+      if (metaSec) metaSec.style.display = 'block';
+      if (bottomBar) bottomBar.style.display = 'flex';
+    }
+  }
+
+  function setBatchDir(dirName) {
+    document.getElementById('batch_dir_path').value = dirName;
+  }
+
+  async function browseDirForBatch(path = '') {
+    const picker = document.getElementById('dir_tree_picker');
+    picker.style.display = 'block';
+    const listDiv = document.getElementById('tree_dirs_list');
+    const pathSpan = document.getElementById('tree_current_path');
+    listDiv.innerHTML = '<div style="color: var(--text-muted); font-size: 12px;">⏳ 读取目录结构中...</div>';
+
+    try {
+      const resp = await fetch('/api/v1/fs/list-dirs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: path || document.getElementById('batch_dir_path').value.trim() })
+      });
+      const data = await resp.json();
+      if (data.error) {
+        listDiv.innerHTML = `<div style="color: #ef4444; font-size: 12px;">⚠️ ${data.error}</div>`;
+        return;
+      }
+
+      pathSpan.textContent = `当前路径: ${data.current}`;
+      document.getElementById('batch_dir_path').value = data.current;
+
+      let html = '';
+      if (data.parent && data.parent !== data.current) {
+        html += `<div onclick="browseDirForBatch('${data.parent}')" style="cursor: pointer; padding: 4px 8px; border-radius: 4px; color: var(--accent-cyan); font-size: 12px;">📁 ⬆️ 返回上级目录 (${data.parent})</div>`;
+      }
+      (data.dirs || []).forEach(d => {
+        html += `
+          <div style="display: flex; justify-content: space-between; align-items: center; padding: 4px 8px; border-radius: 4px; font-size: 12px; border-bottom: 1px solid rgba(255,255,255,0.03);">
+            <span onclick="browseDirForBatch('${d.path}')" style="cursor: pointer; color: var(--text-primary);">📁 ${d.name}</span>
+            <button type="button" onclick="selectTreeDir('${d.path}')" class="btn btn-sm btn-secondary" style="padding: 1px 6px; font-size: 11px;">选择此目录</button>
+          </div>
+        `;
+      });
+      if (!data.dirs || data.dirs.length === 0) {
+        html += '<div style="color: var(--text-muted); font-size: 12px; padding: 4px 8px;">(此目录下无子文件夹)</div>';
+      }
+      listDiv.innerHTML = html;
+    } catch (e) {
+      listDiv.innerHTML = `<div style="color: #ef4444; font-size: 12px;">⚠️ 获取目录失败: ${e.message}</div>`;
+    }
+  }
+
+  function selectTreeDir(path) {
+    document.getElementById('batch_dir_path').value = path;
+    document.getElementById('dir_tree_picker').style.display = 'none';
+  }
+
+  function closeTreePicker() {
+    document.getElementById('dir_tree_picker').style.display = 'none';
+  }
+
+  async function startBatchDirImport() {
+    const dirPath = document.getElementById('batch_dir_path').value.trim();
+    if (!dirPath) {
+      alert('请输入或选择要导入的法规文件夹路径！');
+      return;
+    }
+
+    const recursive = document.getElementById('batch_dir_recursive').checked;
+    const defaultRole = document.getElementById('batch_dir_role').value;
+    const btn = document.getElementById('btnStartBatchImport');
+    const panel = document.getElementById('batchImportResultPanel');
+
+    btn.disabled = true;
+    btn.innerHTML = '<span>⏳ 正在全量扫描、智能抽取元数据并向量切块入库中...</span>';
+    panel.style.display = 'block';
+    panel.innerHTML = '<div style="color: var(--accent-cyan); font-size: 13px;">⚙️ 正在执行批量导入，大型目录可能需要数秒，请稍候...</div>';
+
+    try {
+      const resp = await fetch('/api/v1/regulations/batch-import-dir', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          dir_path: dirPath,
+          recursive: recursive,
+          default_role: defaultRole
+        })
+      });
+      const data = await resp.json();
+      if (!resp.ok) {
+        throw new Error(data.detail || '导入执行异常');
+      }
+
+      let itemsHtml = (data.items || []).slice(0, 15).map(item => `
+        <div style="display: flex; justify-content: space-between; align-items: center; padding: 4px 0; border-bottom: 1px dashed rgba(255,255,255,0.05); font-size: 12px;">
+          <span style="color: var(--text-primary); font-weight: 500;">⚖️ ${item.title}</span>
+          <span style="color: var(--text-muted);">${item.document_no || ''} | <b style="color: #38bdf8;">${item.chunk_count}</b> 切块</span>
+        </div>
+      `).join('');
+
+      let moreText = (data.items && data.items.length > 15) ? `<div style="font-size: 11px; color: var(--text-muted); margin-top: 6px;">... 以及其余 ${data.items.length - 15} 篇法规</div>` : '';
+
+      panel.innerHTML = `
+        <div style="border-left: 3px solid #10b981; padding-left: 12px; margin-bottom: 10px;">
+          <div style="font-size: 14px; font-weight: 700; color: #34d399; margin-bottom: 4px;">
+            🎉 目录批量导入完成！
+          </div>
+          <div style="font-size: 12px; color: var(--text-secondary);">
+            扫描总文件: <b>${data.total_scanned}</b> 份 | 新增入库: <b style="color: #34d399;">${data.created_count}</b> 份 | 更新覆盖: <b style="color: #38bdf8;">${data.updated_count}</b> 份 | 失败: <b style="color: ${data.failed_count > 0 ? '#ef4444' : 'var(--text-muted)'};">${data.failed_count}</b>
+          </div>
+        </div>
+        <div style="max-height: 180px; overflow-y: auto; margin-top: 8px;">${itemsHtml}${moreText}</div>
+        <div style="margin-top: 12px; text-align: right;">
+          <button onclick="location.reload()" class="btn btn-sm btn-primary" style="padding: 4px 14px;">刷新法规列表 ➔</button>
+        </div>
+      `;
+    } catch (err) {
+      panel.innerHTML = `<div style="color: #ef4444; font-size: 13px;">❌ 批量导入失败: ${err.message}</div>`;
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '<span>🚀 重新批量扫描并入库</span>';
+    }
+  }
+
+  async function startPkulawSync() {
+    const apiKey = document.getElementById('pkulaw_api_key').value.trim();
+    const jurisdiction = document.getElementById('pkulaw_jurisdiction').value;
+    const timeliness = document.getElementById('pkulaw_timeliness').value;
+    const limit = parseInt(document.getElementById('pkulaw_limit').value, 10) || 20;
+    const keywords = document.getElementById('pkulaw_keywords').value.trim();
+    const localDir = document.getElementById('pkulaw_local_dir').value.trim();
+
+    const checkedCats = [];
+    document.querySelectorAll('input[name="pkulaw_cat"]:checked').forEach(cb => {
+      checkedCats.push(cb.value);
+    });
+
+    const btn = document.getElementById('btnStartPkulawSync');
+    const panel = document.getElementById('pkulawSyncResultPanel');
+
+    btn.disabled = true;
+    btn.innerHTML = '<span>⏳ 正在从北大法宝同步法规、生成本地标准 MD 并向量切块...</span>';
+    panel.style.display = 'block';
+    panel.innerHTML = '<div style="color: #38bdf8; font-size: 13px;">📡 正在连接北大法宝知识网检索涉税法规，请稍候...</div>';
+
+    try {
+      const resp = await fetch('/api/v1/regulations/pkulaw-sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          api_key: apiKey,
+          jurisdiction: jurisdiction,
+          categories: checkedCats,
+          keywords: keywords,
+          timeliness: timeliness,
+          limit: limit,
+          local_dir: localDir
+        })
+      });
+      const data = await resp.json();
+      if (!resp.ok) {
+        throw new Error(data.detail || '同步异常');
+      }
+
+      let itemsHtml = (data.items || []).map(item => `
+        <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px dashed rgba(255,255,255,0.05); font-size: 12px;">
+          <div>
+            <div style="color: var(--text-primary); font-weight: 600;">⚖️ ${item.title}</div>
+            <div style="font-size: 11px; color: var(--text-muted);">${item.document_no || ''} | ${item.issuer || ''} | 本地备份: <code>${item.local_file}</code></div>
+          </div>
+          <div style="text-align: right;">
+            <span class="badge badge-cyan">${item.chunk_count} 切块</span>
+          </div>
+        </div>
+      `).join('');
+
+      panel.innerHTML = `
+        <div style="border-left: 3px solid #38bdf8; padding-left: 12px; margin-bottom: 10px;">
+          <div style="font-size: 14px; font-weight: 700; color: #38bdf8; margin-bottom: 4px;">
+            🎉 北大法宝智能同步与入库成功！
+          </div>
+          <div style="font-size: 12px; color: var(--text-secondary);">
+            同步总数: <b>${data.total_synced}</b> 篇 | 新增: <b style="color: #34d399;">${data.created_count}</b> 篇 | 本地存储目录: <code>${data.saved_to_dir}</code>
+          </div>
+        </div>
+        <div style="max-height: 200px; overflow-y: auto; margin-top: 8px;">${itemsHtml}</div>
+        <div style="margin-top: 12px; text-align: right;">
+          <button onclick="location.reload()" class="btn btn-sm btn-primary" style="padding: 4px 14px;">立即刷新法规库 ➔</button>
+        </div>
+      `;
+    } catch (err) {
+      panel.innerHTML = `<div style="color: #ef4444; font-size: 13px;">❌ 北大法宝同步失败: ${err.message}</div>`;
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '<span>⚡ 重新同步北大法宝</span>';
+    }
   }
 
   function handleFileSelect(input) {

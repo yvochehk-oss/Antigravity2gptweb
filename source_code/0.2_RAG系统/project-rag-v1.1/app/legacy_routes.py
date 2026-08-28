@@ -2190,3 +2190,74 @@ async def api_ai_parse_file(
         raise HTTPException(400, str(e)) from e
     except Exception as e:
         raise HTTPException(500, f"文件解析提取失败: {e}")
+
+
+# ==================== 目录一键批量导入与北大法宝 API 同步 ====================
+
+class BatchDirImportRequest(BaseModel):
+    dir_path: str
+    recursive: bool = True
+    default_role: str = "construction"
+
+
+@app.post("/api/v1/regulations/batch-import-dir")
+def api_batch_import_regulations_dir(
+    body: BatchDirImportRequest,
+    principal=Depends(require_web_or_service_role("admin", "operator")),
+):
+    """从指定本地/服务器目录一键批量扫描并结构化入库所有法规文件 (.md, .pdf, .docx, .txt)"""
+    from app.services.regulations_batch_importer import batch_import_regulations_from_dir
+    db = SessionLocal()
+    try:
+        res = batch_import_regulations_from_dir(
+            db=db,
+            dir_path=body.dir_path.strip(),
+            recursive=body.recursive,
+            default_role=body.default_role.strip(),
+        )
+        return res
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    except Exception as e:
+        raise HTTPException(500, f"批量目录导入失败: {e}") from e
+    finally:
+        db.close()
+
+
+class PkulawSyncRequest(BaseModel):
+    api_key: str = ""
+    jurisdiction: str = "全国"
+    categories: list[str] = ["建筑", "税务"]
+    keywords: str = ""
+    timeliness: str = "现行有效"
+    limit: int = 20
+    local_dir: str = ""
+
+
+@app.post("/api/v1/regulations/pkulaw-sync")
+def api_pkulaw_sync_regulations(
+    body: PkulawSyncRequest,
+    principal=Depends(require_web_or_service_role("admin", "operator")),
+):
+    """从北大法宝 (PKULaw) API 智能同步法规至本地目录，并自动切块向量化入库"""
+    from app.services.pkulaw_sync_service import sync_pkulaw_regulations
+    db = SessionLocal()
+    try:
+        res = sync_pkulaw_regulations(
+            db=db,
+            api_key=body.api_key.strip(),
+            jurisdiction=body.jurisdiction.strip(),
+            categories=body.categories,
+            keywords=body.keywords.strip(),
+            timeliness=body.timeliness.strip(),
+            limit=body.limit,
+            local_dir=body.local_dir.strip(),
+        )
+        return res
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    except Exception as e:
+        raise HTTPException(500, f"北大法宝同步失败: {e}") from e
+    finally:
+        db.close()
+

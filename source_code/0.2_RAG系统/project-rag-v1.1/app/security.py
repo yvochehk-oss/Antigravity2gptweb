@@ -92,6 +92,8 @@ WEB_AUTH_MUTATION_EXACT_PATHS = frozenset({
     "/api/v1/regulations/save-custom",
     "/api/v1/regulations/ai-parse-url",
     "/api/v1/regulations/ai-parse-file",
+    "/api/v1/regulations/batch-import-dir",
+    "/api/v1/regulations/pkulaw-sync",
     "/api/v1/llm-models",
     "/api/v1/mounts",
     "/api/v1/mounts/scan",

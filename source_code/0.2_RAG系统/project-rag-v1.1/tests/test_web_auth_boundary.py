@@ -67,6 +67,8 @@ def _app() -> FastAPI:
         "/api/v1/regulations/save-custom",
         "/api/v1/regulations/ai-parse-url",
         "/api/v1/regulations/ai-parse-file",
+        "/api/v1/regulations/batch-import-dir",
+        "/api/v1/regulations/pkulaw-sync",
     ):
         app.add_api_route(path, write_readable, methods=["POST"])
     for path in ("/api/v1/mounts", "/api/v1/mounts/7/delete"):
@@ -118,6 +120,8 @@ def test_web_navigation_accepts_valid_cookie(path):
         "/api/v1/regulations/save-custom",
         "/api/v1/regulations/ai-parse-url",
         "/api/v1/regulations/ai-parse-file",
+        "/api/v1/regulations/batch-import-dir",
+        "/api/v1/regulations/pkulaw-sync",
     ],
 )
 def test_web_mutations_require_cookie_same_origin_and_write_role(path):
