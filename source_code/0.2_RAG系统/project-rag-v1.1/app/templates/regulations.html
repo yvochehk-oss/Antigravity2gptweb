@@ -171,7 +171,7 @@
     <table id="regulations-table">
       <thead>
         <tr>
-          <th style="width: 220px; cursor: pointer; user-select: none; white-space: nowrap;" class="sortable-col" onclick="handleSort('category', this)" title="点击按主体排序">主体 / 发文字号 <span class="sort-icon" style="color: var(--text-muted); font-size: 12px; padding-left: 2px;">⇅</span></th>
+          <th style="width: 220px; cursor: pointer; user-select: none; white-space: nowrap;" class="sortable-col" onclick="handleSort('category', this)" title="点击按主体排序">发文字号 / 业务角色 <span class="sort-icon" style="color: var(--text-muted); font-size: 12px; padding-left: 2px;">⇅</span></th>
           <th style="min-width: 320px;">法规与指引标题</th>
           <th style="width: 110px; text-align: center; cursor: pointer; user-select: none; white-space: nowrap;" class="sortable-col" onclick="handleSort('level', this)" title="点击按效力位阶排序">效力位阶 <span class="sort-icon" style="color: var(--text-muted); font-size: 12px; padding-left: 2px;">⇅</span></th>
           <th style="width: 95px; text-align: center; cursor: pointer; user-select: none; white-space: nowrap;" class="sortable-col" onclick="handleSort('jurisdiction', this)" title="点击按管辖区域排序">管辖区域 <span class="sort-icon" style="color: var(--text-muted); font-size: 12px; padding-left: 2px;">⇅</span></th>
@@ -194,14 +194,23 @@
             data-original-index="{{ loop.index0 }}"
             onclick="openDrawer({{ loop.index0 }})"
             style="cursor: pointer;">
-          <!-- 主体 / 发文字号 -->
+          <!-- 发文字号 / 业务角色 (发文字号在上，角色在下淡白色) -->
           <td>
-            <div style="display: flex; flex-direction: column; gap: 8px; align-items: flex-start;">
-              <span class="badge {{ r.category_badge }}" style="font-size: 11px; white-space: nowrap;">
-                {{ r.category_label }}
-              </span>
-              <span class="project-code font-mono" style="font-size: 11px; white-space: normal; word-break: break-all; line-height: 1.3;">
+            <div style="display: flex; flex-direction: column; gap: 6px; align-items: flex-start;">
+              <!-- 上方：发文字号 -->
+              {% if r.document_no and r.document_no != '无' and r.document_no != '-' %}
+              <span class="project-code font-mono" style="font-size: 11px; font-weight: 600; color: #38bdf8; background: rgba(56, 189, 248, 0.08); border: 1px solid rgba(56, 189, 248, 0.25); padding: 2px 7px; border-radius: 4px; white-space: normal; word-break: break-all; line-height: 1.35;">
                 {{ r.document_no }}
+              </span>
+              {% else %}
+              <span class="badge badge-muted" style="font-size: 11px; color: var(--text-muted); padding: 2px 6px;">
+                无文号
+              </span>
+              {% endif %}
+
+              <!-- 下方：业务角色 (淡白色微质感) -->
+              <span style="font-size: 11px; color: rgba(255, 255, 255, 0.75); background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.14); padding: 2px 7px; border-radius: 4px; white-space: nowrap; line-height: 1.25;">
+                {{ r.category_label }}
               </span>
             </div>
           </td>
@@ -282,9 +291,9 @@
   <!-- 抽屉头部 -->
   <div style="padding: 20px 24px; border-bottom: 1px solid var(--border-subtle); display: flex; align-items: flex-start; justify-content: space-between; gap: 16px;">
     <div style="flex: 1;">
-      <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
-        <span id="drawer-category" class="badge badge-cyan">分类</span>
-        <span id="drawer-docno" class="project-code font-mono">发文字号</span>
+      <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px; flex-wrap: wrap;">
+        <span id="drawer-docno" class="project-code font-mono" style="color: #38bdf8; font-weight: 600;">发文字号</span>
+        <span id="drawer-category" style="font-size: 11px; color: rgba(255, 255, 255, 0.78); background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.16); padding: 2px 8px; border-radius: 4px;">业务角色</span>
         <span id="drawer-status" class="badge badge-emerald">现行有效</span>
       </div>
       <h2 id="drawer-title" style="font-size: 16px; color: #fff; line-height: 1.4; margin: 0;">
@@ -353,9 +362,8 @@
     currentActiveReg = reg;
 
     document.getElementById('drawer-title').innerText = reg.title;
-    document.getElementById('drawer-docno').innerText = reg.docNo;
+    document.getElementById('drawer-docno').innerText = reg.docNo || '无文号';
     document.getElementById('drawer-category').innerText = reg.categoryLabel;
-    document.getElementById('drawer-category').className = 'badge ' + reg.categoryBadge;
     document.getElementById('drawer-issuer').innerText = reg.issuer || '-';
     document.getElementById('drawer-level').innerText = reg.level;
     document.getElementById('drawer-jurisdiction').innerText = reg.jurisdiction;
