@@ -33,13 +33,19 @@ except ValueError as exc:
     ) from exc
 
 # Database
-DB_URL = os.getenv("PROJECT_RAG_DB_URL", "").strip()
-if not DB_URL:
+DB_URL_RAW = os.getenv("PROJECT_RAG_DB_URL", "").strip()
+if not DB_URL_RAW:
     raise RuntimeError("PROJECT_RAG_DB_URL is required; ProjectRAG is PostgreSQL-only")
 from sqlalchemy.engine import make_url
-_backend = make_url(DB_URL).get_backend_name()
+_backend = make_url(DB_URL_RAW).get_backend_name()
 if _backend not in {"postgresql", "postgres"}:
     raise RuntimeError(f"ProjectRAG is PostgreSQL-only; unsupported database backend: {_backend}")
+if DB_URL_RAW.startswith("postgresql://"):
+    DB_URL = "postgresql+psycopg://" + DB_URL_RAW[len("postgresql://"):]
+elif DB_URL_RAW.startswith("postgres://"):
+    DB_URL = "postgresql+psycopg://" + DB_URL_RAW[len("postgres://"):]
+else:
+    DB_URL = DB_URL_RAW
 IS_POSTGRES = True
 
 # Server

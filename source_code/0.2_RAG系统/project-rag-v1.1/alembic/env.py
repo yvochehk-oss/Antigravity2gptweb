@@ -26,6 +26,10 @@ if not url:
     raise RuntimeError("PROJECT_RAG_DB_URL is required for Alembic")
 if make_url(url).get_backend_name() not in {"postgresql", "postgres"}:
     raise RuntimeError("Alembic is PostgreSQL-only")
+if url.startswith("postgresql://"):
+    url = "postgresql+psycopg://" + url[len("postgresql://"):]
+elif url.startswith("postgres://"):
+    url = "postgresql+psycopg://" + url[len("postgres://"):]
 config.set_main_option("sqlalchemy.url", url)
 target_metadata = Base.metadata
 

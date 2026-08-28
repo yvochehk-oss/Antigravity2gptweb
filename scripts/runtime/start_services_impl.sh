@@ -622,11 +622,13 @@ health_payload_acceptable() {
 import json, sys
 data = json.load(sys.stdin)
 components = data.get("components", {})
+reranker = components.get("reranker", {})
+reranker_ok = not reranker.get("enabled", False) or reranker.get("status") in ("ok", "degraded")
 healthy = (
     data.get("status") != "down"
     and components.get("db", {}).get("status") == "ok"
     and components.get("embedding", {}).get("status") == "ok"
-    and components.get("reranker", {}).get("status") == "ok"
+    and reranker_ok
     and components.get("worker", {}).get("status") != "down"
 )
 raise SystemExit(0 if healthy else 1)
