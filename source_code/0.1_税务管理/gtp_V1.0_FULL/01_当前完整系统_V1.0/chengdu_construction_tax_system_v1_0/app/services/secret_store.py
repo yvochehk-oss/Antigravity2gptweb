@@ -227,7 +227,7 @@ class SecretStore:
         try:
             if not self.credentials_file.exists():
                 return {"version": _VERSION, "credentials": {}}
-            if not self.credentials_file.is_file() or _mode(self.credentials_file) & 0o077:
+            if not self.credentials_file.is_file() or (os.name != "nt" and _mode(self.credentials_file) & 0o077):
                 raise SecretStoreError("秘密存储文件权限不安全")
             if self.credentials_file.stat().st_size > _MAX_FILE_BYTES:
                 raise SecretStoreError("秘密存储文件超出允许大小")
@@ -300,7 +300,8 @@ class SecretStore:
                 suffix=".tmp",
                 dir=self.credentials_file.parent,
             )
-            os.fchmod(fd, 0o600)
+            if hasattr(os, "fchmod"):
+                os.fchmod(fd, 0o600)
             with os.fdopen(fd, "wb", closefd=True) as handle:
                 fd = -1
                 handle.write(encoded)
