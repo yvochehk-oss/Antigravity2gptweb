@@ -109,13 +109,31 @@
         </td>
         <td style="padding: 12px 16px; text-align: right;">
           <div style="display: inline-flex; gap: 6px;">
-            <button onclick='openEditUserModal({{ u.id }}, {{ u.username|tojson }}, {{ u.nickname|tojson }}, {{ u.role|tojson }}, {{ u.email|tojson }}, {{ u.phone|tojson }}, {{ "true" if u.active else "false" }})' class="btn btn-sm btn-secondary" style="padding: 4px 8px; font-size: 11px;">
+            <button type="button"
+              class="btn btn-sm btn-secondary btn-edit-user"
+              data-id="{{ u.id }}"
+              data-username="{{ u.username }}"
+              data-nickname="{{ u.nickname or u.display_name or u.username }}"
+              data-role="{{ u.role }}"
+              data-email="{{ u.email or '' }}"
+              data-phone="{{ u.phone or '' }}"
+              data-active="{{ 'true' if u.active else 'false' }}"
+              style="padding: 4px 8px; font-size: 11px;">
               ✏️ 编辑
             </button>
-            <button onclick='openResetPasswordModal({{ u.id }}, {{ u.username|tojson }})' class="btn btn-sm btn-secondary" style="padding: 4px 8px; font-size: 11px;">
+            <button type="button"
+              class="btn btn-sm btn-secondary btn-reset-password"
+              data-id="{{ u.id }}"
+              data-username="{{ u.username }}"
+              style="padding: 4px 8px; font-size: 11px;">
               🔑 重置密码
             </button>
-            <button onclick="toggleUserActive({{ u.id }}, {{ u.username|tojson }}, {{ true if u.active else false }})" class="btn btn-sm {% if u.active %}btn-secondary{% else %}btn-primary{% endif %}" style="padding: 4px 8px; font-size: 11px;">
+            <button type="button"
+              class="btn btn-sm {% if u.active %}btn-secondary{% else %}btn-primary{% endif %} btn-toggle-active"
+              data-id="{{ u.id }}"
+              data-username="{{ u.username }}"
+              data-active="{{ 'true' if u.active else 'false' }}"
+              style="padding: 4px 8px; font-size: 11px;">
               {% if u.active %}⛔ 禁用{% else %}✅ 启用{% endif %}
             </button>
           </div>
@@ -127,28 +145,28 @@
 </div>
 
 <!-- 新增用户弹窗 -->
-<div id="modal-create-user" class="modal-overlay" style="display:none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 999; display: none; align-items: center; justify-content: center;">
-  <div class="glass-panel" style="background: #181c24; border: 1px solid rgba(255,255,255,0.1); width: 440px; border-radius: 12px; padding: 24px;">
-    <h3 style="margin: 0 0 16px 0; font-size: 16px; display: flex; justify-content: space-between; align-items: center;">
-      <span>＋ 新增系统账户</span>
-      <span onclick="closeModal('modal-create-user')" style="cursor: pointer; opacity: 0.6;">✕</span>
-    </h3>
+<div id="modal-create-user" class="modal-overlay">
+  <div class="glass-panel-elevated modal-content" style="max-width: 460px; border-radius: 12px; padding: 24px;">
+    <div class="modal-header">
+      <h3 style="margin: 0; font-size: 16px; font-weight: 600;">＋ 新增系统账户</h3>
+      <button type="button" class="modal-close" onclick="closeModal('modal-create-user')" style="background: none; border: none; color: var(--text-muted); font-size: 20px; cursor: pointer; line-height: 1;">&times;</button>
+    </div>
     <form id="form-create-user" onsubmit="handleCreateUser(event)">
-      <div style="margin-bottom: 12px;">
-        <label style="display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">登录用户名 *</label>
-        <input type="text" id="new-username" required minlength="3" placeholder="例如：zhangsan" style="width: 100%; padding: 8px 12px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; color: #fff; font-size: 13px; box-sizing: border-box;">
+      <div style="margin-bottom: 14px;">
+        <label style="display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 6px;">登录用户名 *</label>
+        <input type="text" id="new-username" required minlength="3" placeholder="例如：zhangsan" style="width: 100%; padding: 8px 12px; background: rgba(0,0,0,0.3); border: 1px solid var(--border-subtle); border-radius: 6px; color: #fff; font-size: 13px; box-sizing: border-box;">
       </div>
-      <div style="margin-bottom: 12px;">
-        <label style="display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">用户真实姓名 / 昵称 *</label>
-        <input type="text" id="new-nickname" required placeholder="例如：张三（技术主管）" style="width: 100%; padding: 8px 12px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; color: #fff; font-size: 13px; box-sizing: border-box;">
+      <div style="margin-bottom: 14px;">
+        <label style="display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 6px;">用户真实姓名 / 昵称 *</label>
+        <input type="text" id="new-nickname" required placeholder="例如：张三（技术主管）" style="width: 100%; padding: 8px 12px; background: rgba(0,0,0,0.3); border: 1px solid var(--border-subtle); border-radius: 6px; color: #fff; font-size: 13px; box-sizing: border-box;">
       </div>
-      <div style="margin-bottom: 12px;">
-        <label style="display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">初始密码 *</label>
-        <input type="password" id="new-password" required minlength="6" placeholder="至少 6 位字符" style="width: 100%; padding: 8px 12px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; color: #fff; font-size: 13px; box-sizing: border-box;">
+      <div style="margin-bottom: 14px;">
+        <label style="display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 6px;">初始密码 *</label>
+        <input type="password" id="new-password" required minlength="6" placeholder="至少 6 位字符" style="width: 100%; padding: 8px 12px; background: rgba(0,0,0,0.3); border: 1px solid var(--border-subtle); border-radius: 6px; color: #fff; font-size: 13px; box-sizing: border-box;">
       </div>
-      <div style="margin-bottom: 12px;">
-        <label style="display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">系统角色 *</label>
-        <select id="new-role" style="width: 100%; padding: 8px 12px; background: #1f242e; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; color: #fff; font-size: 13px; box-sizing: border-box;">
+      <div style="margin-bottom: 14px;">
+        <label style="display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 6px;">系统角色 *</label>
+        <select id="new-role" style="width: 100%; padding: 8px 12px; background: #1f242e; border: 1px solid var(--border-subtle); border-radius: 6px; color: #fff; font-size: 13px; box-sizing: border-box;">
           <option value="operator">👷 业务操作员 (Operator)</option>
           <option value="admin">👑 系统管理员 (Admin)</option>
           <option value="viewer">👀 只读访客 (Viewer)</option>
@@ -163,37 +181,37 @@
 </div>
 
 <!-- 编辑用户弹窗 -->
-<div id="modal-edit-user" class="modal-overlay" style="display:none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 999; display: none; align-items: center; justify-content: center;">
-  <div class="glass-panel" style="background: #181c24; border: 1px solid rgba(255,255,255,0.1); width: 440px; border-radius: 12px; padding: 24px;">
-    <h3 style="margin: 0 0 16px 0; font-size: 16px; display: flex; justify-content: space-between; align-items: center;">
-      <span>✏️ 编辑账户信息</span>
-      <span onclick="closeModal('modal-edit-user')" style="cursor: pointer; opacity: 0.6;">✕</span>
-    </h3>
+<div id="modal-edit-user" class="modal-overlay">
+  <div class="glass-panel-elevated modal-content" style="max-width: 460px; border-radius: 12px; padding: 24px;">
+    <div class="modal-header">
+      <h3 style="margin: 0; font-size: 16px; font-weight: 600;">✏️ 编辑账户信息</h3>
+      <button type="button" class="modal-close" onclick="closeModal('modal-edit-user')" style="background: none; border: none; color: var(--text-muted); font-size: 20px; cursor: pointer; line-height: 1;">&times;</button>
+    </div>
     <form id="form-edit-user" onsubmit="handleEditUser(event)">
       <input type="hidden" id="edit-user-id">
-      <div style="margin-bottom: 12px;">
-        <label style="display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">登录用户名</label>
+      <div style="margin-bottom: 14px;">
+        <label style="display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 6px;">登录用户名</label>
         <input type="text" id="edit-username" disabled style="width: 100%; padding: 8px 12px; background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.05); border-radius: 6px; color: var(--text-muted); font-size: 13px; box-sizing: border-box;">
       </div>
-      <div style="margin-bottom: 12px;">
-        <label style="display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">姓名 / 昵称 *</label>
-        <input type="text" id="edit-nickname" required style="width: 100%; padding: 8px 12px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; color: #fff; font-size: 13px; box-sizing: border-box;">
+      <div style="margin-bottom: 14px;">
+        <label style="display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 6px;">姓名 / 昵称 *</label>
+        <input type="text" id="edit-nickname" required style="width: 100%; padding: 8px 12px; background: rgba(0,0,0,0.3); border: 1px solid var(--border-subtle); border-radius: 6px; color: #fff; font-size: 13px; box-sizing: border-box;">
       </div>
-      <div style="margin-bottom: 12px;">
-        <label style="display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">系统角色 *</label>
-        <select id="edit-role" style="width: 100%; padding: 8px 12px; background: #1f242e; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; color: #fff; font-size: 13px; box-sizing: border-box;">
+      <div style="margin-bottom: 14px;">
+        <label style="display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 6px;">系统角色 *</label>
+        <select id="edit-role" style="width: 100%; padding: 8px 12px; background: #1f242e; border: 1px solid var(--border-subtle); border-radius: 6px; color: #fff; font-size: 13px; box-sizing: border-box;">
           <option value="operator">👷 业务操作员 (Operator)</option>
           <option value="admin">👑 系统管理员 (Admin)</option>
           <option value="viewer">👀 只读访客 (Viewer)</option>
         </select>
       </div>
-      <div style="margin-bottom: 12px;">
-        <label style="display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">绑定手机号</label>
-        <input type="text" id="edit-phone" placeholder="选填" style="width: 100%; padding: 8px 12px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; color: #fff; font-size: 13px; box-sizing: border-box;">
+      <div style="margin-bottom: 14px;">
+        <label style="display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 6px;">绑定手机号</label>
+        <input type="text" id="edit-phone" placeholder="选填" style="width: 100%; padding: 8px 12px; background: rgba(0,0,0,0.3); border: 1px solid var(--border-subtle); border-radius: 6px; color: #fff; font-size: 13px; box-sizing: border-box;">
       </div>
-      <div style="margin-bottom: 12px;">
-        <label style="display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">绑定邮箱</label>
-        <input type="email" id="edit-email" placeholder="选填" style="width: 100%; padding: 8px 12px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; color: #fff; font-size: 13px; box-sizing: border-box;">
+      <div style="margin-bottom: 14px;">
+        <label style="display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 6px;">绑定邮箱</label>
+        <input type="email" id="edit-email" placeholder="选填" style="width: 100%; padding: 8px 12px; background: rgba(0,0,0,0.3); border: 1px solid var(--border-subtle); border-radius: 6px; color: #fff; font-size: 13px; box-sizing: border-box;">
       </div>
       <div style="display: flex; gap: 10px; margin-top: 20px;">
         <button type="button" onclick="closeModal('modal-edit-user')" class="btn btn-secondary" style="flex: 1;">取消</button>
@@ -204,21 +222,21 @@
 </div>
 
 <!-- 重置密码弹窗 -->
-<div id="modal-reset-password" class="modal-overlay" style="display:none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 999; display: none; align-items: center; justify-content: center;">
-  <div class="glass-panel" style="background: #181c24; border: 1px solid rgba(255,255,255,0.1); width: 400px; border-radius: 12px; padding: 24px;">
-    <h3 style="margin: 0 0 16px 0; font-size: 16px; display: flex; justify-content: space-between; align-items: center;">
-      <span>🔑 重置账户密码</span>
-      <span onclick="closeModal('modal-reset-password')" style="cursor: pointer; opacity: 0.6;">✕</span>
-    </h3>
+<div id="modal-reset-password" class="modal-overlay">
+  <div class="glass-panel-elevated modal-content" style="max-width: 420px; border-radius: 12px; padding: 24px;">
+    <div class="modal-header">
+      <h3 style="margin: 0; font-size: 16px; font-weight: 600;">🔑 重置账户密码</h3>
+      <button type="button" class="modal-close" onclick="closeModal('modal-reset-password')" style="background: none; border: none; color: var(--text-muted); font-size: 20px; cursor: pointer; line-height: 1;">&times;</button>
+    </div>
     <form id="form-reset-password" onsubmit="handleResetPassword(event)">
       <input type="hidden" id="reset-user-id">
-      <div style="margin-bottom: 12px;">
-        <label style="display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">目标用户</label>
+      <div style="margin-bottom: 14px;">
+        <label style="display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 6px;">目标用户</label>
         <input type="text" id="reset-username" disabled style="width: 100%; padding: 8px 12px; background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.05); border-radius: 6px; color: var(--accent-cyan); font-weight: bold; font-size: 13px; box-sizing: border-box;">
       </div>
       <div style="margin-bottom: 16px;">
-        <label style="display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">设置新密码 *</label>
-        <input type="password" id="reset-new-password" required minlength="6" placeholder="输入新密码（至少 6 位）" style="width: 100%; padding: 8px 12px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; color: #fff; font-size: 13px; box-sizing: border-box;">
+        <label style="display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 6px;">设置新密码 *</label>
+        <input type="password" id="reset-new-password" required minlength="6" placeholder="输入新密码（至少 6 位）" style="width: 100%; padding: 8px 12px; background: rgba(0,0,0,0.3); border: 1px solid var(--border-subtle); border-radius: 6px; color: #fff; font-size: 13px; box-sizing: border-box;">
       </div>
       <div style="display: flex; gap: 10px;">
         <button type="button" onclick="closeModal('modal-reset-password')" class="btn btn-secondary" style="flex: 1;">取消</button>
@@ -231,11 +249,24 @@
 <script>
 function openModal(id) {
   const el = document.getElementById(id);
-  if (el) el.style.display = "flex";
+  if (el) {
+    el.style.display = "flex";
+    // Force reflow for CSS transition
+    void el.offsetWidth;
+    el.classList.add("active");
+  }
 }
+
 function closeModal(id) {
   const el = document.getElementById(id);
-  if (el) el.style.display = "none";
+  if (el) {
+    el.classList.remove("active");
+    setTimeout(() => {
+      if (!el.classList.contains("active")) {
+        el.style.display = "none";
+      }
+    }, 200);
+  }
 }
 
 function openCreateUserModal() {
@@ -274,8 +305,8 @@ async function handleCreateUser(e) {
       body: JSON.stringify({ username, nickname, password, role })
     });
     if (!res.ok) {
-      const err = await res.json();
-      alert("创建失败: " + (err.detail || "未知错误"));
+      const err = await res.json().catch(() => ({}));
+      alert("创建失败: " + (err.detail || err.message || "未知错误"));
       return;
     }
     alert("✅ 账户创建成功！");
@@ -300,8 +331,8 @@ async function handleEditUser(e) {
       body: JSON.stringify({ nickname, role, phone, email })
     });
     if (!res.ok) {
-      const err = await res.json();
-      alert("保存失败: " + (err.detail || "未知错误"));
+      const err = await res.json().catch(() => ({}));
+      alert("保存失败: " + (err.detail || err.message || "未知错误"));
       return;
     }
     alert("✅ 账户信息更新成功！");
@@ -323,12 +354,12 @@ async function handleResetPassword(e) {
       body: JSON.stringify({ new_password: newPassword })
     });
     if (!res.ok) {
-      const err = await res.json();
-      alert("重置密码失败: " + (err.detail || "未知错误"));
+      const err = await res.json().catch(() => ({}));
+      alert("重置密码失败: " + (err.detail || err.message || "未知错误"));
       return;
     }
     const data = await res.json();
-    alert("✅ " + data.message);
+    alert("✅ " + (data.message || "密码已成功重置！"));
     closeModal("modal-reset-password");
   } catch (err) {
     alert("网络异常: " + err);
@@ -341,11 +372,12 @@ async function toggleUserActive(userId, username, currentActive) {
 
   try {
     const res = await fetch(`/api/v1/users/${userId}/toggle-active`, {
-      method: "POST"
+      method: "POST",
+      headers: { "Content-Type": "application/json" }
     });
     if (!res.ok) {
-      const err = await res.json();
-      alert("操作失败: " + (err.detail || "未知错误"));
+      const err = await res.json().catch(() => ({}));
+      alert("操作失败: " + (err.detail || err.message || "未知错误"));
       return;
     }
     alert(`✅ 用户【${username}】已成功${actionText}！`);
@@ -354,5 +386,50 @@ async function toggleUserActive(userId, username, currentActive) {
     alert("网络异常: " + err);
   }
 }
+
+// 绑定 DOM 事件
+document.addEventListener("DOMContentLoaded", () => {
+  // 点击遮罩层空白处关闭弹窗
+  document.querySelectorAll(".modal-overlay").forEach(overlay => {
+    overlay.addEventListener("click", (e) => {
+      if (e.target === overlay) {
+        closeModal(overlay.id);
+      }
+    });
+  });
+
+  // 编辑按钮
+  document.querySelectorAll(".btn-edit-user").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const id = btn.dataset.id;
+      const username = btn.dataset.username;
+      const nickname = btn.dataset.nickname;
+      const role = btn.dataset.role;
+      const email = btn.dataset.email;
+      const phone = btn.dataset.phone;
+      const active = btn.dataset.active === "true";
+      openEditUserModal(id, username, nickname, role, email, phone, active);
+    });
+  });
+
+  // 重置密码按钮
+  document.querySelectorAll(".btn-reset-password").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const id = btn.dataset.id;
+      const username = btn.dataset.username;
+      openResetPasswordModal(id, username);
+    });
+  });
+
+  // 禁用/启用按钮
+  document.querySelectorAll(".btn-toggle-active").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const id = btn.dataset.id;
+      const username = btn.dataset.username;
+      const currentActive = btn.dataset.active === "true";
+      toggleUserActive(id, username, currentActive);
+    });
+  });
+});
 </script>
 {% endblock %}
