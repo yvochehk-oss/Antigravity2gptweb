@@ -7,6 +7,7 @@ V3.0 是面向合同、发票、收据、银行回单等业务材料的轻量 ID
 ```text
 文件
   -> SHA256
+  -> 重复文件默认直接返回已有结果
   -> 有文字层 PDF: PyMuPDF
   -> 扫描 PDF / 图片: PaddleOCR（按需懒加载）
   -> 文档分类
@@ -41,7 +42,8 @@ Granite 是审计员，不是录入员。Granite 调用失败不会毁掉已经�
 - `app/granite_client.py`：Granite 条件风险审计
 - `app/validators.py`：金额、税号、付款比例等确定性校验
 - `app/pipeline.py`：分类、抽取、校验、审计与状态决定
-- `app/repository.py`：PostgreSQL 持久化、业务去重、人工复核
+- `app/repository.py`：PostgreSQL 业务持久化、重复业务检查、人工复核
+- `app/persistence_service.py`：SHA 去重结果恢复、历史原件重处理、旧复核任务失效
 - `app/main.py`：FastAPI 入口
 - `database/schema_v3.sql`：V3 数据库结构
 - `.env.example`：完整本地配置示例
@@ -122,9 +124,33 @@ IDP_STORAGE_DIR=./storage/originals
 
 原文只在内部传给持久化层，不直接跟随处理响应返回。
 
+### SHA 去重与强制重处理
+
+默认调用：
+
+`POST /api/v3/documents/process`
+
+当 PostgreSQL 已存在相同 SHA256 时，会直接返回最新一次持久化结果，不再重复运行 OCR、Ling 或 Granite，也不会再创建一条 pending review。
+
+如果业务人员明确需要重新抽取同一文件：
+
+`POST /api/v3/documents/process?force=true`
+
+`force=true` 会重新运行 Pipeline，并在 `document_extractions` 中保留新的历史版本；旧的 pending review 会标记为 `superseded`，避免重复复核。
+
 ### 文件 SHA 查询
 
 `GET /api/v3/documents/by-sha/{sha256}`
+
+### 文档元数据查询
+
+`GET /api/v3/documents/{document_id}`
+
+### 使用已存原件重新处理
+
+`POST /api/v3/documents/{document_id}/reprocess`
+
+该接口读取 `IDP_STORAGE_DIR` 中已保存的原件重新跑 Pipeline，不需要再次上传。若部署关闭 `STORE_ORIGINALS` 或原件已不存在，会返回冲突/缺文件信息。
 
 ### 待复核列表
 
@@ -157,7 +183,7 @@ IDP_STORAGE_DIR=./storage/originals
 - `contracts_v3` / `invoices_v3`：确认后的结构化业务事实
 - `document_reviews`：人工复核队列与修订结果
 
-发票在业务层按 `invoice_no + seller_tax_id` 做重复检查。原文件按 SHA256 唯一。
+原文件按 SHA256 唯一；重复上传默认不重复计算。发票在业务层继续按 `invoice_no + seller_tax_id` 做重复检查，这是与文件 SHA 去重不同的第二层业务防线。
 
 ## 状态原则
 
@@ -171,6 +197,10 @@ validation_failed / low confidence / Ling failed / Granite risk
   -> approve -> committed
   -> reject  -> correction
 
+force/reprocess 产生新 extraction
+  -> 旧 pending review -> superseded
+  -> 最新结果重新决定 committed / needs_review
+
 DB 写入异常
   -> persistence_failed
 ```
@@ -182,7 +212,8 @@ Ling/Granite 是辅助判断层；确定性金额校验、税号校验、重复�
 1. 有文字层的 PDF 永不 OCR。
 2. PaddleOCR 引擎只在真正需要时初始化。
 3. Ling 只接收候选段落，不默认把整份合同全文塞给模型。
-4. Granite 默认关闭，只对高价值或异常材料按需开启。
-5. Ling 与 Granite 建议不要在 16GB CPU 机器上同时高并发常驻。
-6. IDP 不加载 BGE-M3/Reranker。
-7. PostgreSQL 保存确认事实；RAG 的向量库保存非结构化知识，两条链路不要混在一起。
+4. 重复 SHA 默认直接返回数据库结果，不重复消耗 OCR/LLM CPU。
+5. Granite 默认关闭，只对高价值或异常材料按需开启。
+6. Ling 与 Granite 建议不要在 16GB CPU 机器上同时高并发常驻。
+7. IDP 不加载 BGE-M3/Reranker。
+8. PostgreSQL 保存确认事实；RAG 的向量库保存非结构化知识，两条链路不要混在一起。
