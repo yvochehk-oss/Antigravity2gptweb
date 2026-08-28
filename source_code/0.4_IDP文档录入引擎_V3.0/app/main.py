@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Dict, Literal, Optional
 
 import psycopg
+from dotenv import load_dotenv
 from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 from pydantic import BaseModel, Field
 
@@ -18,6 +19,9 @@ from .parsers import DocumentParser
 from .pipeline import IDPPipeline
 from .repository import DuplicateBusinessRecordError, IDPRepository
 
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+load_dotenv(BASE_DIR / ".env")
 
 app = FastAPI(title="成都建工 IDP V3.0", version="3.0.0")
 
@@ -124,8 +128,6 @@ async def process_document(file: UploadFile = File(...)) -> dict:
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except RuntimeError as exc:
-        # Parser/OCR runtime failures remain service errors. Ling/Granite model
-        # failures are handled inside the pipeline and route to human review.
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     finally:
         tmp_path.unlink(missing_ok=True)
