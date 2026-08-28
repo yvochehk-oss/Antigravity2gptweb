@@ -9,11 +9,11 @@
     overflow: hidden;
     position: fixed;
     inset: 0;
-    font-family: 'system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+    font-family: 'Microsoft YaHei', 'PingFang SC', system-ui, -apple-system, sans-serif;
   }
   
   .font-mono-num {
-    font-family: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace', monospace;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
     font-variant-numeric: tabular-nums;
   }
 }
