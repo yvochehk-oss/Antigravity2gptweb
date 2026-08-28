@@ -5,7 +5,6 @@ from pathlib import Path
 from typing import Any, Iterable
 
 import fitz
-import numpy as np
 
 from .schemas import ParsedDocument
 
@@ -13,7 +12,7 @@ from .schemas import ParsedDocument
 class PaddleOCRAdapter:
     """Lazy OCR adapter for scans and images.
 
-    PaddleOCR is imported and initialized only when OCR is actually needed so
+    PaddleOCR and numpy are imported only when OCR is actually needed so
     native-text PDFs do not pay the RAM/startup cost on low-resource Windows PCs.
     """
 
@@ -41,7 +40,6 @@ class PaddleOCRAdapter:
                 use_textline_orientation=False,
             )
         except (TypeError, ValueError):
-            # PaddleOCR 2.x compatibility.
             self._engine = PaddleOCR(lang=self.lang, use_angle_cls=True, show_log=False)
         return self._engine
 
@@ -62,9 +60,7 @@ class PaddleOCRAdapter:
             page_texts.append("\n".join(text for text, _ in lines))
             confidences.extend(score for _, score in lines if score is not None)
 
-        mean_confidence = (
-            sum(confidences) / len(confidences) if confidences else None
-        )
+        mean_confidence = sum(confidences) / len(confidences) if confidences else None
         return ParsedDocument(
             text="\n\n".join(page_texts),
             parser="paddleocr",
@@ -73,9 +69,14 @@ class PaddleOCRAdapter:
             metadata={"source": str(path), "ocr_lang": self.lang},
         )
 
-    def _pdf_images(self, path: Path) -> list[np.ndarray]:
+    def _pdf_images(self, path: Path) -> list[Any]:
+        try:
+            import numpy as np
+        except ImportError as exc:
+            raise RuntimeError("OCR requires numpy (normally installed with PaddleOCR)") from exc
+
         doc = fitz.open(path)
-        images: list[np.ndarray] = []
+        images: list[Any] = []
         try:
             zoom = self.dpi / 72.0
             matrix = fitz.Matrix(zoom, zoom)
@@ -90,7 +91,6 @@ class PaddleOCRAdapter:
 
     @staticmethod
     def _run(engine: Any, image: Any) -> Any:
-        # PaddleOCR 2.x exposes ocr(); 3.x keeps compatibility in common builds.
         if hasattr(engine, "ocr"):
             try:
                 return engine.ocr(image, cls=True)
@@ -104,7 +104,6 @@ class PaddleOCRAdapter:
     def _iter_text_scores(cls, node: Any) -> Iterable[tuple[str, float | None]]:
         if node is None:
             return
-
         if isinstance(node, dict):
             texts = node.get("rec_texts") or node.get("texts")
             scores = node.get("rec_scores") or node.get("scores")
@@ -122,9 +121,7 @@ class PaddleOCRAdapter:
             for value in node.values():
                 yield from cls._iter_text_scores(value)
             return
-
         if isinstance(node, (list, tuple)):
-            # PaddleOCR 2.x line: [box, (text, score)]
             if (
                 len(node) == 2
                 and isinstance(node[1], (list, tuple))
@@ -140,8 +137,6 @@ class PaddleOCRAdapter:
             for child in node:
                 yield from cls._iter_text_scores(child)
             return
-
-        # PaddleOCR 3.x result objects often expose a json/res mapping.
         for attr in ("json", "res"):
             value = getattr(node, attr, None)
             if value is not None and value is not node:
