@@ -256,8 +256,13 @@ def _check_ai() -> dict[str, object]:
             "endpoints": endpoints,
         }
     latency_ms = int((time.monotonic() - started) * 1000)
-    has_ok = any(e.get("status") == "ok" for e in endpoints)
-    overall = "ok" if has_ok else ("degraded" if endpoints else "down")
+    statuses = {str(endpoint.get("status") or "") for endpoint in endpoints}
+    if statuses == {"ok"}:
+        overall = "ok"
+    elif "ok" in statuses:
+        overall = "degraded"
+    else:
+        overall = "down"
     return {"status": overall, "latency_ms": latency_ms, "endpoints": endpoints}
 
 
