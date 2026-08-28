@@ -15,11 +15,11 @@ V3.0 的核心变化：将“业务字段录入”从 MinerU/RAG 主链路中拆
               │                 │
       PyMuPDF / OCR          Parser/Chunk
               │                 │
-      规则 + 本地 Qwen       Embedding
+   规则 + Ling-3.0-tiny      Embedding
               │                 │
       Validator             Vector DB
               │                 │
-      Review / PGSQL          Qwen QA
+      Review / PGSQL         现有 RAG QA
 ```
 
 **MinerU 在 V3.0 中降级为复杂 PDF fallback，不再是业务录入主解析器。**
@@ -44,7 +44,7 @@ V3.0 的核心变化：将“业务字段录入”从 MinerU/RAG 主链路中拆
   -> 极复杂文档：MinerU fallback
   -> 文档分类
   -> Python 规则抽取
-  -> Qwen 语义补充
+  -> Ling-3.0-tiny 语义补充
   -> Pydantic Schema
   -> 业务规则校验
   -> 高置信自动通过 / 低置信人工复核
@@ -63,11 +63,24 @@ V3.0 的核心变化：将“业务字段录入”从 MinerU/RAG 主链路中拆
 
 面向 Windows 16GB 内存、无独显环境：
 
-- Qwen 单实例，建议最大并发 `1`。
+- IDP 默认语义模型改为 `Ling-3.0-tiny`。
+- Ling 单实例、低并发运行。
 - OCR 按任务运行，避免长期占 RAM。
 - 有文字层 PDF 不 OCR。
 - LLM 只接收候选段落，不默认读取整份合同全文。
 - MinerU 默认不常驻。
+
+## Ling 配置
+
+V3 IDP 通过本机 OpenAI-compatible API 调用 Ling：
+
+```text
+LING_ENABLED=1
+LING_BASE_URL=http://127.0.0.1:8000/v1
+LING_MODEL=Ling-3.0-tiny
+LING_API_KEY=local
+LING_TIMEOUT_SECONDS=120
+```
 
 ## IDP 快速启动
 
