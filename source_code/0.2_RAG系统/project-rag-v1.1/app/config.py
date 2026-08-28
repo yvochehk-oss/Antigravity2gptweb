@@ -63,7 +63,11 @@ if EMBEDDING_DIM != 1024:
     raise RuntimeError("PROJECT_RAG_EMBEDDING_DIM must be 1024; dimension changes require an explicit migration")
 EMBEDDING_MAX_LENGTH = int(os.getenv("PROJECT_RAG_EMBEDDING_MAX_LENGTH", "2048"))
 
-# Reranker settings
+# Reranker settings. Disabled by default on low-resource hosts; when disabled,
+# app.services.reranker never imports torch/transformers or loads a second model.
+RERANKER_ENABLED = os.getenv("PROJECT_RAG_RERANKER_ENABLED", "0").strip().lower() in {
+    "1", "true", "yes", "on",
+}
 RERANKER_BACKEND = os.getenv("PROJECT_RAG_RERANKER_BACKEND", "bge_v2_m3").strip()
 RERANKER_MODEL = os.getenv("PROJECT_RAG_RERANKER_MODEL", "BAAI/bge-reranker-v2-m3")
 RERANK_TOP_N = int(os.getenv("PROJECT_RAG_RERANK_TOP_N", "30"))
@@ -78,10 +82,11 @@ WORKER_SHUTDOWN_TIMEOUT_SECONDS = float(
 # 并发 Worker 数量（默认 1，pipeline 后端可安全设为 2-4）
 WORKER_CONCURRENCY = max(1, int(os.getenv("PROJECT_RAG_WORKER_CONCURRENCY", "1")))
 
-# LLM settings
-LLM_BASE_URL = os.getenv("RAG_LLM_BASE_URL", "").rstrip("/")
-LLM_MODEL = os.getenv("RAG_LLM_MODEL", "")
-LLM_API_KEY = os.getenv("RAG_LLM_API_KEY", "")
+# LLM settings. Ling-3.0-tiny is the V3 local default and is exposed through an
+# OpenAI-compatible endpoint; deployments may still override all three values.
+LLM_BASE_URL = os.getenv("RAG_LLM_BASE_URL", "http://127.0.0.1:8000/v1").rstrip("/")
+LLM_MODEL = os.getenv("RAG_LLM_MODEL", "Ling-3.0-tiny")
+LLM_API_KEY = os.getenv("RAG_LLM_API_KEY", "local")
 
 # ``start_all.sh`` injects these values only after its managed llama.cpp
 # process has passed the local health check.  They are deliberately separate
