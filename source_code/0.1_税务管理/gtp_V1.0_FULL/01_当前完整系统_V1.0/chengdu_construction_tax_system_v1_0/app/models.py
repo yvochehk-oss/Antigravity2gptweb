@@ -108,6 +108,7 @@ class Project(Base):
     city: Mapped[str] = mapped_column(String(40))
     contract_total: Mapped[Decimal] = mapped_column(Numeric(18, 2))
     tax_method: Mapped[str] = mapped_column(String(20), default="general")
+    entity_code: Mapped[str | None] = mapped_column(String(16), nullable=True, index=True)
     # Shared RAG aliases; kept in the same row by PostgreSQL trigger.
     project_code: Mapped[str | None] = mapped_column(String(64), nullable=True, unique=True, index=True)
     contract_amount: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
