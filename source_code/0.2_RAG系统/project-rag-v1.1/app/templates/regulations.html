@@ -334,7 +334,7 @@
 
 <!-- 纯前端即时交互脚本 -->
 <script>
-  // 注入法规数据对象供抽屉与客户端即时检索
+  // 注入法规元数据（不含全文，全文懒加载）
   const REG_DATA = [
     {% for r in regulations %}
     {
@@ -348,15 +348,14 @@
       status: {{ r.status|tojson }},
       publishDate: {{ r.publish_date|tojson }},
       categoryLabel: {{ r.category_label|tojson }},
-      categoryBadge: {{ r.category_badge|tojson }},
-      fullText: {{ r.full_text|tojson }}
+      categoryBadge: {{ r.category_badge|tojson }}
     },
     {% endfor %}
   ];
 
   let currentActiveReg = null;
 
-  function openDrawer(index) {
+  async function openDrawer(index) {
     const reg = REG_DATA[index];
     if (!reg) return;
     currentActiveReg = reg;
@@ -369,7 +368,7 @@
     document.getElementById('drawer-jurisdiction').innerText = reg.jurisdiction;
     document.getElementById('drawer-date').innerText = reg.publishDate || '-';
     document.getElementById('drawer-tax').innerText = reg.taxType;
-    document.getElementById('drawer-content').innerText = reg.fullText || '暂无法规正文';
+    document.getElementById('drawer-content').innerText = '⏳ 正文加载中...';
     document.getElementById('drawer-json-link').href = '/api/v1/regulations/' + reg.id;
 
     const statusEl = document.getElementById('drawer-status');
@@ -384,6 +383,19 @@
     document.getElementById('drawer-backdrop').style.opacity = '1';
     document.getElementById('drawer-backdrop').style.visibility = 'visible';
     document.getElementById('reg-drawer').style.right = '0';
+
+    // 懒加载正文（不阻塞抽屉打开）
+    try {
+      const resp = await fetch('/api/v1/regulations/' + reg.id);
+      if (resp.ok) {
+        const data = await resp.json();
+        document.getElementById('drawer-content').innerText = data.full_text || '暂无法规正文';
+      } else {
+        document.getElementById('drawer-content').innerText = '正文加载失败，请点击上方 JSON 链接查看原始数据。';
+      }
+    } catch (e) {
+      document.getElementById('drawer-content').innerText = '网络错误，正文加载失败。';
+    }
   }
 
   function closeDrawer() {

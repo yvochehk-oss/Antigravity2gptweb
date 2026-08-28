@@ -1696,7 +1696,7 @@ def web_regulations(
             cinfo = category_meta.get(cat, {"order": 99, "label": "其他法规", "badge": "badge-muted"})
             if role_filter and cat != role_filter:
                 continue
-            enriched_regs.append({"id": r.id, "document_no": r.document_no, "title": r.title, "issuer": r.issuer or "-", "legal_level": r.legal_level or "规范性文件", "jurisdiction": r.jurisdiction or "全国", "tax_type": r.tax_type or "全部税种", "industry": r.industry or "建筑业", "publish_date": r.publish_date or "-", "effective_date": r.effective_date or "-", "status": r.status or "现行有效", "full_text": r.full_text or "", "category": cat, "category_order": cinfo["order"], "category_label": cinfo["label"], "category_badge": cinfo["badge"]})
+            enriched_regs.append({"id": r.id, "document_no": r.document_no, "title": r.title, "issuer": r.issuer or "-", "legal_level": r.legal_level or "规范性文件", "jurisdiction": r.jurisdiction or "全国", "tax_type": r.tax_type or "全部税种", "industry": r.industry or "建筑业", "publish_date": r.publish_date or "-", "effective_date": r.effective_date or "-", "status": r.status or "现行有效", "category": cat, "category_order": cinfo["order"], "category_label": cinfo["label"], "category_badge": cinfo["badge"]})
         enriched_regs.sort(key=lambda x: (x["category_order"], x["id"]))
         return templates.TemplateResponse(request, "regulations.html", {"regulations": enriched_regs, "counts": counts, "q": q, "entity": role_filter, "business_role": role_filter, "jurisdiction": jurisdiction, "level": level, "status": status, "active_page": "regulations", "mineru": mineru_available(), "postgres": IS_POSTGRES})
 
