@@ -2,17 +2,24 @@ from __future__ import annotations
 
 import hashlib
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from .extractors import HybridExtractor
+from .granite_client import GraniteAuditClient
 from .parsers import DocumentParser
 from .validators import decide_review, validate_contract, validate_invoice
 
 
 class IDPPipeline:
-    def __init__(self, parser: DocumentParser, extractor: HybridExtractor) -> None:
+    def __init__(
+        self,
+        parser: DocumentParser,
+        extractor: HybridExtractor,
+        auditor: Optional[GraniteAuditClient] = None,
+    ) -> None:
         self.parser = parser
         self.extractor = extractor
+        self.auditor = auditor
 
     @staticmethod
     def sha256(path: str | Path) -> str:
@@ -49,6 +56,34 @@ class IDPPipeline:
 
         status = decide_review(data, validation) if data else "needs_review"
 
+        extraction_meta = data.get("_meta") if isinstance(data, dict) else None
+        if extraction_meta and extraction_meta.get("semantic_error"):
+            status = "needs_review"
+
+        audit: Dict[str, Any] = {
+            "enabled": self.auditor is not None,
+            "executed": False,
+            "risk_level": "none",
+            "risks": [],
+        }
+        if self.auditor is not None:
+            try:
+                audit = self.auditor.audit(document_type, data, validation, parsed.text)
+                if audit.get("executed") and audit.get("risk_level") in {"medium", "high", "critical"}:
+                    status = "needs_review"
+                if audit.get("risks"):
+                    status = "needs_review"
+            except Exception as exc:
+                audit = {
+                    "enabled": True,
+                    "executed": False,
+                    "risk_level": "unknown",
+                    "risks": [],
+                    "error": f"{type(exc).__name__}: {exc}",
+                }
+                # Audit is advisory, so model failure must not destroy extraction.
+                status = "needs_review"
+
         return {
             "sha256": self.sha256(file_path),
             "document_type": document_type,
@@ -57,5 +92,6 @@ class IDPPipeline:
             "ocr_confidence": parsed.ocr_confidence,
             "data": data,
             "validation": validation,
+            "audit": audit,
             "status": status,
         }
