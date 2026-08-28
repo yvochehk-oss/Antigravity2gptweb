@@ -5,19 +5,12 @@ Set-Location $RootDir
 
 $VenvPython = Join-Path $RootDir ".venv\Scripts\python.exe"
 if (-not (Test-Path $VenvPython)) {
-    $Python = $null
     if (Get-Command py -ErrorAction SilentlyContinue) {
-        $Python = @("py", "-3")
+        & py -3 -m venv .venv
     } elseif (Get-Command python -ErrorAction SilentlyContinue) {
-        $Python = @("python")
+        & python -m venv .venv
     } else {
         throw "Python 3 not found. Install Python 3.11+ and retry."
-    }
-
-    if ($Python.Count -eq 2) {
-        & $Python[0] $Python[1] -m venv .venv
-    } else {
-        & $Python[0] -m venv .venv
     }
 }
 
@@ -39,13 +32,18 @@ if (-not (Test-Path (Join-Path $RootDir ".env"))) {
     Write-Host "Created .env from .env.example. Review DATABASE_URL and model endpoints before production use."
 }
 
-$InstallOcr = ($env:IDP_INSTALL_OCR ?? "0").ToLowerInvariant()
+$InstallOcr = "0"
+if ($env:IDP_INSTALL_OCR) {
+    $InstallOcr = $env:IDP_INSTALL_OCR.ToLowerInvariant()
+}
 if ($InstallOcr -in @("1", "true", "yes", "on")) {
     & $VenvPython -m pip install paddleocr paddlepaddle
 }
 
-$IdpHost = if ($env:IDP_HOST) { $env:IDP_HOST } else { "127.0.0.1" }
-$IdpPort = if ($env:IDP_PORT) { $env:IDP_PORT } else { "8930" }
+$IdpHost = "127.0.0.1"
+if ($env:IDP_HOST) { $IdpHost = $env:IDP_HOST }
+$IdpPort = "8930"
+if ($env:IDP_PORT) { $IdpPort = $env:IDP_PORT }
 
 Write-Host "Starting Chengdu Construction IDP V3 on http://$IdpHost`:$IdpPort"
 Write-Host "Ling failures degrade to review; Granite remains disabled unless GRANITE_ENABLED=1."
