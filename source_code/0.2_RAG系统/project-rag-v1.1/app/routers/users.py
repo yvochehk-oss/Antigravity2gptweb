@@ -12,7 +12,12 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..auth import require_web_auth, require_web_or_service_role, TaxPrincipal
+from ..auth import (
+    require_web_auth,
+    require_web_or_service_read,
+    require_web_or_service_role,
+    TaxPrincipal,
+)
 from ..logging_config import get_logger
 from ..user_center.db import get_user_center_db
 from ..user_center.models import UserAccount
@@ -95,7 +100,7 @@ def users_page(
 
 @router.get("/api/v1/users")
 def api_list_users(
-    principal: TaxPrincipal = Depends(require_web_or_service_role("admin", "operator")),
+    principal: TaxPrincipal = Depends(require_web_or_service_read),
     db: Session = Depends(get_user_center_db),
 ):
     """从独立用户数据库列出所有账号。"""
@@ -115,14 +120,26 @@ def api_create_user(
     if existing:
         raise HTTPException(status_code=400, detail="该用户名已存在")
 
+    clean_email = body.email.strip() if body.email else None
+    if clean_email:
+        existing_email = db.scalar(select(UserAccount).where(UserAccount.email == clean_email))
+        if existing_email:
+            raise HTTPException(status_code=400, detail="该邮箱已被其他账户绑定")
+
+    clean_phone = body.phone.strip() if body.phone else None
+    if clean_phone:
+        existing_phone = db.scalar(select(UserAccount).where(UserAccount.phone == clean_phone))
+        if existing_phone:
+            raise HTTPException(status_code=400, detail="该手机号已被其他账户绑定")
+
     pw_hash = hash_password(body.password)
     user = UserAccount(
         username=clean_username,
         password_hash=pw_hash,
         role=body.role,
         nickname=body.nickname.strip() or clean_username,
-        email=body.email.strip() if body.email else None,
-        phone=body.phone.strip() if body.phone else None,
+        email=clean_email,
+        phone=clean_phone,
         active=True,
         avatar_url="/static/avatars/default.png",
         created_at=datetime.now(timezone.utc),
@@ -156,9 +173,23 @@ def api_update_user(
     if body.role is not None:
         user.role = body.role
     if body.email is not None:
-        user.email = body.email.strip() if body.email else None
+        clean_email = body.email.strip() or None
+        if clean_email:
+            existing_email = db.scalar(
+                select(UserAccount).where(UserAccount.email == clean_email, UserAccount.id != user_id)
+            )
+            if existing_email:
+                raise HTTPException(status_code=400, detail="该邮箱已被其他账户绑定")
+        user.email = clean_email
     if body.phone is not None:
-        user.phone = body.phone.strip() if body.phone else None
+        clean_phone = body.phone.strip() or None
+        if clean_phone:
+            existing_phone = db.scalar(
+                select(UserAccount).where(UserAccount.phone == clean_phone, UserAccount.id != user_id)
+            )
+            if existing_phone:
+                raise HTTPException(status_code=400, detail="该手机号已被其他账户绑定")
+        user.phone = clean_phone
     if body.active is not None:
         if not body.active and user.username == principal.username:
             raise HTTPException(status_code=400, detail="禁止禁用当前登录的管理员账户")
