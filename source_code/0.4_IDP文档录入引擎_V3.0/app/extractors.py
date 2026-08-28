@@ -79,7 +79,12 @@ class RuleExtractor:
 
 
 class HybridExtractor:
-    """Rules first. LLM only fills missing semantic fields from candidate text."""
+    """Rules first; Ling only fills missing semantic fields.
+
+    Semantic-model failure never discards deterministic extraction. Instead a
+    _meta.semantic_error marker is returned and the pipeline routes the document
+    to human review.
+    """
 
     def __init__(self, llm: Optional[LLMCallable] = None) -> None:
         self.rules = RuleExtractor()
@@ -100,22 +105,30 @@ class HybridExtractor:
                 start = idx + len(keyword)
         return "\n---\n".join(dict.fromkeys(chunks))[:6000]
 
+    def _semantic_fill(self, document_type: str, ctx: str, base: Dict[str, Any]) -> Dict[str, Any]:
+        if not self.llm or not ctx:
+            return base
+        try:
+            extra = self.llm(document_type, ctx, base)
+            base = self._merge(base, extra)
+            base.setdefault("_meta", {})["semantic_model_used"] = True
+        except Exception as exc:
+            base.setdefault("_meta", {}).update({
+                "semantic_model_used": False,
+                "semantic_error": f"{type(exc).__name__}: {exc}",
+            })
+        return base
+
     def extract(self, document_type: str, text: str) -> Dict[str, Any]:
         if document_type == "contract":
             base = self.rules.contract(text).model_dump(mode="json")
-            if self.llm:
-                ctx = self.candidate_context(text, ["付款", "结算", "期限", "质保", "甲方", "乙方"])
-                if ctx:
-                    base = self._merge(base, self.llm("contract", ctx, base))
-            return base
+            ctx = self.candidate_context(text, ["付款", "结算", "期限", "质保", "甲方", "乙方"])
+            return self._semantic_fill("contract", ctx, base)
 
         if document_type == "invoice":
             base = self.rules.invoice(text).model_dump(mode="json")
-            if self.llm:
-                ctx = self.candidate_context(text, ["购买方", "销售方", "税额", "金额", "税率"])
-                if ctx:
-                    base = self._merge(base, self.llm("invoice", ctx, base))
-            return base
+            ctx = self.candidate_context(text, ["购买方", "销售方", "税额", "金额", "税率"])
+            return self._semantic_fill("invoice", ctx, base)
 
         return {}
 
