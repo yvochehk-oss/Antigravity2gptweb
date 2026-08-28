@@ -1,26 +1,50 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # ==============================================================================
-# 成都建工 V2.0 - macOS 本地一键从 Windows 分支同步最新功能与样式
+# 成都建工 V2.0 - macOS 本地同步脚本
+# main / macos / windows 为同一主体代码的三个镜像引用，不再互相做冲突合并。
 # ==============================================================================
-set -e
+set -euo pipefail
 
-echo ">>> [1/3] 正在拉取远程最新分支与提交..."
-git fetch origin windows
+ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+cd "$ROOT_DIR"
 
-echo ">>> [2/3] 正在将 Windows 分支的功能、前端排版、字体与样式合并到 macOS 分支..."
-git merge origin/windows --no-edit -m "sync: 从 windows 分支同步最新功能、UI排版与样式规范" || {
-  echo ">>> 检测到平台特异性差异，自动优先采纳跨平台源码并保留本地 macOS 启动脚本..."
-  git checkout --theirs source_code/ || true
-  git checkout --ours start_all.sh stop_all.sh || true
-  git add -A
-  git commit -m "sync: 自动完成跨平台功能与排版合并（保留 macOS 启动配置）" || true
-}
+echo ">>> [1/4] 检查本地工作区..."
+if [[ -n "$(git status --porcelain)" ]]; then
+  echo "[ERROR] 工作区存在未提交修改。为避免覆盖本地工作，请先提交或暂存后再同步。" >&2
+  exit 1
+fi
 
-echo ">>> [3/3] 正在重新编译前端以生效最新排版与样式..."
-if [ -d "source_code/0.1_税务管理/gtp_V1.0_FULL/01_当前完整系统_V1.0/frontend_stitch" ]; then
-  (cd "source_code/0.1_税务管理/gtp_V1.0_FULL/01_当前完整系统_V1.0/frontend_stitch" && npm run build && npm run sync:tax-static)
+echo ">>> [2/4] 拉取 main / macos / windows 镜像..."
+git fetch origin main macos windows --prune
+
+MAIN_SHA="$(git rev-parse origin/main)"
+MACOS_SHA="$(git rev-parse origin/macos)"
+WINDOWS_SHA="$(git rev-parse origin/windows)"
+if [[ "$MAIN_SHA" != "$MACOS_SHA" || "$MAIN_SHA" != "$WINDOWS_SHA" ]]; then
+  echo "[ERROR] 远程三个主体分支尚未镜像到同一提交，停止本地同步。" >&2
+  printf 'main=%s\nmacos=%s\nwindows=%s\n' "$MAIN_SHA" "$MACOS_SHA" "$WINDOWS_SHA" >&2
+  echo "请先检查 GitHub 的 Canonical Branch Mirror 工作流，禁止本地自动解冲突。" >&2
+  exit 2
+fi
+
+echo ">>> [3/4] 快进本地 macOS 分支到统一主体代码..."
+if git show-ref --verify --quiet refs/heads/macos; then
+  git switch macos
+else
+  git switch --track -c macos origin/macos
+fi
+git merge --ff-only origin/macos
+
+echo ">>> [4/4] 重新构建并同步 Tax 前端静态资源..."
+FRONTEND_DIR="source_code/0.1_税务管理/gtp_V1.0_FULL/01_当前完整系统_V1.0/frontend_stitch"
+if [[ -d "$FRONTEND_DIR" ]]; then
+  (
+    cd "$FRONTEND_DIR"
+    npm run sync:tax-static
+  )
 fi
 
 echo "=================================================================="
-echo "✓ Windows 分支最新功能、排版、字体与样式已成功同步至 macOS 分支！"
+echo "✓ macOS 已同步到统一主体提交：$MAIN_SHA"
+echo "✓ main / macos / windows 远程代码一致。"
 echo "=================================================================="
