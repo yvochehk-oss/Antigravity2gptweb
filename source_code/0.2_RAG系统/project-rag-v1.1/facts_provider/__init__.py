@@ -1,12 +1,16 @@
 """
 Facts Provider 集成模块
 
-将 Facts Provider 集成到 FastAPI 应用
+将 Facts Provider 集成到 FastAPI 应用，并启用请求级批量 Facts 读取，
+避免高管项目列表逐项目查询 analytics_project_full。
 """
 
 from fastapi import FastAPI
 
 from .routes import router as facts_router
+from .bulk_loader import install_bulk_facts_loading
+
+install_bulk_facts_loading()
 
 
 def setup_facts_provider(app: FastAPI):

@@ -10,10 +10,19 @@ from sqlalchemy.orm import Session
 from ..models import Invoice, Progress, Project, RealCost
 
 
+EAC_METHOD = "canonical_management_revenue_progress_v1"
+
+
 def _zero(d: Decimal | float | int | None) -> Decimal:
     if d is None:
         return Decimal("0")
     return Decimal(str(d))
+
+
+def _optional_decimal(value: Decimal | float | int | None) -> Decimal | None:
+    if value is None:
+        return None
+    return Decimal(str(value))
 
 
 def project_summary(db: Session, pid: int) -> dict[str, Any]:
@@ -44,11 +53,27 @@ def project_summary(db: Session, pid: int) -> dict[str, Any]:
     vat = max(outvat - invat, Decimal("0"))
     profit = revenue - real
     progress = (revenue / p.contract_total) if p and p.contract_total else Decimal("0")
-    # V0.2 EAC：保留三档（预算 / 当前效率 / 实际下限）
-    eac_efficiency = (real / progress) if progress > Decimal("0.05") else real
-    eac = max(eac_efficiency, real)
+
+    # EAC is a shared deterministic PostgreSQL contract. Tax deliberately does
+    # not carry a second early-stage threshold or local Python formula; the
+    # same function is consumed by the ProjectRAG analytics_eac view.
+    eac = None
+    if p is not None:
+        eac = _optional_decimal(
+            db.scalar(
+                select(
+                    func.canonical_management_eac_cost(
+                        p.contract_total,
+                        revenue,
+                        real,
+                    )
+                )
+            )
+        )
     eac_profit = (
-        (p.contract_total - eac) if p else Decimal("0")
+        _zero(p.contract_total) - eac
+        if p is not None and eac is not None
+        else None
     )
     margin = (profit / revenue) if revenue else Decimal("0")
     return {
@@ -62,7 +87,10 @@ def project_summary(db: Session, pid: int) -> dict[str, Any]:
         "progress": progress,
         "eac": eac,
         "eac_profit": eac_profit,
-        "eac_efficiency": eac_efficiency,
+        # Compatibility alias: both values now come from the same canonical
+        # function rather than a separate "efficiency" branch.
+        "eac_efficiency": eac,
+        "eac_method": EAC_METHOD,
     }
 
 

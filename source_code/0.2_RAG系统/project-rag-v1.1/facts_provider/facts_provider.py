@@ -8,9 +8,9 @@ response and must not make a financial conclusion from it.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
-import uuid
 from collections import OrderedDict
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -182,6 +182,58 @@ class MetricValue:
             "metric_version": self.metric_version,
             "unit": self.unit,
         }
+
+
+def _stable_facts_version(
+    project_code: str,
+    *,
+    metrics: Optional[dict[str, MetricValue]] = None,
+    mapping: Optional[Mapping[str, Any]] = None,
+    facts_available: bool,
+    reason: Optional[str] = None,
+    source: str = FACTS_SOURCE,
+) -> str:
+    """Hash only stable, externally meaningful Facts content.
+
+    Analytics views expose ``calculated_at=CURRENT_TIMESTAMP``. Including that
+    timestamp would make a read look like a new fact version even when no
+    source value changed. The version therefore covers the public metrics,
+    metric contract versions, entity-mapping gate and EAC method, but excludes
+    volatile query timestamps.
+    """
+
+    row = dict(mapping or {})
+    metric_payload = {
+        key: value.to_dict()
+        for key, value in sorted((metrics or {}).items())
+    }
+    payload = {
+        "project_code": project_code,
+        "source": source,
+        "facts_available": bool(facts_available),
+        "reason": reason or None,
+        "entity_code": normalize_entity_code(row.get("entity_code")),
+        "entity_mapping_status": (
+            str(row.get("entity_mapping_status")).strip().upper()
+            if row.get("entity_mapping_status") is not None
+            else None
+        ),
+        "entity_mapping_reason": (
+            str(row.get("entity_mapping_reason")).strip()
+            if row.get("entity_mapping_reason") is not None
+            else None
+        ),
+        "entity_mapping_valid": _optional_bool(row.get("entity_mapping_valid")),
+        "eac_method": str(row.get("eac_method") or ""),
+        "metrics": metric_payload,
+    }
+    canonical = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return "f_" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
 
 
 @dataclass
@@ -408,10 +460,23 @@ def _degraded_response(
 ) -> FactsResponse:
     """Create an explicit unavailable response with no fabricated values."""
 
+    stable_mapping = {
+        "entity_code": entity_code,
+        "entity_mapping_status": entity_mapping_status,
+        "entity_mapping_reason": entity_mapping_reason,
+        "entity_mapping_valid": entity_mapping_valid,
+    }
     return FactsResponse(
         project_code=project_code,
         as_of=as_of or datetime.now(timezone.utc).isoformat(),
-        facts_version=facts_version or f"f_{uuid.uuid4().hex[:12]}",
+        facts_version=facts_version or _stable_facts_version(
+            project_code,
+            metrics=metrics,
+            mapping=stable_mapping,
+            facts_available=False,
+            reason=reason,
+            source=source,
+        ),
         metrics=metrics or {},
         status="DEGRADED",
         facts_available=False,
@@ -565,16 +630,25 @@ class FactsProvider:
         if invalid:
             reasons.append("invalid metrics: " + ", ".join(sorted(invalid)))
         available = not mapping_failure and not source_incomplete and not missing and not invalid
+        reason = "; ".join(reasons) if reasons else None
         as_of = _iso_value(mapping.get("calculated_at") or mapping.get("data_date"))
+        facts_version = _stable_facts_version(
+            project_code,
+            metrics=metrics,
+            mapping=mapping,
+            facts_available=available,
+            reason=reason,
+            source=FACTS_SOURCE,
+        )
 
         return FactsResponse(
             project_code=project_code,
             as_of=as_of,
-            facts_version=f"f_{uuid.uuid4().hex[:12]}",
+            facts_version=facts_version,
             metrics=metrics if available else {},
             status="AVAILABLE" if available else "DEGRADED",
             facts_available=available,
-            reason="; ".join(reasons) if reasons else None,
+            reason=reason,
             source=FACTS_SOURCE,
             entity_code=normalize_entity_code(mapping.get("entity_code")),
             entity_mapping_status=(

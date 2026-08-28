@@ -33,15 +33,13 @@ dependencies = [
     "pyjwt>=2.13.0",
     "webauthn>=3.0.0",
     "pymupdf>=1.28.2",
-    "psycopg2-binary>=2.9.12",
-    # Local-only OCR backend used by mineru_mock.py.  The parser supplies
+    # Local-only OCR backend used by mineru_mock.py. The parser supplies
     # explicit model paths and never permits the package to download defaults.
     "rapidocr_onnxruntime>=1.4,<2",
     # 1.24+ no longer ships CPython 3.10 wheels; this RAG release targets 3.10.
     "onnxruntime>=1.17,<1.24",
     "flagembedding>=1.4.2",
 ]
-
 
 [project.optional-dependencies]
 dev = [
@@ -52,7 +50,6 @@ dev = [
 metabase = [
     "httpx>=0.27.0",
 ]
-
 
 [project.urls]
 Documentation = "docs/ARCHITECTURE.md"

@@ -13,7 +13,9 @@ SELECT p.project_id,p.project_code,p.project_name,p.entity_code,p.contract_amoun
        pr.collected_amount,
        CASE WHEN pr.recognized_revenue>0 THEN pr.collected_amount/pr.recognized_revenue ELSE NULL END AS collection_rate,
        CASE WHEN pr.recognized_revenue IS NULL OR pr.collected_amount IS NULL THEN NULL
-            ELSE pr.recognized_revenue-pr.collected_amount END AS unpaid_amount,
+            ELSE GREATEST(pr.recognized_revenue-pr.collected_amount,0) END AS unpaid_amount,
+       CASE WHEN pr.recognized_revenue IS NULL OR pr.collected_amount IS NULL THEN NULL
+            ELSE GREATEST(pr.collected_amount-pr.recognized_revenue,0) END AS advance_collection_amount,
        CURRENT_TIMESTAMP AS calculated_at
 FROM analytics_project_summary p
 LEFT JOIN pr ON pr.project_id=p.project_id

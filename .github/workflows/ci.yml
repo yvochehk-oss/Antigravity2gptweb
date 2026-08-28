@@ -54,7 +54,9 @@ jobs:
         run: python -m pip install uv
 
       - name: Install dependencies
-        run: uv sync --frozen
+        # pyproject.toml is authoritative; this also refreshes a stale lock
+        # after dependency-policy changes instead of silently using it.
+        run: uv sync --extra dev
 
       - name: Ruff
         run: uv run ruff check .
@@ -106,7 +108,7 @@ jobs:
         run: python -m pip install uv
 
       - name: Install dependencies
-        run: uv sync --frozen --extra dev
+        run: uv sync --extra dev
 
       - name: Ruff
         run: uv run ruff check .

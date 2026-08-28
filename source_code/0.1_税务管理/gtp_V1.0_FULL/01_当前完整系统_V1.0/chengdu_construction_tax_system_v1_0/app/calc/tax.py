@@ -167,24 +167,99 @@ def _resolve_owner(code: str | None, by_code: dict[str, Entity]) -> str:
         current = parent
 
 
-def _input_invoice_key(
-    entity_code: str,
-    counterparty_code: str | None,
-    period: str | None = None,
-    amount: Decimal | float | int | None = None,
-) -> tuple[str, str, str, str]:
-    """Return a stable composite key for matching covered external real costs.
+def _explicitly_covered_real_cost_ids(
+    db: Session,
+    period: str,
+    resolved_invoices: list[tuple[Invoice, str]],
+    resolved_costs: list[tuple[RealCost, str]],
+) -> set[int]:
+    """Return RealCost ids explicitly proven to duplicate an input invoice.
 
-    The key includes entity, counterparty, period, and amount to avoid
-    false positives when the same counterparty has multiple transactions
-    in different periods or amounts.
+    Cross-table anti-double-counting is a provenance decision, not a fuzzy
+    matching decision.  A RealCost is excluded only when a row exists in
+    ``real_cost_invoice_links``.  Equal entity/counterparty/period/amount
+    values alone are never evidence that two source records are the same
+    transaction.
+
+    The current relation is intentionally one-to-one.  Every explicit link is
+    validated against the accounting period, project, canonical legal owner,
+    counterparty (when both sides provide one), and net amount.  An invalid
+    link fails the rebuild rather than silently dropping a legitimate cost.
     """
-    return (
-        entity_code,
-        (counterparty_code or "").strip(),
-        (period or "").strip(),
-        str(_zero(amount)),
-    )
+    if not resolved_costs:
+        return set()
+
+    invoice_by_id = {
+        int(invoice.id): (invoice, owner)
+        for invoice, owner in resolved_invoices
+        if invoice.id is not None
+    }
+    cost_by_id = {
+        int(cost.id): (cost, owner)
+        for cost, owner in resolved_costs
+        if cost.id is not None
+    }
+
+    links = db.execute(
+        text(
+            "SELECT l.real_cost_id, l.invoice_id "
+            "FROM real_cost_invoice_links AS l "
+            "JOIN real_costs AS rc ON rc.id = l.real_cost_id "
+            "WHERE rc.period = :period"
+        ),
+        {"period": period},
+    ).fetchall()
+
+    covered: set[int] = set()
+    for real_cost_id_raw, invoice_id_raw in links:
+        real_cost_id = int(real_cost_id_raw)
+        invoice_id = int(invoice_id_raw)
+        cost_pair = cost_by_id.get(real_cost_id)
+        invoice_pair = invoice_by_id.get(invoice_id)
+        if cost_pair is None:
+            raise ValueError(
+                f"真实成本来源关联无效：RealCost#{real_cost_id} 不在期间 {period}"
+            )
+        if invoice_pair is None:
+            raise ValueError(
+                f"真实成本来源关联无效：Invoice#{invoice_id} 不在期间 {period}"
+            )
+
+        cost, cost_owner = cost_pair
+        invoice, invoice_owner = invoice_pair
+        if invoice.direction != "in":
+            raise ValueError(
+                f"真实成本来源关联无效：Invoice#{invoice_id} 不是进项发票"
+            )
+        if int(cost.project_id) != int(invoice.project_id):
+            raise ValueError(
+                f"真实成本来源关联跨项目：RealCost#{real_cost_id} -> Invoice#{invoice_id}"
+            )
+        if cost_owner != invoice_owner:
+            raise ValueError(
+                f"真实成本来源关联跨法人主体：RealCost#{real_cost_id} -> Invoice#{invoice_id}"
+            )
+        if (cost.period or "").strip() != (invoice.period or "").strip():
+            raise ValueError(
+                f"真实成本来源关联跨期间：RealCost#{real_cost_id} -> Invoice#{invoice_id}"
+            )
+        cost_counterparty = (cost.counterparty_code or "").strip()
+        invoice_counterparty = (invoice.counterparty_code or "").strip()
+        if (
+            cost_counterparty
+            and invoice_counterparty
+            and cost_counterparty != invoice_counterparty
+        ):
+            raise ValueError(
+                f"真实成本来源关联交易对手不一致：RealCost#{real_cost_id} -> Invoice#{invoice_id}"
+            )
+        if _zero(cost.amount) != _zero(invoice.net):
+            raise ValueError(
+                f"真实成本来源关联金额不一致：RealCost#{real_cost_id} -> Invoice#{invoice_id}"
+            )
+        covered.add(real_cost_id)
+
+    return covered
 
 
 def _lock_tax_ledger_period(db: Session, period: str) -> None:
@@ -249,6 +324,12 @@ def rebuild_tax_ledger(db: Session, period: str) -> list[TaxLedger]:
             (cost, _resolve_owner(cost.entity_code, by_code))
             for cost in costs
         ]
+        covered_real_cost_ids = _explicitly_covered_real_cost_ids(
+            db,
+            period,
+            resolved_invoices,
+            resolved_costs,
+        )
 
         db.execute(delete(TaxLedger).where(TaxLedger.period == period))
 
@@ -261,21 +342,12 @@ def rebuild_tax_ledger(db: Session, period: str) -> list[TaxLedger]:
             code: Decimal("0") for code in legal_codes
         }
 
-        # A direct external cost can be a second representation of an input
-        # invoice.  Track the normalized invoice owners so this legacy
-        # anti-double-counting rule applies to every real entity uniformly,
-        # without an entity-code special case.
-        covered_invoice_keys: set[tuple[str, str, str, str]] = set()
-
         for i, code in resolved_invoices:
             if i.direction == "out":
                 outvat[code] += _zero(i.vat)
                 revenue[code] += _zero(i.net)
             elif i.direction == "in":
                 invoice_cost[code] += _zero(i.net)
-                covered_invoice_keys.add(
-                    _input_invoice_key(code, i.counterparty_code, i.period, i.net)
-                )
                 if i.deductible:
                     invat[code] += _zero(i.vat)
             else:
@@ -285,9 +357,7 @@ def rebuild_tax_ledger(db: Session, period: str) -> list[TaxLedger]:
             code: Decimal("0") for code in legal_codes
         }
         for x, code in resolved_costs:
-            if x.counterparty_code and _input_invoice_key(
-                code, x.counterparty_code, x.period, x.amount
-            ) in covered_invoice_keys:
+            if x.id is not None and int(x.id) in covered_real_cost_ids:
                 continue
             direct_real[code] += _zero(x.amount)
 

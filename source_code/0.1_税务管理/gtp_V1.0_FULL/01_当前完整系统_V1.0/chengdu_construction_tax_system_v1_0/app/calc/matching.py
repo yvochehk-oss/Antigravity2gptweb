@@ -1,4 +1,4 @@
-"""V0.2: 四流匹配 + 风险阈值表驱动。"""
+"""Four-flow matching with database-backed business thresholds."""
 from __future__ import annotations
 
 import re
@@ -10,7 +10,6 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..constants import DEFAULT_RISK_THRESHOLDS
 from ..models import (
     CashFlow,
     Contract,
@@ -18,6 +17,7 @@ from ..models import (
     Invoice,
     RiskThreshold,
 )
+from .business_rules import decimal_rule
 from .subjects import kind_to_category
 
 
@@ -28,20 +28,32 @@ def _zero(d: Decimal | float | int | None) -> Decimal:
 
 
 def _load_thresholds(db: Session) -> dict[str, tuple[Decimal, str]]:
-    """返回 {code: (ratio, severity)}，缺省回退到代码常量。"""
+    """Return matching thresholds with DB overrides over versioned baselines.
+
+    ``RiskThreshold`` remains the operator-facing override table.  When an
+    override is absent, the baseline comes from ``business_rule_parameters``;
+    Python no longer contains hidden financial threshold values.
+    """
+    required = (
+        "invoice_over_contract",
+        "paid_over_invoice",
+        "fulfilled_over_contract",
+    )
     out: dict[str, tuple[Decimal, str]] = {}
     rows = db.execute(
         select(RiskThreshold).where(RiskThreshold.enabled == True)  # noqa: E712
     ).scalars().all()
-    for r in rows:
-        out[r.code] = (_zero(r.ratio), r.severity)
-    for k, v in DEFAULT_RISK_THRESHOLDS.items():
-        out.setdefault(k, (Decimal(str(v)), "YELLOW"))
+    for row in rows:
+        if row.code in required:
+            out[row.code] = (_zero(row.ratio), row.severity)
+
+    for code in required:
+        if code not in out:
+            out[code] = (decimal_rule(db, "matching", code), "YELLOW")
     return out
 
 
-# 付款备注文本仅用于警告提示，不可作为履约证据来源。
-# 文本猜测可靠性低，分类必须依赖显式关联记录。
+# Payment-note text is warning metadata only; it never establishes evidence.
 _CATEGORY_KEYWORDS: list[tuple[str, str]] = [
     ("project_management", "项目管理"),
     ("subcontract", "专业分包"),
@@ -61,13 +73,7 @@ _CATEGORY_KEYWORDS: list[tuple[str, str]] = [
 
 
 def _note_category(note: str) -> str:
-    """V0.2: 按 ASCII 词边界 + 优先最长匹配（仅警告用途，不作为证据）。
-
-    ``re`` 的 ``\\b`` 在 Unicode 模式下会把中文字符视为 ``\\w``，
-    导致 ``labor`` 与 ``labor付款`` 中之间不存在词边界。
-    这里用显式 ASCII 字符否定环视，强制要求两侧为非 ASCII
-    英文字母数字下划线。
-    """
+    """Guess a category for warning text only, never for matching evidence."""
     if not note:
         return "未分类"
     note_l = note.lower()
@@ -86,19 +92,7 @@ def four_flow_evidence_completeness(
     *,
     evaluated_at: str | None = None,
 ) -> dict[str, Any]:
-    """Return the deterministic completeness contract for matching rows.
-
-    This is deliberately an *evidence completeness* measure, not a project
-    health score.  Every matching row has four expected evidence items:
-    contract, fulfillment, invoice and payment.  The numerator is the number
-    of explicit evidence flags present across those rows and the denominator
-    is ``len(rows) * 4``.  A project with no matching rows cannot be treated as
-    a measured zero; it is ``UNAVAILABLE`` and its score/percentage are null.
-
-    ``matching_rows`` emits the explicit ``*_ok`` flags.  The amount-based
-    fallback keeps this helper safe for old persisted/test payloads while the
-    fulfillment flow still requires the existing ``evidence_ok`` flag.
-    """
+    """Return deterministic four-flow evidence completeness, not health."""
     row_count = len(rows)
     expected_per_flow = row_count
     expected = expected_per_flow * len(_FOUR_FLOW_NAMES)
@@ -111,8 +105,6 @@ def four_flow_evidence_completeness(
             if explicit_key in row:
                 present = bool(row[explicit_key])
             elif flow == "fulfillment":
-                # ``evidence_ok`` is the established flag and cannot be
-                # inferred from the fulfillment amount alone.
                 present = bool(row.get("evidence_ok", False))
             else:
                 present = _zero(row.get(flow)) > Decimal("0")
@@ -138,9 +130,6 @@ def four_flow_evidence_completeness(
             if by_flow[flow]["missing"]
         ]
 
-    # ``score`` intentionally remains null.  No approved deterministic
-    # project-health formula exists; callers must use ``percentage`` only as
-    # four-flow evidence completeness and must not label it project health.
     return {
         "status": status,
         "score": None,
@@ -159,14 +148,10 @@ def four_flow_evidence_completeness(
 
 
 def matching_rows(db: Session, pid: int) -> list[dict[str, Any]]:
-    """合同 → 履约 → 发票 → 付款 四流匹配。
+    """Match contract -> fulfillment -> invoice -> payment evidence.
 
-    Evidence is only True when explicit records support the same deterministic
-    ``(counterparty, category)`` key.  CashFlow has no deterministic category
-    link in the current schema, so payment note text is never allowed to place
-    a payment into a contract/invoice category bucket.  Note-derived category
-    guesses are warning metadata only and payments stay under ``未分类`` until
-    an explicit linkage field is introduced.
+    CashFlow has no deterministic category link in the current schema, so note
+    text is never allowed to place a payment into a contract/invoice category.
     """
     contracts = db.execute(
         select(Contract).where(Contract.project_id == pid)
@@ -199,49 +184,41 @@ def matching_rows(db: Session, pid: int) -> list[dict[str, Any]]:
     contract_evidence: set[tuple[str, str]] = set()
     invoice_evidence: set[tuple[str, str]] = set()
     payment_evidence: set[tuple[str, str]] = set()
-    # P1-08: evidence defaults to False; only explicit evidence_complete=True
-    # from a Fulfillment record can make it True.
     evidence: dict[tuple[str, str], bool] = defaultdict(lambda: False)
 
-    for c in contracts:
-        key = (c.seller_code, c.category)
+    for contract_row in contracts:
+        key = (contract_row.seller_code, contract_row.category)
         keys.add(key)
-        csum[key] += _zero(c.amount)
+        csum[key] += _zero(contract_row.amount)
         contract_evidence.add(key)
 
-    for f in fulfill:
-        cat = f.category or kind_to_category(f.kind)
-        key = (f.counterparty_code, cat)
+    for fulfillment_row in fulfill:
+        cat = fulfillment_row.category or kind_to_category(fulfillment_row.kind)
+        key = (fulfillment_row.counterparty_code, cat)
         keys.add(key)
-        fsum[key] += _zero(f.amount)
-        # Only mark evidence as True when there is an explicit fulfillment record
-        # with evidence_complete set to True.
-        if f.evidence_complete:
+        fsum[key] += _zero(fulfillment_row.amount)
+        if fulfillment_row.evidence_complete:
             evidence[key] = True
 
-    for i in invoices:
-        key = (i.counterparty_code, i.category)
+    for invoice_row in invoices:
+        key = (invoice_row.counterparty_code, invoice_row.category)
         keys.add(key)
-        isum[key] += _zero(i.net) + _zero(i.vat)
+        isum[key] += _zero(invoice_row.net) + _zero(invoice_row.vat)
         invoice_evidence.add(key)
 
-    invoice_counterparties = {i.counterparty_code for i in invoices}
+    invoice_counterparties = {row.counterparty_code for row in invoices}
 
-    for x in cash:
-        # CashFlow currently has no deterministic category/linkage field.
-        # Keep every payment in an explicit unclassified bucket.  A category
-        # guessed from free-text note is retained only so the warning can help
-        # a human link the payment later; it never changes matching evidence.
-        key = (x.counterparty_code, "未分类")
+    for cash_row in cash:
+        key = (cash_row.counterparty_code, "未分类")
         keys.add(key)
-        psum[key] += _zero(x.amount)
+        psum[key] += _zero(cash_row.amount)
         payment_evidence.add(key)
-        guessed = _note_category(x.note)
+        guessed = _note_category(cash_row.note)
         if guessed != "未分类":
             payment_note_guesses[key].add(guessed)
 
     rows: list[dict[str, Any]] = []
-    for cp, cat in sorted(keys, key=lambda k: (k[0], k[1])):
+    for cp, cat in sorted(keys, key=lambda key: (key[0], key[1])):
         contract = csum[(cp, cat)]
         fulfilled = fsum[(cp, cat)]
         invoice = isum[(cp, cat)]

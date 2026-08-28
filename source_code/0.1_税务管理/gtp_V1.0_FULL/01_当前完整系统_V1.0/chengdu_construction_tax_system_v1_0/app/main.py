@@ -10,9 +10,15 @@ from .startup import (
     _check_facts,
     _check_rag,
 )
+from .time_types import apply_timezone_types
 from .wiring import create_app
 
+# Routers import the model graph before this entry point reaches app creation.
+# Upgrade legacy *_at VARCHAR mappings to TIMESTAMPTZ-compatible types without
+# forcing every existing call site to stop using ISO strings in one release.
+apply_timezone_types()
 app = create_app()
+
 
 @app.get("/healthz", tags=["meta"])
 def healthz() -> dict[str, object]:
