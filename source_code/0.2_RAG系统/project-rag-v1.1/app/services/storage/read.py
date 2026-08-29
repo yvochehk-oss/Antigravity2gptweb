@@ -2,14 +2,21 @@
 
 from pathlib import Path
 
-from app.config import ORIGINAL_DIR, PROJECT_MATERIALS_DIR
+from app.config import ORIGINAL_DIR, PROJECT_MATERIALS_DIR, SAFE_ORIGIN_DIRS
 from app.logging_config import get_logger
 
 from .write import PathTraversalError, StorageError, _validate_safe_path
 
 logger = get_logger(__name__)
 
-_DOWNLOAD_ROOTS = (ORIGINAL_DIR.resolve(), PROJECT_MATERIALS_DIR.resolve())
+_DOWNLOAD_ROOTS = tuple(
+    dict.fromkeys([
+        *(Path(root).resolve() for root in SAFE_ORIGIN_DIRS),
+        ORIGINAL_DIR.resolve(),
+        PROJECT_MATERIALS_DIR.resolve(),
+    ]).keys()
+)
+
 
 
 def validate_stored_file(path: str) -> Path:

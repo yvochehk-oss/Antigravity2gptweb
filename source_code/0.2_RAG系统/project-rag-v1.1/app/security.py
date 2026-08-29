@@ -259,9 +259,9 @@ def _is_web_auth_route(path: str, method: str) -> bool:
     if (
         len(segments) == 5
         and segments[:3] == ["api", "v1", "documents"]
-        and segments[4] == "original"
+        and segments[4] in ("original", "view")
     ):
-        # Exact compatibility boundary for document original downloads.
+        # Exact compatibility boundary for document original downloads and inline views.
         return True
     if len(segments) == 4 and segments[:3] == ["api", "v1", "regulations"]:
         # Exact compatibility boundary for regulation detail. Other
