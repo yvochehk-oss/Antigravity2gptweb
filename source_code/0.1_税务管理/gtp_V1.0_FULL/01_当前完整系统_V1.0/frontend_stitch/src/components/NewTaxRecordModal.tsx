@@ -486,32 +486,55 @@ export function NewTaxRecordModal({
           <div className="flex items-start justify-between gap-3"><div><p className="font-semibold text-[14px] text-[#ffd0a8]">待复核合同</p><p className="text-[12px] text-[#c4c5d5] mt-1">只有管理员二次确认后，系统才会按 Tax 保存的抽取结果创建缺失交易方主数据并导入合同。</p></div><button type="button" onClick={() => void reloadPendingContracts()} disabled={pendingContractsLoading || busy} className="px-2.5 py-1.5 rounded-lg bg-[#222a3d] text-[12px] disabled:opacity-40">{pendingContractsLoading ? '读取中…' : '刷新'}</button></div>
           {pendingContractsError && <p className="mt-2 text-[12px] text-[#ffb4ab]" role="alert">{pendingContractsError}</p>}
           {!pendingContractsLoading && !pendingContractsError && pendingContracts.length === 0 && <p className="mt-2 text-[12px] text-[#8e909f]">当前项目没有待复核合同。</p>}
-          <div className="mt-3 space-y-3">{pendingContracts.map(item => <div key={item.id} className="rounded-lg border border-[#F59E0B]/25 bg-[#131b2e] p-3 text-[12px]"><div className="flex justify-between gap-3"><div className="min-w-0"><p className="font-semibold break-all">{item.filename}</p><p className="text-[#8e909f] mt-1">来源 chunk #{item.sourceChunkId}{item.pageStart ? ` · 第 ${item.pageStart} 页` : ''} · 置信度 {(item.confidence * 100).toFixed(1)}%</p></div></div><p className="mt-2 text-[#ffd0a8]">{item.reason}</p><div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2 text-[#c4c5d5]"><p><span className="text-[#8e909f]">甲方：</span>{item.partyA.name || '未提供名称'}<br /><span className="text-[#8e909f]">税号：</span>{item.partyA.taxId || '未提供'}</p><p><span className="text-[#8e909f]">乙方：</span>{item.partyB.name || '未提供名称'}<br /><span className="text-[#8e909f]">税号：</span>{item.partyB.taxId || '未提供'}</p></div>
-            {confirmPendingId === item.id ? (
-              <div className="mt-3 rounded-lg border border-[#EF4444]/50 bg-[#EF4444]/10 p-3">
-                <p className="font-semibold text-[#ffb4ab]">确认创建并导入？</p>
-                <p className="mt-1 text-[#c4c5d5]">系统会使用服务器保存的名称与税号创建缺失的外部交易方，再导入此合同；浏览器填写内容不会参与主数据写入。</p>
-                <div className="mt-2 flex gap-2">
-                  <button type="button" onClick={() => setConfirmPendingId(null)} disabled={busy} className="px-3 py-1.5 rounded-lg bg-[#222a3d] text-[12px] disabled:opacity-40">取消</button>
-                  <button type="button" onClick={() => void handleConfirmPendingContract(item.id)} disabled={busy} className="px-3 py-1.5 rounded-lg bg-[#EF4444] text-white font-bold text-[12px] disabled:opacity-40">{confirmingPendingId === item.id ? '确认处理中…' : '确认创建并导入'}</button>
+          <div className="mt-3 space-y-3">{pendingContracts.map(item => {
+            const hasAnyParty = Boolean(item.partyA.name || item.partyA.taxId || item.partyB.name || item.partyB.taxId);
+            return (
+              <div key={item.id} className="rounded-lg border border-[#F59E0B]/25 bg-[#131b2e] p-3 text-[12px]">
+                <div className="flex justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="font-semibold break-all">{item.filename}</p>
+                    <p className="text-[#8e909f] mt-1">来源 chunk #{item.sourceChunkId}{item.pageStart ? ` · 第 ${item.pageStart} 页` : ''} · 置信度 {(item.confidence * 100).toFixed(1)}%</p>
+                  </div>
                 </div>
-              </div>
-            ) : confirmRejectPendingId === item.id ? (
-              <div className="mt-3 rounded-lg border border-[#64748b]/50 bg-[#334155]/20 p-3">
-                <p className="font-semibold text-[#cbd5e1]">确认忽略此待复核记录？</p>
-                <p className="mt-1 text-[#94a3b8]">忽略后此记录将标记为 rejected，不再提示待复核，也不会录入合同台账。</p>
-                <div className="mt-2 flex gap-2">
-                  <button type="button" onClick={() => setConfirmRejectPendingId(null)} disabled={busy} className="px-3 py-1.5 rounded-lg bg-[#222a3d] text-[12px] disabled:opacity-40">取消</button>
-                  <button type="button" onClick={() => void handleRejectPendingContract(item.id)} disabled={busy} className="px-3 py-1.5 rounded-lg bg-[#475569] text-white font-bold text-[12px] disabled:opacity-40">{rejectingPendingId === item.id ? '处理中…' : '确认忽略'}</button>
+                <p className="mt-2 text-[#ffd0a8]">{item.reason}</p>
+                {!hasAnyParty && (
+                  <p className="mt-2 text-[11px] text-[#fca5a5] bg-[#7f1d1d]/30 border border-[#f87171]/40 rounded px-2.5 py-1.5">
+                    ℹ️ 此文件为附件/扫描件（无甲乙双方主体与税号信息），无法作为独立合同台账入库，请点击【忽略此记录】。
+                  </p>
+                )}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2 text-[#c4c5d5]">
+                  <p><span className="text-[#8e909f]">甲方：</span>{item.partyA.name || '未提供名称'}<br /><span className="text-[#8e909f]">税号：</span>{item.partyA.taxId || '未提供'}</p>
+                  <p><span className="text-[#8e909f]">乙方：</span>{item.partyB.name || '未提供名称'}<br /><span className="text-[#8e909f]">税号：</span>{item.partyB.taxId || '未提供'}</p>
                 </div>
+                {confirmPendingId === item.id ? (
+                  <div className="mt-3 rounded-lg border border-[#EF4444]/50 bg-[#EF4444]/10 p-3">
+                    <p className="font-semibold text-[#ffb4ab]">确认创建并导入？</p>
+                    <p className="mt-1 text-[#c4c5d5]">系统会使用服务器保存的名称与税号创建缺失的外部交易方，再导入此合同；浏览器填写内容不会参与主数据写入。</p>
+                    <div className="mt-2 flex gap-2">
+                      <button type="button" onClick={() => setConfirmPendingId(null)} disabled={busy} className="px-3 py-1.5 rounded-lg bg-[#222a3d] text-[12px] disabled:opacity-40">取消</button>
+                      <button type="button" onClick={() => void handleConfirmPendingContract(item.id)} disabled={busy} className="px-3 py-1.5 rounded-lg bg-[#EF4444] text-white font-bold text-[12px] disabled:opacity-40">{confirmingPendingId === item.id ? '确认处理中…' : '确认创建并导入'}</button>
+                    </div>
+                  </div>
+                ) : confirmRejectPendingId === item.id ? (
+                  <div className="mt-3 rounded-lg border border-[#64748b]/50 bg-[#334155]/20 p-3">
+                    <p className="font-semibold text-[#cbd5e1]">确认忽略此待复核记录？</p>
+                    <p className="mt-1 text-[#94a3b8]">忽略后此记录将标记为 rejected，不再提示待复核，也不会录入合同台账。</p>
+                    <div className="mt-2 flex gap-2">
+                      <button type="button" onClick={() => setConfirmRejectPendingId(null)} disabled={busy} className="px-3 py-1.5 rounded-lg bg-[#222a3d] text-[12px] disabled:opacity-40">取消</button>
+                      <button type="button" onClick={() => void handleRejectPendingContract(item.id)} disabled={busy} className="px-3 py-1.5 rounded-lg bg-[#475569] text-white font-bold text-[12px] disabled:opacity-40">{rejectingPendingId === item.id ? '处理中…' : '确认忽略'}</button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {hasAnyParty && (
+                      <button type="button" onClick={() => { setConfirmPendingId(item.id); setConfirmRejectPendingId(null); }} disabled={busy} className="px-3 py-1.5 rounded-lg bg-[#F59E0B] text-[#231400] font-bold text-[12px] disabled:opacity-40 hover:bg-[#d97706] transition-colors">确认创建交易方并导入合同</button>
+                    )}
+                    <button type="button" onClick={() => { setConfirmRejectPendingId(item.id); setConfirmPendingId(null); }} disabled={busy} className={`px-3 py-1.5 rounded-lg text-[12px] disabled:opacity-40 transition-colors ${!hasAnyParty ? 'bg-[#3b82f6] text-white font-bold hover:bg-[#2563eb]' : 'bg-[#222a3d] border border-[#444653]/60 text-[#c4c5d5] hover:text-white'}`}>忽略此记录</button>
+                  </div>
+                )}
               </div>
-            ) : (
-              <div className="mt-3 flex flex-wrap gap-2">
-                <button type="button" onClick={() => { setConfirmPendingId(item.id); setConfirmRejectPendingId(null); }} disabled={busy} className="px-3 py-1.5 rounded-lg bg-[#F59E0B] text-[#231400] font-bold text-[12px] disabled:opacity-40 hover:bg-[#d97706] transition-colors">确认创建交易方并导入合同</button>
-                <button type="button" onClick={() => { setConfirmRejectPendingId(item.id); setConfirmPendingId(null); }} disabled={busy} className="px-3 py-1.5 rounded-lg bg-[#222a3d] border border-[#444653]/60 text-[#c4c5d5] hover:text-white text-[12px] disabled:opacity-40 transition-colors">忽略此记录</button>
-              </div>
-            )}
-          </div>)}</div>
+            );
+          })}</div>
         </div>}
 
         {syncResults.length > 0 && <div className={`mt-4 rounded-xl border p-4 ${resultTone}`} role="status"><p className="font-semibold">同步结果：{statusLabel(operation === 'pending' ? 'PENDING_REVIEW' : operation === 'partial' ? 'PARTIAL' : operation === 'success' ? 'SUCCESS' : operation === 'running' ? 'RUNNING' : 'FAILED')}</p><div className="grid grid-cols-3 gap-2 mt-3 text-[12px]"><div><span className="block opacity-70">抽取</span><strong>{totalExtracted}</strong></div><div><span className="block opacity-70">已导入</span><strong>{totalImported}</strong></div><div><span className="block opacity-70">待复核</span><strong>{totalPending}</strong></div></div><div className="mt-3 space-y-2">{syncResults.map(result => <div key={`${result.syncType}-${result.syncLogId}`} className="rounded-lg border border-current/20 bg-black/10 p-2.5 text-[12px]"><div className="flex justify-between gap-2"><span>{SYNC_OPTIONS.find(option => option.type === result.syncType)?.label || result.syncType}</span><span>{statusLabel(result.status)}</span></div>{result.errors.length > 0 && <ul className="mt-1.5 list-disc list-inside">{result.errors.map((item, index) => <li key={`${result.syncLogId}-${index}`}>{item}</li>)}</ul>}</div>)}</div></div>}
