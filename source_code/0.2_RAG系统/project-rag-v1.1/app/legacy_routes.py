@@ -105,7 +105,6 @@ from .services.tax_extraction import (
     ExtractTaxResponse,
 )
 from .session import get_db
-from .services.ingest import cleanup_document_files
 from .user_center.db import UserCenterSessionLocal
 from .user_center.models import UserAccount
 from .user_center.security import verify_password
@@ -694,14 +693,7 @@ async def api_delete_project(
         db.execute(sa_delete(BenchmarkRun).where(BenchmarkRun.project_id == project_id))
         db.execute(sa_delete(BenchmarkQuestion).where(BenchmarkQuestion.project_id == project_id))
 
-        # 清理物理文件
-        for d in docs:
-            try:
-                cleanup_document_files(d)
-            except Exception as fe:
-                logger.warning(f"Error cleaning files for doc {d.document_code}: {fe}")
-
-        # 删除文档记录
+        # 删除文档数据库记录（保留磁盘目录中的原始文件，不作物理删除）
         db.execute(sa_delete(Document).where(Document.project_id == project_id))
 
         # 清理该项目独占的系统外单位 (External Parties)
