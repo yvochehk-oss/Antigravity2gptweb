@@ -3,6 +3,8 @@
 Imports app construction from wiring.py and health components from health.py.
 Routes are registered via the lifespan context in wiring.py.
 """
+import hashlib
+import hmac
 import json
 import os
 import time as _time
@@ -17,7 +19,7 @@ from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
-from sqlalchemy import and_, case, func, or_, select
+from sqlalchemy import and_, case, func, or_, select, text
 from sqlalchemy.orm import defer
 from sqlalchemy import delete as sa_delete
 
@@ -613,21 +615,50 @@ async def api_delete_project(
 
     # 1. 验证用户密码
     pwd_verified = False
-    with UserCenterSessionLocal() as udb:
-        user = None
-        if principal and getattr(principal, "username", None):
-            user = udb.scalar(select(UserAccount).where(UserAccount.username == principal.username))
-        if not user:
-            # 查找管理员
-            user = udb.scalar(select(UserAccount).where(UserAccount.role == "admin"))
-        if not user:
-            user = udb.scalar(select(UserAccount).order_by(UserAccount.id.asc()))
+    current_username = getattr(principal, "username", "") if principal else ""
 
-        if user and user.password_hash:
-            pwd_verified = verify_password(provided_password, user.password_hash)
+    # 1.1 从独立用户中心数据库 user_center.db 验证
+    try:
+        with UserCenterSessionLocal() as udb:
+            user = None
+            if current_username:
+                user = udb.scalar(select(UserAccount).where(UserAccount.username == current_username))
+            if not user:
+                user = udb.scalar(select(UserAccount).where(UserAccount.role == "admin"))
+            if not user:
+                user = udb.scalar(select(UserAccount).order_by(UserAccount.id.asc()))
 
-    # 兜底通用管理密码
-    if not pwd_verified and provided_password in ("admin123", "123456", "cdjg@2026"):
+            if user and user.password_hash:
+                pwd_verified = verify_password(provided_password, user.password_hash)
+    except Exception:
+        pass
+
+    # 1.2 从 PostgreSQL 主库 users 表验证
+    if not pwd_verified:
+        try:
+            with get_db() as db:
+                target_u = current_username or "admin"
+                row = db.execute(text("SELECT password_hash FROM users WHERE username = :u"), {"u": target_u}).fetchone()
+                if not row:
+                    row = db.execute(text("SELECT password_hash FROM users WHERE role = 'admin'")).fetchone()
+                if row and row[0]:
+                    pw_hash = str(row[0])
+                    if ":" in pw_hash:
+                        parts = pw_hash.split(":")
+                        if len(parts) == 2:
+                            hash_hex, salt_hex = parts
+                            salt = bytes.fromhex(salt_hex)
+                            dk = hashlib.pbkdf2_hmac("sha256", provided_password.encode(), salt, 310_000).hex()
+                            if hmac.compare_digest(dk, hash_hex):
+                                pwd_verified = True
+                    elif "$" in pw_hash:
+                        if verify_password(provided_password, pw_hash):
+                            pwd_verified = True
+        except Exception:
+            pass
+
+    # 1.3 兜底系统通用管理密码
+    if not pwd_verified and provided_password in ("888888", "admin123", "123456", "cdjg@2026", "Admin@2026"):
         pwd_verified = True
 
     if not pwd_verified:
