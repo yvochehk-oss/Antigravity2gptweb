@@ -368,7 +368,19 @@ def api_delete_project_data(
         """)).all()
         existing_tables = {row[0] for row in table_rows}
 
-        # 2. 按级联依赖顺序清空所有关联子表
+        # 2. 如果存在 RAG/IDP 文档关联表，先解除其外键约束依赖
+        if "documents" in existing_tables:
+            try:
+                db.execute(text("UPDATE documents SET duplicate_of_id = NULL WHERE project_id = :pid"), {"pid": pid})
+            except Exception:
+                pass
+            for doc_child in ["ingest_jobs", "document_path_migrations_012", "chunks"]:
+                try:
+                    db.execute(text(f"DELETE FROM {doc_child} WHERE document_id IN (SELECT id FROM documents WHERE project_id = :pid)"), {"pid": pid})
+                except Exception:
+                    pass
+
+        # 3. 按级联依赖顺序清空所有关联子表
         ordered_child_tables = [
             "query_feedback", "knowledge_conflicts", "benchmark_runs", "benchmark_questions",
             "query_logs", "chunks", "documents", "ai_review_runs", "rag_evidence_packs",
@@ -386,7 +398,7 @@ def api_delete_project_data(
                 r = db.execute(text(f"DELETE FROM {t} WHERE project_id = :pid"), {"pid": pid})
                 deleted_counts[t] = r.rowcount or 0
 
-        # 3. 彻底删除主项目记录 (projects)
+        # 4. 彻底删除主项目记录 (projects)
         r = db.execute(text("DELETE FROM projects WHERE id = :pid"), {"pid": pid})
         deleted_counts["projects"] = r.rowcount or 0
 
