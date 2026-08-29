@@ -489,6 +489,17 @@ export async function confirmRagPendingContractAndCreateParties(pendingId: numbe
   return { pendingId: resultPendingId, recordId, createdExternalParties: parties as RagConfirmedExternalParty[] };
 }
 
+export async function rejectRagPendingContract(pendingId: number, note?: string): Promise<{ ok: boolean; pendingId: number }> {
+  if (!positiveInteger(pendingId)) throw new ApiError('待复核记录必须是有效 ID。', 400);
+  const payload = await postJson<unknown>(`/rag-sync/pending/${pendingId}/reject`, { note: note || '用户手动忽略/拒绝此待复核记录' });
+  const data = asRecord(payload);
+  const resultPendingId = positiveInteger(data?.pending_id);
+  if (data?.ok !== true || resultPendingId !== pendingId) {
+    throw new ApiError('待复核记录忽略接口返回格式不完整。', 502, payload);
+  }
+  return { ok: true, pendingId: resultPendingId };
+}
+
 export function toFiniteNumber(value: unknown, fallback = 0): number {
   const number = typeof value === 'number' ? value : Number(value);
   return Number.isFinite(number) ? number : fallback;

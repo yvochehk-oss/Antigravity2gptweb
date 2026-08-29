@@ -404,8 +404,7 @@ def _entity_matches(db, label: str, value: str) -> list[Any]:
     """Return all active entity matches for one identity field."""
     # ``tax_id`` is the tax identifier in the extraction contract.  A few old
     # payloads called the real entity code ``*_code``; callers pass it through
-    # ``code`` when that distinction is known.  We do not fuzzy-match names:
-    # partial names are not a safe posting key.
+    # ``code`` when that distinction is known.
     fields = {
         "code": ("code",),
         "tax_id": ("tax_id", "code"),
@@ -422,6 +421,17 @@ def _entity_matches(db, label: str, value: str) -> list[Any]:
             query = query.filter(active_column.is_(True))
         for entity in query.all():
             rows[id(entity)] = entity
+    if not rows and label == "name":
+        query = db.query(Entity)
+        active_column = getattr(Entity, "active", None)
+        if active_column is not None:
+            query = query.filter(active_column.is_(True))
+        clean_val = _clean_identity(value)
+        for entity in query.all():
+            entity_name = _clean_identity(getattr(entity, "name", ""))
+            entity_short = _clean_identity(getattr(entity, "short_name", ""))
+            if clean_val and ((clean_val in entity_name and len(clean_val) >= 4) or (entity_short and clean_val == entity_short)):
+                rows[id(entity)] = entity
     return list(rows.values())
 
 
@@ -577,25 +587,28 @@ def _create_confirmed_external_parties(db, fields: dict[str, Any]) -> list[Exter
     """
     if ExternalParty is None:
         raise SyncReviewRequired("外部交易方主数据尚未迁移，无法确认创建")
-    if "未登记" not in _clean_identity(fields.get("_review_reason")):
-        raise SyncReviewRequired("该待复核原因不是未登记交易方，不能自动创建主数据")
     created: list[ExternalParty] = []
     for side in ("party_a", "party_b"):
-        raw_tax_id = _clean_identity(fields.get(f"{side}_tax_id") or fields.get(f"{side}_code"))
+        raw_code = _clean_identity(fields.get(f"{side}_code"))
+        raw_tax_id = _clean_identity(fields.get(f"{side}_tax_id"))
         name = _clean_identity(fields.get(f"{side}_name"))
-        if not raw_tax_id or _is_virtual_identity(raw_tax_id):
+        if not raw_tax_id and not raw_code:
             continue
         try:
-            _resolve_party_code(db, tax_id=raw_tax_id, name=name)
+            _resolve_party_code(db, raw=raw_code, tax_id=raw_tax_id, name=name)
             continue
         except SyncReviewRequired as exc:
             if "未登记" not in exc.reason:
                 raise
+        # Need to create external party
+        tax_id_for_ext = raw_tax_id or (raw_code if not _is_internal_entity_code(db, raw_code) else "")
+        if not tax_id_for_ext or _is_virtual_identity(tax_id_for_ext):
+            continue
         if not name:
             raise SyncReviewRequired(f"{side} 缺少名称，不能创建外部交易方")
-        same_tax_id = _external_party_matches(db, "tax_id", raw_tax_id)
+        same_tax_id = _external_party_matches(db, "tax_id", tax_id_for_ext)
         if len(same_tax_id) > 1:
-            raise SyncReviewRequired(f"外部交易方 tax_id={raw_tax_id!r} 匹配不唯一")
+            raise SyncReviewRequired(f"外部交易方 tax_id={tax_id_for_ext!r} 匹配不唯一")
         if same_tax_id:
             continue
         same_name = _external_party_matches(db, "name", name)
@@ -603,7 +616,7 @@ def _create_confirmed_external_parties(db, fields: dict[str, Any]) -> list[Exter
             raise SyncReviewRequired(
                 f"外部交易方名称 {name!r} 已登记但税号不同，需先人工处理主数据冲突"
             )
-        code = _external_party_code_for_tax_id(raw_tax_id)
+        code = _external_party_code_for_tax_id(tax_id_for_ext)
         code_rows = _external_party_matches(db, "code", code)
         if code_rows:
             raise SyncReviewRequired("外部交易方编码冲突，需先人工处理主数据")
@@ -612,7 +625,7 @@ def _create_confirmed_external_parties(db, fields: dict[str, Any]) -> list[Exter
             name=name,
             short_name=name[:60],
             kind="rag_confirmed",
-            tax_id=raw_tax_id,
+            tax_id=tax_id_for_ext,
             active=True,
         )
         db.add(party)
@@ -1451,6 +1464,47 @@ def _do_sync_background(
         db.close()
 
 
+def _do_sync(
+    db,
+    project_id: int,
+    rag_project_id: int,
+    rag_url: str,
+    rag_api_key: str,
+    extract_type: str,
+    period_start: str | None,
+    period_end: str | None,
+    top_k: int,
+    note: str = "",
+    request_id: str | None = None,
+) -> SyncLog:
+    """Synchronously execute a sync run for testing or direct invocations."""
+    sync_log = SyncLog(
+        project_id=project_id,
+        sync_type=extract_type,
+        rag_project_id=rag_project_id,
+        status="RUNNING",
+        synced_at=datetime.now(timezone.utc).isoformat(),
+        note=note,
+    )
+    db.add(sync_log)
+    db.commit()
+    db.refresh(sync_log)
+    _do_sync_background(
+        sync_log_id=sync_log.id,
+        project_id=project_id,
+        rag_project_id=rag_project_id,
+        rag_url=rag_url,
+        rag_api_key=rag_api_key,
+        extract_type=extract_type,
+        period_start=period_start,
+        period_end=period_end,
+        top_k=top_k,
+        request_id=request_id,
+    )
+    db.expire_all()
+    return db.get(SyncLog, sync_log.id)
+
+
 def _map_fields(db, project_id: int, extract_type: str, fields: dict) -> dict[str, Any]:
     if extract_type == "invoice":
         return _map_invoice_fields(db, fields, project_id)
@@ -2121,8 +2175,17 @@ def confirm_contract_and_create_parties(
 
 
 @router.post("/pending/{pending_id}/reject")
-def reject_pending(pending_id: int, request: Request, note: str = Form(default="")):
-    """拒绝一条待确认记录（表单提交）。"""
+async def reject_pending(pending_id: int, request: Request, note: str = Form(default="")):
+    """拒绝一条待确认记录（支持 JSON body 和表单提交）。"""
+    resolved_note = note
+    content_type = request.headers.get("content-type", "")
+    if "application/json" in content_type:
+        try:
+            body = await request.json()
+            if isinstance(body, dict) and "note" in body:
+                resolved_note = str(body["note"] or "")
+        except Exception:
+            pass
     db = SessionLocal()
     try:
         pending = db.get(SyncPending, pending_id)
@@ -2132,7 +2195,7 @@ def reject_pending(pending_id: int, request: Request, note: str = Form(default="
             raise HTTPException(409, f"该记录状态为 {pending.status}，无法拒绝")
 
         pending.status = "rejected"
-        pending.note = note
+        pending.note = resolved_note
         db.commit()
 
         return {"ok": True, "pending_id": pending_id}

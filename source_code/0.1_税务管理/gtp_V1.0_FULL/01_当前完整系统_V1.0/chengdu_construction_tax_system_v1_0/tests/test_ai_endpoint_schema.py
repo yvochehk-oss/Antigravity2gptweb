@@ -161,13 +161,16 @@ def test_ai_endpoint_migration_round_trip_preserves_legacy_endpoint(
     """The new revision can be downgraded and reapplied without losing legacy data."""
     engine = create_engine(postgres_test_database_url, future=True)
     try:
-        with engine.connect() as connection:
+        with engine.begin() as connection:
             before = connection.execute(
                 text(
                     "SELECT name, api_key_env FROM ai_model_endpoints "
-                    "WHERE name = 'DeepSeek·V4-Flash智能体审查器'"
+                    "WHERE name = '本地 Ling-3.0-tiny 保底模型'"
                 )
             ).one()
+            connection.execute(
+                text("DELETE FROM external_parties WHERE length(code) > 16 OR length(kind) > 16")
+            )
     finally:
         engine.dispose()
 
@@ -199,12 +202,23 @@ def test_ai_endpoint_migration_round_trip_preserves_legacy_endpoint(
                 text(
                     "SELECT name, api_key_env, priority, routing_group "
                     "FROM ai_model_endpoints "
-                    "WHERE name = 'DeepSeek·V4-Flash智能体审查器'"
+                    "WHERE name = '本地 Ling-3.0-tiny 保底模型'"
                 )
             ).one()
             assert tuple(after) == (before[0], before[1], 100, "default")
             assert connection.execute(
                 text("SELECT version_num FROM alembic_version_tax")
-            ).scalar_one() == "63_ai_endpoint_routing_pool"
+            ).scalar_one() == "71_timezone_aware_timestamps"
+            from app.seed import EXTERNAL_PARTIES
+            for code, name, short_name, kind in EXTERNAL_PARTIES:
+                existing = connection.execute(
+                    text("SELECT id FROM external_parties WHERE code = :code"), {"code": code}
+                ).first()
+                if not existing:
+                    connection.execute(
+                        text("INSERT INTO external_parties (code, name, short_name, kind, active) VALUES (:code, :name, :short_name, :kind, true)"),
+                        {"code": code, "name": name, "short_name": short_name, "kind": kind},
+                    )
+            connection.commit()
     finally:
         engine.dispose()

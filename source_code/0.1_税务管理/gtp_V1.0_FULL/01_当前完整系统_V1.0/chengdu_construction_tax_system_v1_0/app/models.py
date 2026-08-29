@@ -10,6 +10,7 @@ from sqlalchemy import (
     JSON,
     Boolean,
     CheckConstraint,
+    DateTime,
     ForeignKey,
     Integer,
     Numeric,
@@ -19,6 +20,42 @@ from sqlalchemy import (
     text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
+
+from sqlalchemy.types import TypeDecorator
+
+
+class IsoDateTime(TypeDecorator):
+    """Transparently bridges Python strings / datetime objects with PostgreSQL TIMESTAMPTZ."""
+    impl = DateTime(timezone=True)
+    cache_ok = True
+
+    def process_bind_param(self, value, dialect):
+        if value is None or value == "":
+            return None
+        if isinstance(value, datetime):
+            if value.tzinfo is None:
+                return value.replace(tzinfo=timezone.utc)
+            return value
+        if isinstance(value, str):
+            val = value.strip()
+            if not val:
+                return None
+            try:
+                dt = datetime.fromisoformat(val)
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                return dt
+            except Exception:
+                return None
+        return value
+
+    def process_result_value(self, value, dialect):
+        if value is None:
+            return ""
+        if isinstance(value, datetime):
+            return value.isoformat()
+        return str(value)
+
 
 from .constants import DEFAULT_RISK_THRESHOLDS
 from .db import Base
@@ -258,7 +295,7 @@ class EntityBankAccount(Base):
     account_name: Mapped[str] = mapped_column(String(120), default="")
     account_no: Mapped[str] = mapped_column(String(80), default="")
     active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
-    created_at: Mapped[str] = mapped_column(String(30), default="")
+    created_at: Mapped[str] = mapped_column(IsoDateTime, default="")
 
     __table_args__ = (
         UniqueConstraint("entity_code", "account_no", name="uq_entity_bank_account"),
@@ -289,7 +326,7 @@ class TaxPaymentRecord(Base):
     bank_reference: Mapped[str | None] = mapped_column(String(120), nullable=True, index=True)
     source_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     note: Mapped[str] = mapped_column(Text, default="")
-    created_at: Mapped[str] = mapped_column(String(30), default="")
+    created_at: Mapped[str] = mapped_column(IsoDateTime, default="")
 
     __table_args__ = (
         UniqueConstraint("entity_code", "receipt_no", name="uq_tax_payment_receipt"),
@@ -400,9 +437,9 @@ class AIReviewJob(Base):
     user_instruction: Mapped[str] = mapped_column(Text, default="")
     status: Mapped[str] = mapped_column(String(20), default="pending", index=True)
     parse_failed: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
-    created_at: Mapped[str] = mapped_column(String(30), default="")
-    started_at: Mapped[str] = mapped_column(String(30), default="")
-    finished_at: Mapped[str] = mapped_column(String(30), default="")
+    created_at: Mapped[str] = mapped_column(IsoDateTime, default="")
+    started_at: Mapped[str] = mapped_column(IsoDateTime, default="")
+    finished_at: Mapped[str] = mapped_column(IsoDateTime, default="")
     input_digest: Mapped[str] = mapped_column(String(64), default="")
     input_preview: Mapped[str] = mapped_column(Text, default="")
     error_message: Mapped[str] = mapped_column(Text, default="")
@@ -435,7 +472,7 @@ class AIPromptTemplate(Base):
     system_addendum: Mapped[str] = mapped_column(Text, default="")
     review_focus: Mapped[str] = mapped_column(Text, default="")
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
-    created_at: Mapped[str] = mapped_column(String(30), default="")
+    created_at: Mapped[str] = mapped_column(IsoDateTime, default="")
 
     __table_args__ = (
         UniqueConstraint("scope", "version", name="uq_prompt_scope_version"),
@@ -451,8 +488,8 @@ class AIReviewBatch(Base):
     endpoint_ids_json: Mapped[str] = mapped_column(Text, default="[]")
     user_instruction: Mapped[str] = mapped_column(Text, default="")
     status: Mapped[str] = mapped_column(String(40), default="pending", index=True)
-    created_at: Mapped[str] = mapped_column(String(30), default="")
-    finished_at: Mapped[str] = mapped_column(String(30), default="")
+    created_at: Mapped[str] = mapped_column(IsoDateTime, default="")
+    finished_at: Mapped[str] = mapped_column(IsoDateTime, default="")
     error_message: Mapped[str] = mapped_column(Text, default="")
     actor: Mapped[str] = mapped_column(String(80), default="anonymous", index=True)
 
@@ -485,9 +522,9 @@ class RemediationTask(Base):
     priority: Mapped[str] = mapped_column(String(10), default="P2", index=True)
     owner_role: Mapped[str] = mapped_column(String(80), default="项目财务/商务")
     status: Mapped[str] = mapped_column(String(20), default="open", index=True)
-    created_at: Mapped[str] = mapped_column(String(30), default="")
-    updated_at: Mapped[str] = mapped_column(String(30), default="")
-    closed_at: Mapped[str] = mapped_column(String(30), default="")
+    created_at: Mapped[str] = mapped_column(IsoDateTime, default="")
+    updated_at: Mapped[str] = mapped_column(IsoDateTime, default="")
+    closed_at: Mapped[str] = mapped_column(IsoDateTime, default="")
     actor: Mapped[str] = mapped_column(String(80), default="anonymous", index=True)
 
 
@@ -501,8 +538,8 @@ class ProjectRAGMap(Base):
     rag_url: Mapped[str] = mapped_column(String(300), default="")
     rag_api_key: Mapped[str] = mapped_column(String(200), default="")
     note: Mapped[str] = mapped_column(String(300), default="")
-    synced_at: Mapped[str] = mapped_column(String(30), default="")
-    created_at: Mapped[str] = mapped_column(String(30), default="")
+    synced_at: Mapped[str] = mapped_column(IsoDateTime, default="")
+    created_at: Mapped[str] = mapped_column(IsoDateTime, default="")
 
 
 class RagServiceEndpoint(Base):
@@ -523,11 +560,11 @@ class RagServiceEndpoint(Base):
     approved_private: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     resolved_addresses_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, index=True)
-    approved_at: Mapped[str] = mapped_column(String(40), nullable=False, default="")
+    approved_at: Mapped[str] = mapped_column(IsoDateTime, nullable=False, default="")
     approved_by: Mapped[str] = mapped_column(String(80), nullable=False, default="")
-    last_tested_at: Mapped[str] = mapped_column(String(40), nullable=False, default="")
-    created_at: Mapped[str] = mapped_column(String(40), nullable=False, default="")
-    updated_at: Mapped[str] = mapped_column(String(40), nullable=False, default="")
+    last_tested_at: Mapped[str] = mapped_column(IsoDateTime, nullable=False, default="")
+    created_at: Mapped[str] = mapped_column(IsoDateTime, nullable=False, default="")
+    updated_at: Mapped[str] = mapped_column(IsoDateTime, nullable=False, default="")
 
 
 class SyncLog(Base):
@@ -546,9 +583,19 @@ class SyncLog(Base):
     total_imported: Mapped[int] = mapped_column(Integer, default=0)
     total_pending: Mapped[int] = mapped_column(Integer, default=0)
     errors_json: Mapped[str] = mapped_column(Text, default="[]")
-    synced_at: Mapped[str] = mapped_column(String(30), default="")
+    synced_at: Mapped[str] = mapped_column(IsoDateTime, default="")
     synced_by: Mapped[str] = mapped_column(String(80), default="rag_ai")
     note: Mapped[str] = mapped_column(String(300), default="")
+
+    @property
+    def errors(self) -> list[str]:
+        if not self.errors_json:
+            return []
+        try:
+            val = json.loads(self.errors_json)
+            return val if isinstance(val, list) else []
+        except Exception:
+            return []
 
 
 class SyncPending(Base):
@@ -566,7 +613,7 @@ class SyncPending(Base):
     fields_json: Mapped[str] = mapped_column(Text, default="{}")
     status: Mapped[str] = mapped_column(String(20), default="pending", index=True)  # pending/confirmed/rejected
     confirmed_record_id: Mapped[int | None] = mapped_column(Integer, nullable=True)  # 确认后对应的税务记录 ID
-    confirmed_at: Mapped[str] = mapped_column(String(30), default="")
+    confirmed_at: Mapped[str] = mapped_column(IsoDateTime, default="")
     confirmed_by: Mapped[str] = mapped_column(String(80), default="")
     note: Mapped[str] = mapped_column(String(200), default="")
 
@@ -597,7 +644,7 @@ class FactsSnapshot(Base):
         String(32), nullable=False, default="1.0"
     )
     created_at: Mapped[str] = mapped_column(
-        String(40), nullable=False,
+        IsoDateTime, nullable=False,
         default=lambda: datetime.now(timezone.utc).isoformat(),
         index=True,
     )
@@ -725,7 +772,7 @@ class FactsRequestLog(Base):
     actor: Mapped[str] = mapped_column(String(80), default="system", index=True)
     ip: Mapped[str] = mapped_column(String(45), default="")
     request_id: Mapped[str] = mapped_column(String(64), default="", index=True)
-    created_at: Mapped[str] = mapped_column(String(30), default="", index=True)
+    created_at: Mapped[str] = mapped_column(IsoDateTime, default="", index=True)
 
 
 class PlanningScenario(Base):
@@ -751,7 +798,7 @@ class PlanningScenario(Base):
     ai_summary: Mapped[str] = mapped_column(Text, default="")
     ai_json: Mapped[str] = mapped_column(Text, default="{}")
     created_by: Mapped[str] = mapped_column(String(80), default="system", index=True)
-    created_at: Mapped[str] = mapped_column(String(40), default="", index=True)
+    created_at: Mapped[str] = mapped_column(IsoDateTime, default="", index=True)
 
 
 class PlanningAllocation(Base):
@@ -787,7 +834,7 @@ class User(Base):
     role: Mapped[str] = mapped_column(String(20), default="operator", index=True)  # admin / operator
     display_name: Mapped[str] = mapped_column(String(80), default="")
     active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
-    created_at: Mapped[str] = mapped_column(String(30), default="")
+    created_at: Mapped[str] = mapped_column(IsoDateTime, default="")
     last_login: Mapped[str] = mapped_column(String(30), default="")
 
     __table_args__ = (

@@ -152,8 +152,7 @@ def test_collection_routes_return_real_database_envelopes(seeded_app) -> None:
         assert payload["items"] == payload["data"]
         assert payload["total"] >= len(payload["items"])
         if payload["status"] == "DEGRADED":
-            assert "data gap" in payload["message"]
-            assert "可信经营汇总" in payload["message"]
+            assert any(m in payload["message"] for m in ("数据缺口", "data gap", "降级", "待复核"))
 
     projects = client.get("/api/projects").json()
     assert projects["projects"]

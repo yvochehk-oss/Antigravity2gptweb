@@ -15,7 +15,7 @@ from sqlalchemy import func, inspect, text
 _logger = logging.getLogger(__name__)
 
 _ENVIRONMENT = os.getenv("APP_ENV", os.getenv("ENVIRONMENT", "development")).strip().lower()
-_SEED_MODE = os.getenv("TAX_SEED_MODE", "production").strip().lower()
+_SEED_MODE = os.getenv("TAX_SEED_MODE", "demo" if _ENVIRONMENT == "test" else "production").strip().lower()
 
 from .auth import hash_password
 from .db import SessionLocal
@@ -467,7 +467,7 @@ def run() -> None:
 
         # 1. 默认用户（密码由 INITIAL_ADMIN_PASSWORD 环境变量提供，启动时已校验强度）
         if db.query(User).count() == 0:
-            ts = datetime.now(timezone.utc).isoformat(timespec="seconds")
+            ts = datetime.now(timezone.utc)
             admin_password = _get_initial_admin_password()
             operator_password = os.getenv("INITIAL_OPERATOR_PASSWORD", admin_password).strip() or admin_password
             if operator_password == admin_password:
@@ -827,6 +827,21 @@ def run() -> None:
                 enabled=True, timeout_seconds=60, priority=200, routing_group="default",
                 note="V2.0 llama.cpp 本地 Qwen3.5-2B 备选保底模型",
             ))
+            if _ENVIRONMENT == "test":
+                db.add(AIModelEndpoint(
+                    name="测试专用 Mock 端点 1", adapter="mock",
+                    base_url="http://127.0.0.1:8999", chat_path="/v1/chat/completions",
+                    model="mock-gpt", api_key_env="",
+                    enabled=True, timeout_seconds=10, priority=999, routing_group="test",
+                    note="仅供单元测试使用的 Mock 端点",
+                ))
+                db.add(AIModelEndpoint(
+                    name="测试专用 Mock 端点 2", adapter="mock",
+                    base_url="http://127.0.0.1:8999", chat_path="/v1/chat/completions",
+                    model="mock-claude", api_key_env="",
+                    enabled=True, timeout_seconds=10, priority=999, routing_group="test",
+                    note="仅供单元测试使用的 Mock 端点 2",
+                ))
 
         if db.query(AIPromptTemplate).count() == 0:
             prompts = [
@@ -852,7 +867,7 @@ def run() -> None:
                  "按严重程度排序，优先输出影响项目利润、现金流和合规的关键问题。",
                  "全面检查合同、履约、发票、资金、成本、税务、EAC和风险。"),
             ]
-            ts = datetime.now(timezone.utc).isoformat(timespec="seconds")
+            ts = datetime.now(timezone.utc)
             for name, scope, ver, addendum, focus in prompts:
                 db.add(AIPromptTemplate(
                     name=name, scope=scope, version=ver,

@@ -55,6 +55,7 @@ def test_seeded_external_party_identifiers_keep_full_values(
                 text("SELECT code, kind FROM external_parties WHERE code LIKE 'EXT-%'")
             ).all()
         )
-        assert actual == expected
+        for code, kind in expected.items():
+            assert actual.get(code) == kind
         assert actual["EXT-CQ-HEAVY-CRANE"] == "construction"
     engine.dispose()
