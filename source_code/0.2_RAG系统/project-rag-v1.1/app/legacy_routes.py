@@ -1704,8 +1704,19 @@ def web_project(request: Request, project_ref: str, principal=Depends(require_we
             "all_entities": [entity_by_code.get(c, {"entity_code": c, "name": c, "is_external": not is_canonical_entity_code(c)}) for c in all_ents],
         }
 
+        # Infer primary contractor entity if not explicitly assigned
+        primary_entity_code = p.entity_code
+        if not primary_entity_code:
+            ent_counts = {}
+            for d in docs:
+                if d.entity_code:
+                    ent_counts[d.entity_code] = ent_counts.get(d.entity_code, 0) + 1
+            if ent_counts:
+                primary_entity_code = max(ent_counts.items(), key=lambda x: x[1])[0]
+
         return templates.TemplateResponse(request, "project.html", {
             "project": p,
+            "primary_entity_code": primary_entity_code,
             "project_entity_summary": project_entity_summary,
             "canonical_entities": canonical_entities,
             "entity_by_code": entity_by_code,
