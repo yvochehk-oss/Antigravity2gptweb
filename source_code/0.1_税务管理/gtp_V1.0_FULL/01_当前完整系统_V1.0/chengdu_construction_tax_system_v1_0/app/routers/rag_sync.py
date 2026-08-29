@@ -2203,6 +2203,40 @@ async def reject_pending(pending_id: int, request: Request, note: str = Form(def
         db.close()
 
 
+@router.post("/pending/reject-all-invalid")
+def reject_all_invalid_pending(request: Request, project_id: int | None = None):
+    """一键批量忽略所有缺失交易方主体身份的扫描件/附件待复核记录。"""
+    user = admin_only(request)
+    db = SessionLocal()
+    try:
+        query = db.query(SyncPending).filter(SyncPending.status == "pending")
+        if project_id:
+            query = query.filter(SyncPending.project_id == project_id)
+        pendings = query.all()
+        rejected_count = 0
+        now_str = _now()
+        for p in pendings:
+            fields = _pending_fields_for_display(p)
+            has_party = bool(
+                fields.get("party_a_name")
+                or fields.get("party_b_name")
+                or fields.get("party_a_tax_id")
+                or fields.get("party_b_tax_id")
+                or fields.get("party_a_code")
+                or fields.get("party_b_code")
+            )
+            if not has_party:
+                p.status = "rejected"
+                p.confirmed_at = now_str
+                p.confirmed_by = getattr(user, "username", "admin")
+                p.note = "批量忽略无有效交易主体的附件/扫描件记录"
+                rejected_count += 1
+        db.commit()
+        return {"ok": True, "rejected_count": rejected_count}
+    finally:
+        db.close()
+
+
 # ============================================================
 # RAG V1.0 Facts Provider 接入
 # ============================================================
