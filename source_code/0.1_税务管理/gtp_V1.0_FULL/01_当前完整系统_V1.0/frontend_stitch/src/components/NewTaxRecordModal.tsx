@@ -102,7 +102,7 @@ export function NewTaxRecordModal({
   const [mapping, setMapping] = useState<ProjectRagMapping | null>(null);
   const [mappingVerified, setMappingVerified] = useState(false);
   const [selectedRagProjectId, setSelectedRagProjectId] = useState('');
-  const [selectedTypes, setSelectedTypes] = useState<RagSyncType[]>(['invoice']);
+  const [selectedTypes, setSelectedTypes] = useState<RagSyncType[]>(['invoice', 'contract', 'payment', 'tax_payment']);
   const [operation, setOperation] = useState<OperationState>('idle');
   const [syncResults, setSyncResults] = useState<RagSyncResult[]>([]);
   const [isEditingMapping, setIsEditingMapping] = useState(false);
