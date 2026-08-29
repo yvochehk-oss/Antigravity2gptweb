@@ -360,56 +360,49 @@ def api_delete_project_data(
         project_code = project.code or project.project_code or str(pid)
         deleted_counts = {}
 
-        # 1. 查询当前数据库中所有具有 project_id 字段的表
+        # 1. 严格限定需要保护的 RAG 核心知识库与文档凭证表（绝对不删除）
+        rag_preserve_tables = {
+            "documents",
+            "chunks",
+            "ingest_jobs",
+            "document_path_migrations_012",
+            "query_logs",
+            "query_feedback",
+            "knowledge_conflicts",
+            "benchmark_runs",
+            "benchmark_questions",
+            "rag_evidence_packs",
+            "ai_review_runs",
+            "projects",  # 保留项目主空间定义，以维持底层文档外键完整性
+        }
+
+        # 2. 动态获取当前数据库中所有具有 project_id 字段的基础数据表（过滤掉 VIEW 视图）
         table_rows = db.execute(text("""
-            SELECT table_name 
-            FROM information_schema.columns 
-            WHERE column_name = 'project_id' AND table_schema = 'public'
+            SELECT c.table_name 
+            FROM information_schema.columns c
+            JOIN information_schema.tables t 
+              ON c.table_name = t.table_name AND c.table_schema = t.table_schema
+            WHERE c.column_name = 'project_id' 
+              AND c.table_schema = 'public'
+              AND t.table_type = 'BASE TABLE'
         """)).all()
-        existing_tables = {row[0] for row in table_rows}
+        tables_with_project_id = {row[0] for row in table_rows}
 
-        # 2. 如果存在 RAG/IDP 文档关联表，先解除其外键约束依赖
-        if "documents" in existing_tables:
-            try:
-                db.execute(text("UPDATE documents SET duplicate_of_id = NULL WHERE project_id = :pid"), {"pid": pid})
-            except Exception:
-                pass
-            for doc_child in ["ingest_jobs", "document_path_migrations_012", "chunks"]:
-                try:
-                    db.execute(text(f"DELETE FROM {doc_child} WHERE document_id IN (SELECT id FROM documents WHERE project_id = :pid)"), {"pid": pid})
-                except Exception:
-                    pass
+        # 3. 仅清空 Tax 系统所属的全部财务台账表
+        tax_tables_to_wipe = [t for t in tables_with_project_id if t not in rag_preserve_tables]
 
-        # 3. 按级联依赖顺序清空所有关联子表
-        ordered_child_tables = [
-            "query_feedback", "knowledge_conflicts", "benchmark_runs", "benchmark_questions",
-            "query_logs", "chunks", "documents", "ai_review_runs", "rag_evidence_packs",
-            "real_cost_invoice_links", "real_costs", "invoices", "cashflows", "contracts",
-            "fulfillment", "progress", "budgets", "risk_events", "tax_payment_records",
-            "sync_pending", "sync_logs", "ai_review_batches", "ai_review_jobs",
-            "remediation_tasks", "facts_snapshots", "planning_scenarios", "project_rag_map",
-        ]
-        for t in existing_tables:
-            if t not in ordered_child_tables and t != "projects":
-                ordered_child_tables.append(t)
-
-        for t in ordered_child_tables:
-            if t in existing_tables:
-                r = db.execute(text(f"DELETE FROM {t} WHERE project_id = :pid"), {"pid": pid})
-                deleted_counts[t] = r.rowcount or 0
-
-        # 4. 彻底删除主项目记录 (projects)
-        r = db.execute(text("DELETE FROM projects WHERE id = :pid"), {"pid": pid})
-        deleted_counts["projects"] = r.rowcount or 0
+        for t in tax_tables_to_wipe:
+            r = db.execute(text(f"DELETE FROM {t} WHERE project_id = :pid"), {"pid": pid})
+            deleted_counts[t] = r.rowcount or 0
 
         db.commit()
-        _LOGGER.info("project completely deleted: pid=%s code=%s details=%s", pid, project_code, deleted_counts)
+        _LOGGER.info("tax project data wiped successfully: pid=%s code=%s details=%s", pid, project_code, deleted_counts)
         return {
             "success": True,
             "project_id": pid,
             "project_code": project_code,
             "project_name": project_name,
-            "message": f"项目【{project_code} · {project_name}】及其全部主数据与财税数据已彻底删除！",
+            "message": f"项目【{project_code} · {project_name}】在 Tax 系统中的全部财税数据已彻底删除清空（RAG 凭证知识库已安全保留）！",
             "deleted_counts": deleted_counts,
         }
     except HTTPException:
@@ -417,8 +410,8 @@ def api_delete_project_data(
         raise
     except Exception as exc:
         db.rollback()
-        _LOGGER.exception("project complete deletion failed: pid=%s", pid)
-        raise HTTPException(status_code=500, detail=f"彻底删除项目失败: {exc}")
+        _LOGGER.exception("tax project data deletion failed: pid=%s", pid)
+        raise HTTPException(status_code=500, detail=f"删除项目数据失败: {exc}")
     finally:
         db.close()
 
