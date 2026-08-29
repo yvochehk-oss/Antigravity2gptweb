@@ -550,7 +550,7 @@ def run() -> None:
                     category=cat, active=True,
                 ))
 
-        # 6. AI 端点与提示词（1: 本地 Ling-3.0-tiny 保底模型，2: 本地 Qwen3.5-2B 保底模型）
+        # 6. AI 端点与提示词（本地 Ling-3.0-tiny 保底模型）
         if db.query(AIModelEndpoint).count() == 0:
             db.add(AIModelEndpoint(
                 name="本地 Ling-3.0-tiny 保底模型", adapter="openai_compatible",
@@ -558,13 +558,6 @@ def run() -> None:
                 model="ling-3.0-tiny", api_key_env="",
                 enabled=True, timeout_seconds=60, priority=100, routing_group="default",
                 note="V2.0 llama.cpp 本地 Ling-3.0-tiny 离线保底模型；用于无外网时离线 AI 辅助研判",
-            ))
-            db.add(AIModelEndpoint(
-                name="本地 Qwen3.5-2B 保底模型", adapter="openai_compatible",
-                base_url="http://127.0.0.1:8930", chat_path="/v1/chat/completions",
-                model="local-qwen3.5-2b", api_key_env="",
-                enabled=True, timeout_seconds=60, priority=200, routing_group="default",
-                note="V2.0 llama.cpp 本地 Qwen3.5-2B 备选保底模型",
             ))
             if _ENVIRONMENT == "test":
                 db.add(AIModelEndpoint(
