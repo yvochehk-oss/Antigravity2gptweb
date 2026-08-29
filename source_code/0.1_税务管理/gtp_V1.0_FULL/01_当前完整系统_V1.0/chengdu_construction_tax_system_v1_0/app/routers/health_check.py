@@ -73,12 +73,12 @@ def health_check_run(
 ):
     db = SessionLocal()
     if not endpoint_ids:
-        eps = db.scalars(
+        primary = db.scalar(
             select(AIModelEndpoint.id)
             .where(AIModelEndpoint.enabled.is_(True))
-            .order_by(AIModelEndpoint.priority.desc(), AIModelEndpoint.id.asc())
-        ).all()
-        endpoint_ids = list(eps) or [1]
+            .order_by(AIModelEndpoint.priority.asc(), AIModelEndpoint.id.asc())
+        )
+        endpoint_ids = [primary] if primary is not None else [1]
 
     scopes = HEALTH_PROFILES.get(profile, HEALTH_PROFILES["standard"])
     try:
