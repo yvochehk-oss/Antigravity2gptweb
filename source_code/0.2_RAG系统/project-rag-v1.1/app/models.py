@@ -326,8 +326,8 @@ class Entity(Base):
     data_as_of: Mapped[str] = mapped_column(String(20), default="")  # 数据截止日期
 
     # Timestamps
-    created_at: Mapped[str] = mapped_column(String(40), default="")
-    updated_at: Mapped[str] = mapped_column(String(40), default="")
+    created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=True)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=True)
 
 
 class ExternalParty(Base):

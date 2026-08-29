@@ -34,7 +34,7 @@ def now() -> str:
 
 BUSINESS_ROLE_META = {
     "owner": {
-        "label": "外部业主/甲方",
+        "label": "外部发包业主",
         "badge": "badge-blue",
         "color": "#60a5fa",
         "description": "项目发包方、业主投资平台与建设单位",

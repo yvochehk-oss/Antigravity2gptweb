@@ -1679,8 +1679,8 @@ def web_project(request: Request, project_ref: str, principal=Depends(require_we
         if not p:
             return HTMLResponse("project not found", 404)
         project_id = p.id
-        docs = db.execute(select(Document).where(Document.project_id == project_id).order_by(Document.id.desc()).limit(100)).scalars().all()
-        jobs = db.execute(select(IngestJob).join(Document, IngestJob.document_id == Document.id).where(Document.project_id == project_id).order_by(IngestJob.id.desc()).limit(30)).scalars().all()
+        docs = db.execute(select(Document).where(Document.project_id == project_id).order_by(Document.id.desc())).scalars().all()
+        jobs = db.execute(select(IngestJob).join(Document, IngestJob.document_id == Document.id).where(Document.project_id == project_id).order_by(IngestJob.id.desc()).limit(50)).scalars().all()
         canonical_entities = _canonical_entity_views(db)
         entity_by_code = {x["entity_code"]: x for x in canonical_entities}
         return templates.TemplateResponse(request, "project.html", {"project": p, "canonical_entities": canonical_entities, "entity_by_code": entity_by_code, "documents": docs, "jobs": jobs, "active_page": "projects", "mineru": mineru_available(), "postgres": IS_POSTGRES})
