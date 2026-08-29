@@ -105,6 +105,43 @@ def test_project_delete_wrong_password(monkeypatch):
     assert "密码错误" in resp.json().get("detail", "")
 
 
+def test_project_delete_missing_password(monkeypatch):
+    client = TestClient(app)
+    cookies = {"cdjg_rag_token": _token()}
+    headers = {"Origin": ORIGIN}
+
+    resp = client.post(
+        "/api/v1/projects/1/delete",
+        json={"password": ""},
+        cookies=cookies,
+        headers=headers,
+    )
+    assert resp.status_code == 400
+    assert "必须提供密码" in resp.json().get("detail", "")
+
+
+def test_project_delete_not_found(monkeypatch):
+    mock_db = _MockDB(project=None, docs=[])
+
+    @contextmanager
+    def _mock_get_db():
+        yield mock_db
+
+    monkeypatch.setattr("app.legacy_routes.get_db", _mock_get_db)
+
+    client = TestClient(app)
+    cookies = {"cdjg_rag_token": _token()}
+    headers = {"Origin": ORIGIN}
+
+    resp = client.post(
+        "/api/v1/projects/9999/delete",
+        json={"password": "admin123"},
+        cookies=cookies,
+        headers=headers,
+    )
+    assert resp.status_code == 404
+
+
 def test_project_delete_success(monkeypatch):
     test_proj = Project(
         id=1,
@@ -149,3 +186,15 @@ def test_project_delete_success(monkeypatch):
     assert data.get("deleted_documents_count") == 1
     assert data.get("deleted_parties_count") == 1
     assert test_proj in mock_db.deleted
+
+    # 也测试直接通过 DELETE 方法调用
+    mock_db.deleted.clear()
+    resp_del = client.request(
+        "DELETE",
+        "/api/v1/projects/1",
+        json={"password": "admin123"},
+        cookies=cookies,
+        headers=headers,
+    )
+    assert resp_del.status_code == 200
+    assert resp_del.json().get("success") is True
