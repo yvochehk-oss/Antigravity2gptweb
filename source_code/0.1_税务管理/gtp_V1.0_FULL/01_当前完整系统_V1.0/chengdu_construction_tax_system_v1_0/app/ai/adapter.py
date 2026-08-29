@@ -277,7 +277,12 @@ def call_endpoint(
     }
     if key:
         headers["Authorization"] = f"Bearer {key}"
-    body = {"model": endpoint.model, "messages": messages, "temperature": 0.1}
+    body = {
+        "model": endpoint.model,
+        "messages": messages,
+        "temperature": 0.1,
+        "max_tokens": 2048,
+    }
 
     max_retries = 3
     last_err = None
