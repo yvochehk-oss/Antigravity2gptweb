@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..config import MAX_UPLOAD_SIZE
+from ..domain.entities import is_canonical_entity_code
 from ..logging_config import get_logger
 from ..models import Document, Project
 from ..security import read_file_limited, validate_file_content
@@ -130,6 +131,29 @@ def register_bytes(
     logger.info(
         f"Registered document {d.document_code} for project {project.project_code}{' (duplicate)' if duplicate else ''}"
     )
+
+    # Auto-register external party if counterparty is system-external
+    if d.counterparty_code and not is_canonical_entity_code(d.counterparty_code):
+        kind = "partner"
+        cp_upper = d.counterparty_code.upper()
+        if "CRANE" in cp_upper or d.business_category == "equipment":
+            kind = "equipment"
+        elif "PG" in cp_upper or d.business_category == "material":
+            kind = "supplier"
+        elif "EXP" in cp_upper or d.business_category == "subcontract":
+            kind = "subcontractor"
+        elif d.business_category == "labor":
+            kind = "labor"
+            
+        from .ingest import _auto_register_external_party
+        _auto_register_external_party(
+            db,
+            d.counterparty_code,
+            counterparty_name=inferred.get("counterparty_name") or d.counterparty_code,
+            tax_id=inferred.get("counterparty_tax_id") or None,
+            kind=kind,
+        )
+        db.commit()
 
     # Queue for parsing
     jid = None

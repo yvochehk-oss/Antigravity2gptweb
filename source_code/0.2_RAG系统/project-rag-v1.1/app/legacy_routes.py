@@ -1605,8 +1605,8 @@ def dashboard(request: Request, principal=Depends(require_web_auth)):
                     ents_set.add(code.strip())
                     
             all_ents = sorted(list(ents_set))
-            internal_ents = [c for c in all_ents if not c.startswith("EXT-")]
-            external_ents = [c for c in all_ents if c.startswith("EXT-")]
+            internal_ents = [c for c in all_ents if is_canonical_entity_code(c)]
+            external_ents = [c for c in all_ents if not is_canonical_entity_code(c)]
             
             project_stats[p.id] = {
                 "doc_count": p_docs,
