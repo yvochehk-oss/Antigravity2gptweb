@@ -376,7 +376,22 @@ def api_delete_project_data(
             "projects",  # 保留项目主空间定义，以维持底层文档外键完整性
         }
 
-        # 2. 动态获取当前数据库中所有具有 project_id 字段的基础数据表（过滤掉 VIEW 视图）
+        # 2. 先级联清理没有直接 project_id 字段但外键依赖 Tax 父表的子台账记录
+        secondary_cleanups = [
+            "DELETE FROM planning_allocations WHERE scenario_id IN (SELECT id FROM planning_scenarios WHERE project_id = :pid)",
+            "DELETE FROM ai_consensus_reports WHERE batch_id IN (SELECT id FROM ai_review_batches WHERE project_id = :pid)",
+            "DELETE FROM ai_review_results WHERE job_id IN (SELECT id FROM ai_review_jobs WHERE project_id = :pid)",
+            "DELETE FROM facts_request_logs WHERE facts_snapshot_id IN (SELECT id FROM facts_snapshots WHERE project_id = :pid)",
+            "DELETE FROM real_cost_invoice_links WHERE real_cost_id IN (SELECT id FROM real_costs WHERE project_id = :pid) OR invoice_id IN (SELECT id FROM invoices WHERE project_id = :pid)",
+            "DELETE FROM sync_pending WHERE project_id = :pid OR sync_log_id IN (SELECT id FROM sync_logs WHERE project_id = :pid)",
+        ]
+        for sql in secondary_cleanups:
+            try:
+                db.execute(text(sql), {"pid": pid})
+            except Exception as sec_err:
+                _LOGGER.debug("secondary cleanup skipped or table missing: %s", sec_err)
+
+        # 3. 动态获取当前数据库中所有具有 project_id 字段的基础数据表（过滤掉 VIEW 视图）
         table_rows = db.execute(text("""
             SELECT c.table_name 
             FROM information_schema.columns c
@@ -388,7 +403,7 @@ def api_delete_project_data(
         """)).all()
         tables_with_project_id = {row[0] for row in table_rows}
 
-        # 3. 仅清空 Tax 系统所属的全部财务台账表
+        # 4. 仅清空 Tax 系统所属的全部财务台账表
         tax_tables_to_wipe = [t for t in tables_with_project_id if t not in rag_preserve_tables]
 
         for t in tax_tables_to_wipe:
