@@ -41,12 +41,159 @@ def _mineru_command(*args: str) -> list[str]:
 
 
 def mineru_available() -> bool:
-    """Check if MinerU CLI is available.
+    """Check if document parsing engine is available."""
+    return True
 
-    Returns:
-        True if MinerU is installed and executable
-    """
-    return shutil.which(MINERU_BIN) is not None
+
+def parse_with_native_idp(document_code: str, input_path: str) -> dict:
+    """IDP 3.0 native document parser supporting PDF, images, Word, Excel, and text."""
+    path = Path(input_path)
+    suffix = path.suffix.lower()
+    out_dir = PARSED_DIR / document_code
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    content_list = []
+    md_lines = []
+
+    if suffix == ".pdf":
+        try:
+            import fitz
+            doc = fitz.open(str(path))
+            ocr_engine = None
+            for page_idx, page in enumerate(doc):
+                page_text = page.get_text("text").strip()
+                # Check if scanned or image-only page
+                if len(page_text) < 30:
+                    try:
+                        from rapidocr_onnxruntime import RapidOCR
+                        if ocr_engine is None:
+                            ocr_engine = RapidOCR()
+                        pix = page.get_pixmap(dpi=180)
+                        ocr_res, _ = ocr_engine(pix.tobytes("png"))
+                        if ocr_res:
+                            page_text = "\n".join([line[1] for line in ocr_res])
+                    except Exception as ocr_err:
+                        logger.warning(f"OCR fallback failed for page {page_idx}: {ocr_err}")
+
+                if page_text:
+                    md_lines.append(f"## 第 {page_idx + 1} 页\n\n" + page_text)
+                    content_list.append({
+                        "type": "text",
+                        "text": page_text,
+                        "text_level": 0,
+                        "page_idx": page_idx,
+                    })
+            doc.close()
+        except Exception as pdf_err:
+            logger.error(f"Native PDF parse error: {pdf_err}")
+            raise MinerUError(f"PDF parsing error: {pdf_err}")
+
+    elif suffix in (".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".webp"):
+        try:
+            from rapidocr_onnxruntime import RapidOCR
+            engine = RapidOCR()
+            ocr_res, _ = engine(str(path))
+            if ocr_res:
+                lines = [line[1] for line in ocr_res]
+                text = "\n".join(lines)
+                md_lines.append(f"# {path.stem}\n\n" + text)
+                content_list.append({
+                    "type": "text",
+                    "text": text,
+                    "text_level": 0,
+                    "page_idx": 0,
+                })
+        except Exception as img_err:
+            logger.error(f"Native image OCR error: {img_err}")
+            raise MinerUError(f"Image OCR error: {img_err}")
+
+    elif suffix in (".docx", ".doc"):
+        try:
+            import docx
+            doc = docx.Document(str(path))
+            for p in doc.paragraphs:
+                p_text = p.text.strip()
+                if p_text:
+                    level = 1 if p.style and "heading" in p.style.name.lower() else 0
+                    content_list.append({
+                        "type": "text",
+                        "text": p_text,
+                        "text_level": level,
+                        "page_idx": 0,
+                    })
+                    md_lines.append(p_text)
+            for t in doc.tables:
+                rows_data = []
+                for row in t.rows:
+                    rows_data.append([cell.text.strip() for cell in row.cells])
+                if rows_data:
+                    table_md = "\n".join([" | ".join(r) for r in rows_data])
+                    content_list.append({
+                        "type": "table",
+                        "table_body": table_md,
+                        "page_idx": 0,
+                    })
+                    md_lines.append(table_md)
+        except Exception as docx_err:
+            logger.error(f"Native DOCX error: {docx_err}")
+            raise MinerUError(f"DOCX parsing error: {docx_err}")
+
+    elif suffix in (".xlsx", ".xls"):
+        try:
+            import openpyxl
+            wb = openpyxl.load_workbook(str(path), data_only=True)
+            for sheet_name in wb.sheetnames:
+                ws = wb[sheet_name]
+                rows_data = []
+                for row in ws.iter_rows(values_only=True):
+                    if any(c is not None for c in row):
+                        rows_data.append([str(c) if c is not None else "" for c in row])
+                if rows_data:
+                    table_md = f"### 工作表: {sheet_name}\n" + "\n".join([" | ".join(r) for r in rows_data])
+                    content_list.append({
+                        "type": "table",
+                        "table_body": table_md,
+                        "page_idx": 0,
+                    })
+                    md_lines.append(table_md)
+        except Exception as xls_err:
+            logger.error(f"Native Excel error: {xls_err}")
+            raise MinerUError(f"Excel parsing error: {xls_err}")
+
+    else:
+        # Plain text / Markdown
+        try:
+            text = path.read_text(encoding="utf-8", errors="ignore")
+            if text:
+                md_lines.append(text)
+                content_list.append({
+                    "type": "text",
+                    "text": text,
+                    "text_level": 0,
+                    "page_idx": 0,
+                })
+        except Exception as txt_err:
+            logger.error(f"Native text read error: {txt_err}")
+            raise MinerUError(f"Text read error: {txt_err}")
+
+    if not md_lines and not content_list:
+        raise MinerUError(f"No extractable text or content found in {path.name}")
+
+    md_path = out_dir / f"{document_code}.md"
+    cl_path = out_dir / f"{document_code}_content_list.json"
+
+    md_path.write_text("\n\n".join(md_lines), encoding="utf-8")
+    cl_path.write_text(json.dumps(content_list, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    logger.info(f"IDP 3.0 Native Parser completed {document_code}: {len(content_list)} items")
+
+    return {
+        "output_dir": str(out_dir),
+        "markdown_path": str(md_path),
+        "content_list_path": str(cl_path),
+        "stdout": "IDP 3.0 Native Parser",
+        "attempts": 1,
+    }
 
 
 def parse_with_mineru(
@@ -54,7 +201,7 @@ def parse_with_mineru(
     input_path: str,
     max_retries: int = MAX_RETRIES
 ) -> dict:
-    """Parse a document using MinerU with retry support.
+    """Parse a document using IDP 3.0 native parser with MinerU CLI fallback.
 
     Args:
         document_code: Document identifier for output directory
@@ -65,97 +212,35 @@ def parse_with_mineru(
         Dict with output_dir, markdown_path, content_list_path
 
     Raises:
-        MinerUUnavailable: If MinerU CLI is not found
-        MinerUError: If parsing fails after all retries
+        MinerUError: If parsing fails
     """
-    if not mineru_available():
-        raise MinerUUnavailable(f"MinerU CLI '{MINERU_BIN}' not found")
-
-    out_dir = PARSED_DIR / document_code
-    out_dir.mkdir(parents=True, exist_ok=True)
-
-    cmd = _mineru_command("-p", str(input_path), "-o", str(out_dir))
-
-    if MINERU_BACKEND:
-        cmd += ["-b", MINERU_BACKEND]
-
-    if MINERU_API_URL:
-        cmd += ["--api-url", MINERU_API_URL]
-
-    last_error = None
-
-    for attempt in range(1, max_retries + 1):
+    # If external mineru binary exists, attempt it first
+    if shutil.which(MINERU_BIN) is not None:
         try:
-            logger.info(
-                f"MinerU parsing {input_path} (attempt {attempt}/{max_retries})"
-            )
-
-            proc = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=1800
-            )
-
+            out_dir = PARSED_DIR / document_code
+            out_dir.mkdir(parents=True, exist_ok=True)
+            cmd = _mineru_command("-p", str(input_path), "-o", str(out_dir))
+            if MINERU_BACKEND:
+                cmd += ["-b", MINERU_BACKEND]
+            if MINERU_API_URL:
+                cmd += ["--api-url", MINERU_API_URL]
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=1800)
             if proc.returncode == 0:
-                break
-
-            last_error = (proc.stderr or proc.stdout or "Unknown error")[-4000:]
-
-            # Check if error is retryable
-            if "timeout" in last_error.lower() or "memory" in last_error.lower():
-                if attempt < max_retries:
-                    logger.warning(f"MinerU failed (retryable), waiting {RETRY_DELAY}s: {last_error[:200]}")
-                    time.sleep(RETRY_DELAY)
-                    continue
-
-            raise MinerUError(f"MinerU failed: {last_error}")
-
-        except subprocess.TimeoutExpired:
-            last_error = "MinerU process timed out after 30 minutes"
-            if attempt < max_retries:
-                logger.warning(f"MinerU timeout, retrying in {RETRY_DELAY}s...")
-                time.sleep(RETRY_DELAY)
-                continue
-            raise MinerUError(last_error)
-
+                md_files = sorted(out_dir.rglob("*.md"), key=lambda p: p.stat().st_size, reverse=True)
+                content_lists = sorted(out_dir.rglob("*content_list.json"), key=lambda p: p.stat().st_size, reverse=True)
+                if md_files or content_lists:
+                    return {
+                        "output_dir": str(out_dir),
+                        "markdown_path": str(md_files[0]) if md_files else "",
+                        "content_list_path": str(content_lists[0]) if content_lists else "",
+                        "stdout": proc.stdout[-2000:],
+                        "attempts": 1,
+                    }
         except Exception as e:
-            last_error = str(e)
-            if attempt < max_retries:
-                logger.warning(f"MinerU error, retrying: {last_error}")
-                time.sleep(RETRY_DELAY)
-                continue
-            raise MinerUError(f"MinerU failed after {attempt} attempts: {last_error}")
+            logger.warning(f"MinerU CLI invocation failed; falling back to IDP 3.0 Native Parser: {e}")
 
-    # Verify output
-    md_files = sorted(
-        out_dir.rglob("*.md"),
-        key=lambda p: p.stat().st_size,
-        reverse=True
-    )
-    content_lists = sorted(
-        out_dir.rglob("*content_list.json"),
-        key=lambda p: p.stat().st_size,
-        reverse=True
-    )
-
-    if not md_files and not content_lists:
-        raise MinerUError(f"MinerU completed but produced no output files")
-
-    result = {
-        "output_dir": str(out_dir),
-        "markdown_path": str(md_files[0]) if md_files else "",
-        "content_list_path": str(content_lists[0]) if content_lists else "",
-        "stdout": proc.stdout[-2000:] if proc else "",
-        "attempts": attempt,
-    }
-
-    logger.info(
-        f"MinerU completed {document_code}: "
-        f"{len(md_files)} md files, {len(content_lists)} content_list files"
-    )
-
-    return result
+    # Seamlessly use IDP 3.0 Native Parser
+    return parse_with_native_idp(document_code, input_path)
 
 
 def get_mineru_version() -> str:
