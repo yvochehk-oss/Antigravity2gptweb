@@ -774,9 +774,10 @@ def format_parse_message(raw_msg: str | None) -> str:
     if raw.startswith("{") and raw.endswith("}"):
         try:
             data = json.loads(raw)
-            msg = data.get("message", "")
-            if "indexed" in msg:
-                chunk_num = "".join(filter(str.isdigit, msg)) or "1"
+            msg = str(data.get("message", ""))
+            if "indexed" in msg.lower():
+                m = re.search(r"(\d+)\s+chunk", msg, re.IGNORECASE) or re.search(r"\d+", msg)
+                chunk_num = m.group(1) if (m and m.lastindex) else (m.group(0) if m else "1")
                 friendly = f"已完成 {chunk_num} 个向量切块索引"
             else:
                 friendly = "已建立向量切块索引"
@@ -784,6 +785,7 @@ def format_parse_message(raw_msg: str | None) -> str:
                 friendly += " · 结构化发票信息已提取"
             return friendly
         except Exception:
-            pass
+            return "已完成解析与向量索引"
     return raw
+
 

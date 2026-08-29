@@ -351,17 +351,17 @@
               📄 {{ inv.filename }}
             </a>
           </td>
-          <td style="padding: 10px 8px;" class="font-mono" style="color: var(--text-secondary);">
+          <td class="font-mono" style="padding: 10px 8px; color: var(--text-secondary);">
             {{ inv.invoice_no or '-' }}{% if inv.invoice_code %} / {{ inv.invoice_code }}{% endif %}
           </td>
           <td style="padding: 10px 8px;">
             <span class="badge badge-cyan" style="font-size: 11px;">{{ inv.invoice_type | invoice_type_name }}</span>
           </td>
           <td style="padding: 10px 8px;" class="font-mono text-muted">{{ inv.period or '-' }}</td>
-          <td style="padding: 10px 8px; text-align: right;" class="font-mono" style="color: var(--accent-cyan); font-weight: 600;">
+          <td class="font-mono" style="padding: 10px 8px; text-align: right; color: var(--accent-cyan); font-weight: 600;">
             ¥{{ "%.2f"|format((inv.tax_vat_input or 0) + (inv.tax_vat_output or 0)) }}
           </td>
-          <td style="padding: 10px 8px; text-align: right;" class="font-mono" style="color: var(--accent-emerald); font-weight: 600;">
+          <td class="font-mono" style="padding: 10px 8px; text-align: right; color: var(--accent-emerald); font-weight: 600;">
             ¥{{ "%.2f"|format(inv.tax_total or 0) }}
           </td>
           <td style="padding: 10px 8px; text-align: center;">
@@ -488,17 +488,17 @@
                   📄 {{ inv.filename }}
                 </a>
               </td>
-              <td style="padding: 10px 8px;" class="font-mono" style="color: var(--text-secondary);">
+              <td class="font-mono" style="padding: 10px 8px; color: var(--text-secondary);">
                 {{ inv.invoice_no or '-' }}{% if inv.invoice_code %} / {{ inv.invoice_code }}{% endif %}
               </td>
               <td style="padding: 10px 8px;">
                 <span class="badge badge-cyan" style="font-size: 11px;">{{ inv.invoice_type | invoice_type_name }}</span>
               </td>
               <td style="padding: 10px 8px;" class="font-mono text-muted">{{ inv.period or '-' }}</td>
-              <td style="padding: 10px 8px; text-align: right;" class="font-mono" style="color: var(--accent-cyan); font-weight: 600;">
+              <td class="font-mono" style="padding: 10px 8px; text-align: right; color: var(--accent-cyan); font-weight: 600;">
                 ¥{{ "%.2f"|format((inv.tax_vat_input or 0) + (inv.tax_vat_output or 0)) }}
               </td>
-              <td style="padding: 10px 8px; text-align: right;" class="font-mono" style="color: var(--accent-emerald); font-weight: 600;">
+              <td class="font-mono" style="padding: 10px 8px; text-align: right; color: var(--accent-emerald); font-weight: 600;">
                 ¥{{ "%.2f"|format(inv.tax_total or 0) }}
               </td>
               <td style="padding: 10px 8px; text-align: center;">

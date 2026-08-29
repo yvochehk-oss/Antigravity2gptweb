@@ -1125,12 +1125,21 @@ _MEDIA_TYPE_MAP = {
     ".png": "image/png",
     ".webp": "image/webp",
     ".gif": "image/gif",
-    ".svg": "image/svg+xml",
     ".txt": "text/plain; charset=utf-8",
     ".md": "text/markdown; charset=utf-8",
     ".csv": "text/csv; charset=utf-8",
     ".json": "application/json",
-    ".html": "text/html; charset=utf-8",
+}
+
+_SAFE_INLINE_MEDIA_TYPES = {
+    "application/pdf",
+    "image/jpeg",
+    "image/png",
+    "image/webp",
+    "image/gif",
+    "text/plain; charset=utf-8",
+    "text/markdown; charset=utf-8",
+    "text/csv; charset=utf-8",
 }
 
 
@@ -1140,14 +1149,7 @@ def _resolve_media_type(filename: str, default: str = "application/octet-stream"
     return _MEDIA_TYPE_MAP.get(ext) or mimetypes.guess_type(filename)[0] or default
 
 
-@app.get("/api/v1/documents/{document_id}/view")
-@app.get("/api/v1/documents/{document_id}/original")
-def api_original(
-    document_id: int,
-    disposition: str = "inline",
-    principal=Depends(require_web_or_service_read),
-):
-    """View or download original document file inline in browser."""
+def _serve_document_file(document_id: int, *, default_inline: bool) -> FileResponse:
     from urllib.parse import quote
     with get_db() as db:
         d = db.get(Document, document_id)
@@ -1161,12 +1163,38 @@ def api_original(
         filename = "".join(ch for ch in filename if ch not in "\r\n\"\\") or "file"
         encoded_fn = quote(filename)
         media_type = _resolve_media_type(filename)
-        disp_mode = "attachment" if disposition == "attachment" else "inline"
-        return FileResponse(
-            path,
-            media_type=media_type,
-            headers={"Content-Disposition": f"{disp_mode}; filename*=UTF-8''{encoded_fn}"},
-        )
+        
+        # Only safe media types are rendered inline to prevent XSS
+        if default_inline and media_type in _SAFE_INLINE_MEDIA_TYPES:
+            disp_mode = "inline"
+        else:
+            disp_mode = "attachment"
+
+        headers = {
+            "Content-Disposition": f"{disp_mode}; filename*=UTF-8''{encoded_fn}",
+            "X-Content-Type-Options": "nosniff",
+        }
+        return FileResponse(path, media_type=media_type, headers=headers)
+
+
+@app.get("/api/v1/documents/{document_id}/view")
+def api_view(
+    document_id: int,
+    principal=Depends(require_web_or_service_read),
+):
+    """View original document file inline in browser."""
+    return _serve_document_file(document_id, default_inline=True)
+
+
+@app.get("/api/v1/documents/{document_id}/original")
+def api_original(
+    document_id: int,
+    disposition: str = "attachment",
+    principal=Depends(require_web_or_service_read),
+):
+    """Download original document file (default attachment for backward compatibility)."""
+    return _serve_document_file(document_id, default_inline=(disposition == "inline"))
+
 
 
 
