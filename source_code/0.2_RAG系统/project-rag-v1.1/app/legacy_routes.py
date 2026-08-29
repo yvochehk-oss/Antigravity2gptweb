@@ -1118,9 +1118,36 @@ def api_delete_document(request: Request, document_id: int):
     }
 
 
+_MEDIA_TYPE_MAP = {
+    ".pdf": "application/pdf",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".webp": "image/webp",
+    ".gif": "image/gif",
+    ".svg": "image/svg+xml",
+    ".txt": "text/plain; charset=utf-8",
+    ".md": "text/markdown; charset=utf-8",
+    ".csv": "text/csv; charset=utf-8",
+    ".json": "application/json",
+    ".html": "text/html; charset=utf-8",
+}
+
+
+def _resolve_media_type(filename: str, default: str = "application/octet-stream") -> str:
+    import mimetypes
+    ext = Path(filename).suffix.lower()
+    return _MEDIA_TYPE_MAP.get(ext) or mimetypes.guess_type(filename)[0] or default
+
+
+@app.get("/api/v1/documents/{document_id}/view")
 @app.get("/api/v1/documents/{document_id}/original")
-def api_original(document_id: int, principal=Depends(require_web_or_service_read)):
-    """Download original document file."""
+def api_original(
+    document_id: int,
+    disposition: str = "inline",
+    principal=Depends(require_web_or_service_read),
+):
+    """View or download original document file inline in browser."""
     from urllib.parse import quote
     with get_db() as db:
         d = db.get(Document, document_id)
@@ -1130,14 +1157,17 @@ def api_original(document_id: int, principal=Depends(require_web_or_service_read
             path = validate_stored_file(d.original_path)
         except (StorageError, PathTraversalError) as exc:
             raise HTTPException(404, "file not found") from exc
-        filename = Path(d.filename or "download").name
-        filename = "".join(ch for ch in filename if ch not in "\r\n\"\\") or "download"
+        filename = Path(d.filename or "file").name
+        filename = "".join(ch for ch in filename if ch not in "\r\n\"\\") or "file"
         encoded_fn = quote(filename)
+        media_type = _resolve_media_type(filename)
+        disp_mode = "attachment" if disposition == "attachment" else "inline"
         return FileResponse(
             path,
-            media_type="application/octet-stream",
-            headers={"Content-Disposition": f"attachment; filename*=UTF-8''{encoded_fn}"}
+            media_type=media_type,
+            headers={"Content-Disposition": f"{disp_mode}; filename*=UTF-8''{encoded_fn}"},
         )
+
 
 
 # ============================================

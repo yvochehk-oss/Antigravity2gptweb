@@ -35,8 +35,11 @@
   </div>
 
   <div class="toolbar-right">
-    <a href="/api/v1/documents/{{ doc.id }}/original" target="_blank" class="btn btn-primary">
-      <span>📥 下载原件</span>
+    <a href="/api/v1/documents/{{ doc.id }}/view" target="_blank" class="btn btn-primary" title="在新标签页直接全屏预览原件 (支持 PDF/图片/文本等)">
+      <span>👁️ 预览原件</span>
+    </a>
+    <a href="/api/v1/documents/{{ doc.id }}/original?disposition=attachment" class="btn btn-secondary" title="下载原始文件到本地">
+      <span>📥 下载</span>
     </a>
     {% if not doc.duplicate_of_id %}
     <form class="inline" method="post" action="/documents/{{ doc.id }}/parse">
