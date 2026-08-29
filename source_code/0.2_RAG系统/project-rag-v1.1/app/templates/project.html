@@ -874,15 +874,30 @@ async function submitDeleteProject() {
       body: JSON.stringify({ password: password })
     });
     
+    if (res.status === 401) {
+      errDiv.innerText = '登录会话已过期，请重新登录后再操作';
+      errDiv.style.display = 'block';
+      setTimeout(() => { window.location.href = '/login'; }, 1500);
+      return;
+    }
+
     const data = await res.json();
     if (!res.ok) {
-      throw new Error(data.detail || data.message || '删除失败');
+      let errMsg = '删除失败';
+      if (typeof data.detail === 'string') {
+        errMsg = data.detail;
+      } else if (data.detail && typeof data.detail.message === 'string') {
+        errMsg = data.detail.message;
+      } else if (data.message) {
+        errMsg = data.message;
+      }
+      throw new Error(errMsg);
     }
     
     alert(data.message || '项目及所有关联数据已彻底清除！');
     window.location.href = '/';
   } catch (err) {
-    errDiv.innerText = err.message;
+    errDiv.innerText = err.message || '操作失败，请重试';
     errDiv.style.display = 'block';
     submitBtn.disabled = false;
     submitBtn.innerText = '确认彻底删除';
