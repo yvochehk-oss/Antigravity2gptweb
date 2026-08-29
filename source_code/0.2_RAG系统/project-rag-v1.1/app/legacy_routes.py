@@ -50,6 +50,7 @@ from .models import (
     RegulationChunk,
     is_canonical_entity_code,
 )
+from .domain.entities import get_external_preset, map_to_standard_external_code
 from .observability import (
     get_request_id,
 )
@@ -189,7 +190,21 @@ def _canonical_entity_views(db) -> list[dict]:
 
     for ext in ext_rows:
         code = (ext.code or "").strip().upper()
-        role = _business_role_key(ext.kind)
+        preset = get_external_preset(code)
+        
+        if preset:
+            role = preset["business_role"]
+            name = ext.name if (ext.name and ext.name not in (code, f"系统外合作单位 ({code})", f"外部协作单位({code})")) else preset["name"]
+            short_name = ext.short_name or preset.get("short_name") or name
+            tax_id = ext.tax_id or preset.get("tax_id") or ""
+            note = preset.get("note") or f"系统外合作单位 (代码: {code})"
+        else:
+            role = _business_role_key(ext.kind)
+            name = ext.name or code
+            short_name = ext.short_name or name
+            tax_id = ext.tax_id or ""
+            note = f"系统外合作单位 (代码: {code})"
+
         role_meta = BUSINESS_ROLE_META.get(role, {
             "label": "系统外合作方",
             "badge": "badge-purple",
@@ -198,22 +213,22 @@ def _canonical_entity_views(db) -> list[dict]:
         })
         views.append({
             "entity_code": code,
-            "name": ext.name,
-            "short_name": ext.short_name or ext.name,
+            "name": name,
+            "short_name": short_name,
             "business_role": role,
             "business_role_label": role_meta["label"],
             "business_role_badge": "badge-purple",
             "business_role_color": "#a855f7",
-            "business_role_description": "系统外合作单位 / 业主单位 / 外部专业分包及供应商",
+            "business_role_description": note,
             "legal_entity": True,
             "parent_entity_code": None,
-            "tax_id": ext.tax_id or "",
+            "tax_id": tax_id,
             "industry": "外部往来",
             "source": "系统外",
             "is_external": True,
             "legal_representative": "-",
             "registered_capital": "-",
-            "note": f"系统外合作单位 (代码: {code})",
+            "note": note,
         })
 
     return views
@@ -1870,25 +1885,41 @@ def web_entity_detail(request: Request, entity_code: str, principal=Depends(requ
     code = (entity_code or "").strip().upper()
     with get_db() as db:
         entity = db.scalar(select(Entity).where(Entity.entity_code == code))
+        preset = get_external_preset(code)
         if not entity:
             ext = db.scalar(select(ExternalParty).where(ExternalParty.code == code))
-            if not ext:
+            if not ext and not preset:
                 raise HTTPException(404, f"未找到单位代码为 {code} 的主体或外部合作单位数据")
+            
+            code_val = ext.code if ext else preset["code"]
+            name_val = ext.name if (ext and ext.name and ext.name not in (code_val, f"系统外合作单位 ({code_val})")) else (preset["name"] if preset else code_val)
+            short_name_val = (ext.short_name if ext else None) or (preset.get("short_name") if preset else name_val)
+            role_val = (preset.get("business_role") if preset else None) or (ext.kind if ext else "partner")
+            tax_id_val = (ext.tax_id if ext else None) or (preset.get("tax_id") if preset else "")
+            note_val = (preset.get("note") if preset else None) or f"系统外合作单位 ({code_val})"
+
             entity = Entity(
-                entity_code=ext.code,
-                name=ext.name,
-                short_name=ext.short_name,
-                business_role=ext.kind,
-                tax_id=ext.tax_id,
+                entity_code=code_val,
+                name=name_val,
+                short_name=short_name_val,
+                business_role=role_val,
+                tax_id=tax_id_val,
                 legal_entity=True,
                 source="系统外",
-                note=f"系统外合作单位 ({ext.code})",
+                note=note_val,
             )
+
+        # Collect all possible codes/aliases for document matching
+        match_codes = [code]
+        if preset:
+            match_codes.append(preset["code"])
+            match_codes.extend(preset.get("aliases", ()))
+        match_codes = list(dict.fromkeys(match_codes))
 
         # Find all documents associated with this entity (as primary or counterparty)
         docs = db.execute(
             select(Document)
-            .where(or_(Document.entity_code == code, Document.counterparty_code == code))
+            .where(or_(Document.entity_code.in_(match_codes), Document.counterparty_code.in_(match_codes)))
             .order_by(Document.id.desc())
         ).scalars().all()
 
