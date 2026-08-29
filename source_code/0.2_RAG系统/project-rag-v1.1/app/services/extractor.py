@@ -631,21 +631,21 @@ def extract_contract_fields_from_text(text: str) -> dict[str, Any]:
     fields: dict[str, Any] = {"tax_included": True}
 
     m_no = (
-        re.search(r"合同编号[：:\s]*([A-Za-z0-9_-]+)", combined)
+        re.search(r"合同编号[：:\s]*\n*([A-Za-z0-9_-]+)", combined)
         or re.search(r"([A-Z0-9]+-[A-Z0-9]+-\d{4}-\d+)", combined)
         or re.search(r"([A-Z0-9]+-[A-Z0-9]+-[A-Z0-9]+)", combined)
     )
     if m_no:
         fields["contract_no"] = m_no.group(1).strip()
 
-    m_date = re.search(r"(?:签订日期|签约日期|合同日期|签订时间)[：:\s]*(\d{4}[-年/.]\d{1,2}[-月/.]\d{1,2})", combined)
+    m_date = re.search(r"(?:签订日期|签约日期|合同日期|签订时间|签约执行日期|执行日期)[：:\s]*\n*(\d{4}[-年/.]\d{1,2}[-月/.]\d{1,2})", combined)
     if m_date:
         nums = [int(p) for p in re.findall(r"\d+", m_date.group(1))]
         if len(nums) >= 3:
             fields["contract_date"] = f"{nums[0]:04d}-{nums[1]:02d}-{nums[2]:02d}"
 
-    # Party A (发包方 / 发包人 / 甲方 / 购买方 / 委托方)
-    pa_match = re.search(r'(?:发包方|发包人|甲方|购买方|委托方)(?:\s*[(（][^()（）]+[)）])?[：:\s]*\n*([^\n\r]+)', combined)
+    # Party A (建设发包单位, 发包单位, 发包/采购方, 发包方, 发包人, 甲方, 购买方, 委托方)
+    pa_match = re.search(r'(?:建设发包单位|发包单位|发包[/\s、]*采购方|发包方|发包人|甲方|购买方|委托方)(?:\s*[(（][^()（）]+[)）])?[：:\s]*\n*([^\n\r]+)', combined)
     if pa_match:
         val = pa_match.group(1).strip(' ：:|<>/')
         val = re.sub(r'<[^>]+>', '', val).strip()
@@ -659,14 +659,14 @@ def extract_contract_fields_from_text(text: str) -> dict[str, Any]:
         if val and not re.match(r'^[(（]?[甲购买委托发包]+[)）]?$', val):
             fields["party_a_name"] = val
 
-    pa_tax_match = re.search(r'(?:发包方|发包人|甲方|购买方|委托方)[\s\S]{1,150}?(?:统一社会信用代码|纳税人识别号|税号|纳税识别号|机构代码)[：:\s]*([A-Za-z0-9]{15,20})', combined)
+    pa_tax_match = re.search(r'(?:建设发包单位|发包单位|发包[/\s、]*采购方|发包方|发包人|甲方|购买方|委托方)[\s\S]{1,150}?(?:统一社会信用代码|纳税人识别号|税号|纳税识别号|机构代码)[：:\s]*([A-Za-z0-9]{15,20})', combined)
     if pa_tax_match:
         tax_id = pa_tax_match.group(1).strip()
         fields["party_a_tax_id"] = tax_id
         fields["party_a_code"] = tax_id
 
-    # Party B (承包方 / 承包人 / 乙方 / 销售方 / 供货方 / 受托方)
-    pb_match = re.search(r'(?:承包方|承包人|乙方|销售方|供货方|受托方)(?:\s*[(（][^()（）]+[)）])?[：:\s]*\n*([^\n\r]+)', combined)
+    # Party B (中标总包单位, 总包单位, 中标单位, 承包单位, 承包/供应方, 承包方, 承包人, 乙方, 销售方, 供货方, 受托方)
+    pb_match = re.search(r'(?:中标总包单位|总包单位|中标单位|承包单位|承包[/\s、]*供应方|承包方|承包人|乙方|销售方|供货方|受托方)(?:\s*[(（][^()（）]+[)）])?[：:\s]*\n*([^\n\r]+)', combined)
     if pb_match:
         val = pb_match.group(1).strip(' ：:|<>/')
         val = re.sub(r'<[^>]+>', '', val).strip()
@@ -680,17 +680,20 @@ def extract_contract_fields_from_text(text: str) -> dict[str, Any]:
         if val and not re.match(r'^[(（]?[乙销售供货受托承包]+[)）]?$', val):
             fields["party_b_name"] = val
 
-    pb_tax_match = re.search(r'(?:承包方|承包人|乙方|销售方|供货方|受托方)[\s\S]{1,150}?(?:统一社会信用代码|纳税人识别号|税号|纳税识别号|机构代码)[：:\s]*([A-Za-z0-9]{15,20})', combined)
+    pb_tax_match = re.search(r'(?:中标总包单位|总包单位|中标单位|承包单位|承包[/\s、]*供应方|承包方|承包人|乙方|销售方|供货方|受托方)[\s\S]{1,150}?(?:统一社会信用代码|纳税人识别号|税号|纳税识别号|机构代码)[：:\s]*([A-Za-z0-9]{15,20})', combined)
     if pb_tax_match:
         tax_id = pb_tax_match.group(1).strip()
         fields["party_b_tax_id"] = tax_id
         fields["party_b_code"] = tax_id
 
-    m_amt = re.search(r"(?:含税总价|暂定价款|合同金额|签约总价|暂定总价|签约含税总价|合同暂定价款)[：:\s]*[¥￥]?\s*([0-9,，]+(?:\.\d+)?)", combined)
+    m_amt = re.search(r"(?:中标合同金额|中标金额|含税总价|暂定价款|合同金额|签约总价|暂定总价|签约含税总价|合同暂定价款|签约暂定金额|暂定金额)[：:\s]*\n*[¥￥]?\s*([0-9,，.]+(?:\.\d+)?)", combined)
     if m_amt:
         try:
-            amt_str = m_amt.group(1).replace(",", "").replace("，", "")
-            fields["total_amount"] = float(Decimal(amt_str))
+            raw_amt = m_amt.group(1).replace(",", "").replace("，", "")
+            if raw_amt.count(".") > 1:
+                parts = raw_amt.split(".")
+                raw_amt = "".join(parts[:-1]) + "." + parts[-1]
+            fields["total_amount"] = float(Decimal(raw_amt))
         except Exception:
             pass
 
@@ -1002,13 +1005,13 @@ def extract_from_chunk(
 
     # Check if deterministic extraction found core fields
     is_complete_deterministic = False
-    if extract_type == "invoice" and (deterministic.get("invoice_no") or deterministic.get("total_amount") is not None or (deterministic.get("seller_name") and deterministic.get("buyer_name"))):
+    if extract_type == "invoice" and (deterministic.get("invoice_no") and deterministic.get("total_amount") is not None and (deterministic.get("seller_name") or deterministic.get("buyer_name"))):
         is_complete_deterministic = True
-    elif extract_type == "contract" and (deterministic.get("contract_no") or deterministic.get("total_amount") is not None or (deterministic.get("party_a_name") and deterministic.get("party_b_name"))):
+    elif extract_type == "contract" and (deterministic.get("contract_no") and (deterministic.get("party_a_name") and deterministic.get("party_b_name"))):
         is_complete_deterministic = True
-    elif extract_type == "payment" and (deterministic.get("bank_reference") or deterministic.get("amount") is not None or (deterministic.get("payer_name") and deterministic.get("payee_name"))):
+    elif extract_type == "payment" and (deterministic.get("bank_reference") and deterministic.get("amount") is not None and (deterministic.get("payer_name") or deterministic.get("payee_name"))):
         is_complete_deterministic = True
-    elif extract_type == "tax_payment" and (deterministic.get("receipt_no") or deterministic.get("tax_amount") is not None or deterministic.get("taxpayer_name")):
+    elif extract_type == "tax_payment" and (deterministic.get("receipt_no") and deterministic.get("tax_amount") is not None and deterministic.get("taxpayer_name")):
         is_complete_deterministic = True
 
     if is_complete_deterministic:
