@@ -17,6 +17,11 @@ router = APIRouter(tags=["meta"])
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[1] / "templates"))
 
 
+import logging
+
+logger = logging.getLogger(__name__)
+
+
 @router.get("/health", response_class=HTMLResponse)
 def health_ui(request: Request, principal=Depends(require_web_auth)):
     snapshot = collect_health_snapshot()
@@ -25,7 +30,8 @@ def health_ui(request: Request, principal=Depends(require_web_auth)):
             indexed_chunks = db.scalar(select(func.count(Chunk.id))) or 0
             docs_count = db.scalar(select(func.count(Document.id))) or 0
             projects_count = db.scalar(select(func.count(Project.id))) or 0
-    except Exception:
+    except Exception as exc:
+        logger.warning("Failed to collect table counts for health UI: %s", exc, exc_info=True)
         indexed_chunks = 0
         docs_count = 0
         projects_count = 0
