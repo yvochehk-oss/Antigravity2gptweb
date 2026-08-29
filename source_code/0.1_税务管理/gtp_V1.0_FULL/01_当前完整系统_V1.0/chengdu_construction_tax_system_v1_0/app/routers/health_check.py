@@ -68,10 +68,18 @@ def health_check_run(
     request: Request,
     project_id: int = Form(...),
     profile: str = Form("standard"),
-    endpoint_ids: list[int] = Form(...),  # noqa: B008
+    endpoint_ids: list[int] | None = Form(None),  # noqa: B008
     user_instruction: str = Form(""),
 ):
     db = SessionLocal()
+    if not endpoint_ids:
+        eps = db.scalars(
+            select(AIModelEndpoint.id)
+            .where(AIModelEndpoint.enabled.is_(True))
+            .order_by(AIModelEndpoint.priority.desc(), AIModelEndpoint.id.asc())
+        ).all()
+        endpoint_ids = list(eps) or [1]
+
     scopes = HEALTH_PROFILES.get(profile, HEALTH_PROFILES["standard"])
     try:
         recover_stale_health_batches(db)
