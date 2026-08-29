@@ -120,7 +120,7 @@ class ExtractTaxRequest(BaseModel):
         default=None, description="Filter: counterparty code of the seller/receiver"
     )
     top_k: int = Field(
-        default=30, ge=1, le=100,
+        default=50, ge=1, le=500,
         description="Number of document chunks to retrieve and extract from"
     )
 

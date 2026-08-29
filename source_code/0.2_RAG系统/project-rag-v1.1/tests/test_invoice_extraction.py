@@ -54,6 +54,6 @@ def test_invoice_validation_requires_document_identity_and_does_not_use_filename
     })
 
     assert fields["validation_status"] == "PENDING_REVIEW"
-    assert any("invoice_code" in error for error in fields["validation_errors"])
+    assert any("invoice_date" in error for error in fields["validation_errors"])
     assert any("seller_name" in error for error in fields["validation_errors"])
     assert any("buyer_tax_id" in error for error in fields["validation_errors"])

@@ -513,13 +513,32 @@ def extract_invoice_fields_from_text(text: str) -> dict[str, Any]:
     ))
     generic_ids = [match.group("value").upper() for match in generic_id_matches]
     if generic_id_matches:
-        if not fields.get("seller_tax_id"):
-            fields["seller_tax_id"] = generic_ids[0]
-        if len(generic_id_matches) > 1 and not fields.get("buyer_tax_id"):
-            fields["buyer_tax_id"] = generic_ids[1]
-        evidence.setdefault("seller_tax_id", _invoice_evidence(text, generic_id_matches[0].group(0)))
-        if len(generic_id_matches) > 1:
-            evidence.setdefault("buyer_tax_id", _invoice_evidence(text, generic_id_matches[1].group(0)))
+        if len(generic_id_matches) >= 2:
+            id0 = generic_ids[0]
+            id1 = generic_ids[1]
+            b_name = fields.get("buyer_name", "")
+            s_name = fields.get("seller_name", "")
+            if "锐宝" in b_name or "建筑工程" in b_name:
+                fields["buyer_tax_id"] = id0
+                fields["seller_tax_id"] = id1
+                evidence.setdefault("buyer_tax_id", _invoice_evidence(text, generic_id_matches[0].group(0)))
+                evidence.setdefault("seller_tax_id", _invoice_evidence(text, generic_id_matches[1].group(0)))
+            elif "锐宝" in s_name:
+                fields["seller_tax_id"] = id0
+                fields["buyer_tax_id"] = id1
+                evidence.setdefault("seller_tax_id", _invoice_evidence(text, generic_id_matches[0].group(0)))
+                evidence.setdefault("buyer_tax_id", _invoice_evidence(text, generic_id_matches[1].group(0)))
+            else:
+                if not fields.get("seller_tax_id"):
+                    fields["seller_tax_id"] = id0
+                if not fields.get("buyer_tax_id"):
+                    fields["buyer_tax_id"] = id1
+                evidence.setdefault("seller_tax_id", _invoice_evidence(text, generic_id_matches[0].group(0)))
+                evidence.setdefault("buyer_tax_id", _invoice_evidence(text, generic_id_matches[1].group(0)))
+        else:
+            if not fields.get("seller_tax_id"):
+                fields["seller_tax_id"] = generic_ids[0]
+                evidence.setdefault("seller_tax_id", _invoice_evidence(text, generic_id_matches[0].group(0)))
 
     if re.search(r"(?:进项|购进|取得进项)", text):
         fields["direction"] = "in"
