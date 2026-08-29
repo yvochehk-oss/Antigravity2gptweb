@@ -7,8 +7,11 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
+from sqlalchemy import func, select
 from ..auth import require_web_auth
+from ..db import SessionLocal
 from ..health import collect_health_snapshot
+from ..models import Chunk, Document, Project
 
 router = APIRouter(tags=["meta"])
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[1] / "templates"))
@@ -17,12 +20,25 @@ templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[1] / 
 @router.get("/health", response_class=HTMLResponse)
 def health_ui(request: Request, principal=Depends(require_web_auth)):
     snapshot = collect_health_snapshot()
+    try:
+        with SessionLocal() as db:
+            indexed_chunks = db.scalar(select(func.count(Chunk.id))) or 0
+            docs_count = db.scalar(select(func.count(Document.id))) or 0
+            projects_count = db.scalar(select(func.count(Project.id))) or 0
+    except Exception:
+        indexed_chunks = 0
+        docs_count = 0
+        projects_count = 0
+
     return templates.TemplateResponse(
         request,
         "health.html",
         {
             "request": request,
             "health_data": snapshot,
+            "indexed_chunks": indexed_chunks,
+            "docs_count": docs_count,
+            "projects_count": projects_count,
             "active_page": "health",
         },
     )
