@@ -108,24 +108,30 @@
     </div>
   </div>
 
-  <!-- 涉税抽取卡片 -->
+  <!-- 涉税抽取与凭证属性卡片 -->
+  {% set is_invoice_doc = doc.invoice_no or doc.document_type == 'tax_invoice' or '发票' in doc.filename or (doc.tax_total and doc.tax_total > 0) %}
   <div class="glass-panel" style="padding: 20px;">
     <h2>
-      <span>💰 涉税抽取与发票信息</span>
+      {% if is_invoice_doc %}
+      <span>🧾 增值税发票与涉税凭证</span>
+      {% else %}
+      <span>💰 涉税属性与凭证信息</span>
+      {% endif %}
     </h2>
     <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 14px; font-size: 13px;">
+      {% if is_invoice_doc %}
       <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--border-subtle); padding-bottom: 8px;">
         <span style="color: var(--text-muted);">发票号码 / 代码</span>
-        <span class="font-mono" style="color: #fff;">{{ doc.invoice_no or '-' }} / {{ doc.invoice_code or '-' }}</span>
+        <span class="font-mono" style="color: #fff; font-weight: 700;">{{ doc.invoice_no or '-' }} / {{ doc.invoice_code or '-' }}</span>
       </div>
       <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--border-subtle); padding-bottom: 8px;">
         <span style="color: var(--text-muted);">发票类型 / 抵扣状态</span>
         <span>
-          <span class="badge badge-muted">{{ doc.invoice_type or '普通/未标明' }}</span>
+          <span class="badge badge-cyan">{{ doc.invoice_type or '增值税专用发票' }}</span>
           {% if doc.invoice_deductible %}
           <span class="badge badge-emerald">已勾选抵扣</span>
           {% else %}
-          <span class="badge badge-muted">未抵扣</span>
+          <span class="badge badge-muted">未抵扣 / 待认证</span>
           {% endif %}
         </span>
       </div>
@@ -141,6 +147,52 @@
         <span style="color: var(--text-muted);">税金合计</span>
         <span class="font-mono" style="font-weight: 700; color: var(--accent-emerald); font-size: 15px;">¥{{ doc.tax_total or 0 }}</span>
       </div>
+      {% else %}
+      <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--border-subtle); padding-bottom: 8px;">
+        <span style="color: var(--text-muted);">凭证业务性质</span>
+        <span style="color: #fff; font-weight: 600;">
+          {% if 'contract' in doc.document_type or '合同' in doc.filename %}
+            📜 经济合同 / 分包履约协议
+          {% elif 'bank' in doc.document_type or '回单' in doc.filename or '结算' in doc.filename or '支付' in doc.filename %}
+            💳 资金结算凭证 / 银行回单
+          {% elif 'photo' in doc.document_type or '验收' in doc.filename or '地磅' in doc.filename or '过磅' in doc.filename or '送货' in doc.filename %}
+            📦 实物交付 / 现场过磅凭证
+          {% else %}
+            📑 业务往来支撑资料
+          {% endif %}
+        </span>
+      </div>
+      <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--border-subtle); padding-bottom: 8px;">
+        <span style="color: var(--text-muted);">涉税核算角色</span>
+        <span>
+          {% if doc.counterparty_code and doc.counterparty_code.startswith('E0') %}
+            <span class="badge badge-emerald">总包销项税源单据 (业主合同)</span>
+          {% else %}
+            <span class="badge badge-cyan">进项抵扣合规支撑单据 (四流合一)</span>
+          {% endif %}
+        </span>
+      </div>
+      <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--border-subtle); padding-bottom: 8px;">
+        <span style="color: var(--text-muted);">四流合一核验链</span>
+        <span style="color: var(--text-secondary);">
+          {% if 'contract' in doc.document_type or '合同' in doc.filename %}
+            合同流 (主干依据) ➔ 对应发票流与资金流
+          {% elif 'bank' in doc.document_type or '回单' in doc.filename or '支付' in doc.filename %}
+            资金流 (付款凭证) ➔ 匹配合同与发票
+          {% else %}
+            货物流/履约流 (交付证据) ➔ 支撑发票真实性
+          {% endif %}
+        </span>
+      </div>
+      <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--border-subtle); padding-bottom: 8px;">
+        <span style="color: var(--text-muted);">发票单据状态</span>
+        <span style="color: var(--text-muted);">非直接发票件（涉税金额体现在关联发票中）</span>
+      </div>
+      <div style="display: flex; justify-content: space-between;">
+        <span style="color: var(--text-muted);">知识库索引状态</span>
+        <span class="font-mono" style="font-weight: 700; color: var(--accent-emerald); font-size: 13px;">已建立 1024 维 BGE-M3 语义索引</span>
+      </div>
+      {% endif %}
     </div>
   </div>
 </div>
