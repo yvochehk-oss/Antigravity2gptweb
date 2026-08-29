@@ -48,11 +48,6 @@ def home(request: Request) -> HTMLResponse:
     return resp
 
 
-@router.get("/demo", response_class=HTMLResponse)
-def demo_home(request: Request) -> HTMLResponse:
-    return home(request)
-
-
 @router.get("/classic", response_class=HTMLResponse)
 def classic_home(request: Request) -> HTMLResponse:
     """经典后端渲染模式 (Jinja2)。"""

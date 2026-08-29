@@ -34,7 +34,6 @@ from .structured_logging import resolve_request_id
 # data and planning APIs must pass through the session/role checks below.
 PUBLIC_EXACT_PATHS = frozenset({
     "/",
-    "/demo",
     "/login",
     "/docs",
     "/redoc",
