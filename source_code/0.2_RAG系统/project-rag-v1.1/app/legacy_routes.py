@@ -1683,7 +1683,38 @@ def web_project(request: Request, project_ref: str, principal=Depends(require_we
         jobs = db.execute(select(IngestJob).join(Document, IngestJob.document_id == Document.id).where(Document.project_id == project_id).order_by(IngestJob.id.desc()).limit(50)).scalars().all()
         canonical_entities = _canonical_entity_views(db)
         entity_by_code = {x["entity_code"]: x for x in canonical_entities}
-        return templates.TemplateResponse(request, "project.html", {"project": p, "canonical_entities": canonical_entities, "entity_by_code": entity_by_code, "documents": docs, "jobs": jobs, "active_page": "projects", "mineru": mineru_available(), "postgres": IS_POSTGRES})
+
+        ents_set = set()
+        if p.entity_code:
+            ents_set.add(p.entity_code.strip())
+        for d in docs:
+            if d.entity_code:
+                ents_set.add(d.entity_code.strip())
+            if d.counterparty_code:
+                ents_set.add(d.counterparty_code.strip())
+        all_ents = sorted(list(ents_set))
+        internal_ents = [c for c in all_ents if is_canonical_entity_code(c)]
+        external_ents = [c for c in all_ents if not is_canonical_entity_code(c)]
+        project_entity_summary = {
+            "total_count": len(all_ents),
+            "internal_count": len(internal_ents),
+            "external_count": len(external_ents),
+            "internal_entities": [entity_by_code.get(c, {"entity_code": c, "name": c, "is_external": False}) for c in internal_ents],
+            "external_entities": [entity_by_code.get(c, {"entity_code": c, "name": c, "is_external": True}) for c in external_ents],
+            "all_entities": [entity_by_code.get(c, {"entity_code": c, "name": c, "is_external": not is_canonical_entity_code(c)}) for c in all_ents],
+        }
+
+        return templates.TemplateResponse(request, "project.html", {
+            "project": p,
+            "project_entity_summary": project_entity_summary,
+            "canonical_entities": canonical_entities,
+            "entity_by_code": entity_by_code,
+            "documents": docs,
+            "jobs": jobs,
+            "active_page": "projects",
+            "mineru": mineru_available(),
+            "postgres": IS_POSTGRES
+        })
 
 
 @app.post("/projects/{project_id}/upload")

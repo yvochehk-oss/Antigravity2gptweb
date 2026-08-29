@@ -17,15 +17,19 @@
         <span class="project-code" style="font-size: 13px; padding: 4px 8px;">{{ project.project_code }}</span>
         <h1 style="font-size: 20px; margin: 0;">{{ project.name }}</h1>
         <span class="badge badge-emerald">{{ project.status or '运行中' }}</span>
-      </div>
-      <div style="font-size: 12px; color: var(--text-muted); margin-top: 6px; display: flex; gap: 16px;">
+      <div style="font-size: 12px; color: var(--text-muted); margin-top: 6px; display: flex; flex-wrap: wrap; gap: 16px;">
         <span>外部系统: <b style="color: var(--text-secondary)">{{ project.external_system or '未绑定' }}</b></span>
         <span>外部项目ID: <b style="color: var(--text-secondary)">{{ project.external_project_id or '-' }}</b></span>
         {% if project.entity_code and entity_by_code.get(project.entity_code) %}
         {% set project_entity = entity_by_code.get(project.entity_code) %}
-        <span>归属单位: <b style="color: var(--accent-cyan)">{{ project_entity.entity_code }} · {{ project_entity.name }}</b></span>
+        <span>经办总包: <b style="color: var(--accent-cyan)">{{ project_entity.entity_code }} · {{ project_entity.name }}</b></span>
         {% endif %}
         <span>已归档资料: <b style="color: var(--accent-cyan)">{{ documents|length }} 份</b></span>
+        {% if project_entity_summary %}
+        <span>涉及往来主体: <b style="color: var(--accent-cyan)">{{ project_entity_summary.total_count }} 家</b> 
+          <span style="color: var(--text-muted);">(系统内 <b style="color: var(--accent-cyan)">{{ project_entity_summary.internal_count }}</b> 家 + 系统外 <b style="color: #c084fc">{{ project_entity_summary.external_count }}</b> 家)</span>
+        </span>
+        {% endif %}
       </div>
     </div>
     
@@ -216,24 +220,43 @@
 
     <div style="border-top: 1px dashed var(--border-subtle);"></div>
 
-    <!-- 第三排：合作主体属性（系统内 / 系统外）筛选 -->
+    <!-- 第三排：往来主体资料归属与指定单位筛选 -->
     <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
       <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
         <span class="filter-group-title">🏢 往来主体:</span>
         <div class="filter-btn-group" id="scopeFilterGroup">
           <button type="button" class="filter-pill active" data-scope="all" onclick="setScopeFilter('all', this)">
-            全部主体
+            全部主体资料
           </button>
           <button type="button" class="filter-pill" data-scope="internal" onclick="setScopeFilter('internal', this)">
-            🔹 系统内关联单位 <span class="pill-count" id="count-scope-internal">0</span>
+            🔹 系统内单位资料 {% if project_entity_summary %}({{ project_entity_summary.internal_count }}家){% endif %} <span class="pill-count" id="count-scope-internal">0</span>
           </button>
           <button type="button" class="filter-pill" data-scope="external" onclick="setScopeFilter('external', this)">
-            🌐 系统外合作单位 <span class="pill-count" id="count-scope-external">0</span>
+            🌐 系统外合作单位资料 {% if project_entity_summary %}({{ project_entity_summary.external_count }}家){% endif %} <span class="pill-count" id="count-scope-external">0</span>
           </button>
         </div>
       </div>
 
-      <div style="display: flex; align-items: center; gap: 12px;">
+      <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+        {% if project_entity_summary and project_entity_summary.total_count > 0 %}
+        <div style="display: flex; align-items: center; gap: 6px;">
+          <span class="filter-group-title" style="margin-right: 0;">指定单位:</span>
+          <select id="entityFilterSelect" onchange="applyFilters()" class="form-select" style="padding: 3px 8px; font-size: 11px; border-radius: 6px; max-width: 240px; background: rgba(11, 19, 38, 0.8);">
+            <option value="all">全部关联单位 (共{{ project_entity_summary.total_count }}家)</option>
+            <optgroup label="🏢 系统内企业 ({{ project_entity_summary.internal_count }}家)">
+              {% for ent in project_entity_summary.internal_entities %}
+              <option value="{{ ent.entity_code }}">{{ ent.entity_code }} · {{ ent.short_name or ent.name }}</option>
+              {% endfor %}
+            </optgroup>
+            <optgroup label="🌐 系统外合作单位 ({{ project_entity_summary.external_count }}家)">
+              {% for ent in project_entity_summary.external_entities %}
+              <option value="{{ ent.entity_code }}">{{ ent.entity_code }} · {{ ent.short_name or ent.name }} (系统外)</option>
+              {% endfor %}
+            </optgroup>
+          </select>
+        </div>
+        {% endif %}
+
         <div style="font-size: 12px; color: var(--text-muted);">
           当前筛选结果: <b id="visibleDocCount" style="color: var(--accent-cyan);">{{ documents|length }}</b> / {{ documents|length }} 份
         </div>
@@ -438,6 +461,9 @@ function resetAllFilters() {
   document.querySelectorAll('#scopeFilterGroup .filter-pill').forEach(b => b.classList.remove('active'));
   document.querySelector('#scopeFilterGroup .filter-pill[data-scope="all"]')?.classList.add('active');
 
+  const entitySelect = document.getElementById('entityFilterSelect');
+  if (entitySelect) entitySelect.value = 'all';
+
   const yearSelect = document.getElementById('yearFilter');
   if (yearSelect) yearSelect.value = 'all';
 
@@ -530,6 +556,7 @@ function applyFilters() {
   const query = (document.getElementById('docSearchInput')?.value || '').toLowerCase().trim();
   const yearVal = document.getElementById('yearFilter')?.value || 'all';
   const monthVal = document.getElementById('monthFilter')?.value || 'all';
+  const entityVal = (document.getElementById('entityFilterSelect')?.value || 'all').toLowerCase();
   const rows = document.querySelectorAll('.project-doc-row');
   let visibleCount = 0;
 
@@ -575,7 +602,13 @@ function applyFilters() {
       matchScope = isExt;
     }
 
-    // 4. Time filter (pure year and month matching)
+    // 4. Specific Entity filter
+    let matchEntity = true;
+    if (entityVal !== 'all') {
+      matchEntity = (entity === entityVal || cp === entityVal);
+    }
+
+    // 5. Time filter (pure year and month matching)
     let matchTime = true;
     if (yearVal !== 'all' || monthVal !== 'all') {
       if (!docPeriod) {
@@ -594,14 +627,14 @@ function applyFilters() {
       }
     }
 
-    // 5. Search query
+    // 6. Search query
     let matchQuery = true;
     if (query) {
       const rowText = row.innerText.toLowerCase();
       matchQuery = filename.includes(query) || cp.includes(query) || entity.includes(query) || rowText.includes(query);
     }
 
-    if (matchType && matchCat && matchScope && matchTime && matchQuery) {
+    if (matchType && matchCat && matchScope && matchEntity && matchTime && matchQuery) {
       row.style.display = '';
       visibleCount++;
     } else {
