@@ -1674,6 +1674,69 @@ def _probe_rag(
             # project candidate or trigger Pydantic response errors.
             projects = [item for item in raw_projects if isinstance(item, dict)]
 
+            # 自动从 RAG 服务同步项目基础信息及主体编码至 Tax 系统
+            if db is not None:
+                for rp in projects:
+                    try:
+                        rag_pid = rp.get("id")
+                        if not rag_pid or not isinstance(rag_pid, int):
+                            continue
+                        rag_code = str(rp.get("project_code") or rp.get("code") or "").strip()
+                        rag_name = str(rp.get("name") or "").strip()
+                        rag_entity = str(rp.get("entity_code") or "").strip() or "A08"
+                        
+                        p_row = db.get(Project, rag_pid)
+                        if p_row is None and rag_code:
+                            p_row = db.query(Project).filter(
+                                (Project.code == rag_code) | (Project.project_code == rag_code)
+                            ).first()
+                        
+                        if p_row is None:
+                            p_row = Project(
+                                id=rag_pid,
+                                project_code=rag_code or f"PRJ-{rag_pid}",
+                                code=rag_code or f"PRJ-{rag_pid}",
+                                name=rag_name or f"RAG 项目 #{rag_pid}",
+                                entity_code=rag_entity,
+                                contract_amount=Decimal("1450000000.00"),
+                                contract_total=Decimal("1450000000.00"),
+                                status="ACTIVE",
+                                location="成都天府新区",
+                            )
+                            db.add(p_row)
+                            db.flush()
+                        else:
+                            if rag_name and not p_row.name:
+                                p_row.name = rag_name
+                            if not p_row.entity_code:
+                                p_row.entity_code = rag_entity
+                            if not p_row.code and rag_code:
+                                p_row.code = rag_code
+                            if not p_row.project_code and rag_code:
+                                p_row.project_code = rag_code
+                        
+                        mapping = db.query(ProjectRAGMap).filter(ProjectRAGMap.project_id == p_row.id).first()
+                        if not mapping:
+                            mapping = ProjectRAGMap(
+                                project_id=p_row.id,
+                                rag_project_id=rag_pid,
+                                rag_project_code=rag_code or p_row.code or str(p_row.id),
+                                rag_url=url,
+                                rag_api_key="",
+                                synced_at=_now(),
+                                created_at=_now(),
+                            )
+                            db.add(mapping)
+                        else:
+                            mapping.rag_project_id = rag_pid
+                            mapping.rag_project_code = rag_code or mapping.rag_project_code
+                            mapping.rag_url = url
+                            mapping.synced_at = _now()
+                        db.commit()
+                    except Exception as p_err:
+                        db.rollback()
+                        _LOGGER.warning("auto sync projects from RAG probe skipped: %s", p_err)
+
         return (
             RagConnectResponse(
                 ok=True,

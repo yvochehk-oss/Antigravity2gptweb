@@ -2,6 +2,15 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
+from dotenv import load_dotenv
+
+# 加载 .env 环境变量
+_env_path = Path(__file__).resolve().parent.parent / ".env"
+if _env_path.exists():
+    load_dotenv(_env_path)
+else:
+    load_dotenv()
 
 # ============================================================
 # RAG 同步配置
