@@ -50,21 +50,184 @@ function ExecutionMetadataPanel({ data }: { data: ApiResult }) {
   );
 }
 
+function FindingsSection({ items }: { items: any[] }) {
+  if (!items || items.length === 0) return null;
+  return (
+    <div className="glass-panel rounded-xl p-5 border border-[#444653]/30 space-y-3">
+      <h4 className="text-[15px] font-bold text-[#dae2fd] flex items-center gap-2">
+        <span>🔍 审查发现与风险项清单 (Findings)</span>
+        <span className="text-[11px] bg-[#222a3d] text-[#dae2fd] px-2 py-0.5 rounded-full border border-[#444653]/40">{items.length} 项</span>
+      </h4>
+      <div className="grid grid-cols-1 gap-3">
+        {items.map((item, idx) => {
+          const sev = String(item?.severity || 'MEDIUM').toUpperCase();
+          const isCritical = sev === 'CRITICAL' || sev === 'HIGH';
+          const isLow = sev === 'LOW';
+          return (
+            <div key={idx} className="bg-[#131b2e] border border-[#444653]/40 rounded-xl p-4 space-y-2 hover:border-[#4cd7f6]/40 transition-colors">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <div className="flex items-center gap-2">
+                  <span className={`text-[11px] font-bold px-2 py-0.5 rounded border uppercase ${
+                    isCritical ? 'bg-[#EF4444]/20 text-[#ff8e8e] border-[#EF4444]/40' :
+                    isLow ? 'bg-[#10B981]/20 text-[#6ee7b7] border-[#10B981]/40' :
+                    'bg-[#F59E0B]/20 text-[#fcd34d] border-[#F59E0B]/40'
+                  }`}>
+                    {sev}
+                  </span>
+                  <span className="text-[13px] font-bold text-[#dae2fd]">{item?.area || '综合领域'} · {item?.issue || '风险项'}</span>
+                </div>
+              </div>
+              {item?.evidence && (
+                <div className="text-[12px] bg-[#0b1326] p-2.5 rounded-lg border border-[#444653]/20 text-[#c4c5d5]">
+                  <span className="text-[#8e909f] font-semibold">【数据依据】: </span>{item.evidence}
+                </div>
+              )}
+              {item?.impact && (
+                <div className="text-[12px] text-[#f87171] bg-[#ef4444]/5 p-2.5 rounded-lg border border-[#ef4444]/20">
+                  <span className="font-semibold">【潜在影响】: </span>{item.impact}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function RecommendationsSection({ items }: { items: any[] }) {
+  if (!items || items.length === 0) return null;
+  return (
+    <div className="glass-panel rounded-xl p-5 border border-[#444653]/30 space-y-3">
+      <h4 className="text-[15px] font-bold text-[#dae2fd] flex items-center gap-2">
+        <span>💡 管理建议与整改指令 (Recommendations)</span>
+        <span className="text-[11px] bg-[#222a3d] text-[#dae2fd] px-2 py-0.5 rounded-full border border-[#444653]/40">{items.length} 条</span>
+      </h4>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        {items.map((item, idx) => {
+          const pri = String(item?.priority || 'P1').toUpperCase();
+          const isP0 = pri === 'P0';
+          return (
+            <div key={idx} className="bg-[#131b2e] border border-[#444653]/40 rounded-xl p-4 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className={`text-[11px] font-bold px-2 py-0.5 rounded border uppercase ${
+                  isP0 ? 'bg-[#EF4444]/20 text-[#ff8e8e] border-[#EF4444]/40 font-extrabold' : 'bg-[#3B82F6]/20 text-[#93c5fd] border-[#3B82F6]/40'
+                }`}>
+                  优先级: {pri}
+                </span>
+                {item?.owner && <span className="text-[11px] text-[#8e909f] bg-[#222a3d] px-2 py-0.5 rounded border border-[#444653]/30">责任: {item.owner}</span>}
+              </div>
+              <p className="text-[13px] font-semibold text-[#dae2fd]">{item?.action || '—'}</p>
+              {item?.reason && <p className="text-[11px] text-[#8e909f] leading-relaxed">原因: {item.reason}</p>}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function DataGapsSection({ items }: { items: any[] }) {
+  if (!items || items.length === 0) return null;
+  return (
+    <div className="glass-panel rounded-xl p-5 border border-[#444653]/30 space-y-3">
+      <h4 className="text-[14px] font-bold text-[#dae2fd] flex items-center gap-2">
+        <span>📑 待补充材料与数据缺口 (Data Gaps)</span>
+        <span className="text-[11px] bg-[#222a3d] text-[#dae2fd] px-2 py-0.5 rounded-full border border-[#444653]/40">{items.length} 项</span>
+      </h4>
+      <div className="flex flex-wrap gap-2">
+        {items.map((gap, idx) => (
+          <span key={idx} className="text-[12px] bg-[#131b2e] border border-[#444653]/40 text-[#c4c5d5] px-3 py-1.5 rounded-lg">
+            • {typeof gap === 'string' ? gap : JSON.stringify(gap)}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function JobsSection({ jobs }: { jobs: any[] }) {
+  if (!jobs || jobs.length === 0) return null;
+  return (
+    <div className="glass-panel rounded-xl p-5 border border-[#444653]/30 space-y-3">
+      <h4 className="text-[14px] font-bold text-[#dae2fd] flex items-center justify-between">
+        <span className="flex items-center gap-2">⚙️ 子维度体检任务执行状态</span>
+        <span className="text-[11px] bg-[#222a3d] text-[#dae2fd] px-2 py-0.5 rounded-full border border-[#444653]/40">{jobs.length} 项子任务</span>
+      </h4>
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+        {jobs.map((job, idx) => {
+          const isDone = job.status === 'completed';
+          const isRunning = job.status === 'running' || job.status === 'pending';
+          return (
+            <div key={idx} className="p-3 rounded-lg bg-[#131b2e] border border-[#444653]/30 flex items-center justify-between">
+              <div>
+                <span className="text-[12px] font-bold text-[#dae2fd] block">维度: {job.scope}</span>
+                <span className="text-[10px] text-[#8e909f]">{job.model || job.endpoint_name || `端点 #${job.requested_endpoint_id || job.endpoint_id || '3'}`}</span>
+              </div>
+              <span className={`text-[11px] font-semibold px-2 py-0.5 rounded ${isDone ? 'bg-[#10b981]/20 text-[#34d399] border border-[#10b981]/30' : isRunning ? 'bg-[#3b82f6]/20 text-[#60a5fa] border border-[#3b82f6]/30 animate-pulse' : 'bg-[#ef4444]/20 text-[#f87171] border border-[#ef4444]/30'}`}>
+                {job.status === 'completed' ? '已完成' : job.status === 'running' ? '执行中…' : job.status === 'pending' ? '排队中' : '失败'}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function ResultPanel({ title, data }: { title: string; data: ApiResult | null }) {
   if (!data) return <DataStatusCard status="UNAVAILABLE" title={`${title}尚无结果`} message="执行后端任务后，真实结果会显示在这里。" />;
+  const isRunning = data.status === 'RUNNING';
   const result = (data.result && typeof data.result === 'object' ? data.result : data.consensus && typeof data.consensus === 'object' ? data.consensus : data) as ApiResult;
-  const arrayEntries = Object.entries(result).filter(([, value]) => Array.isArray(value));
-  const scalarEntries = Object.entries(result).filter(([, value]) => !Array.isArray(value) && typeof value !== 'object');
+  const findings = Array.isArray(result.findings) ? result.findings : Array.isArray(result.common_findings) ? result.common_findings : [];
+  const recommendations = Array.isArray(result.recommendations) ? result.recommendations : [];
+  const dataGaps = Array.isArray(result.data_gaps) ? result.data_gaps : Array.isArray(data.data_gaps) ? data.data_gaps : [];
+  const jobs = Array.isArray(data.jobs) ? data.jobs : [];
+  const scalarEntries = Object.entries(result).filter(([key, value]) => !Array.isArray(value) && typeof value !== 'object' && key !== 'raw_response' && key !== 'summary' && key !== 'status' && key !== 'requires_manual_review');
+  const otherArrayEntries = Object.entries(result).filter(([key, value]) => Array.isArray(value) && key !== 'findings' && key !== 'common_findings' && key !== 'recommendations' && key !== 'data_gaps' && key !== 'jobs' && key !== 'attempts');
+
   return (
     <div className="space-y-4">
       <ExecutionMetadataPanel data={data} />
-      <div className="glass-panel rounded-xl p-5 border border-[#4cd7f6]/30">
-        <h3 className="text-[15px] font-bold text-[#dae2fd]">{title}（真实 API 返回）</h3>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4 text-[12px]">
-          {scalarEntries.map(([key, value]) => <div key={key} className="rounded-lg bg-[#131b2e] p-3"><p className="text-[#8e909f]">{key}</p><p className="text-[#dae2fd] font-semibold mt-1 break-all">{renderValue(value)}</p></div>)}
+      <div className="glass-panel rounded-xl p-5 border border-[#4cd7f6]/30 space-y-4">
+        <div className="flex items-center justify-between">
+          <h3 className="text-[15px] font-bold text-[#dae2fd]">{title}（真实 API 返回）</h3>
+          {result.overall_risk && <span className="text-[12px] font-bold px-2.5 py-0.5 rounded-full bg-[#3b82f6]/20 text-[#60a5fa] border border-[#3b82f6]/40">{String(result.overall_risk)}</span>}
+          {result.risk_level && <span className="text-[12px] font-bold px-2.5 py-0.5 rounded-full bg-[#3b82f6]/20 text-[#60a5fa] border border-[#3b82f6]/40">{String(result.risk_level)}</span>}
+        </div>
+        {result.summary && (
+          <div className="p-3.5 rounded-lg bg-[#131b2e] border border-[#444653]/40">
+            <p className="text-[11px] font-semibold text-[#8e909f] mb-1">📋 审查综合研判 / 总体摘要</p>
+            <p className="text-[13px] text-[#dae2fd] leading-relaxed">{String(result.summary)}</p>
+          </div>
+        )}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-[12px]">
+          {scalarEntries.map(([key, value]) => (
+            <div key={key} className="rounded-lg bg-[#131b2e] p-3">
+              <p className="text-[#8e909f]">{key}</p>
+              <p className="text-[#dae2fd] font-semibold mt-1 break-all">{renderValue(value)}</p>
+            </div>
+          ))}
         </div>
       </div>
-      {arrayEntries.map(([key, value]) => <div key={key} className="glass-panel rounded-xl p-5 border border-[#444653]/30"><h4 className="text-[14px] font-bold text-[#dae2fd] mb-3">{key}</h4><div className="space-y-2">{(value as unknown[]).map((item, index) => <pre key={index} className="rounded-lg bg-[#131b2e] border border-[#444653]/20 p-3 text-[11px] text-[#c4c5d5] whitespace-pre-wrap overflow-auto">{JSON.stringify(item, null, 2)}</pre>)}</div></div>)}
+      
+      {findings.length > 0 && <FindingsSection items={findings} />}
+      {recommendations.length > 0 && <RecommendationsSection items={recommendations} />}
+      {dataGaps.length > 0 && <DataGapsSection items={dataGaps} />}
+      {jobs.length > 0 && <JobsSection jobs={jobs} />}
+
+      {otherArrayEntries.map(([key, value]) => (
+        <div key={key} className="glass-panel rounded-xl p-5 border border-[#444653]/30">
+          <h4 className="text-[14px] font-bold text-[#dae2fd] mb-3">{key}</h4>
+          <div className="space-y-2">
+            {(value as unknown[]).map((item, index) => (
+              <pre key={index} className="rounded-lg bg-[#131b2e] border border-[#444653]/20 p-3 text-[11px] text-[#c4c5d5] whitespace-pre-wrap overflow-auto">
+                {JSON.stringify(item, null, 2)}
+              </pre>
+            ))}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

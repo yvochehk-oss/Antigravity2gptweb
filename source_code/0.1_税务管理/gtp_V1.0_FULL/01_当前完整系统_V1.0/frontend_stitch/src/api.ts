@@ -914,6 +914,31 @@ export async function rebuildTaxLedger(
   return result;
 }
 
+export async function fetchAuditLogs(signal?: AbortSignal): Promise<{ items: any[]; status: any; message: string }> {
+  try {
+    const payload = await fetchJson<any>('/api/audit', { signal });
+    const rawItems = Array.isArray(payload?.items) ? payload.items : [];
+    const items = rawItems.map((item: any) => ({
+      id: String(item.id ?? ''),
+      timestamp: String(item.timestamp ?? ''),
+      operator: String(item.operator ?? ''),
+      role: String(item.role ?? '系统操作员'),
+      targetSubject: String(item.targetSubject ?? item.target_subject ?? ''),
+      actionType: String(item.actionType ?? item.action_type ?? ''),
+      details: String(item.details ?? ''),
+      integrityHash: String(item.integrityHash ?? item.integrity_hash ?? ''),
+    }));
+    return {
+      items,
+      status: payload?.status === 'READY' ? 'READY' : (payload?.status === 'DEGRADED' ? 'DEGRADED' : 'READY'),
+      message: String(payload?.message ?? ''),
+    };
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') throw error;
+    return { items: [], status: 'READY', message: '' };
+  }
+}
+
 function parseCounterparty(raw: unknown): ProjectCounterparty | null {
   const data = asRecord(raw);
   if (!data) return null;
@@ -1138,8 +1163,9 @@ export async function runAiReview(input: {
   const form = new FormData();
   form.append('project_id', String(input.projectId));
   form.append('scope', input.scope);
-  if (positiveInteger(input.endpointId)) form.append('endpoint_id', String(input.endpointId));
-  form.append('user_instruction', input.instruction);
+  const epId = positiveInteger(input.endpointId) ? input.endpointId : 1;
+  form.append('endpoint_id', String(epId));
+  form.append('user_instruction', input.instruction || '');
   const response = await fetch('/ai-review/run', {
     method: 'POST',
     body: form,
@@ -1166,8 +1192,9 @@ export async function runHealthCheck(input: {
   const form = new FormData();
   form.append('project_id', String(input.projectId));
   form.append('profile', input.profile);
-  (input.endpointIds ?? []).filter(id => positiveInteger(id)).forEach(id => form.append('endpoint_ids', String(id)));
-  form.append('user_instruction', input.instruction);
+  const validIds = (input.endpointIds ?? []).filter(id => positiveInteger(id));
+  validIds.forEach(id => form.append('endpoint_ids', String(id)));
+  form.append('user_instruction', input.instruction || '');
   const response = await fetch('/health-check/run', {
     method: 'POST',
     body: form,
@@ -1181,7 +1208,20 @@ export async function runHealthCheck(input: {
   }
   const match = new URL(response.url, window.location.origin).pathname.match(/^\/health-check\/(\d+)$/);
   if (!match) throw new ApiError('AI 体检接口未返回有效批次编号。', 502);
-  return fetchJson<Record<string, unknown>>(`/api/health-check/${match[1]}`, { signal: input.signal });
+  const batchId = match[1];
+
+  // 轮询等待后台体检作业池完成（最多等待 90 秒）
+  const maxAttempts = 60;
+  for (let i = 0; i < maxAttempts; i++) {
+    const data = await fetchJson<Record<string, unknown>>(`/api/health-check/${batchId}`, { signal: input.signal });
+    const batch = asRecord(data?.batch);
+    const batchStatus = String(batch?.status ?? '').toLowerCase();
+    if (batchStatus !== 'pending' && batchStatus !== 'running') {
+      return data;
+    }
+    await new Promise(resolve => setTimeout(resolve, 1500));
+  }
+  return fetchJson<Record<string, unknown>>(`/api/health-check/${batchId}`, { signal: input.signal });
 }
 
 export async function askProjectAi(projectId: number, question: string, endpointId?: number, signal?: AbortSignal): Promise<AiAssistantResponse> {
@@ -1204,3 +1244,20 @@ export async function askProjectAi(projectId: number, question: string, endpoint
     metadata: extractAiExecutionMetadata(payload),
   };
 }
+
+export async function deleteProjectData(
+  projectId: number,
+  password: string,
+  signal?: AbortSignal,
+): Promise<{ success: boolean; project_id: number; project_name: string; message: string; deleted_counts?: Record<string, number> }> {
+  return fetchJson<{ success: boolean; project_id: number; project_name: string; message: string; deleted_counts?: Record<string, number> }>(
+    `/api/projects/${projectId}/delete-data`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password }),
+      signal,
+    },
+  );
+}
+
