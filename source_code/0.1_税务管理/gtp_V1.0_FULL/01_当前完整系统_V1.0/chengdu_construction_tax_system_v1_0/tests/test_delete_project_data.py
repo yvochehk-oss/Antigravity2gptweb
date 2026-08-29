@@ -88,11 +88,13 @@ def test_delete_project_data_success(seeded_app):
         assert data["deleted_counts"]["invoices"] >= 1
         assert data["deleted_counts"]["cashflows"] >= 1
 
-        # 4. Verify in database that project records are wiped
+        # 4. Verify in database that project records and the project row itself are wiped
         with SessionLocal() as db:
+            cnt_projects = db.execute(text("SELECT count(*) FROM projects WHERE id = :pid"), {"pid": pid}).scalar()
             cnt_contracts = db.execute(text("SELECT count(*) FROM contracts WHERE project_id = :pid"), {"pid": pid}).scalar()
             cnt_invoices = db.execute(text("SELECT count(*) FROM invoices WHERE project_id = :pid"), {"pid": pid}).scalar()
             cnt_cashflows = db.execute(text("SELECT count(*) FROM cashflows WHERE project_id = :pid"), {"pid": pid}).scalar()
+            assert cnt_projects == 0
             assert cnt_contracts == 0
             assert cnt_invoices == 0
             assert cnt_cashflows == 0

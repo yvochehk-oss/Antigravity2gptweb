@@ -344,7 +344,7 @@ def api_delete_project_data(
     body: DeleteProjectDataRequest,
     _user: Any = _reader_dependency,
 ):
-    """一次性删除该项目在 Tax 数据库中的所有关联数据（合同、发票、流水、台账、四流记录等，需密码确认）。"""
+    """彻底删除该项目及关联的所有数据（项目主数据、合同、发票、流水、台账、四流记录、AI快照等，需密码确认）。"""
     username = getattr(_user, "username", "admin")
     authenticated = auth_login(username, body.password)
     if authenticated is None:
@@ -356,61 +356,48 @@ def api_delete_project_data(
         if project is None:
             raise HTTPException(status_code=404, detail="项目不存在")
 
+        project_name = project.name
+        project_code = project.code or project.project_code or str(pid)
         deleted_counts = {}
-        # 1. Real costs & Invoices & Cashflows & Contracts
-        r = db.execute(text("DELETE FROM real_costs WHERE project_id = :pid"), {"pid": pid})
-        deleted_counts["real_costs"] = r.rowcount or 0
 
-        r = db.execute(text("DELETE FROM invoices WHERE project_id = :pid"), {"pid": pid})
-        deleted_counts["invoices"] = r.rowcount or 0
+        # 1. 查询当前数据库中所有具有 project_id 字段的表
+        table_rows = db.execute(text("""
+            SELECT table_name 
+            FROM information_schema.columns 
+            WHERE column_name = 'project_id' AND table_schema = 'public'
+        """)).all()
+        existing_tables = {row[0] for row in table_rows}
 
-        r = db.execute(text("DELETE FROM cashflows WHERE project_id = :pid"), {"pid": pid})
-        deleted_counts["cashflows"] = r.rowcount or 0
+        # 2. 按级联依赖顺序清空所有关联子表
+        ordered_child_tables = [
+            "query_feedback", "knowledge_conflicts", "benchmark_runs", "benchmark_questions",
+            "query_logs", "chunks", "documents", "ai_review_runs", "rag_evidence_packs",
+            "real_cost_invoice_links", "real_costs", "invoices", "cashflows", "contracts",
+            "fulfillment", "progress", "budgets", "risk_events", "tax_payment_records",
+            "sync_pending", "sync_logs", "ai_review_batches", "ai_review_jobs",
+            "remediation_tasks", "facts_snapshots", "planning_scenarios", "project_rag_map",
+        ]
+        for t in existing_tables:
+            if t not in ordered_child_tables and t != "projects":
+                ordered_child_tables.append(t)
 
-        r = db.execute(text("DELETE FROM contracts WHERE project_id = :pid"), {"pid": pid})
-        deleted_counts["contracts"] = r.rowcount or 0
+        for t in ordered_child_tables:
+            if t in existing_tables:
+                r = db.execute(text(f"DELETE FROM {t} WHERE project_id = :pid"), {"pid": pid})
+                deleted_counts[t] = r.rowcount or 0
 
-        # 2. Fulfillment & Progress & Budgets
-        r = db.execute(text("DELETE FROM fulfillment WHERE project_id = :pid"), {"pid": pid})
-        deleted_counts["fulfillment"] = r.rowcount or 0
-        r = db.execute(text("DELETE FROM progress WHERE project_id = :pid"), {"pid": pid})
-        deleted_counts["progress"] = r.rowcount or 0
-        r = db.execute(text("DELETE FROM budgets WHERE project_id = :pid"), {"pid": pid})
-        deleted_counts["budgets"] = r.rowcount or 0
-
-        # 3. Risk events & Tax payment records
-        r = db.execute(text("DELETE FROM risk_events WHERE project_id = :pid"), {"pid": pid})
-        deleted_counts["risk_events"] = r.rowcount or 0
-        r = db.execute(text("DELETE FROM tax_payment_records WHERE project_id = :pid"), {"pid": pid})
-        deleted_counts["tax_payment_records"] = r.rowcount or 0
-
-        # 4. Sync pending & Sync logs
-        r = db.execute(text("DELETE FROM sync_pending WHERE project_id = :pid"), {"pid": pid})
-        deleted_counts["sync_pending"] = r.rowcount or 0
-        r = db.execute(text("DELETE FROM sync_logs WHERE project_id = :pid"), {"pid": pid})
-        deleted_counts["sync_logs"] = r.rowcount or 0
-
-        # 5. AI Review & Remediation & Snapshots
-        r = db.execute(text("DELETE FROM ai_review_batches WHERE project_id = :pid"), {"pid": pid})
-        deleted_counts["ai_review_batches"] = r.rowcount or 0
-        r = db.execute(text("DELETE FROM ai_review_jobs WHERE project_id = :pid"), {"pid": pid})
-        deleted_counts["ai_review_jobs"] = r.rowcount or 0
-        r = db.execute(text("DELETE FROM remediation_tasks WHERE project_id = :pid"), {"pid": pid})
-        deleted_counts["remediation_tasks"] = r.rowcount or 0
-        r = db.execute(text("DELETE FROM facts_snapshots WHERE project_id = :pid"), {"pid": pid})
-        deleted_counts["facts_snapshots"] = r.rowcount or 0
-
-        # 6. Planning scenarios
-        r = db.execute(text("DELETE FROM planning_scenarios WHERE project_id = :pid"), {"pid": pid})
-        deleted_counts["planning_scenarios"] = r.rowcount or 0
+        # 3. 彻底删除主项目记录 (projects)
+        r = db.execute(text("DELETE FROM projects WHERE id = :pid"), {"pid": pid})
+        deleted_counts["projects"] = r.rowcount or 0
 
         db.commit()
-        _LOGGER.info("project data wiped successfully: pid=%s details=%s", pid, deleted_counts)
+        _LOGGER.info("project completely deleted: pid=%s code=%s details=%s", pid, project_code, deleted_counts)
         return {
             "success": True,
             "project_id": pid,
-            "project_name": project.name,
-            "message": f"项目【{project.name}】在 Tax 系统中的全部财税数据已成功删除清空！",
+            "project_code": project_code,
+            "project_name": project_name,
+            "message": f"项目【{project_code} · {project_name}】及其全部主数据与财税数据已彻底删除！",
             "deleted_counts": deleted_counts,
         }
     except HTTPException:
@@ -418,8 +405,8 @@ def api_delete_project_data(
         raise
     except Exception as exc:
         db.rollback()
-        _LOGGER.exception("project data deletion failed: pid=%s", pid)
-        raise HTTPException(status_code=500, detail=f"删除项目数据失败: {exc}")
+        _LOGGER.exception("project complete deletion failed: pid=%s", pid)
+        raise HTTPException(status_code=500, detail=f"彻底删除项目失败: {exc}")
     finally:
         db.close()
 
