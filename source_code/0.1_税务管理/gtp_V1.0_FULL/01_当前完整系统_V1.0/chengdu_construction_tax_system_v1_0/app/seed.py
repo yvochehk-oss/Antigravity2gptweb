@@ -509,6 +509,111 @@ def run() -> None:
             party.active = True
         db.flush()
 
+        # 3. 税务规则主数据
+        if db.query(TaxRule).count() == 0:
+            for code, rate, note in [
+                ("VAT_CONSTRUCTION_GENERAL", 0.09, "建筑服务一般计税税率9%"),
+                ("VAT_MOVABLE_RENTAL", 0.13, "有形动产租赁与建材销售税率13%"),
+                ("VAT_SIMPLIFIED", 0.03, "建筑服务简易计税征收率3%"),
+                ("CIT_GENERAL", 0.25, "企业所得税法定税率25%"),
+                ("CIT_WESTERN_DEV", 0.15, "西部大开发鼓励类产业企业所得税优惠税率15%"),
+            ]:
+                db.add(TaxRule(
+                    code=code, rate=Decimal(str(rate)),
+                    effective_from="2026-01-01", reviewed=True, note=note,
+                ))
+
+        # 4. 风险阈值主数据
+        if db.query(RiskThreshold).count() == 0:
+            for t in RiskThreshold.defaults():
+                db.add(t)
+
+        # 5. 成本科目树主数据
+        if db.query(CostAccount).count() == 0:
+            accounts = [
+                ("1000", "", "材料", "材料"),
+                ("1101", "1000", "大宗钢材", "材料"),
+                ("1102", "1000", "水泥商砼", "材料"),
+                ("2000", "", "劳务", "劳务"),
+                ("2101", "2000", "主体劳务工资", "劳务"),
+                ("3000", "", "设备", "设备"),
+                ("3101", "3000", "起重机械周转", "设备"),
+                ("4000", "", "专业分包", "专业分包"),
+                ("4101", "4000", "钢结构安装", "专业分包"),
+                ("4102", "4000", "弱电智能化", "专业分包"),
+                ("5000", "", "项目管理", "项目管理"),
+                ("6000", "", "税费", "税金"),
+            ]
+            for code, parent, name, cat in accounts:
+                db.add(CostAccount(
+                    code=code, parent_code=parent, name=name,
+                    category=cat, active=True,
+                ))
+
+        # 6. AI 端点与提示词（1: 本地 Ling-3.0-tiny 保底模型，2: 本地 Qwen3.5-2B 保底模型）
+        if db.query(AIModelEndpoint).count() == 0:
+            db.add(AIModelEndpoint(
+                name="本地 Ling-3.0-tiny 保底模型", adapter="openai_compatible",
+                base_url="http://127.0.0.1:8930", chat_path="/v1/chat/completions",
+                model="ling-3.0-tiny", api_key_env="",
+                enabled=True, timeout_seconds=60, priority=100, routing_group="default",
+                note="V2.0 llama.cpp 本地 Ling-3.0-tiny 离线保底模型；用于无外网时离线 AI 辅助研判",
+            ))
+            db.add(AIModelEndpoint(
+                name="本地 Qwen3.5-2B 保底模型", adapter="openai_compatible",
+                base_url="http://127.0.0.1:8930", chat_path="/v1/chat/completions",
+                model="local-qwen3.5-2b", api_key_env="",
+                enabled=True, timeout_seconds=60, priority=200, routing_group="default",
+                note="V2.0 llama.cpp 本地 Qwen3.5-2B 备选保底模型",
+            ))
+            if _ENVIRONMENT == "test":
+                db.add(AIModelEndpoint(
+                    name="测试专用 Mock 端点 1", adapter="mock",
+                    base_url="http://127.0.0.1:8999", chat_path="/v1/chat/completions",
+                    model="mock-gpt", api_key_env="",
+                    enabled=True, timeout_seconds=10, priority=999, routing_group="test",
+                    note="仅供单元测试使用的 Mock 端点",
+                ))
+                db.add(AIModelEndpoint(
+                    name="测试专用 Mock 端点 2", adapter="mock",
+                    base_url="http://127.0.0.1:8999", chat_path="/v1/chat/completions",
+                    model="mock-claude", api_key_env="",
+                    enabled=True, timeout_seconds=10, priority=999, routing_group="test",
+                    note="仅供单元测试使用的 Mock 端点 2",
+                ))
+
+        if db.query(AIPromptTemplate).count() == 0:
+            prompts = [
+                ("通用项目审查", "default", 1,
+                 "优先依据系统确定性数字和证据链，避免宽泛建议。",
+                 "检查经营真实性、数据完整性、利润、现金流、税务与可执行整改。"),
+                ("合同专项审查", "contract", 1,
+                 "重点关注合同主体、业务性质、金额、履约、发票与付款的一致性。",
+                 "检查合同商业实质、内部/外部主体边界、金额异常、履约和税务条款。"),
+                ("税务专项审查", "tax", 1,
+                 "不得把管理测算当作正式申报结论；未复核税务规则必须列为数据缺口。",
+                 "检查26家系统内单位按业务角色分组的独立税负、进销项、规则复核状态及异常税负。"),
+                ("设备专项审查", "equipment", 1,
+                 "重点区分设备裸租、配操作人员和设备施工作业，并核对台班证据。",
+                 "检查设备合同、台班、人员、发票税率、真实成本与付款。"),
+                ("劳务专项审查", "labor", 1,
+                 "重点核对真实人员、工资社保、工程量、结算和发票付款证据。",
+                 "检查四川本盛劳务有限公司与外部实名交易方的业务真实性、成本穿透、履约证据和四流一致性。"),
+                ("材料专项审查", "material", 1,
+                 "重点核对四川乾润和贸易有限公司真实外采、材料验收、数量价格与付款。",
+                 "检查四川乾润和贸易有限公司与外部实名交易方材料业务的真实采购、内部交易抵消、验收和价格合理性。"),
+                ("整项目体检", "whole_project", 1,
+                 "按严重程度排序，优先输出影响项目利润、现金流和合规的关键问题。",
+                 "全面检查合同、履约、发票、资金、成本、税务、EAC和风险。"),
+            ]
+            ts = datetime.now(timezone.utc)
+            for name, scope, ver, addendum, focus in prompts:
+                db.add(AIPromptTemplate(
+                    name=name, scope=scope, version=ver,
+                    system_addendum=addendum, review_focus=focus,
+                    enabled=True, created_at=ts,
+                ))
+
         # Production bootstrap is idempotent: never duplicate demonstration business data.
         if _SEED_MODE != "demo" and db.query(Project).count() > 0:
             db.commit()
@@ -768,111 +873,6 @@ def run() -> None:
                     amount=Decimal(str(amt)),
                     external_cash=bool(ext),
                     note=note,
-                ))
-
-        # 5. 税务规则
-        if db.query(TaxRule).count() == 0:
-            for code, rate, note in [
-                ("VAT_CONSTRUCTION_GENERAL", 0.09, "建筑服务一般计税税率9%"),
-                ("VAT_MOVABLE_RENTAL", 0.13, "有形动产租赁与建材销售税率13%"),
-                ("VAT_SIMPLIFIED", 0.03, "建筑服务简易计税征收率3%"),
-                ("CIT_GENERAL", 0.25, "企业所得税法定税率25%"),
-                ("CIT_WESTERN_DEV", 0.15, "西部大开发鼓励类产业企业所得税优惠税率15%"),
-            ]:
-                db.add(TaxRule(
-                    code=code, rate=Decimal(str(rate)),
-                    effective_from="2026-01-01", reviewed=True, note=note,
-                ))
-
-        # 6. 风险阈值
-        if db.query(RiskThreshold).count() == 0:
-            for t in RiskThreshold.defaults():
-                db.add(t)
-
-        # 7. 成本科目树
-        if db.query(CostAccount).count() == 0:
-            accounts = [
-                ("1000", "", "材料", "材料"),
-                ("1101", "1000", "大宗钢材", "材料"),
-                ("1102", "1000", "水泥商砼", "材料"),
-                ("2000", "", "劳务", "劳务"),
-                ("2101", "2000", "主体劳务工资", "劳务"),
-                ("3000", "", "设备", "设备"),
-                ("3101", "3000", "起重机械周转", "设备"),
-                ("4000", "", "专业分包", "专业分包"),
-                ("4101", "4000", "钢结构安装", "专业分包"),
-                ("4102", "4000", "弱电智能化", "专业分包"),
-                ("5000", "", "项目管理", "项目管理"),
-                ("6000", "", "税费", "税金"),
-            ]
-            for code, parent, name, cat in accounts:
-                db.add(CostAccount(
-                    code=code, parent_code=parent, name=name,
-                    category=cat, active=True,
-                ))
-
-        # 8. AI 端点与提示词（1: 本地 Ling-3.0-tiny 保底模型，2: 本地 Qwen3.5-2B 保底模型）
-        if db.query(AIModelEndpoint).count() == 0:
-            db.add(AIModelEndpoint(
-                name="本地 Ling-3.0-tiny 保底模型", adapter="openai_compatible",
-                base_url="http://127.0.0.1:8930", chat_path="/v1/chat/completions",
-                model="ling-3.0-tiny", api_key_env="",
-                enabled=True, timeout_seconds=60, priority=100, routing_group="default",
-                note="V2.0 llama.cpp 本地 Ling-3.0-tiny 离线保底模型；用于无外网时离线 AI 辅助研判",
-            ))
-            db.add(AIModelEndpoint(
-                name="本地 Qwen3.5-2B 保底模型", adapter="openai_compatible",
-                base_url="http://127.0.0.1:8930", chat_path="/v1/chat/completions",
-                model="local-qwen3.5-2b", api_key_env="",
-                enabled=True, timeout_seconds=60, priority=200, routing_group="default",
-                note="V2.0 llama.cpp 本地 Qwen3.5-2B 备选保底模型",
-            ))
-            if _ENVIRONMENT == "test":
-                db.add(AIModelEndpoint(
-                    name="测试专用 Mock 端点 1", adapter="mock",
-                    base_url="http://127.0.0.1:8999", chat_path="/v1/chat/completions",
-                    model="mock-gpt", api_key_env="",
-                    enabled=True, timeout_seconds=10, priority=999, routing_group="test",
-                    note="仅供单元测试使用的 Mock 端点",
-                ))
-                db.add(AIModelEndpoint(
-                    name="测试专用 Mock 端点 2", adapter="mock",
-                    base_url="http://127.0.0.1:8999", chat_path="/v1/chat/completions",
-                    model="mock-claude", api_key_env="",
-                    enabled=True, timeout_seconds=10, priority=999, routing_group="test",
-                    note="仅供单元测试使用的 Mock 端点 2",
-                ))
-
-        if db.query(AIPromptTemplate).count() == 0:
-            prompts = [
-                ("通用项目审查", "default", 1,
-                 "优先依据系统确定性数字和证据链，避免宽泛建议。",
-                 "检查经营真实性、数据完整性、利润、现金流、税务与可执行整改。"),
-                ("合同专项审查", "contract", 1,
-                 "重点关注合同主体、业务性质、金额、履约、发票与付款的一致性。",
-                 "检查合同商业实质、内部/外部主体边界、金额异常、履约和税务条款。"),
-                ("税务专项审查", "tax", 1,
-                 "不得把管理测算当作正式申报结论；未复核税务规则必须列为数据缺口。",
-                 "检查26家系统内单位按业务角色分组的独立税负、进销项、规则复核状态及异常税负。"),
-                ("设备专项审查", "equipment", 1,
-                 "重点区分设备裸租、配操作人员和设备施工作业，并核对台班证据。",
-                 "检查设备合同、台班、人员、发票税率、真实成本与付款。"),
-                ("劳务专项审查", "labor", 1,
-                 "重点核对真实人员、工资社保、工程量、结算和发票付款证据。",
-                 "检查四川本盛劳务有限公司与外部实名交易方的业务真实性、成本穿透、履约证据和四流一致性。"),
-                ("材料专项审查", "material", 1,
-                 "重点核对四川乾润和贸易有限公司真实外采、材料验收、数量价格与付款。",
-                 "检查四川乾润和贸易有限公司与外部实名交易方材料业务的真实采购、内部交易抵消、验收和价格合理性。"),
-                ("整项目体检", "whole_project", 1,
-                 "按严重程度排序，优先输出影响项目利润、现金流和合规的关键问题。",
-                 "全面检查合同、履约、发票、资金、成本、税务、EAC和风险。"),
-            ]
-            ts = datetime.now(timezone.utc)
-            for name, scope, ver, addendum, focus in prompts:
-                db.add(AIPromptTemplate(
-                    name=name, scope=scope, version=ver,
-                    system_addendum=addendum, review_focus=focus,
-                    enabled=True, created_at=ts,
                 ))
 
         # 9. 真实风险事件
