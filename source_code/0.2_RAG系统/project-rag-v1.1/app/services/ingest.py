@@ -247,31 +247,56 @@ def _auto_register_external_party(
     kind: str = "partner",
 ) -> None:
     """Automatically discover and register system-external parties from ingested documents."""
-    code = (counterparty_code or "").strip().upper()
-    if not code or is_canonical_entity_code(code):
+    raw_code = (counterparty_code or "").strip().upper()
+    if not raw_code or is_canonical_entity_code(raw_code):
         return
+
+    from ..domain.entities import get_external_preset, map_to_standard_external_code
+
+    preset = get_external_preset(raw_code)
+    code = preset["code"] if preset else map_to_standard_external_code(raw_code)
+    name = counterparty_name if (counterparty_name and counterparty_name not in (raw_code, code, "")) else (preset["name"] if preset else code)
+    short_name = preset.get("short_name") if preset else name
+    tax_id = tax_id or (preset.get("tax_id") if preset else None)
+    
+    if preset:
+        kind = preset.get("kind") or kind
+    else:
+        if code.startswith("EA"):
+            kind = "construction"
+        elif code.startswith("EB"):
+            kind = "trade"
+        elif code.startswith("EC"):
+            kind = "labor"
+        elif code.startswith("ED"):
+            kind = "equipment"
+        elif code.startswith("E0"):
+            kind = "owner"
 
     try:
         existing = db.scalar(select(ExternalParty).where(ExternalParty.code == code))
         if existing:
-            if counterparty_name and not existing.name:
-                existing.name = counterparty_name
+            if name and existing.name in (code, raw_code, ""):
+                existing.name = name
+            if short_name and (not existing.short_name or existing.short_name in (code, raw_code)):
+                existing.short_name = short_name
             if tax_id and not existing.tax_id:
                 existing.tax_id = tax_id
+            if kind and (not existing.kind or existing.kind == "partner"):
+                existing.kind = kind
             return
 
-        name = counterparty_name or code
         new_party = ExternalParty(
             code=code,
             name=name,
-            short_name=name,
+            short_name=short_name,
             kind=kind,
             tax_id=tax_id or None,
             active=True,
         )
         db.add(new_party)
         db.flush()
-        logger.info(f"Auto-registered new external party from document: {code} ({name})")
+        logger.info(f"Auto-registered new external party: {code} ({name}) - {kind}")
     except Exception as e:
         logger.warning(f"Auto-register external party failed for {code}: {e}")
 

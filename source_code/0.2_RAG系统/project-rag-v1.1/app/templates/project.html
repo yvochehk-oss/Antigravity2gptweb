@@ -266,7 +266,7 @@
       </thead>
       <tbody id="projectDocsTableBody">
         {% for d in documents %}
-        {% set is_ext = '1' if d.counterparty_code and ('EXT-' in d.counterparty_code or (entity_by_code.get(d.counterparty_code) and entity_by_code.get(d.counterparty_code).is_external)) else '0' %}
+        {% set is_ext = '1' if d.counterparty_code and (d.counterparty_code.startswith('E') or 'EXT-' in d.counterparty_code or (entity_by_code.get(d.counterparty_code) and entity_by_code.get(d.counterparty_code).is_external)) else '0' %}
         <tr class="project-doc-row"
             data-filename="{{ d.filename }}"
             data-type="{{ d.document_type or '' }}"
@@ -316,7 +316,7 @@
                 <span style="color: var(--text-muted); font-size: 11px;">往来:</span>
                 {% if cp_entity %}
                 <span class="badge {{ cp_entity.business_role_badge }}" style="font-size: 11px; padding: 2px 6px;" title="往来交易对手: {{ cp_entity.name }} ({{ cp_entity.source }})">
-                  {{ cp_entity.short_name or cp_entity.name }}
+                  {{ cp_entity.entity_code }} · {{ cp_entity.short_name or cp_entity.name }}
                   {% if cp_entity.is_external %}<span style="opacity: 0.8; font-size: 10px; margin-left: 2px;">(系统外)</span>{% endif %}
                 </span>
                 {% else %}

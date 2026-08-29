@@ -13,6 +13,11 @@ import os
 import re
 from typing import Any
 
+from ..domain.entities import (
+    EXTERNAL_ENTITY_PRESETS,
+    get_external_preset,
+    map_to_standard_external_code,
+)
 from ..logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -29,7 +34,7 @@ CANONICAL_ENTITY_CODES = frozenset(
 BUSINESS_ROLE_CODES = frozenset({"A", "B", "C", "D"})
 VIRTUAL_ENTITY_CODES = frozenset({"A", "B", "C", "D", "甲", "乙", "丙", "丁"})
 _CANONICAL_ENTITY_CODE_RE = re.compile(
-    r"^(?:A(?:0[1-9]|1[01])|B(?:0[1-9]|10)|C(?:0[1-2])|D(?:0[1-3])|EXT-[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*|E[A-D](?:0[1-9]|[1-9]\d)?)$",
+    r"^(?:A(?:0[1-9]|1[01])|B(?:0[1-9]|10)|C(?:0[1-2])|D(?:0[1-3])|EXT-[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*|E[A-D0](?:0[1-9]|[1-9]\d)?|EA|EB|EC|ED|E0)$",
     re.IGNORECASE,
 )
 
@@ -50,13 +55,15 @@ def is_canonical_entity_code(value: str | None) -> bool:
             or code.startswith("EB")
             or code.startswith("EC")
             or code.startswith("ED")
+            or code.startswith("E0")
+            or code in ("EA", "EB", "EC", "ED", "E0")
         )
         and _CANONICAL_ENTITY_CODE_RE.fullmatch(code)
     )
 
 
 _ENTITY_CODE_RE = re.compile(
-    r"(?<![A-Za-z0-9])(?:A(?:0[1-9]|1[01])|B(?:0[1-9]|10)|C(?:0[1-2])|D(?:0[1-3])|EXT-[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*|E[A-D](?:0[1-9]|[1-9]\d)?)(?![A-Za-z0-9])",
+    r"(?<![A-Za-z0-9])(?:A(?:0[1-9]|1[01])|B(?:0[1-9]|10)|C(?:0[1-2])|D(?:0[1-3])|EXT-[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*|E[A-D0](?:0[1-9]|[1-9]\d)?|EA|EB|EC|ED|E0)(?![A-Za-z0-9])",
     re.IGNORECASE,
 )
 _TAX_ID_RE = re.compile(r"(?<![A-Za-z0-9])[0-9A-Z]{18}(?![A-Za-z0-9])", re.IGNORECASE)
@@ -311,14 +318,43 @@ def resolve_entity_reference(
             "input": raw,
             "match_count": len(matches),
         }
-    elif code and (code.startswith("EXT-") or (len(code) >= 3 and code.startswith("E") and code[1] in ("A", "B", "C", "D"))):
-        role = code[1] if (code.startswith("E") and code[1] in ("A", "B", "C", "D")) else "E"
+    preset = get_external_preset(raw)
+    if preset:
         return {
             "status": "RESOLVED",
             "resolution_status": "RESOLVED",
-            "entity_code": code,
+            "entity_code": preset["code"],
+            "tax_id": preset.get("tax_id") or "",
+            "name": preset["name"],
+            "short_name": preset.get("short_name") or preset["name"],
+            "business_role": preset["business_role"],
+            "entity_kind": "external",
+            "legal_entity": True,
+            "parent_entity_code": "",
+            "entity_status": "active",
+            "input": raw,
+        }
+
+    if code and (code.startswith("EXT-") or code.startswith("E") or code in ("EA", "EB", "EC", "ED", "E0")):
+        std_code = map_to_standard_external_code(code)
+        role = "owner"
+        if std_code.startswith("EA"):
+            role = "construction"
+        elif std_code.startswith("EB"):
+            role = "trade"
+        elif std_code.startswith("EC"):
+            role = "labor"
+        elif std_code.startswith("ED"):
+            role = "equipment"
+        elif std_code.startswith("E0") or std_code.startswith("EXT-"):
+            role = "owner"
+
+        return {
+            "status": "RESOLVED",
+            "resolution_status": "RESOLVED",
+            "entity_code": std_code,
             "tax_id": "",
-            "name": _extract_external_name_from_filename(code, raw),
+            "name": _extract_external_name_from_filename(std_code, raw),
             "business_role": role,
             "entity_kind": "external",
             "legal_entity": True,
