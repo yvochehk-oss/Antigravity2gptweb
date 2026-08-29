@@ -1819,7 +1819,54 @@ def web_document(request: Request, document_id: int, principal=Depends(require_w
         jobs = db.execute(select(IngestJob).where(IngestJob.document_id == document_id).order_by(IngestJob.id.desc()).limit(20)).scalars().all()
         canonical_entities = _canonical_entity_views(db)
         entity_by_code = {x["entity_code"]: x for x in canonical_entities}
-        return templates.TemplateResponse(request, "document.html", {"doc": d, "project": p, "chunks": chunks, "jobs": jobs, "canonical_entities": canonical_entities, "entity_by_code": entity_by_code, "active_page": "projects", "mineru": mineru_available(), "postgres": IS_POSTGRES})
+
+        # Query related invoices for this contract / document
+        related_invoices = []
+        target_code = d.counterparty_code or d.entity_code
+        if target_code:
+            stmt = (
+                select(Document)
+                .where(
+                    Document.project_id == d.project_id,
+                    Document.id != d.id,
+                    or_(
+                        Document.counterparty_code == target_code,
+                        Document.entity_code == target_code,
+                        Document.filename.like(f"%{target_code}%"),
+                    ),
+                    or_(
+                        Document.document_type == "tax_invoice",
+                        Document.filename.like("%INVOICE%"),
+                        Document.filename.like("%发票%"),
+                        Document.tax_total > 0,
+                        Document.invoice_no != "",
+                    ),
+                )
+                .order_by(Document.id)
+            )
+            related_invoices = db.scalars(stmt).all()
+
+        total_vat = sum(float(getattr(inv, "tax_vat_input", 0) or 0) + float(getattr(inv, "tax_vat_output", 0) or 0) for inv in related_invoices)
+        total_tax = sum(float(getattr(inv, "tax_total", 0) or 0) for inv in related_invoices)
+
+        return templates.TemplateResponse(
+            request,
+            "document.html",
+            {
+                "doc": d,
+                "project": p,
+                "chunks": chunks,
+                "jobs": jobs,
+                "canonical_entities": canonical_entities,
+                "entity_by_code": entity_by_code,
+                "related_invoices": related_invoices,
+                "related_invoices_vat_total": total_vat,
+                "related_invoices_tax_total": total_tax,
+                "active_page": "projects",
+                "mineru": mineru_available(),
+                "postgres": IS_POSTGRES,
+            },
+        )
 
 
 @app.post("/documents/{document_id}/parse")

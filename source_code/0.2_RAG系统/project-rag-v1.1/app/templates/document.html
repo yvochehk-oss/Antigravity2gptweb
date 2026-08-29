@@ -9,6 +9,92 @@
 {% endblock %}
 
 {% block body %}
+<style>
+@keyframes pulseGlowCyan {
+  0% {
+    box-shadow: 0 0 0 0 rgba(6, 182, 212, 0.8);
+    border-color: #06b6d4;
+    background: rgba(6, 182, 212, 0.22);
+  }
+  50% {
+    box-shadow: 0 0 16px 5px rgba(6, 182, 212, 0.95), inset 0 0 10px rgba(6, 182, 212, 0.35);
+    border-color: #38bdf8;
+    background: rgba(6, 182, 212, 0.45);
+    transform: scale(1.03);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(6, 182, 212, 0);
+    border-color: #06b6d4;
+    background: rgba(6, 182, 212, 0.22);
+  }
+}
+
+.pulse-glow-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 16px;
+  font-size: 14px;
+  font-weight: 700;
+  color: #ffffff;
+  background: rgba(6, 182, 212, 0.25);
+  border: 1.5px solid #06b6d4;
+  border-radius: 9999px;
+  cursor: pointer;
+  animation: pulseGlowCyan 1.8s infinite ease-in-out;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
+  letter-spacing: 0.3px;
+}
+
+.pulse-glow-btn:hover {
+  background: rgba(6, 182, 212, 0.65);
+  box-shadow: 0 0 24px 6px rgba(6, 182, 212, 0.95);
+  transform: translateY(-1px) scale(1.05);
+}
+
+.pulse-glow-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background-color: #38bdf8;
+  box-shadow: 0 0 10px #38bdf8;
+  display: inline-block;
+}
+
+/* Modal styles */
+.invoice-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 15, 29, 0.85);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  z-index: 99999;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  opacity: 0;
+  transition: opacity 0.25s ease;
+}
+.invoice-modal-overlay.active {
+  display: flex;
+  opacity: 1;
+}
+.invoice-modal-card {
+  background: #0f172a;
+  border: 1.5px solid rgba(56, 189, 248, 0.5);
+  border-radius: 16px;
+  width: 100%;
+  max-width: 1060px;
+  max-height: 88vh;
+  overflow-y: auto;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.8), 0 0 35px rgba(6, 182, 212, 0.3);
+  display: flex;
+  flex-direction: column;
+}
+</style>
+
 <!-- 头部标头 -->
 <div class="toolbar" style="margin-bottom: 20px;">
   <div>
@@ -165,13 +251,27 @@
           {% endif %}
         </span>
       </div>
-      <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--border-subtle); padding-bottom: 8px;">
+      <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-subtle); padding-bottom: 8px;">
         <span style="color: var(--text-muted);">涉税核算角色</span>
         <span>
-          {% if doc.counterparty_code and doc.counterparty_code.startswith('E0') %}
-            <span class="badge badge-emerald">总包销项税源单据 (业主合同)</span>
+          {% if related_invoices and related_invoices|length > 0 %}
+            {% if doc.counterparty_code and doc.counterparty_code.startswith('E0') %}
+              <button type="button" class="pulse-glow-btn" onclick="openInvoiceModal()" title="点击一键穿透查看此合同关联的全部销项发票与税票">
+                <span class="pulse-glow-dot"></span>
+                <span>总包销项税源单据 (业主合同) ➔ 查验关联税票 ({{ related_invoices|length }} 张)</span>
+              </button>
+            {% else %}
+              <button type="button" class="pulse-glow-btn" onclick="openInvoiceModal()" title="点击一键穿透查看此合同关联的全部进项发票与税票">
+                <span class="pulse-glow-dot"></span>
+                <span>进项抵扣合规支撑单据 (四流合一) ➔ 查验关联税票 ({{ related_invoices|length }} 张)</span>
+              </button>
+            {% endif %}
           {% else %}
-            <span class="badge badge-cyan">进项抵扣合规支撑单据 (四流合一)</span>
+            {% if doc.counterparty_code and doc.counterparty_code.startswith('E0') %}
+              <span class="badge badge-emerald" style="font-size: 13px; font-weight: 600;">总包销项税源单据 (业主合同)</span>
+            {% else %}
+              <span class="badge badge-cyan" style="font-size: 13px; font-weight: 600;">进项抵扣合规支撑单据 (四流合一)</span>
+            {% endif %}
           {% endif %}
         </span>
       </div>
@@ -189,7 +289,15 @@
       </div>
       <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--border-subtle); padding-bottom: 8px;">
         <span style="color: var(--text-muted);">发票单据状态</span>
-        <span style="color: var(--text-muted);">非直接发票件（涉税金额体现在关联发票中）</span>
+        <span>
+          {% if related_invoices and related_invoices|length > 0 %}
+          <a href="javascript:void(0)" onclick="openInvoiceModal()" style="color: var(--accent-cyan); font-weight: 600; text-decoration: underline;">
+            已关联 {{ related_invoices|length }} 张发票凭证 (点击查看)
+          </a>
+          {% else %}
+          <span style="color: var(--text-muted);">非直接发票件（暂无同主体关联发票）</span>
+          {% endif %}
+        </span>
       </div>
       <div style="display: flex; justify-content: space-between;">
         <span style="color: var(--text-muted);">知识库索引状态</span>
@@ -199,6 +307,86 @@
     </div>
   </div>
 </div>
+
+<!-- 本合同对应往来发票与税票清单 (四流合一专栏卡片) -->
+{% if related_invoices and related_invoices|length > 0 %}
+<div id="related-invoices-panel" class="glass-panel" style="padding: 20px; margin-bottom: 24px; border: 1.5px solid rgba(6, 182, 212, 0.45); box-shadow: 0 0 25px rgba(6, 182, 212, 0.15);">
+  <div class="toolbar" style="margin-bottom: 16px;">
+    <h2>
+      <span>🧾 本合同对应往来发票与税票清单 (四流合一 · 资金与税务合规)</span>
+      <span class="badge badge-cyan">{{ related_invoices|length }} 份发票凭证</span>
+    </h2>
+    <div style="display: flex; gap: 16px; align-items: center;">
+      <span style="font-size: 13px; color: var(--text-secondary);">
+        税额合计: <b class="font-mono" style="color: var(--accent-cyan); font-size: 15px;">¥{{ "%.2f"|format(related_invoices_vat_total) }}</b>
+      </span>
+      <button type="button" class="btn btn-secondary" onclick="openInvoiceModal()" style="font-size: 12px; padding: 4px 12px;">
+        <span>⛶ 弹窗全屏查看</span>
+      </button>
+    </div>
+  </div>
+
+  <div style="overflow-x: auto;">
+    <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
+      <thead>
+        <tr style="border-bottom: 1px solid var(--border-subtle); color: var(--text-muted); text-align: left;">
+          <th style="padding: 10px 8px;">#</th>
+          <th style="padding: 10px 8px;">发票文件 / 凭证名称</th>
+          <th style="padding: 10px 8px;">发票号码 / 代码</th>
+          <th style="padding: 10px 8px;">发票类型</th>
+          <th style="padding: 10px 8px;">所属期</th>
+          <th style="padding: 10px 8px; text-align: right;">进项/销项税额</th>
+          <th style="padding: 10px 8px; text-align: right;">税金合计</th>
+          <th style="padding: 10px 8px; text-align: center;">抵扣认证状态</th>
+          <th style="padding: 10px 8px; text-align: right;">操作</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for inv in related_invoices %}
+        <tr style="border-bottom: 1px solid rgba(255,255,255,0.05); transition: background 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.04)'" onmouseout="this.style.background='transparent'">
+          <td style="padding: 10px 8px;" class="font-mono text-muted">{{ loop.index }}</td>
+          <td style="padding: 10px 8px;">
+            <a href="/documents/{{ inv.id }}" style="color: #fff; font-weight: 500; text-decoration: none;" onmouseover="this.style.color='var(--accent-cyan)'" onmouseout="this.style.color='#fff'">
+              📄 {{ inv.filename }}
+            </a>
+          </td>
+          <td style="padding: 10px 8px;" class="font-mono" style="color: var(--text-secondary);">
+            {{ inv.invoice_no or '-' }}{% if inv.invoice_code %} / {{ inv.invoice_code }}{% endif %}
+          </td>
+          <td style="padding: 10px 8px;">
+            <span class="badge badge-cyan" style="font-size: 11px;">{{ inv.invoice_type | invoice_type_name }}</span>
+          </td>
+          <td style="padding: 10px 8px;" class="font-mono text-muted">{{ inv.period or '-' }}</td>
+          <td style="padding: 10px 8px; text-align: right;" class="font-mono" style="color: var(--accent-cyan); font-weight: 600;">
+            ¥{{ "%.2f"|format((inv.tax_vat_input or 0) + (inv.tax_vat_output or 0)) }}
+          </td>
+          <td style="padding: 10px 8px; text-align: right;" class="font-mono" style="color: var(--accent-emerald); font-weight: 600;">
+            ¥{{ "%.2f"|format(inv.tax_total or 0) }}
+          </td>
+          <td style="padding: 10px 8px; text-align: center;">
+            {% if inv.invoice_deductible %}
+            <span class="badge badge-emerald" style="font-size: 11px;">已勾选抵扣</span>
+            {% else %}
+            <span class="badge badge-muted" style="font-size: 11px;">未抵扣 / 待认证</span>
+            {% endif %}
+          </td>
+          <td style="padding: 10px 8px; text-align: right;">
+            <div style="display: flex; gap: 6px; justify-content: flex-end;">
+              <a href="/api/v1/documents/{{ inv.id }}/view" target="_blank" class="btn btn-primary" style="padding: 4px 8px; font-size: 11px;" title="在新标签页全屏预览发票原件">
+                <span>👁️ 预览发票原件</span>
+              </a>
+              <a href="/documents/{{ inv.id }}" class="btn btn-secondary" style="padding: 4px 8px; font-size: 11px;" title="查看发票结构化详情与切块">
+                <span>详情</span>
+              </a>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
 
 <!-- 语义切块与向量索引预览 -->
 <div class="glass-panel" style="padding: 20px;">
@@ -236,5 +424,141 @@
   </div>
   {% endfor %}
 </div>
+
+<!-- 关联发票全屏穿透模态弹窗 (Modal) -->
+<div id="invoiceModal" class="invoice-modal-overlay" onclick="if(event.target===this) closeInvoiceModal()">
+  <div class="invoice-modal-card">
+    <div style="padding: 20px 24px; border-bottom: 1px solid var(--border-subtle); display: flex; justify-content: space-between; align-items: center;">
+      <div>
+        <h2 style="font-size: 18px; margin: 0; display: flex; align-items: center; gap: 8px;">
+          <span>🧾 本合同对应往来发票与税票穿透清单</span>
+          <span class="badge badge-cyan">{{ related_invoices|length if related_invoices else 0 }} 份发票</span>
+        </h2>
+        <p style="margin: 4px 0 0 0; font-size: 12px; color: var(--text-muted);">
+          关联合同: <b style="color: #fff">{{ doc.filename }}</b>
+          {% if doc.counterparty_code %}
+            · 往来对手: <span class="badge badge-purple">{{ doc.counterparty_code }}</span>
+          {% endif %}
+        </p>
+      </div>
+      <button type="button" onclick="closeInvoiceModal()" style="background: none; border: none; color: var(--text-muted); font-size: 24px; cursor: pointer; padding: 4px 8px; line-height: 1;" onmouseover="this.style.color='#fff'" onmouseout="this.style.color='var(--text-muted)'">
+        &times;
+      </button>
+    </div>
+
+    <div style="padding: 20px 24px; overflow-y: auto;">
+      {% if related_invoices and related_invoices|length > 0 %}
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; margin-bottom: 20px;">
+        <div class="glass-panel" style="padding: 14px; text-align: center;">
+          <div style="font-size: 12px; color: var(--text-muted);">发票与税票总数</div>
+          <div class="font-mono" style="font-size: 20px; font-weight: 700; color: #fff; margin-top: 4px;">{{ related_invoices|length }} 张</div>
+        </div>
+        <div class="glass-panel" style="padding: 14px; text-align: center;">
+          <div style="font-size: 12px; color: var(--text-muted);">税额合计 (进项/销项)</div>
+          <div class="font-mono" style="font-size: 20px; font-weight: 700; color: var(--accent-cyan); margin-top: 4px;">¥{{ "%.2f"|format(related_invoices_vat_total) }}</div>
+        </div>
+        <div class="glass-panel" style="padding: 14px; text-align: center;">
+          <div style="font-size: 12px; color: var(--text-muted);">税金总计 (价税合计)</div>
+          <div class="font-mono" style="font-size: 20px; font-weight: 700; color: var(--accent-emerald); margin-top: 4px;">¥{{ "%.2f"|format(related_invoices_tax_total) }}</div>
+        </div>
+      </div>
+
+      <div style="overflow-x: auto;">
+        <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
+          <thead>
+            <tr style="border-bottom: 1px solid var(--border-subtle); color: var(--text-muted); text-align: left;">
+              <th style="padding: 10px 8px;">#</th>
+              <th style="padding: 10px 8px;">发票文件 / 凭证名称</th>
+              <th style="padding: 10px 8px;">发票号码 / 代码</th>
+              <th style="padding: 10px 8px;">发票类型</th>
+              <th style="padding: 10px 8px;">所属期</th>
+              <th style="padding: 10px 8px; text-align: right;">税额</th>
+              <th style="padding: 10px 8px; text-align: right;">税金合计</th>
+              <th style="padding: 10px 8px; text-align: center;">抵扣状态</th>
+              <th style="padding: 10px 8px; text-align: right;">操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for inv in related_invoices %}
+            <tr style="border-bottom: 1px solid rgba(255,255,255,0.05); transition: background 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.04)'" onmouseout="this.style.background='transparent'">
+              <td style="padding: 10px 8px;" class="font-mono text-muted">{{ loop.index }}</td>
+              <td style="padding: 10px 8px;">
+                <a href="/documents/{{ inv.id }}" style="color: #fff; font-weight: 500; text-decoration: none;" onmouseover="this.style.color='var(--accent-cyan)'" onmouseout="this.style.color='#fff'">
+                  📄 {{ inv.filename }}
+                </a>
+              </td>
+              <td style="padding: 10px 8px;" class="font-mono" style="color: var(--text-secondary);">
+                {{ inv.invoice_no or '-' }}{% if inv.invoice_code %} / {{ inv.invoice_code }}{% endif %}
+              </td>
+              <td style="padding: 10px 8px;">
+                <span class="badge badge-cyan" style="font-size: 11px;">{{ inv.invoice_type | invoice_type_name }}</span>
+              </td>
+              <td style="padding: 10px 8px;" class="font-mono text-muted">{{ inv.period or '-' }}</td>
+              <td style="padding: 10px 8px; text-align: right;" class="font-mono" style="color: var(--accent-cyan); font-weight: 600;">
+                ¥{{ "%.2f"|format((inv.tax_vat_input or 0) + (inv.tax_vat_output or 0)) }}
+              </td>
+              <td style="padding: 10px 8px; text-align: right;" class="font-mono" style="color: var(--accent-emerald); font-weight: 600;">
+                ¥{{ "%.2f"|format(inv.tax_total or 0) }}
+              </td>
+              <td style="padding: 10px 8px; text-align: center;">
+                {% if inv.invoice_deductible %}
+                <span class="badge badge-emerald" style="font-size: 11px;">已勾选抵扣</span>
+                {% else %}
+                <span class="badge badge-muted" style="font-size: 11px;">未抵扣 / 待认证</span>
+                {% endif %}
+              </td>
+              <td style="padding: 10px 8px; text-align: right;">
+                <div style="display: flex; gap: 6px; justify-content: flex-end;">
+                  <a href="/api/v1/documents/{{ inv.id }}/view" target="_blank" class="btn btn-primary" style="padding: 5px 10px; font-size: 11px;" title="在新标签页全屏预览发票原件">
+                    <span>👁️ 预览发票原件</span>
+                  </a>
+                  <a href="/documents/{{ inv.id }}" class="btn btn-secondary" style="padding: 5px 10px; font-size: 11px;">
+                    <span>详情</span>
+                  </a>
+                </div>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div style="padding: 40px; text-align: center; color: var(--text-muted);">
+        当前合同暂无已匹配的同主体发票或税票单据。
+      </div>
+      {% endif %}
+    </div>
+
+    <div style="padding: 16px 24px; border-top: 1px solid var(--border-subtle); display: flex; justify-content: flex-end; gap: 10px;">
+      <button type="button" class="btn btn-secondary" onclick="closeInvoiceModal()">关闭</button>
+    </div>
+  </div>
+</div>
+
+<script>
+function openInvoiceModal() {
+  const modal = document.getElementById('invoiceModal');
+  if (modal) {
+    modal.classList.add('active');
+  }
+  const panel = document.getElementById('related-invoices-panel');
+  if (panel) {
+    panel.scrollIntoView({ behavior: 'smooth' });
+  }
+}
+
+function closeInvoiceModal() {
+  const modal = document.getElementById('invoiceModal');
+  if (modal) {
+    modal.classList.remove('active');
+  }
+}
+
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') {
+    closeInvoiceModal();
+  }
+});
+</script>
 
 {% endblock %}
