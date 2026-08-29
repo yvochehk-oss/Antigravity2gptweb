@@ -1852,6 +1852,7 @@ def web_document(request: Request, document_id: int, principal=Depends(require_w
         related_invoices = []
         target_code = d.counterparty_code or d.entity_code
         if target_code:
+            escaped_code = target_code.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
             stmt = (
                 select(Document)
                 .where(
@@ -1860,14 +1861,13 @@ def web_document(request: Request, document_id: int, principal=Depends(require_w
                     or_(
                         Document.counterparty_code == target_code,
                         Document.entity_code == target_code,
-                        Document.filename.like(f"%{target_code}%"),
+                        Document.filename.like(f"%{escaped_code}%", escape="\\"),
                     ),
                     or_(
                         Document.document_type == "tax_invoice",
                         Document.filename.like("%INVOICE%"),
                         Document.filename.like("%发票%"),
-                        Document.tax_total > 0,
-                        Document.invoice_no != "",
+                        and_(Document.tax_total > 0, Document.invoice_no != ""),
                     ),
                 )
                 .order_by(Document.id)
