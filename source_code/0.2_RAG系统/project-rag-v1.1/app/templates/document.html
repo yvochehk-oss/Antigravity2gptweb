@@ -48,6 +48,7 @@
 }
 
 .pulse-glow-btn:hover {
+  animation-play-state: paused;
   background: rgba(6, 182, 212, 0.65);
   box-shadow: 0 0 24px 6px rgba(6, 182, 212, 0.95);
   transform: translateY(-1px) scale(1.05);
@@ -198,7 +199,7 @@
   </div>
 
   <!-- 涉税抽取与凭证属性卡片 -->
-  {% set is_invoice_doc = doc.invoice_no or doc.document_type == 'tax_invoice' or '发票' in doc.filename or (doc.tax_total and doc.tax_total > 0) %}
+  {% set is_invoice_doc = doc.invoice_no or doc.document_type == 'tax_invoice' or '发票' in doc.filename or ((doc.tax_total or 0) > 0) %}
   <div class="glass-panel" style="padding: 20px;">
     <h2>
       {% if is_invoice_doc %}

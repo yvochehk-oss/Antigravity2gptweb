@@ -1843,6 +1843,7 @@ def web_document(request: Request, document_id: int, principal=Depends(require_w
                     ),
                 )
                 .order_by(Document.id)
+                .limit(100)
             )
             related_invoices = db.scalars(stmt).all()
 
