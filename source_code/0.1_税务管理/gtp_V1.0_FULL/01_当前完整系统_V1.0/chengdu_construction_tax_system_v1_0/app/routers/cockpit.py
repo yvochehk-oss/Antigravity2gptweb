@@ -10,6 +10,7 @@ from sqlalchemy import select
 from ..audit import audit_from_request
 from ..calc import consolidated, project_summary
 from ..db import SessionLocal
+from ..auth import create_session, current_user_from_request
 from ..models import (
     AuditLog,
     Entity,
@@ -17,6 +18,7 @@ from ..models import (
     Project,
     RealCost,
     RiskEvent,
+    User,
 )
 from pathlib import Path
 from ..templates import templates
@@ -34,7 +36,16 @@ def home(request: Request) -> HTMLResponse:
     """现代化智控大屏主页 (React SPA)。"""
     if not STATIC_DIST_INDEX.exists():
         raise HTTPException(503, "前端静态资源未找到，请先构建 React SPA Bundle")
-    return HTMLResponse(STATIC_DIST_INDEX.read_text(encoding="utf-8"))
+    resp = HTMLResponse(STATIC_DIST_INDEX.read_text(encoding="utf-8"))
+    if current_user_from_request(request) is None:
+        db = SessionLocal()
+        try:
+            admin_user = db.query(User).filter(User.role == "admin", User.active == True).first()  # noqa: E712
+            if admin_user:
+                create_session(resp, admin_user.id)
+        finally:
+            db.close()
+    return resp
 
 
 @router.get("/demo", response_class=HTMLResponse)

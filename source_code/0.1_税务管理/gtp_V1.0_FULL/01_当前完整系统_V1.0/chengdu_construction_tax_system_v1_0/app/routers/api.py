@@ -5,7 +5,7 @@ import logging
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 
 from ..calc import four_flow_evidence_completeness, matching_rows, project_summary
 from ..db import SessionLocal
@@ -328,3 +328,81 @@ def api_project_counterparties(pid: int, _user=_reader_dependency):
         raise
     finally:
         db.close()
+
+
+@router.delete("/api/projects/{pid}/data")
+def api_delete_project_data(pid: int, _user=_reader_dependency):
+    """一次性删除该项目在 Tax 数据库中的所有关联数据（合同、发票、流水、台账、四流记录等）。"""
+    db = SessionLocal()
+    try:
+        project = db.get(Project, pid)
+        if project is None:
+            raise HTTPException(status_code=404, detail="项目不存在")
+
+        deleted_counts = {}
+        # 1. Real costs & Invoices & Cashflows & Contracts
+        r = db.execute(text("DELETE FROM real_costs WHERE project_id = :pid"), {"pid": pid})
+        deleted_counts["real_costs"] = r.rowcount or 0
+
+        r = db.execute(text("DELETE FROM invoices WHERE project_id = :pid"), {"pid": pid})
+        deleted_counts["invoices"] = r.rowcount or 0
+
+        r = db.execute(text("DELETE FROM cashflows WHERE project_id = :pid"), {"pid": pid})
+        deleted_counts["cashflows"] = r.rowcount or 0
+
+        r = db.execute(text("DELETE FROM contracts WHERE project_id = :pid"), {"pid": pid})
+        deleted_counts["contracts"] = r.rowcount or 0
+
+        # 2. Fulfillment & Progress & Budgets
+        r = db.execute(text("DELETE FROM fulfillment WHERE project_id = :pid"), {"pid": pid})
+        deleted_counts["fulfillment"] = r.rowcount or 0
+        r = db.execute(text("DELETE FROM progress WHERE project_id = :pid"), {"pid": pid})
+        deleted_counts["progress"] = r.rowcount or 0
+        r = db.execute(text("DELETE FROM budgets WHERE project_id = :pid"), {"pid": pid})
+        deleted_counts["budgets"] = r.rowcount or 0
+
+        # 3. Risk events & Tax payment records
+        r = db.execute(text("DELETE FROM risk_events WHERE project_id = :pid"), {"pid": pid})
+        deleted_counts["risk_events"] = r.rowcount or 0
+        r = db.execute(text("DELETE FROM tax_payment_records WHERE project_id = :pid"), {"pid": pid})
+        deleted_counts["tax_payment_records"] = r.rowcount or 0
+
+        # 4. Sync pending & Sync logs
+        r = db.execute(text("DELETE FROM sync_pending WHERE project_id = :pid"), {"pid": pid})
+        deleted_counts["sync_pending"] = r.rowcount or 0
+        r = db.execute(text("DELETE FROM sync_logs WHERE project_id = :pid"), {"pid": pid})
+        deleted_counts["sync_logs"] = r.rowcount or 0
+
+        # 5. AI Review & Remediation & Snapshots
+        r = db.execute(text("DELETE FROM ai_review_batches WHERE project_id = :pid"), {"pid": pid})
+        deleted_counts["ai_review_batches"] = r.rowcount or 0
+        r = db.execute(text("DELETE FROM ai_review_jobs WHERE project_id = :pid"), {"pid": pid})
+        deleted_counts["ai_review_jobs"] = r.rowcount or 0
+        r = db.execute(text("DELETE FROM remediation_tasks WHERE project_id = :pid"), {"pid": pid})
+        deleted_counts["remediation_tasks"] = r.rowcount or 0
+        r = db.execute(text("DELETE FROM facts_snapshots WHERE project_id = :pid"), {"pid": pid})
+        deleted_counts["facts_snapshots"] = r.rowcount or 0
+
+        # 6. Planning scenarios
+        r = db.execute(text("DELETE FROM planning_scenarios WHERE project_id = :pid"), {"pid": pid})
+        deleted_counts["planning_scenarios"] = r.rowcount or 0
+
+        db.commit()
+        _LOGGER.info("project data wiped successfully: pid=%s details=%s", pid, deleted_counts)
+        return {
+            "success": True,
+            "project_id": pid,
+            "project_name": project.name,
+            "message": f"项目【{project.name}】在 Tax 系统中的全部财税数据已成功删除清空！",
+            "deleted_counts": deleted_counts,
+        }
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:
+        db.rollback()
+        _LOGGER.exception("project data deletion failed: pid=%s", pid)
+        raise HTTPException(status_code=500, detail=f"删除项目数据失败: {exc}")
+    finally:
+        db.close()
+

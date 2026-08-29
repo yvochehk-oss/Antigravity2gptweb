@@ -142,7 +142,7 @@
               <div class="l">合同额</div>
             </div>
             <div class="metric">
-              <div class="v">{{ "%.0f"|format(r.eac) }}</div>
+              <div class="v">{{ "%.0f"|format(r.eac if r.eac is not none else 0) }}</div>
               <div class="l">EAC</div>
             </div>
           </div>
