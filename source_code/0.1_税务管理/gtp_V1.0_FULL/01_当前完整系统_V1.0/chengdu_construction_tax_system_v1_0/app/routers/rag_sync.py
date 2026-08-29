@@ -534,7 +534,11 @@ def _resolve_external_party_code(
             continue
         rows = _external_party_matches(db, label, value)
         if len(rows) > 1:
-            raise SyncReviewRequired(f"外部交易方 {label}={value!r} 匹配不唯一")
+            with_tax = [p for p in rows if _clean_identity(getattr(p, "tax_id", None))]
+            if len(with_tax) == 1:
+                rows = with_tax
+            else:
+                raise SyncReviewRequired(f"外部交易方 {label}={value!r} 匹配不唯一")
         if not rows:
             raise SyncReviewRequired(f"外部交易方 {label}={value!r} 未登记")
         found[id(rows[0])] = rows[0]
