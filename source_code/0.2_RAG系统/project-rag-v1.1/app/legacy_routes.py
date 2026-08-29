@@ -314,10 +314,17 @@ if _HAS_V1_LEGACY:
         logger.warning(f"v1.0 legacy routes 注册失败: {_e}")
 
 
-from .services.metadata import get_document_type_display_name, get_category_display_name
+from .services.metadata import (
+    get_document_type_display_name,
+    get_category_display_name,
+    get_invoice_type_display_name,
+    format_parse_message,
+)
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 templates.env.filters["doc_type_name"] = get_document_type_display_name
 templates.env.filters["category_name"] = get_category_display_name
+templates.env.filters["invoice_type_name"] = get_invoice_type_display_name
+templates.env.filters["friendly_parse_msg"] = format_parse_message
 app.mount("/static", StaticFiles(directory=str(Path(__file__).parent / "static")), name="static")
 
 

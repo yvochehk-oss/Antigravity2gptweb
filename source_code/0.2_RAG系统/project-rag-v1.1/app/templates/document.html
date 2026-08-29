@@ -103,7 +103,7 @@
       </div>
       <div style="display: flex; justify-content: space-between;">
         <span style="color: var(--text-muted);">状态消息</span>
-        <span style="color: var(--text-secondary); max-width: 240px; text-align: right;">{{ doc.parse_message or '解析完成，已生成向量切块' }}</span>
+        <span style="color: var(--text-secondary); max-width: 320px; text-align: right;" title="{{ doc.parse_message }}">{{ doc.parse_message | friendly_parse_msg }}</span>
       </div>
     </div>
   </div>
@@ -127,7 +127,7 @@
       <div style="display: flex; justify-content: space-between; border-bottom: 1px solid var(--border-subtle); padding-bottom: 8px;">
         <span style="color: var(--text-muted);">发票类型 / 抵扣状态</span>
         <span>
-          <span class="badge badge-cyan">{{ doc.invoice_type or '增值税专用发票' }}</span>
+          <span class="badge badge-cyan">{{ doc.invoice_type | invoice_type_name }}</span>
           {% if doc.invoice_deductible %}
           <span class="badge badge-emerald">已勾选抵扣</span>
           {% else %}
