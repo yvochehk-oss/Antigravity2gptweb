@@ -344,11 +344,8 @@ def validate_invoice_fields(fields: dict[str, Any]) -> dict[str, Any]:
 
     evidence = out.get("evidence") if isinstance(out.get("evidence"), dict) else {}
 
-    # A tax extraction item is a candidate only when the document itself
-    # supplies the invoice identity.  In particular, an invoice number from
-    # a filename/document code is not evidence and is never accepted here.
     required_identity = (
-        "invoice_no", "invoice_code", "invoice_date",
+        "invoice_no", "invoice_date",
         "seller_name", "seller_tax_id", "buyer_name", "buyer_tax_id",
     )
     for key in required_identity:
@@ -357,6 +354,9 @@ def validate_invoice_fields(fields: dict[str, Any]) -> dict[str, Any]:
             errors.append(f"缺少明确的{key}")
         elif not evidence.get(key):
             errors.append(f"{key}缺少原文证据")
+
+    if out.get("invoice_code") and not evidence.get("invoice_code"):
+        warnings.append("invoice_code缺少原文证据")
 
     amounts: dict[str, Decimal | None] = {
         key: _invoice_decimal(out.get(key))
