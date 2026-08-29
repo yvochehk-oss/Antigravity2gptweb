@@ -644,19 +644,47 @@ def extract_contract_fields_from_text(text: str) -> dict[str, Any]:
         if len(nums) >= 3:
             fields["contract_date"] = f"{nums[0]:04d}-{nums[1]:02d}-{nums[2]:02d}"
 
-    m_pa = re.search(r"(?:发包方|甲方|购买方|委托方)[(（]?[甲购买委托方]*[)）]?[：:\s]*([^\n\r]+)", combined)
-    if m_pa:
-        name = re.sub(r"(?:统一|社会|代码|纳税|地址|电话|法定|账号).*$", "", m_pa.group(1)).strip(" ：:|<>/")
-        name = re.sub(r"<[^>]+>", "", name).strip()
-        if name:
-            fields["party_a_name"] = name
+    # Party A (发包方 / 发包人 / 甲方 / 购买方 / 委托方)
+    pa_match = re.search(r'(?:发包方|发包人|甲方|购买方|委托方)(?:\s*[(（][^()（）]+[)）])?[：:\s]*\n*([^\n\r]+)', combined)
+    if pa_match:
+        val = pa_match.group(1).strip(' ：:|<>/')
+        val = re.sub(r'<[^>]+>', '', val).strip()
+        if re.match(r'^[(（]?[甲购买委托发包]+[)）]?$', val) or not val:
+            rest = combined[pa_match.end():]
+            next_lines = [line.strip() for line in rest.split('\n') if line.strip() and not re.match(r'^[(（]?[甲购买委托发包]+[)）]?[：:]?$', line.strip())]
+            if next_lines:
+                val = next_lines[0]
+        val = re.sub(r'[(（][甲购买委托发包]+[)）]', '', val).strip(' ：:|<>/')
+        val = re.sub(r'(?:统一|社会|代码|纳税|地址|电话|法定|账号).*$', '', val).strip(' ：:|<>/')
+        if val and not re.match(r'^[(（]?[甲购买委托发包]+[)）]?$', val):
+            fields["party_a_name"] = val
 
-    m_pb = re.search(r"(?:承包方|乙方|销售方|供货方|受托方)[(（]?[乙销售供货受托方]*[)）]?[：:\s]*([^\n\r]+)", combined)
-    if m_pb:
-        name = re.sub(r"(?:统一|社会|代码|纳税|地址|电话|法定|账号).*$", "", m_pb.group(1)).strip(" ：:|<>/")
-        name = re.sub(r"<[^>]+>", "", name).strip()
-        if name:
-            fields["party_b_name"] = name
+    pa_tax_match = re.search(r'(?:发包方|发包人|甲方|购买方|委托方)[\s\S]{1,150}?(?:统一社会信用代码|纳税人识别号|税号|纳税识别号|机构代码)[：:\s]*([A-Za-z0-9]{15,20})', combined)
+    if pa_tax_match:
+        tax_id = pa_tax_match.group(1).strip()
+        fields["party_a_tax_id"] = tax_id
+        fields["party_a_code"] = tax_id
+
+    # Party B (承包方 / 承包人 / 乙方 / 销售方 / 供货方 / 受托方)
+    pb_match = re.search(r'(?:承包方|承包人|乙方|销售方|供货方|受托方)(?:\s*[(（][^()（）]+[)）])?[：:\s]*\n*([^\n\r]+)', combined)
+    if pb_match:
+        val = pb_match.group(1).strip(' ：:|<>/')
+        val = re.sub(r'<[^>]+>', '', val).strip()
+        if re.match(r'^[(（]?[乙销售供货受托承包]+[)）]?$', val) or not val:
+            rest = combined[pb_match.end():]
+            next_lines = [line.strip() for line in rest.split('\n') if line.strip() and not re.match(r'^[(（]?[乙销售供货受托承包]+[)）]?[：:]?$', line.strip())]
+            if next_lines:
+                val = next_lines[0]
+        val = re.sub(r'[(（][乙销售供货受托承包]+[)）]', '', val).strip(' ：:|<>/')
+        val = re.sub(r'(?:统一|社会|代码|纳税|地址|电话|法定|账号).*$', '', val).strip(' ：:|<>/')
+        if val and not re.match(r'^[(（]?[乙销售供货受托承包]+[)）]?$', val):
+            fields["party_b_name"] = val
+
+    pb_tax_match = re.search(r'(?:承包方|承包人|乙方|销售方|供货方|受托方)[\s\S]{1,150}?(?:统一社会信用代码|纳税人识别号|税号|纳税识别号|机构代码)[：:\s]*([A-Za-z0-9]{15,20})', combined)
+    if pb_tax_match:
+        tax_id = pb_tax_match.group(1).strip()
+        fields["party_b_tax_id"] = tax_id
+        fields["party_b_code"] = tax_id
 
     m_amt = re.search(r"(?:含税总价|暂定价款|合同金额|签约总价|暂定总价|签约含税总价|合同暂定价款)[：:\s]*[¥￥]?\s*([0-9,，]+(?:\.\d+)?)", combined)
     if m_amt:
