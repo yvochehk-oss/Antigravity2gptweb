@@ -1907,7 +1907,7 @@ def rag_status(request: Request):
 
 
 @router.post("/sync", response_model=SyncResponse)
-def sync_single(body: SyncRequest, request: Request, background_tasks: BackgroundTasks):
+def sync_single(body: SyncRequest, request: Request):
     """触发单类型同步：从 RAG 抽取指定类型数据并入库。"""
     actor = current_actor(request)
 
@@ -1922,35 +1922,8 @@ def sync_single(body: SyncRequest, request: Request, background_tasks: Backgroun
             db, body.project_id, body.rag_project_id,
         )
 
-        sync_log = SyncLog(
-            project_id=body.project_id,
-            sync_type=body.extract_type,
-            rag_project_id=rag_project_id,
-            rag_chunk_ids_json="[]",
-            rag_document_ids_json="[]",
-            tax_record_ids_json="[]",
-            status="RUNNING",
-            total_chunks=0,
-            total_extracted=0,
-            total_imported=0,
-            total_pending=0,
-            errors_json="[]",
-            synced_at=_now(),
-            synced_by=actor,
-            note=body.note,
-        )
-        db.add(sync_log)
-        db.commit()
-        db.refresh(sync_log)
-
-        _LOGGER.info(
-            "rag_sync_single_dispatched sync_log_id=%s project_id=%s extract_type=%s request_id=%s",
-            sync_log.id, body.project_id, body.extract_type, get_request_id(),
-        )
-
-        background_tasks.add_task(
-            _do_sync_background,
-            sync_log_id=sync_log.id,
+        log = _do_sync(
+            db,
             project_id=body.project_id,
             rag_project_id=rag_project_id,
             rag_url=rag_url,
@@ -1959,26 +1932,30 @@ def sync_single(body: SyncRequest, request: Request, background_tasks: Backgroun
             period_start=body.period_start,
             period_end=body.period_end,
             top_k=body.top_k,
+            note=body.note,
             request_id=get_request_id(),
         )
 
+        errors = json.loads(log.errors_json or "[]")
+        imported_ids = json.loads(log.tax_record_ids_json or "[]")
+
         return SyncResponse(
-            sync_log_id=sync_log.id,
+            sync_log_id=log.id,
             sync_type=body.extract_type,
-            status="RUNNING",
-            total_extracted=0,
-            total_imported=0,
-            total_pending=0,
-            imported_ids=[],
+            status=log.status,
+            total_extracted=log.total_extracted,
+            total_imported=log.total_imported,
+            total_pending=log.total_pending,
+            imported_ids=imported_ids,
             pending_ids=[],
-            errors=[],
+            errors=errors,
         )
     finally:
         db.close()
 
 
 @router.post("/sync-batch")
-def sync_batch(body: SyncBatchRequest, request: Request, background_tasks: BackgroundTasks):
+def sync_batch(body: SyncBatchRequest, request: Request):
     """批量同步：按类型列表逐一同步。"""
     actor = current_actor(request)
     results: list[SyncResponse] = []
@@ -1994,35 +1971,8 @@ def sync_batch(body: SyncBatchRequest, request: Request, background_tasks: Backg
         )
 
         for extract_type in body.extract_types:
-            sync_log = SyncLog(
-                project_id=body.project_id,
-                sync_type=extract_type,
-                rag_project_id=rag_project_id,
-                rag_chunk_ids_json="[]",
-                rag_document_ids_json="[]",
-                tax_record_ids_json="[]",
-                status="RUNNING",
-                total_chunks=0,
-                total_extracted=0,
-                total_imported=0,
-                total_pending=0,
-                errors_json="[]",
-                synced_at=_now(),
-                synced_by=actor,
-                note=body.note,
-            )
-            db.add(sync_log)
-            db.commit()
-            db.refresh(sync_log)
-
-            _LOGGER.info(
-                "rag_sync_batch_dispatched sync_log_id=%s project_id=%s extract_type=%s request_id=%s",
-                sync_log.id, body.project_id, extract_type, get_request_id(),
-            )
-
-            background_tasks.add_task(
-                _do_sync_background,
-                sync_log_id=sync_log.id,
+            log = _do_sync(
+                db,
                 project_id=body.project_id,
                 rag_project_id=rag_project_id,
                 rag_url=rag_url,
@@ -2031,19 +1981,22 @@ def sync_batch(body: SyncBatchRequest, request: Request, background_tasks: Backg
                 period_start=body.period_start,
                 period_end=body.period_end,
                 top_k=30,
+                note=body.note,
                 request_id=get_request_id(),
             )
+            errors = json.loads(log.errors_json or "[]")
+            imported_ids = json.loads(log.tax_record_ids_json or "[]")
 
             results.append(SyncResponse(
-                sync_log_id=sync_log.id,
+                sync_log_id=log.id,
                 sync_type=extract_type,
-                status="RUNNING",
-                total_extracted=0,
-                total_imported=0,
-                total_pending=0,
-                imported_ids=[],
+                status=log.status,
+                total_extracted=log.total_extracted,
+                total_imported=log.total_imported,
+                total_pending=log.total_pending,
+                imported_ids=imported_ids,
                 pending_ids=[],
-                errors=[],
+                errors=errors,
             ))
 
         return {"project_id": body.project_id, "results": [r.model_dump() for r in results]}
