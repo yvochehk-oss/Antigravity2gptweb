@@ -5,6 +5,7 @@ secondary database and never creates schema objects; Alembic owns schema state.
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
 from datetime import datetime, timezone
@@ -606,6 +607,20 @@ def run() -> None:
                     system_addendum=addendum, review_focus=focus,
                     enabled=True, created_at=ts,
                 ))
+        # 业务规则参数初始化 (business_rule_parameters)
+        rule_rows = [
+            ("matching", "invoice_over_contract", "1.05"),
+            ("matching", "paid_over_invoice", "1.05"),
+            ("matching", "fulfilled_over_contract", "1.10"),
+            ("risk", "equipment_allowed_invoice_rates", json.dumps([0, 0.03, 0.09, 0.13])),
+        ]
+        for rule_set, code, val in rule_rows:
+            db.execute(text("""
+                INSERT INTO business_rule_parameters (rule_set, rule_version, code, value_json, enabled, source)
+                VALUES (:rule_set, 'business_rules_v1', :code, :val, true, 'seed_init')
+                ON CONFLICT (rule_set, rule_version, code) DO UPDATE
+                SET value_json = EXCLUDED.value_json, enabled = true
+            """), {"rule_set": rule_set, "code": code, "val": val})
 
         # Production bootstrap is idempotent: never duplicate demonstration business data.
         if _SEED_MODE != "demo" and db.query(Project).count() > 0:
