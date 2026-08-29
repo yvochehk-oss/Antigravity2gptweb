@@ -73,8 +73,13 @@ def test_delete_project_data_success(seeded_app):
             ))
             db.commit()
 
-        # 2. Call DELETE /api/projects/{pid}/data
-        response = client.delete(f"/api/projects/{pid}/data")
+        # 2. Wrong password -> 400
+        bad_resp = client.post(f"/api/projects/{pid}/delete-data", json={"password": "WrongPassword!"})
+        assert bad_resp.status_code == 400
+        assert "密码错误" in bad_resp.json()["detail"]
+
+        # 3. Correct password -> 200
+        response = client.post(f"/api/projects/{pid}/delete-data", json={"password": "TestPass12345!"})
         assert response.status_code == 200
         data = response.json()
         assert data["success"] is True
@@ -83,7 +88,7 @@ def test_delete_project_data_success(seeded_app):
         assert data["deleted_counts"]["invoices"] >= 1
         assert data["deleted_counts"]["cashflows"] >= 1
 
-        # 3. Verify in database that project records are wiped
+        # 4. Verify in database that project records are wiped
         with SessionLocal() as db:
             cnt_contracts = db.execute(text("SELECT count(*) FROM contracts WHERE project_id = :pid"), {"pid": pid}).scalar()
             cnt_invoices = db.execute(text("SELECT count(*) FROM invoices WHERE project_id = :pid"), {"pid": pid}).scalar()
@@ -97,5 +102,5 @@ def test_delete_project_data_not_found(seeded_app):
     from app.main import app
     with TestClient(app) as client:
         _login(client)
-        response = client.delete("/api/projects/999999/data")
+        response = client.post("/api/projects/999999/delete-data", json={"password": "TestPass12345!"})
         assert response.status_code == 404

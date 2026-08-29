@@ -5,8 +5,10 @@ import logging
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
 from sqlalchemy import func, select, text
 
+from ..auth import login as auth_login, verify_password
 from ..calc import four_flow_evidence_completeness, matching_rows, project_summary
 from ..db import SessionLocal
 from ..dependencies import require_role
@@ -20,12 +22,17 @@ from ..models import (
     Invoice,
     Project,
     RealCost,
+    User,
 )
 
 _LOGGER = logging.getLogger(__name__)
 _reader_dependency = Depends(require_role("admin", "operator"))
 
 router = APIRouter()
+
+
+class DeleteProjectDataRequest(BaseModel):
+    password: str = Field(..., min_length=1, description="操作者确认密码")
 
 
 @router.get("/api/projects/{pid}")
@@ -330,9 +337,19 @@ def api_project_counterparties(pid: int, _user=_reader_dependency):
         db.close()
 
 
+@router.post("/api/projects/{pid}/delete-data")
 @router.delete("/api/projects/{pid}/data")
-def api_delete_project_data(pid: int, _user=_reader_dependency):
-    """一次性删除该项目在 Tax 数据库中的所有关联数据（合同、发票、流水、台账、四流记录等）。"""
+def api_delete_project_data(
+    pid: int,
+    body: DeleteProjectDataRequest,
+    _user: Any = _reader_dependency,
+):
+    """一次性删除该项目在 Tax 数据库中的所有关联数据（合同、发票、流水、台账、四流记录等，需密码确认）。"""
+    username = getattr(_user, "username", "admin")
+    authenticated = auth_login(username, body.password)
+    if authenticated is None:
+        raise HTTPException(status_code=400, detail="密码错误，安全验证未通过")
+
     db = SessionLocal()
     try:
         project = db.get(Project, pid)
