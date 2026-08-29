@@ -606,7 +606,7 @@ def api_project(project_id: int, page: int = Query(1, ge=1), page_size: int = Qu
 async def api_delete_project(
     request: Request,
     project_id: int,
-    principal: TaxPrincipal = Depends(require_web_auth),
+    principal: TaxPrincipal = Depends(require_web_or_service_role("admin", "operator")),
 ):
     """Permanently delete a project and wipe all associated documents, vectors, and external parties with password confirmation."""
     provided_password = ""
