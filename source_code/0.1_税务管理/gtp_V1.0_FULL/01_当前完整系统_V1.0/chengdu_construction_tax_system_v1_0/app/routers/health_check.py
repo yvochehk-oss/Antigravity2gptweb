@@ -186,7 +186,9 @@ def api_health_check(batch_id: int):
         select(AIReviewJob).where(AIReviewJob.batch_id == batch.id)
     ).scalars().all()
     failed_jobs = [job for job in jobs if job.status == "failed"]
-    if batch.status == "completed" and not failed_jobs:
+    if batch.status in ("pending", "running"):
+        status = "RUNNING"
+    elif batch.status == "completed" and not failed_jobs:
         status = "READY"
     elif batch.status == "failed" or (
         jobs and not any(job.status == "completed" for job in jobs)
