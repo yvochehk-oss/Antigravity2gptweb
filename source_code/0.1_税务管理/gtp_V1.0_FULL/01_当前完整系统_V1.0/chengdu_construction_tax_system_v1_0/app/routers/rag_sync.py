@@ -974,7 +974,7 @@ def _validate_invoice_rag_contract(item: dict[str, Any], fields: dict[str, Any])
     if not isinstance(evidence, dict):
         raise SyncReviewRequired("RAG 发票缺少原文证据")
     required_evidence = (
-        "invoice_no", "invoice_code", "invoice_date",
+        "invoice_no", "invoice_date",
         "seller_name", "seller_tax_id", "buyer_name", "buyer_tax_id",
         "net_amount", "vat_amount", "total_amount", "vat_rate",
     )
