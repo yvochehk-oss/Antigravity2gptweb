@@ -746,3 +746,44 @@ def get_document_type_display_name(doc_type: str) -> str:
         "other": "其他"
     }
     return names.get(doc_type, doc_type)
+
+
+def get_invoice_type_display_name(invoice_type: str | None) -> str:
+    """Get human-readable invoice type display name."""
+    if not invoice_type:
+        return "增值税发票"
+    it = str(invoice_type).strip().lower()
+    names = {
+        "special": "增值税专用发票",
+        "vat_special": "增值税专用发票",
+        "normal": "增值税普通发票",
+        "plain": "增值税普通发票",
+        "vat_normal": "增值税普通发票",
+        "electronic": "增值税电子发票",
+        "toll": "通行费电子发票",
+        "other": "增值税发票",
+    }
+    return names.get(it, invoice_type)
+
+
+def format_parse_message(raw_msg: str | None) -> str:
+    """Format technical or JSON parse messages into user-friendly summary."""
+    if not raw_msg:
+        return "解析完成，已生成向量切块"
+    raw = str(raw_msg).strip()
+    if raw.startswith("{") and raw.endswith("}"):
+        try:
+            data = json.loads(raw)
+            msg = data.get("message", "")
+            if "indexed" in msg:
+                chunk_num = "".join(filter(str.isdigit, msg)) or "1"
+                friendly = f"已完成 {chunk_num} 个向量切块索引"
+            else:
+                friendly = "已建立向量切块索引"
+            if "invoice_validation" in data or "fields" in data:
+                friendly += " · 结构化发票信息已提取"
+            return friendly
+        except Exception:
+            pass
+    return raw
+
