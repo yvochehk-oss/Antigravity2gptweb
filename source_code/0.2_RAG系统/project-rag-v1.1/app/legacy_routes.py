@@ -1628,6 +1628,13 @@ def api_extract_tax(body: ExtractTaxRequest):
                 Document.filename.like("BANK_%"),
                 Document.filename.like("UNPAID_%"),
             ))
+        elif body.extract_type == "tax_payment":
+            doc_conds.append(or_(
+                Document.document_type.in_(["tax_payment", "tax_receipt", "tax_payment_record", "duty_receipt"]),
+                Document.filename.like("%完税%"),
+                Document.filename.like("%税票%"),
+                Document.filename.like("%缴税%"),
+            ))
 
         target_docs = db.scalars(select(Document).where(and_(*doc_conds))).all()
         
@@ -1669,6 +1676,9 @@ def api_extract_tax(body: ExtractTaxRequest):
                     elif body.extract_type == "payment":
                         fields = extract_payment_fields_from_text(chunk_text)
                         confidence = 1.0 if fields.get("bank_reference") else 0.9
+                    elif body.extract_type == "tax_payment":
+                        fields = extract_tax_payment_fields_from_text(chunk_text)
+                        confidence = 1.0 if (fields.get("receipt_no") or fields.get("tax_amount") is not None) else 0.8
                     else:
                         fields, confidence = extract_from_chunk(chunk_text, body.extract_type)
                         
@@ -1742,6 +1752,17 @@ def api_extract_tax(body: ExtractTaxRequest):
             outcomes = list(executor.map(extract_one, chunks))
         extracted_items = [item for item, error in outcomes if item is not None]
         errors = [error for item, error in outcomes if item is None and error]
+
+        return ExtractTaxResponse(
+            project_id=pid,
+            extract_type=body.extract_type,
+            query_used=query,
+            total_chunks=len(chunks),
+            total_extracted=len(extracted_items),
+            extracted_items=extracted_items,
+            errors=errors,
+            llm_available=llm_extraction_available(),
+        )
 # ============================================
 
 def _resolve_project(db, project_id, project_code):
