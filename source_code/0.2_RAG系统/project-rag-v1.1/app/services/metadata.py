@@ -377,23 +377,27 @@ DOC_RULES = [
     # Labor documents
     (("工资", "考勤", "社保", "实名制"), "labor", "labor_record", ""),
     (("劳务结算", "劳务计量"), "labor", "labor_settlement", ""),
-    (("劳务合同", "劳务协议"), "labor", "labor_contract", ""),
+    (("劳务合同", "劳务协议", "用工分包"), "labor", "labor_contract", ""),
 
     # Equipment documents
     (("台班", "设备使用", "机械使用"), "equipment", "equipment_shift", ""),
     (("设备结算", "机械结算"), "equipment", "equipment_settlement", ""),
-    (("设备租赁", "机械租赁", "设备合同"), "equipment", "equipment_contract", ""),
+    (("设备租赁", "机械租赁", "设备合同", "吊装合同", "起重吊装"), "equipment", "equipment_contract", ""),
 
     # Material documents
-    (("材料验收", "收料", "入库"), "material", "material_acceptance", ""),
-    (("材料采购", "钢材采购", "商砼采购", "材料合同"), "material", "material_contract", ""),
+    (("材料验收", "收料", "入库", "地磅", "过磅", "大宗材料"), "material", "material_acceptance", ""),
+    (("材料采购", "钢材采购", "商砼采购", "材料合同", "供货合同", "直采供货", "集采供销", "供销合同"), "material", "material_contract", ""),
 
     # Subcontract documents
     (("分包结算",), "subcontract", "subcontract_settlement", ""),
-    (("专业分包", "分包合同"), "subcontract", "subcontract_contract", ""),
+    (("专业分包", "分包工程合同", "分包合同", "监测与技术咨询", "智能化及BIM"), "subcontract", "subcontract_contract", ""),
 
-    # Tax documents (NEW)
-    (("增值税", "进项税", "销项税", "增值税专用发票", "增值税普通发票"), "", "tax_invoice", "vat"),
+    # Main / Construction documents
+    (("总包合同", "施工合同", "主合同", "施工总承包", "中标通知书", "履约保函"), "construction", "main_contract", ""),
+    (("实景照片", "现场照片", "施工现场"), "construction", "site_photo", ""),
+
+    # Tax documents
+    (("增值税", "进项税", "销项税", "增值税专用发票", "增值税普通发票", "发票", "专票"), "", "tax_invoice", "vat"),
     (("企业所得税", "所得税预缴", "所得税汇算"), "", "tax_document", "enterprise_income"),
     (("个人所得税", "代扣代缴", "劳务个税"), "", "tax_document", "individual_income"),
     (("附加税", "城建税", "教育费附加", "地方教育附加"), "", "tax_document", "surtax"),
@@ -402,12 +406,20 @@ DOC_RULES = [
     (("环保税", "环境保护税"), "", "tax_document", "environmental"),
     (("税务申报", "纳税申报", "完税证明", "税票", "缴税凭证"), "", "tax_payment_record", ""),
 
-    # Other documents (no business category)
+    # Banking / Payment documents
+    (("银行支付回单", "电子回单", "银行回单", "支付回单", "付款回单", "挂账应付款"), "", "bank_slip", ""),
+
+    # Logistics documents
+    (("物流小票", "地磅称重", "现场签收单"), "material", "logistics_waybill", ""),
+
+    # Acceptance documents
+    (("工序验收", "验收与台班", "签认记录单"), "", "acceptance_record", ""),
+
+    # Other documents
     (("会议纪要", "会议记录"), "", "meeting_minutes", ""),
     (("补充协议",), "", "supplementary_agreement", ""),
     (("签证", "变更单", "工程变更"), "", "change_order", ""),
     (("结算",), "", "settlement_document", ""),
-    (("总包合同", "施工合同", "主合同"), "", "main_contract", ""),
 ]
 
 
@@ -543,12 +555,48 @@ def infer_from_filename(
     elif all_refs:
         result["entity_resolution_status"] = "UNRESOLVED"
 
+    # Deduce category and refine document_type based on resolved entity/counterparty roles
+    cp_code = result["counterparty_code"]
+    ent_code = result["entity_code"]
+    
+    # Check if this is a main contract or site photo with owner E0
+    if ("MAIN" in name or "总承包" in name or "主合同" in name or "中标通知" in name) and not cp_code:
+        result["counterparty_code"] = "E0"
+        result["counterparty_name"] = "成都市天府新区金融城投公司"
+        result["counterparty_resolution_status"] = "RESOLVED"
+        result["business_category"] = "construction"
+        result["document_type"] = "main_contract"
+        cp_code = "E0"
 
-    # Never turn 甲乙丙丁 into a counterparty code.  The marker is retained
-    # only as an unresolved/rejected signal for audit; actual counterparties
-    # must be supplied by name/tax-id and resolved through the same cache.
-    if any(token in name for token in ("甲", "乙", "丙", "丁")):
-        result["counterparty_resolution_status"] = "REJECTED"
+    # If business_category is empty or not specific, infer from counterparty
+    if not result["business_category"]:
+        if cp_code.startswith("C") or cp_code == "EC":
+            result["business_category"] = "labor"
+        elif cp_code.startswith("B") or cp_code == "EB":
+            result["business_category"] = "material"
+        elif cp_code.startswith("D") or cp_code == "ED":
+            result["business_category"] = "equipment"
+        elif (cp_code.startswith("A") and cp_code != ent_code) or cp_code == "EA":
+            result["business_category"] = "subcontract"
+        elif cp_code.startswith("E0") or cp_code.startswith("EXT-OWNER"):
+            result["business_category"] = "construction"
+
+    # Refine document_type for specific prefixes if it is still generic
+    if result["document_type"] in ("other", "acceptance_record"):
+        if name.startswith("ACCEPTANCE_") or "工序验收" in name:
+            if result["business_category"] == "equipment":
+                result["document_type"] = "equipment_shift"
+            elif result["business_category"] == "labor":
+                result["document_type"] = "labor_record"
+            elif result["business_category"] == "subcontract":
+                result["document_type"] = "subcontract_acceptance"
+            else:
+                result["document_type"] = "acceptance_record"
+        elif name.startswith("BANK_") or "回单" in name or "支付" in name or "UNPAID_" in name:
+            result["document_type"] = "bank_slip"
+        elif name.startswith("PHOTO_"):
+            result["document_type"] = "site_photo"
+            result["business_category"] = "construction"
 
     # Period extraction: 2024-01, 2024年01月, etc.
     m = re.search(r"(20\d{2})[-年./_](0?[1-9]|1[0-2])", name)
