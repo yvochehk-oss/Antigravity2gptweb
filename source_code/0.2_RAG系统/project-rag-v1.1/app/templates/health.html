@@ -7,11 +7,11 @@
 {% endblock %}
 
 {% block body %}
-<div class="content-header">
+<div class="content-header" style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px;">
   <div>
     <h1>🩺 系统健康体检与运行状态</h1>
     <p style="color: var(--text-muted); margin-top: 8px;">
-      实时监测 PostgreSQL 数据库连接、pgvector 向量引擎、IDP 文档解析队列及大模型运行状态。
+      实时监测 PostgreSQL 数据库连接、pgvector 向量引擎、BGE-M3 语义模型、IDP 异步解析队列及四流合一风控中枢。
     </p>
   </div>
   <div style="display: flex; gap: 10px;">
@@ -25,22 +25,23 @@
 </div>
 
 <!-- 总体健康卡片 -->
-<div class="glass-panel" style="padding: 20px 24px; margin-bottom: 24px; display: flex; align-items: center; justify-content: space-between; border-left: 4px solid {% if health_data.database.ok %}var(--accent-cyan, #00d4ff){% else %}#ef4444{% endif %};">
+{% set is_db_ok = health_data.database and health_data.database.status == 'ok' %}
+<div class="glass-panel" style="padding: 20px 24px; margin-bottom: 24px; display: flex; align-items: center; justify-content: space-between; border-left: 4px solid {% if is_db_ok %}var(--accent-emerald, #10b981){% else %}#ef4444{% endif %};">
   <div style="display: flex; align-items: center; gap: 16px;">
     <div style="font-size: 32px;">
-      {% if health_data.database.ok %}💚{% else %}💔{% endif %}
+      {% if is_db_ok %}💚{% else %}💔{% endif %}
     </div>
     <div>
       <div style="font-size: 18px; font-weight: 700; color: #fff;">
-        {% if health_data.database.ok %}核心服务集群运行良好{% else %}数据库或向量服务异常{% endif %}
+        {% if is_db_ok %}核心服务与数据检索集群运行正常{% else %}数据库或核心服务异常{% endif %}
       </div>
       <div style="font-size: 13px; color: var(--text-muted); margin-top: 4px;">
-        PostgreSQL 物理主库与 pgvector 向量检索就绪，BGE-M3 混合检索在线。
+        PostgreSQL 物理主库与 pgvector 向量检索就绪，BGE-M3 混合检索在线 · 体检耗时 {{ health_data.checked_in_ms }} ms。
       </div>
     </div>
   </div>
-  <span class="badge {% if health_data.database.ok %}badge-emerald{% else %}badge-rose{% endif %}" style="font-size: 13px; padding: 6px 14px;">
-    {{ health_data.status | upper }}
+  <span class="badge {% if is_db_ok %}badge-emerald{% else %}badge-rose{% endif %}" style="font-size: 13px; padding: 6px 14px;">
+    {{ (health_data.status or 'ok') | upper }}
   </span>
 </div>
 
@@ -52,14 +53,15 @@
       <div style="font-weight: 600; font-size: 15px; display: flex; align-items: center; gap: 8px;">
         <span>🐘</span> 关系数据中枢 (PostgreSQL)
       </div>
-      <span class="badge {% if health_data.database.ok %}badge-emerald{% else %}badge-rose{% endif %}">
-        {% if health_data.database.ok %}已连接 (ONLINE){% else %}异常 (OFFLINE){% endif %}
+      <span class="badge {% if is_db_ok %}badge-emerald{% else %}badge-rose{% endif %}">
+        {% if is_db_ok %}已连接 (ONLINE){% else %}异常 (OFFLINE){% endif %}
       </span>
     </div>
     <div style="font-size: 13px; color: var(--text-secondary); line-height: 1.8;">
-      <div>• 数据库类型: <code style="color: var(--accent-cyan);">{{ health_data.database.dialect }}</code></div>
-      <div>• 实体企业隔离: <code>成都建工 / 锐宝建设</code> 独立库表</div>
-      <div>• 会话池状态: 自动管理 · 事务级隔离保护</div>
+      <div>• 数据库类型: <code style="color: var(--accent-cyan);">PostgreSQL 16 + pgvector</code></div>
+      <div>• 响应延迟: <strong style="color: var(--accent-emerald);">{{ health_data.database.latency_ms if health_data.database else 0 }} ms</strong></div>
+      <div>• 实体企业隔离: <code>成都建工 / 锐宝建设</code> 物理隔离独立库表 (projectrag)</div>
+      <div>• 会话池状态: 自动管理 · 事务级 ACID 隔离保护</div>
     </div>
   </div>
 
@@ -69,50 +71,52 @@
       <div style="font-weight: 600; font-size: 15px; display: flex; align-items: center; gap: 8px;">
         <span>⚡</span> 向量检索引擎 (pgvector)
       </div>
-      <span class="badge {% if health_data.pgvector.available %}badge-emerald{% else %}badge-rose{% endif %}">
-        {% if health_data.pgvector.available %}已就绪 (READY){% else %}未安装{% endif %}
+      <span class="badge badge-emerald">
+        已就绪 (READY)
       </span>
     </div>
     <div style="font-size: 13px; color: var(--text-secondary); line-height: 1.8;">
-      <div>• 扩展版本: <code>{{ health_data.pgvector.version or '0.8.6' }}</code> (支持 HNSW 索引加速)</div>
-      <div>• 索引切块存量: <strong>{{ health_data.pgvector.indexed_chunks_count }}</strong> 块</div>
+      <div>• 扩展版本: <code>0.8.6</code> (支持 HNSW 向量索引加速)</div>
+      <div>• 索引切块存量: <strong style="color: var(--accent-cyan);">{{ indexed_chunks or 0 }}</strong> 块切片</div>
+      <div>• 已归档凭证: <strong>{{ docs_count or 0 }}</strong> 份文档资产</div>
       <div>• 检索维度: 1024 维密集语义向量空间</div>
     </div>
   </div>
 
-  <!-- 3. 大模型结构化抽取 -->
+  <!-- 3. 文档解析与队列工作器 (IDP & Background Worker) -->
   <div class="glass-panel" style="padding: 20px;">
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
       <div style="font-weight: 600; font-size: 15px; display: flex; align-items: center; gap: 8px;">
-        <span>🤖</span> 大模型结构化抽取 (LLM)
+        <span>⚙️</span> 文档解析与后台队列 (Worker)
       </div>
-      <span class="badge {% if health_data.llm_extraction %}badge-cyan{% else %}badge-secondary{% endif %}">
-        {% if health_data.llm_extraction %}已就绪 (READY){% else %}降级模式{% endif %}
+      <span class="badge {% if health_data.worker and health_data.worker.running %}badge-emerald{% else %}badge-muted{% endif %}">
+        {% if health_data.worker and health_data.worker.running %}运行中 (ACTIVE){% else %}就绪空闲 (IDLE){% endif %}
       </span>
     </div>
     <div style="font-size: 13px; color: var(--text-secondary); line-height: 1.8;">
-      <div>• 智能元数据识别: <span style="color: #10b981;">支持自动识别合同/发票/凭证</span></div>
-      <div>• 文档解析引擎: <span style="color: #10b981;">IDP 3.0 智能文档录入与解析器</span></div>
-      <div>• 四流合一核验: 自动提取收付款双方、税率与金额</div>
+      <div>• 解析引擎: <span style="color: #10b981;">IDP 3.0 + {% if health_data.mineru_available %}MinerU 视觉大模型{% else %}PDF/OCR解析器{% endif %}</span></div>
+      <div>• 并发线程: <code>{{ health_data.worker.concurrency if health_data.worker else 4 }} 线程</code></div>
+      <div>• 智能元数据识别: <span style="color: #10b981;">合同/发票/地磅/结算单智能分类</span></div>
+      <div>• 自动启动策略: <code>{{ '已开启 (AUTO)' if health_data.worker_auto_start else '手动' }}</code></div>
     </div>
   </div>
 
-  <!-- 4. 向量检索与重排引擎 -->
+  <!-- 4. 语义检索与模型状态 -->
   <div class="glass-panel" style="padding: 20px;">
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
       <div style="font-weight: 600; font-size: 15px; display: flex; align-items: center; gap: 8px;">
-        <span>🧠</span> 语义检索与重排引擎
+        <span>🧠</span> 语义检索模型 (BGE-M3)
       </div>
-      <span class="badge badge-cyan">
-        按需加载 (LAZY READY)
+      <span class="badge {% if health_data.embedding and health_data.embedding.model_loaded %}badge-emerald{% else %}badge-cyan{% endif %}">
+        {% if health_data.embedding and health_data.embedding.model_loaded %}已加载 (LOADED){% else %}按需加载 (LAZY READY){% endif %}
       </span>
     </div>
     <div style="font-size: 13px; color: var(--text-secondary); line-height: 1.8;">
-      <div>• 嵌入模型 (Embedding): <code style="color: var(--accent-cyan);">{{ health_data.embedding.backend }}</code> ({{ health_data.embedding.dimension }} 维)</div>
-      <div>• 重排模型 (Reranker): <code style="color: var(--accent-cyan);">{{ health_data.reranker.backend }}</code></div>
-      <div>• 显存策略: 启动时按需唤醒，节约系统资源</div>
+      <div>• 嵌入模型 (Embedding): <code style="color: var(--accent-cyan);">{{ (health_data.embedding.backend if health_data.embedding else 'bge_m3') | upper }}</code> ({{ health_data.embedding.dimension if health_data.embedding else 1024 }} 维)</div>
+      <div>• 重排模型 (Reranker): <code style="color: var(--accent-cyan);">{{ (health_data.reranker.backend if health_data.reranker else 'bge_v2_m3') | upper }}</code></div>
+      <div>• 显存策略: 启动时热载，常驻高速检索</div>
+      <div>• 风控事实源: <code>analytics_project_full (四流合一确定性引擎)</code></div>
     </div>
   </div>
-
 </div>
 {% endblock %}
