@@ -53,6 +53,12 @@ class ProjectSync(ProjectCreate):
     pass
 
 
+class ProjectDeleteRequest(BaseModel):
+    """Schema for password-confirmed project permanent deletion."""
+
+    password: str = Field(..., min_length=1, description="当前登录用户或管理员确认密码")
+
+
 class ProjectResponse(BaseModel):
     """Schema for project response."""
 

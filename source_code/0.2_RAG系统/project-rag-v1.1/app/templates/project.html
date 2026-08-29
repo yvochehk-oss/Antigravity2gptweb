@@ -42,6 +42,9 @@
       <button onclick="document.getElementById('modal-import-folder').classList.add('active')" class="btn btn-secondary">
         <span>📁 扫描文件夹</span>
       </button>
+      <button type="button" onclick="document.getElementById('modal-delete-project').classList.add('active')" class="btn" style="background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.4); color: #f87171;">
+        <span>🗑️ 删除项目</span>
+      </button>
     </div>
   </div>
 </div>
@@ -793,8 +796,97 @@ setTimeout(updateFilterCounts, 100);
   </div>
 </div>
 
+<!-- 删除项目高危确认弹窗 (Modal) -->
+<div id="modal-delete-project" class="modal-overlay" style="z-index: 10000;">
+  <div class="glass-panel-elevated modal-content" style="max-width: 520px; border: 1px solid rgba(239, 68, 68, 0.4); box-shadow: 0 10px 40px rgba(239, 68, 68, 0.25);">
+    <div class="modal-header" style="border-bottom: 1px solid rgba(239, 68, 68, 0.2); padding-bottom: 12px;">
+      <h3 style="color: #f87171; font-size: 16px; display: flex; align-items: center; gap: 8px; margin: 0;">
+        <span>⚠️ 危险操作：彻底删除工程项目</span>
+      </h3>
+      <button class="modal-close" onclick="document.getElementById('modal-delete-project').classList.remove('active')">&times;</button>
+    </div>
+    
+    <div style="padding: 16px 0; display: flex; flex-direction: column; gap: 14px;">
+      <div style="background: rgba(239, 68, 68, 0.08); border-left: 3px solid #ef4444; padding: 12px 14px; border-radius: 4px; font-size: 13px; line-height: 1.6; color: #fca5a5;">
+        <strong style="color: #f87171;">此操作具有毁灭性且不可撤销！</strong><br>
+        • 将永久销毁项目 <b>{{ project.name }} ({{ project.project_code }})</b> 基础档案；<br>
+        • 将级联删除全部 <b>{{ documents|length }}</b> 份资料文档、磁盘原始文件及解析切片；<br>
+        • 将彻底清除数据库中该项目的所有 <b>HNSW 向量索引</b> 与检索审计日志；<br>
+        • 将同步清理本次由该项目引入且未被其他项目关联的 <b>系统外合作单位</b>。
+      </div>
+
+      <div>
+        <label style="font-size: 13px; font-weight: 600; color: #fff; display: block; margin-bottom: 8px;">
+          请输入当前账号登录密码以确认身份：
+        </label>
+        <input 
+          class="form-input" 
+          type="password" 
+          id="delete-project-password" 
+          placeholder="请输入密码进行安全验证" 
+          autocomplete="current-password"
+          style="width: 100%; border-color: rgba(239, 68, 68, 0.4); background: rgba(0, 0, 0, 0.4); color: #fff; font-size: 14px; padding: 10px 12px;"
+          onkeydown="if(event.key==='Enter'){event.preventDefault();submitDeleteProject();}"
+        >
+        <div id="delete-project-error" style="color: #f87171; font-size: 12px; margin-top: 6px; display: none;"></div>
+      </div>
+
+      <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 10px;">
+        <button type="button" class="btn btn-secondary" onclick="document.getElementById('modal-delete-project').classList.remove('active')">
+          取消
+        </button>
+        <button type="button" id="btn-submit-delete-project" class="btn" onclick="submitDeleteProject()" style="background: #ef4444; color: #fff; border: 1px solid #dc2626; font-weight: 600; padding: 8px 20px;">
+          确认彻底删除
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
 let currentPickerPath = '';
+
+async function submitDeleteProject() {
+  const pwdInput = document.getElementById('delete-project-password');
+  const errDiv = document.getElementById('delete-project-error');
+  const submitBtn = document.getElementById('btn-submit-delete-project');
+  
+  const password = pwdInput.value.trim();
+  if (!password) {
+    errDiv.innerText = '请输入密码以确认删除操作';
+    errDiv.style.display = 'block';
+    pwdInput.focus();
+    return;
+  }
+  
+  errDiv.style.display = 'none';
+  submitBtn.disabled = true;
+  submitBtn.innerText = '正在彻底删除...';
+  
+  try {
+    const res = await fetch('/api/v1/projects/{{ project.id }}/delete', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ password: password })
+    });
+    
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.detail || data.message || '删除失败');
+    }
+    
+    alert(data.message || '项目及所有关联数据已彻底清除！');
+    window.location.href = '/';
+  } catch (err) {
+    errDiv.innerText = err.message;
+    errDiv.style.display = 'block';
+    submitBtn.disabled = false;
+    submitBtn.innerText = '确认彻底删除';
+  }
+}
 
 async function loadDir(path = '') {
   const listEl = document.getElementById('dir-picker-list');

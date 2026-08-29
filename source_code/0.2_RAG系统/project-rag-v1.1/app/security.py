@@ -303,6 +303,13 @@ def _is_web_mutation_route(path: str, method: str) -> bool:
         # Keep model setting mutations on the explicit browser-session
         # boundary; unrelated /api/v1 paths must not inherit this policy.
         return True
+    if (
+        len(segments) >= 4
+        and segments[:3] == ["api", "v1", "projects"]
+        and segments[3].isdigit()
+        and (len(segments) == 4 or segments[4] == "delete")
+    ):
+        return True
     if len(segments) >= 3 and segments[:3] == ["api", "v1", "users"]:
         return True
     return False
