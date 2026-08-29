@@ -69,6 +69,7 @@ BUSINESS_ROLE_ALIASES = {
     "a": "construction", "b": "trade", "c": "labor", "d": "equipment",
     "ea": "construction", "eb": "trade", "ec": "labor", "ed": "equipment",
     "e0": "owner", "owner": "owner", "client": "owner",
+    "subcontractor": "construction", "supplier": "trade", "partner": "owner", "vendor": "trade",
     "construction": "construction", "construction_role": "construction",
     "trade": "trade", "labor": "labor", "equipment": "equipment",
     "业主": "owner", "甲方": "owner", "外部业主": "owner", "发包方": "owner",

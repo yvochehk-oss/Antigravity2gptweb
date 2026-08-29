@@ -253,6 +253,21 @@ def _matching_rows(value: str, rows: Sequence[Mapping[str, Any]]) -> list[dict[s
     ]
 
 
+def _extract_external_name_from_filename(code: str, filename: str) -> str:
+    name = Path(filename).stem
+    match = re.search(r"外部([^_\./]+?)(?:合同|协议|发票|专票|回单|单据|验收|过磅|照片|扫描件|影印本|$)", name)
+    if match and len(match.group(1).strip()) >= 2:
+        return f"外部{match.group(1).strip()}"
+    
+    known_names = {
+        "EXT-CRANE": "外部超重型起重吊装租赁服务单位",
+        "EXT-PG": "外部特种高强合金钢直采供货单位",
+        "EXT-EXP": "外部深基坑地质监测与技术咨询服务单位",
+        "EXT-OWNER": "项目发包方/外部业主单位",
+    }
+    return known_names.get(code.upper(), f"系统外合作单位 ({code})")
+
+
 def resolve_entity_reference(
     value: str | None,
     canonical_cache: str | os.PathLike[str] | Mapping[str, Any] | Sequence[Mapping[str, Any]] | None = None,
@@ -269,31 +284,57 @@ def resolve_entity_reference(
     if raw in VIRTUAL_ENTITY_CODES or (len(raw) == 1 and raw.upper() in BUSINESS_ROLE_CODES):
         return {"status": "REJECTED", "entity_code": "", "tax_id": "", "name": "", "input": raw}
 
+    code = normalize_entity_code(raw)
     rows = load_canonical_entity_cache(canonical_cache)
     matches = _matching_rows(raw, rows)
-    if len(matches) != 1:
+    if len(matches) == 1:
+        row = matches[0]
         return {
-            "status": "CONFLICT" if len(matches) > 1 else "UNRESOLVED",
+            "status": "RESOLVED",
+            "resolution_status": "RESOLVED",
+            "entity_code": row.get("entity_code") or "",
+            "tax_id": row.get("tax_id") or "",
+            "name": row.get("name") or row.get("short_name") or "",
+            "business_role": row.get("business_role") or "",
+            "entity_kind": row.get("entity_kind") or "company",
+            "legal_entity": row.get("legal_entity", True),
+            "parent_entity_code": row.get("parent_entity_code") or "",
+            "entity_status": row.get("status") or "active",
+            "input": raw,
+        }
+    elif len(matches) > 1:
+        return {
+            "status": "CONFLICT",
             "entity_code": "",
             "tax_id": "",
             "name": "",
             "input": raw,
             "match_count": len(matches),
         }
-    row = matches[0]
-    return {
-        "status": "RESOLVED",
-        "resolution_status": "RESOLVED",
-        "entity_code": row.get("entity_code") or "",
-        "tax_id": row.get("tax_id") or "",
-        "name": row.get("name") or row.get("short_name") or "",
-        "business_role": row.get("business_role") or "",
-        "entity_kind": row.get("entity_kind") or "company",
-        "legal_entity": row.get("legal_entity", True),
-        "parent_entity_code": row.get("parent_entity_code") or "",
-        "entity_status": row.get("status") or "active",
-        "input": raw,
-    }
+    elif code and (code.startswith("EXT-") or (len(code) >= 3 and code.startswith("E") and code[1] in ("A", "B", "C", "D"))):
+        role = code[1] if (code.startswith("E") and code[1] in ("A", "B", "C", "D")) else "E"
+        return {
+            "status": "RESOLVED",
+            "resolution_status": "RESOLVED",
+            "entity_code": code,
+            "tax_id": "",
+            "name": _extract_external_name_from_filename(code, raw),
+            "business_role": role,
+            "entity_kind": "external",
+            "legal_entity": True,
+            "parent_entity_code": "",
+            "entity_status": "active",
+            "input": raw,
+        }
+    else:
+        return {
+            "status": "UNRESOLVED",
+            "entity_code": "",
+            "tax_id": "",
+            "name": "",
+            "input": raw,
+            "match_count": 0,
+        }
 
 # Classification rules: (keywords, business_category, document_type, tax_category)
 DOC_RULES = [
