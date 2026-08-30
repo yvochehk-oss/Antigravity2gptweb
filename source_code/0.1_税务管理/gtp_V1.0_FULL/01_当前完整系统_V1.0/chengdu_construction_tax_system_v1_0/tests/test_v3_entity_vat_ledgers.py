@@ -16,9 +16,8 @@ from app.v3_party_models import InternalEntity, Party
 from app.v3_period_models import CalculationRun, TaxPeriodState
 from app.v3_vat_ledger_models import EntityVatLedger, OutputVatEvent, VatOpeningBalanceSeed
 from app.v3_vat_review_models import VatOutputPeriodAssertion
-from scripts.v3 import entity_vat_ledger_85 as ledger85
+from scripts.v3.entity_vat_ledger_86 import build_one
 
-build_one = ledger85.base.build_one
 ROOT = Path(__file__).resolve().parents[1]
 
 
