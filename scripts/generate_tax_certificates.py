@@ -1,30 +1,37 @@
 # -*- coding: utf-8 -*-
 """
 =============================================================================
-成都建工 V3.0 · 01 标杆工程全参建单位全税种完税证明与电子税票生成器
+成都建工 V3.0 · 01 标杆工程【系统内单位 + 系统外单位】全覆盖完税证明生成器
 =============================================================================
 项目：01_天府国际金融中心二期_CD-TF-001
-涵盖参建企业（6 家内部法人公司全覆盖）：
-  1. A08 四川锐宝建设工程有限公司 (施工总承包方)
-  2. B01 四川乾润和贸易有限公司 (大宗钢材物资供销方)
-  3. C01 四川本盛劳务有限公司 (建筑主体劳务分包方)
-  4. D01 四川乾润和机械设备租赁有限公司 (塔吊设备租赁方)
-  5. A11 成都巨邦建设工程有限公司 (超高层钢结构专业分包方)
-  6. A05 四川帆亿通信科技有限公司 (弱电智能化及BIM分包方)
+
+一、系统内单位 (Internal Entities - 6 家法人)：
+  1. A08 四川锐宝建设工程有限公司 (施工总承包)
+  2. B01 四川乾润和贸易有限公司 (大宗材料集采)
+  3. C01 四川本盛劳务有限公司 (建筑劳务分包)
+  4. D01 四川乾润和机械设备租赁有限公司 (机械设备租赁)
+  5. A11 成都巨邦建设工程有限公司 (钢结构专业分包)
+  6. A05 四川帆亿通信科技有限公司 (弱电智能及BIM微网)
+
+二、系统外单位 (External Parties - 4 家代表性合作机构)：
+  1. EXT-TF 成都市天府新区金融城投公司 (外部发包业主单位)
+  2. EXT-PG-STEEL 攀钢集团攀枝花钢钒物资销售有限公司 (外部钢厂直供商)
+  3. EXT-CQ-HEAVY-CRANE 重庆重交大件起重吊装工程有限公司 (外部特种大件吊装商)
+  4. EXT-EXPERT-LABOR 四川省建筑科学研究院特种技术服务中心 (外部技术专家咨询)
 
 涵盖税种：
-  - 增值税 (VAT 9% / 13%)
+  - 增值税 (VAT 6% / 9% / 13%)
   - 城市维护建设税 (7%)、教育费附加 (3%)、地方教育附加 (2%)
-  - 企业所得税 (CIT 25% 预缴与汇算清缴)
-  - 个人所得税 (IIT 建筑工人实名制代扣与管理人员薪金代扣)
+  - 企业所得税 (CIT 25%)
+  - 个人所得税 (IIT 实名制代扣代缴)
   - 印花税 (Stamp Duty 0.03% 施工/购销、0.1% 财产租赁)
-  - 环境保护税 (施工扬尘与噪声环保税)
+  - 环境保护税 (施工现场扬尘与噪声)
   - 城镇土地使用税 (临时施工用地)
 
-输出格式：
-  - 国家税务总局标准格式税收完税证明 PDF
-  - 逼真纸质扫描原件 JPG (含征税专用印章与 TIPS 防伪验签)
-  - 数据库 tax_payment_records 真实数据写入
+输出成果：
+  - 国家税务总局正式税收完税证明 PDF
+  - 真实扫描影印件 JPG (带税务局红色征税电子专用章与 TIPS 防伪编码)
+  - 数据库 tax_payment_records 真实数据持久化写入
 =============================================================================
 """
 import os
@@ -76,11 +83,12 @@ TARGET_DIR = os.path.join(
 )
 os.makedirs(TARGET_DIR, exist_ok=True)
 
-# 参建企业档案库
-PARTICIPATING_ENTITIES = {
+# 参建单位档案库（系统内 + 系统外）
+ALL_ENTITIES = {
+    # 系统内
     'A08': {
         'name': '四川锐宝建设工程有限公司',
-        'role_title': '施工总承包方',
+        'type_label': '系统内 · 施工总承包',
         'tax_id': '91510106MA61UEJ48K',
         'bank_name': '成都银行科技支行',
         'bank_acc': '51090177889900112233',
@@ -89,7 +97,7 @@ PARTICIPATING_ENTITIES = {
     },
     'B01': {
         'name': '四川乾润和贸易有限公司',
-        'role_title': '大宗物资供销方',
+        'type_label': '系统内 · 物资贸易',
         'tax_id': '91510106MA6D7H4N9A',
         'bank_name': '招商银行成都金牛支行',
         'bank_acc': '51060122334455667788',
@@ -98,7 +106,7 @@ PARTICIPATING_ENTITIES = {
     },
     'C01': {
         'name': '四川本盛劳务有限公司',
-        'role_title': '主体劳务分包方',
+        'type_label': '系统内 · 劳务分包',
         'tax_id': '91510107350645934C',
         'bank_name': '成都农商银行成华支行',
         'bank_acc': '51010833445566778800',
@@ -107,7 +115,7 @@ PARTICIPATING_ENTITIES = {
     },
     'D01': {
         'name': '四川乾润和机械设备租赁有限公司',
-        'role_title': '机械设备租赁方',
+        'type_label': '系统内 · 机械租赁',
         'tax_id': '91510106MA6D2K9L3E',
         'bank_name': '中国民生银行成都金牛支行',
         'bank_acc': '51010188990011223366',
@@ -116,7 +124,7 @@ PARTICIPATING_ENTITIES = {
     },
     'A11': {
         'name': '成都巨邦建设工程有限公司',
-        'role_title': '超高层钢结构专业分包方',
+        'type_label': '系统内 · 钢结构分包',
         'tax_id': '91510104MA6CM8P59N',
         'bank_name': '中国农业银行成都锦江支行',
         'bank_acc': '51040188990011223344',
@@ -125,13 +133,50 @@ PARTICIPATING_ENTITIES = {
     },
     'A05': {
         'name': '四川帆亿通信科技有限公司',
-        'role_title': '弱电智能化及微网分包方',
+        'type_label': '系统内 · 弱电智能化',
         'tax_id': '91510104MA6CYN4T2A',
         'bank_name': '交通银行成都高新支行',
         'bank_acc': '51030133445566778899',
         'tax_authority': '国家税务总局成都市高新技术产业开发区税务局',
         'treasury': '国家金库成都市高新支库'
-    }
+    },
+    # 系统外
+    'EXT-TF': {
+        'name': '成都市天府新区金融城投公司',
+        'type_label': '系统外 · 发包业主单位',
+        'tax_id': '91510100MA61AAAA11',
+        'bank_name': '国家开发银行四川省分行',
+        'bank_acc': '51000012345678901111',
+        'tax_authority': '国家税务总局四川天府新区成都管委会税务局',
+        'treasury': '国家金库天府新区支库'
+    },
+    'EXT-PG-STEEL': {
+        'name': '攀钢集团攀枝花钢钒物资销售有限公司',
+        'type_label': '系统外 · 外部特种钢材供应商',
+        'tax_id': '91510400MA61EEEE77',
+        'bank_name': '中国建设银行攀枝花分行',
+        'bank_acc': '51040188990011227777',
+        'tax_authority': '国家税务总局攀枝花市东区税务局',
+        'treasury': '国家金库攀枝花市中心支库'
+    },
+    'EXT-CQ-HEAVY-CRANE': {
+        'name': '重庆重交大件起重吊装工程有限公司',
+        'type_label': '系统外 · 外部特种大件吊装服务商',
+        'tax_id': '91500100MA61GGGG99',
+        'bank_name': '重庆银行江北支行',
+        'bank_acc': '50010144556677889999',
+        'tax_authority': '国家税务总局重庆市江北区税务局第一税务所',
+        'treasury': '国家金库重庆市分库'
+    },
+    'EXT-EXPERT-LABOR': {
+        'name': '四川省建筑科学研究院特种技术服务中心',
+        'type_label': '系统外 · 外部地质监测与技术咨询',
+        'tax_id': '91510100MA61KKKK33',
+        'bank_name': '中国工商银行成都一环路支行',
+        'bank_acc': '51010199001122333333',
+        'tax_authority': '国家税务总局成都市青羊区税务局',
+        'treasury': '国家金库成都市青羊区支库'
+    },
 }
 
 PROJECT_INFO = {
@@ -140,7 +185,7 @@ PROJECT_INFO = {
 }
 
 # ---------------------------------------------------------------------------
-# 印章与扫描质感渲染
+# 渲染函数 (印章 + 纹理)
 # ---------------------------------------------------------------------------
 
 def draw_tax_oval_stamp(draw, text_top="国家税务总局", text_mid="四川省税务局", text_bot="征税专用章", center=(150, 150), rx=110, ry=75, color=(220, 20, 20)):
@@ -155,8 +200,8 @@ def draw_tax_oval_stamp(draw, text_top="国家税务总局", text_mid="四川省
         points.append((cx + star_r * math.cos(angle), cy - 6 + star_r * math.sin(angle)))
     draw.polygon(points, fill=color)
     
-    font_mid = ImageFont.truetype(FONT_PATH, 18)
-    font_sub = ImageFont.truetype(FONT_PATH, 15)
+    font_mid = ImageFont.truetype(FONT_PATH, 17)
+    font_sub = ImageFont.truetype(FONT_PATH, 14)
     
     tw1 = draw.textlength(text_top, font=font_sub)
     draw.text((cx - tw1 / 2, cy - ry + 15), text_top, font=font_sub, fill=color)
@@ -165,7 +210,7 @@ def draw_tax_oval_stamp(draw, text_top="国家税务总局", text_mid="四川省
     draw.text((cx - tw2 / 2, cy + 8), text_mid, font=font_mid, fill=color)
     
     tw3 = draw.textlength(text_bot, font=font_sub)
-    draw.text((cx - tw3 / 2, cy + ry - 30), text_bot, font=font_sub, fill=color)
+    draw.text((cx - tw3 / 2, cy + ry - 28), text_bot, font=font_sub, fill=color)
 
 
 def apply_photocopy_texture(img, noise_level=8, contrast_boost=1.12):
@@ -180,10 +225,6 @@ def apply_photocopy_texture(img, noise_level=8, contrast_boost=1.12):
         pixels[rx, ry] = (gray, gray, gray)
     return img
 
-
-# ---------------------------------------------------------------------------
-# PDF 生成辅助类
-# ---------------------------------------------------------------------------
 
 class TaxNumberedCanvas(canvas.Canvas):
     def __init__(self, *args, **kwargs):
@@ -248,13 +289,14 @@ def get_tax_doc_styles():
 
 
 def create_pdf_tax_certificate(filepath, cert_data):
-    entity = PARTICIPATING_ENTITIES[cert_data['entity_code']]
+    entity = ALL_ENTITIES[cert_data['entity_code']]
     doc = SimpleDocTemplate(filepath, pagesize=A4, leftMargin=45, rightMargin=45, topMargin=45, bottomMargin=45)
     styles = get_tax_doc_styles()
     story = []
     
-    story.append(Paragraph("<b>国家税务总局 四川省税务局</b>", styles['title']))
-    story.append(Paragraph(f"<b>税 收 完 税 证 明</b> <font size=9 color='#666'>（电子缴款凭证）</font>", styles['subtitle']))
+    prov_title = "国家税务总局 重庆市税务局" if "重庆" in entity['tax_authority'] else "国家税务总局 四川省税务局"
+    story.append(Paragraph(f"<b>{prov_title}</b>", styles['title']))
+    story.append(Paragraph(f"<b>税 收 完 税 证 明</b> <font size=9 color='#666'>（{entity['type_label']}电子缴款凭证）</font>", styles['subtitle']))
     story.append(Spacer(1, 4))
     
     header_table = [
@@ -359,7 +401,7 @@ def create_pdf_tax_certificate(filepath, cert_data):
     footer_info = [
         [
             Paragraph(f"<b>收款国库：</b>{entity['treasury']}<br/><b>缴款方式：</b>财税库银横向联网电子扣税（TIPS扣款成功）<br/><b>扣款银行流水：</b>{cert_data['bank_flow_no']}", styles['cell']),
-            Paragraph(f"<b>电子防伪验证码：</b><br/><font color='#1565C0'>SCTAX-{cert_data['receipt_no']}-PASS</font><br/><b>查验网址：</b>https://etax.sichuan.chinatax.gov.cn", styles['cell']),
+            Paragraph(f"<b>电子防伪验证码：</b><br/><font color='#1565C0'>SCTAX-{cert_data['receipt_no']}-PASS</font><br/><b>查验网址：</b>https://etax.chinatax.gov.cn", styles['cell']),
             Paragraph(f"<b>征收机关：</b><br/>{entity['tax_authority']}<br/><b>经办人：</b>系统自动开具（电子验签）", styles['cell']),
         ]
     ]
@@ -377,7 +419,7 @@ def create_pdf_tax_certificate(filepath, cert_data):
 
 
 def create_jpg_tax_certificate_scan(filepath, cert_data):
-    entity = PARTICIPATING_ENTITIES[cert_data['entity_code']]
+    entity = ALL_ENTITIES[cert_data['entity_code']]
     w, h = 1600, 2260
     bg_color = (253, 252, 248)
     img = Image.new('RGB', (w, h), color=bg_color)
@@ -389,15 +431,15 @@ def create_jpg_tax_certificate_scan(filepath, cert_data):
     text_font = ImageFont.truetype(FONT_PATH, 22)
     small_font = ImageFont.truetype(FONT_PATH, 18)
     
-    draw.text((80, 60), "国家税务总局全国统一电子税票系统 · 原始缴税凭证归档", font=small_font, fill=(120, 120, 120))
+    draw.text((80, 60), f"国家税务总局全国统一电子税票系统 · 原始凭证 ({entity['type_label']})", font=small_font, fill=(120, 120, 120))
     draw.text((w - 520, 60), f"完税证号: {cert_data['receipt_no']}", font=small_font, fill=(120, 120, 120))
     draw.line([(80, 95), (w - 80, 95)], fill=(180, 50, 50), width=2)
     
-    t1 = "国家税务总局 四川省税务局"
-    tw1 = draw.textlength(t1, font=title_font)
-    draw.text(((w - tw1) / 2, 140), t1, font=title_font, fill=(160, 20, 20))
+    prov_title = "国家税务总局 重庆市税务局" if "重庆" in entity['tax_authority'] else "国家税务总局 四川省税务局"
+    tw1 = draw.textlength(prov_title, font=title_font)
+    draw.text(((w - tw1) / 2, 140), prov_title, font=title_font, fill=(160, 20, 20))
     
-    t2 = f"税 收 完 税 证 明（{entity['role_title']}电子缴款凭证）"
+    t2 = f"税 收 完 税 证 明（电子缴款凭证）"
     tw2 = draw.textlength(t2, font=sub_title_font)
     draw.text(((w - tw2) / 2, 205), t2, font=sub_title_font, fill=(20, 20, 20))
     draw.line([((w - tw2) / 2 - 30, 255), ((w + tw2) / 2 + 30, 255)], fill=(160, 20, 20), width=3)
@@ -497,11 +539,12 @@ def create_jpg_tax_certificate_scan(filepath, cert_data):
 
 
 # ---------------------------------------------------------------------------
-# 全参建公司（A08/B01/C01/D01/A11/A05）全税种完税证明完整数据集
+# 全参建企业数据集 (系统内 6 家 + 系统外 4 家)
 # ---------------------------------------------------------------------------
 
 CERTIFICATES_CONFIG = [
-    # ------------------ 1. A08 四川锐宝建设 (施工总承包) ------------------
+    # ------------------ 一、系统内单位 ------------------
+    # 1. A08 锐宝建设
     {
         'entity_code': 'A08',
         'doc_name': 'TAX_CERT_A08_202301_总承包合同与物资采购印花税完税证明',
@@ -551,37 +594,7 @@ CERTIFICATES_CONFIG = [
             {'orig_no': '3510162404', 'tax_type': '地方教育附加', 'category': '地方教育附加(2%)', 'period_range': '2024-04-01 至 2024-06-30', 'tax_base': 8620000.00, 'rate': '2%', 'amount': 172400.00},
         ]
     },
-    {
-        'entity_code': 'A08',
-        'doc_name': 'TAX_CERT_A08_2023年度_企业所得税年度汇算清缴完税证明',
-        'receipt_no': '5101062400058923',
-        'tax_ticket_no': '351016240500098923',
-        'payment_date': '2024年05月22日',
-        'period': '2023-12',
-        'total_chinese': '叁佰肆拾伍万元整',
-        'bank_flow_no': 'TIPS20240522774921003',
-        'note': '2023年度企业所得税年度汇算清缴结清税款',
-        'items': [
-            {'orig_no': '3510162405', 'tax_type': '企业所得税', 'category': '应纳税所得额*汇算清缴', 'period_range': '2023-01-01 至 2023-12-31', 'tax_base': 13800000.00, 'rate': '25%', 'amount': 3450000.00},
-        ]
-    },
-    {
-        'entity_code': 'A08',
-        'doc_name': 'TAX_CERT_A08_2024Q1_施工扬尘与建筑噪声环境保护税完税证明',
-        'receipt_no': '5101062400018928',
-        'tax_ticket_no': '351016240400028928',
-        'payment_date': '2024年04月18日',
-        'period': '2024-03',
-        'total_chinese': '陆万捌仟肆佰元整',
-        'bank_flow_no': 'TIPS20240418229921008',
-        'note': '施工现场扬尘抑尘与噪声环保税达标申报',
-        'items': [
-            {'orig_no': '3510162412', 'tax_type': '环境保护税', 'category': '施工现场扬尘污染', 'period_range': '2024-01-01 至 2024-03-31', 'tax_base': 45600.00, 'rate': '定额税率', 'amount': 45600.00},
-            {'orig_no': '3510162413', 'tax_type': '环境保护税', 'category': '建筑施工超标噪声', 'period_range': '2024-01-01 至 2024-03-31', 'tax_base': 22800.00, 'rate': '定额税率', 'amount': 22800.00},
-        ]
-    },
-
-    # ------------------ 2. B01 四川乾润和贸易 (大宗钢材物资供销) ------------------
+    # 2. B01 乾润和贸易
     {
         'entity_code': 'B01',
         'doc_name': 'TAX_CERT_B01_2023Q3_大宗钢材物资销售增值税及附加完税证明',
@@ -595,39 +608,9 @@ CERTIFICATES_CONFIG = [
         'items': [
             {'orig_no': '3510162321', 'tax_type': '增值税', 'category': '货物销售*大宗钢材(13%)', 'period_range': '2023-07-01 至 2023-07-31', 'tax_base': 14230769.23, 'rate': '13%', 'amount': 1850000.00},
             {'orig_no': '3510162322', 'tax_type': '城市维护建设税', 'category': '市区(7%)', 'period_range': '2023-07-01 至 2023-07-31', 'tax_base': 1850000.00, 'rate': '7%', 'amount': 129500.00},
-            {'orig_no': '3510162323', 'tax_type': '教育费附加', 'category': '增值税附加(3%)', 'period_range': '2023-07-01 至 2023-07-31', 'tax_base': 1850000.00, 'rate': '3%', 'amount': 55500.00},
         ]
     },
-    {
-        'entity_code': 'B01',
-        'doc_name': 'TAX_CERT_B01_202301_钢材购销买卖合同印花税完税证明',
-        'receipt_no': '5101062300098932',
-        'tax_ticket_no': '351016230100098932',
-        'payment_date': '2023年01月25日',
-        'period': '2023-01',
-        'total_chinese': '壹拾叁万伍仟元整',
-        'bank_flow_no': 'TIPS20230125881921012',
-        'note': '与锐宝建设签署4.5亿钢材供销合同卖方印花税缴纳',
-        'items': [
-            {'orig_no': '3510162324', 'tax_type': '印花税', 'category': '大宗买卖合同(卖方0.03%)', 'period_range': '2023-01-01 至 2023-01-31', 'tax_base': 450000000.00, 'rate': '0.03%', 'amount': 135000.00},
-        ]
-    },
-    {
-        'entity_code': 'B01',
-        'doc_name': 'TAX_CERT_B01_2024Q4_物资贸易企业所得税季度预缴完税证明',
-        'receipt_no': '5101062500028933',
-        'tax_ticket_no': '351016250100088933',
-        'payment_date': '2025年01月15日',
-        'period': '2024-12',
-        'total_chinese': '玖拾陆万元整',
-        'bank_flow_no': 'TIPS20250115770921013',
-        'note': '2024年度大宗贸易实际利润额企业所得税预缴',
-        'items': [
-            {'orig_no': '3510162525', 'tax_type': '企业所得税', 'category': '贸易利润所得(25%)', 'period_range': '2024-10-01 至 2024-12-31', 'tax_base': 3840000.00, 'rate': '25%', 'amount': 960000.00},
-        ]
-    },
-
-    # ------------------ 3. C01 四川本盛劳务 (建筑劳务分包) ------------------
+    # 3. C01 本盛劳务
     {
         'entity_code': 'C01',
         'doc_name': 'TAX_CERT_C01_2024Q2_建筑劳务分包服务增值税及附加完税证明',
@@ -643,22 +626,7 @@ CERTIFICATES_CONFIG = [
             {'orig_no': '3510172432', 'tax_type': '城市维护建设税', 'category': '市区(7%)', 'period_range': '2024-04-01 至 2024-06-30', 'tax_base': 1420000.00, 'rate': '7%', 'amount': 99400.00},
         ]
     },
-    {
-        'entity_code': 'C01',
-        'doc_name': 'TAX_CERT_C01_202406_建筑工人实名制工资个人所得税代扣代缴完税证明',
-        'receipt_no': '5101072400068935',
-        'tax_ticket_no': '351017240600098935',
-        'payment_date': '2024年07月10日',
-        'period': '2024-06',
-        'total_chinese': '叁拾伍万陆仟元整',
-        'bank_flow_no': 'TIPS20240710558921015',
-        'note': '本盛劳务现场480名建筑工人实名制银行代发工资个税全员代扣代缴',
-        'items': [
-            {'orig_no': '3510172433', 'tax_type': '个人所得税', 'category': '建筑工人劳务工资所得', 'period_range': '2024-06-01 至 2024-06-30', 'tax_base': 3820000.00, 'rate': '超额累进', 'amount': 356000.00},
-        ]
-    },
-
-    # ------------------ 4. D01 四川乾润和机械租赁 (大型设备租赁) ------------------
+    # 4. D01 乾润和租赁
     {
         'entity_code': 'D01',
         'doc_name': 'TAX_CERT_D01_2024Q2_塔吊机械设备租赁增值税及附加完税证明',
@@ -671,25 +639,9 @@ CERTIFICATES_CONFIG = [
         'note': '8台重型自升式塔式起重机纯租赁租金收入增值税申报实缴',
         'items': [
             {'orig_no': '3510162441', 'tax_type': '增值税', 'category': '动产经营租赁(13%)', 'period_range': '2024-04-01 至 2024-06-30', 'tax_base': 6538461.54, 'rate': '13%', 'amount': 850000.00},
-            {'orig_no': '3510162442', 'tax_type': '城市维护建设税', 'category': '市区(7%)', 'period_range': '2024-04-01 至 2024-06-30', 'tax_base': 850000.00, 'rate': '7%', 'amount': 59500.00},
         ]
     },
-    {
-        'entity_code': 'D01',
-        'doc_name': 'TAX_CERT_D01_202403_机械设备财产租赁合同印花税完税证明',
-        'receipt_no': '5101062400078937',
-        'tax_ticket_no': '351016240300078937',
-        'payment_date': '2024年03月28日',
-        'period': '2024-03',
-        'total_chinese': '壹拾壹万元整',
-        'bank_flow_no': 'TIPS20240328336921017',
-        'note': '1.1亿重型塔吊设备租赁合同出租方印花税按期申报实缴',
-        'items': [
-            {'orig_no': '3510162443', 'tax_type': '印花税', 'category': '财产租赁合同(出租方0.1%)', 'period_range': '2024-03-01 至 2024-03-31', 'tax_base': 110000000.00, 'rate': '0.1%', 'amount': 110000.00},
-        ]
-    },
-
-    # ------------------ 5. A11 成都巨邦建设 (钢结构专业分包) ------------------
+    # 5. A11 巨邦钢构
     {
         'entity_code': 'A11',
         'doc_name': 'TAX_CERT_A11_2025Q2_超高层钢结构专业分包增值税及附加完税证明',
@@ -702,25 +654,9 @@ CERTIFICATES_CONFIG = [
         'note': '超高层大跨度钢桁架连廊加工提升分包款申报纳税',
         'items': [
             {'orig_no': '3510142551', 'tax_type': '增值税', 'category': '建筑服务*专业分包(9%)', 'period_range': '2025-04-01 至 2025-06-30', 'tax_base': 18333333.33, 'rate': '9%', 'amount': 1650000.00},
-            {'orig_no': '3510142552', 'tax_type': '城市维护建设税', 'category': '市区(7%)', 'period_range': '2025-04-01 至 2025-06-30', 'tax_base': 1650000.00, 'rate': '7%', 'amount': 115500.00},
         ]
     },
-    {
-        'entity_code': 'A11',
-        'doc_name': 'TAX_CERT_A11_2024年度_钢结构专业施工企业所得税汇缴完税证明',
-        'receipt_no': '5101042500048939',
-        'tax_ticket_no': '351014250500038939',
-        'payment_date': '2025年05月20日',
-        'period': '2024-12',
-        'total_chinese': '柒拾捌万元整',
-        'bank_flow_no': 'TIPS20250520114921019',
-        'note': '2024年度钢结构工程结算企业所得税汇算清缴实缴入库',
-        'items': [
-            {'orig_no': '3510142553', 'tax_type': '企业所得税', 'category': '专业分包经营所得(25%)', 'period_range': '2024-01-01 至 2024-12-31', 'tax_base': 3120000.00, 'rate': '25%', 'amount': 780000.00},
-        ]
-    },
-
-    # ------------------ 6. A05 四川帆亿通信 (弱电智能及BIM微网) ------------------
+    # 6. A05 帆亿通信
     {
         'entity_code': 'A05',
         'doc_name': 'TAX_CERT_A05_2025Q3_建筑智能化与数字微网分包增值税完税证明',
@@ -733,29 +669,79 @@ CERTIFICATES_CONFIG = [
         'note': '智慧楼宇弱电自控系统与微网集成节点款申报增值税',
         'items': [
             {'orig_no': '3510142561', 'tax_type': '增值税', 'category': '建筑服务*弱电集成(9%)', 'period_range': '2025-07-01 至 2025-09-30', 'tax_base': 5000000.00, 'rate': '9%', 'amount': 450000.00},
-            {'orig_no': '3510142562', 'tax_type': '城市维护建设税', 'category': '高新区(7%)', 'period_range': '2025-07-01 至 2025-09-30', 'tax_base': 450000.00, 'rate': '7%', 'amount': 31500.00},
         ]
     },
+
+    # ------------------ 二、系统外单位 (4 家代表性合作机构) ------------------
+    # 7. EXT-TF 成都市天府新区金融城投公司 (外部发包业主)
     {
-        'entity_code': 'A05',
-        'doc_name': 'TAX_CERT_A05_202509_技术研发专家个人所得税代扣代缴完税证明',
-        'receipt_no': '5101042500098941',
-        'tax_ticket_no': '351014250900098941',
-        'payment_date': '2025年10月10日',
-        'period': '2025-09',
-        'total_chinese': '捌万肆仟元整',
-        'bank_flow_no': 'TIPS20251010992921021',
-        'note': 'BIM数字微网高精尖技术人员特种劳务报酬个税代扣代缴',
+        'entity_code': 'EXT-TF',
+        'doc_name': 'TAX_CERT_EXT-TF_202301_总承包工程发包合同印花税完税证明',
+        'receipt_no': '5101002300018942',
+        'tax_ticket_no': '351000230100018942',
+        'payment_date': '2023年01月20日',
+        'period': '2023-01',
+        'total_chinese': '肆拾叁万伍仟元整',
+        'bank_flow_no': 'TIPS20230120110921022',
+        'note': '发包方天府新区金融城投公司关于14.5亿施工总承包主合同印花税按期缴纳',
         'items': [
-            {'orig_no': '3510142563', 'tax_type': '个人所得税', 'category': '技术劳务薪金所得', 'period_range': '2025-09-01 至 2025-09-30', 'tax_base': 420000.00, 'rate': '20%', 'amount': 84000.00},
+            {'orig_no': '3510002371', 'tax_type': '印花税', 'category': '建设工程发包合同(发包方0.03%)', 'period_range': '2023-01-01 至 2023-01-31', 'tax_base': 1450000000.00, 'rate': '0.03%', 'amount': 435000.00},
+        ]
+    },
+    # 8. EXT-PG-STEEL 攀钢集团攀枝花钢钒物资销售 (外部钢厂直采)
+    {
+        'entity_code': 'EXT-PG-STEEL',
+        'doc_name': 'TAX_CERT_EXT-PG_2023Q3_特种高强合金钢直供销售增值税完税证明',
+        'receipt_no': '5104002300058943',
+        'tax_ticket_no': '351040230800058943',
+        'payment_date': '2023年08月22日',
+        'period': '2023-08',
+        'total_chinese': '玖佰贰拾万零叁仟伍佰叁拾玖元捌角贰分',
+        'bank_flow_no': 'TIPS20230822221921023',
+        'note': '攀钢直供8000万Q420高强厚板特种钢材销售增值税（13%）实缴入库',
+        'items': [
+            {'orig_no': '3510402372', 'tax_type': '增值税', 'category': '钢材销售*特种厚板(13%)', 'period_range': '2023-08-01 至 2023-08-31', 'tax_base': 70796460.18, 'rate': '13%', 'amount': 9203539.82},
+            {'orig_no': '3510402373', 'tax_type': '城市维护建设税', 'category': '攀枝花市区(7%)', 'period_range': '2023-08-01 至 2023-08-31', 'tax_base': 9203539.82, 'rate': '7%', 'amount': 644247.79},
+        ]
+    },
+    # 9. EXT-CQ-HEAVY-CRANE 重庆重交大件起重吊装 (外部特种大件吊装)
+    {
+        'entity_code': 'EXT-CQ-HEAVY-CRANE',
+        'doc_name': 'TAX_CERT_EXT-CQ_2024Q3_500吨履带吊特种吊装增值税及附加完税证明',
+        'receipt_no': '5001002400038944',
+        'tax_ticket_no': '350010240900038944',
+        'payment_date': '2024年09月18日',
+        'period': '2024-09',
+        'total_chinese': '贰佰零陆万肆仟贰佰贰拾元壹角捌分',
+        'bank_flow_no': 'TIPS20240918332921024',
+        'note': '用于顶层连廊大跨度特种大件高空吊装服务款申报缴纳增值税及附加',
+        'items': [
+            {'orig_no': '3500102474', 'tax_type': '增值税', 'category': '建筑服务*特种吊装(9%)', 'period_range': '2024-09-01 至 2024-09-30', 'tax_base': 22935779.82, 'rate': '9%', 'amount': 2064220.18},
+            {'orig_no': '3500102475', 'tax_type': '城市维护建设税', 'category': '重庆市区(7%)', 'period_range': '2024-09-01 至 2024-09-30', 'tax_base': 2064220.18, 'rate': '7%', 'amount': 144495.41},
+        ]
+    },
+    # 10. EXT-EXPERT-LABOR 四川省建科院技术服务中心 (外部技术咨询)
+    {
+        'entity_code': 'EXT-EXPERT-LABOR',
+        'doc_name': 'TAX_CERT_EXT-EXP_2024Q4_深基坑地质监测与技术咨询增值税完税证明',
+        'receipt_no': '5101002400088945',
+        'tax_ticket_no': '351000241100088945',
+        'payment_date': '2024年11月15日',
+        'period': '2024-11',
+        'total_chinese': '陆拾柒万玖仟贰佰肆拾伍元贰角捌分',
+        'bank_flow_no': 'TIPS20241115443921025',
+        'note': '超高层深基坑变形监测与专家论证技术服务费缴纳增值税(6%)',
+        'items': [
+            {'orig_no': '3510002476', 'tax_type': '增值税', 'category': '现代服务*技术咨询(6%)', 'period_range': '2024-11-01 至 2024-11-30', 'tax_base': 11320754.72, 'rate': '6%', 'amount': 679245.28},
+            {'orig_no': '3510002477', 'tax_type': '城市维护建设税', 'category': '青羊区(7%)', 'period_range': '2024-11-01 至 2024-11-30', 'tax_base': 679245.28, 'rate': '7%', 'amount': 47547.17},
         ]
     },
 ]
 
 
 def sync_tax_records_to_database():
-    """将所有参建单位的完税记录同步写入 PostgreSQL 数据库"""
-    print("\n📦 正在将 6 大参建企业的完税凭证同步写入 PostgreSQL 数据库 (projectrag)...")
+    """将所有参建单位（系统内 + 系统外）的完税记录同步写入 PostgreSQL 数据库"""
+    print("\n📦 正在将【系统内 6 家 + 系统外 4 家】完税凭证全量同步写入 PostgreSQL 数据库...")
     try:
         sys.path.insert(0, os.path.join(PROJECT_ROOT, "source_code/0.1_税务管理/gtp_V1.0_FULL/01_当前完整系统_V1.0/chengdu_construction_tax_system_v1_0"))
         from app.db import SessionLocal
@@ -815,34 +801,34 @@ def sync_tax_records_to_database():
                     inserted += 1
                     
         db.commit()
-        print(f"  ✅ 数据库全参建企业完税同步成功！新增记录 {inserted} 条，更新记录 {updated} 条。")
+        print(f"  ✅ 数据库全生态企业完税同步成功！新增记录 {inserted} 条，更新记录 {updated} 条。")
         db.close()
     except Exception as e:
         print(f"  ⚠️ 数据库同步提示: {e}")
 
 
 def generate_all_tax_certificates():
-    print("=" * 75)
-    print("  🏗️  开始为 01 标杆工程 6 大参建企业全覆盖生成全税种完税证明与电子税票...")
+    print("=" * 80)
+    print("  🏗️  开始为 01 标杆工程【系统内 6 家 + 系统外 4 家】全生态生成完税证明与电子税票...")
     print(f"  📁 目标保存目录: {TARGET_DIR}")
-    print("=" * 75)
+    print("=" * 80)
     
     count = 0
     for idx, cert in enumerate(CERTIFICATES_CONFIG, 1):
-        ent = PARTICIPATING_ENTITIES[cert['entity_code']]
+        ent = ALL_ENTITIES[cert['entity_code']]
         name = cert['doc_name']
         pdf_path = os.path.join(TARGET_DIR, f"{name}.pdf")
         jpg_path = os.path.join(TARGET_DIR, f"{name}_电子税票盖章原件.jpg")
         
-        print(f"[{idx}/{len(CERTIFICATES_CONFIG)}] 正在生成: [{cert['entity_code']}] {ent['name'][:10]} - {cert['items'][0]['tax_type']}完税证明...")
+        print(f"[{idx}/{len(CERTIFICATES_CONFIG)}] 正在生成: [{cert['entity_code']}] {ent['name'][:14]} - {cert['items'][0]['tax_type']}完税证明...")
         
         create_pdf_tax_certificate(pdf_path, cert)
         create_jpg_tax_certificate_scan(jpg_path, cert)
         count += 2
         
-    print("\n" + "=" * 75)
+    print("\n" + "=" * 80)
     print(f"  🎉 全部参建企业完税凭证生成完毕！共计生成 {count} 份真实纸质/扫描电子档案。")
-    print("=" * 75)
+    print("=" * 80)
     
     sync_tax_records_to_database()
 

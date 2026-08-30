@@ -310,7 +310,7 @@ class TaxPaymentRecord(Base):
     project_id: Mapped[int | None] = mapped_column(
         ForeignKey("projects.id"), nullable=True, index=True,
     )
-    entity_code: Mapped[str] = mapped_column(String(16), index=True)
+    entity_code: Mapped[str] = mapped_column(String(32), index=True)
     tax_type: Mapped[str] = mapped_column(String(40), default="", index=True)
     period: Mapped[str] = mapped_column(String(7), default="", index=True)
     # ``tax_period`` and ``transaction_date`` retain the source-document
