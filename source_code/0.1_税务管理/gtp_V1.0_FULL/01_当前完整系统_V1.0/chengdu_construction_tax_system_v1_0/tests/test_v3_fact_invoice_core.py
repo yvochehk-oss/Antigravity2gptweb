@@ -24,7 +24,7 @@ from app.domain.invoice.validation import (
     validate_invoice_values,
 )
 from app.v3_fact_models import Fact, InvoiceFact, InvoiceLine
-from app.v3_party_models import InternalEntity
+from app.v3_party_models import InternalEntity, Party
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -119,6 +119,17 @@ def _internal_party_ids(session: Session) -> tuple[int, int]:
     ids = session.execute(
         select(InternalEntity.party_id).order_by(InternalEntity.party_id).limit(2)
     ).scalars().all()
+    if len(ids) < 2:
+        p1 = Party(code="A08_TEST", name="A08 Corp", short_name="A08", party_type="internal", active=True)
+        p2 = Party(code="B01_TEST", name="B01 Corp", short_name="B01", party_type="internal", active=True)
+        session.add_all([p1, p2])
+        session.flush()
+        session.add_all([
+            InternalEntity(party_id=p1.id, canonical_code="A08", business_role="A", legal_entity=True),
+            InternalEntity(party_id=p2.id, canonical_code="B01", business_role="B", legal_entity=True),
+        ])
+        session.flush()
+        ids = [p1.id, p2.id]
     assert len(ids) == 2
     return int(ids[0]), int(ids[1])
 
