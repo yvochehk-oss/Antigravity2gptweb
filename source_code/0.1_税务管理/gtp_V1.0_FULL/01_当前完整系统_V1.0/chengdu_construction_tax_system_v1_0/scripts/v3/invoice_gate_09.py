@@ -25,6 +25,7 @@ from app.domain.invoice.validation import (  # noqa: E402
 from scripts.v3.invoice_validation import (  # noqa: E402
     EXPECTED_HEAD,
     RESULT_KIND,
+    _allowed_rates,
     _fetch_snapshots,
 )
 
@@ -64,10 +65,17 @@ def run(result_path: str) -> dict[str, Any]:
     result = _read_result(result_path)
     failures: list[str] = []
     selected_ids = sorted({int(value) for value in result.get("selected_ids", [])})
+    rate_rules = result.get("tax_rate_rules")
+    if rate_rules is not None and not isinstance(rate_rules, dict):
+        raise RuntimeError("Task 09 result tax_rate_rules must be an object or null")
+    allowed_rates = _allowed_rates(rate_rules)
     evidence: dict[str, Any] = {
         "selected_ids": selected_ids,
         "selected_count": len(selected_ids),
         "ruleset_version": RULESET_VERSION,
+        "tax_rate_rule_version": (
+            rate_rules.get("rule_version") if isinstance(rate_rules, dict) else None
+        ),
     }
     if not selected_ids:
         return {
@@ -127,7 +135,10 @@ def run(result_path: str) -> dict[str, Any]:
             selected_status_counts = {"VALID": 0, "INVALID": 0, "NEEDS_REVIEW": 0}
             for fact_id in selected_ids:
                 snapshot = by_id[fact_id]
-                decision = evaluate_invoice_evidence(snapshot)
+                decision = evaluate_invoice_evidence(
+                    snapshot,
+                    allowed_tax_rates=allowed_rates,
+                )
                 stored = snapshot.current_validation_status
                 recorded = result_by_id.get(fact_id)
                 if stored != decision.desired_status:
@@ -191,7 +202,13 @@ def run(result_path: str) -> dict[str, Any]:
             invalid_valid_ids: list[int] = []
             for batch in _chunks(valid_ids):
                 for snapshot in _fetch_snapshots(conn, ids=batch):
-                    if evaluate_invoice_evidence(snapshot).desired_status != "VALID":
+                    if (
+                        evaluate_invoice_evidence(
+                            snapshot,
+                            allowed_tax_rates=allowed_rates,
+                        ).desired_status
+                        != "VALID"
+                    ):
                         invalid_valid_ids.append(snapshot.fact_id)
             evidence["globally_invalid_valid_fact_ids"] = invalid_valid_ids
             if invalid_valid_ids:
