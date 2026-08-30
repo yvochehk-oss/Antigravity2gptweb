@@ -10,6 +10,7 @@ ROOT=Path(__file__).resolve().parents[1]; sys.path.insert(0,str(ROOT))
 config=context.config
 if config.config_file_name: fileConfig(config.config_file_name)
 from app import models  # noqa: E402,F401
+from app import v3_party_models  # noqa: E402,F401
 from app.db import Base  # noqa: E402
 url=os.getenv("DATABASE_URL","").strip() or config.get_main_option("sqlalchemy.url").strip()
 if not url: raise RuntimeError("DATABASE_URL is required for Alembic")
