@@ -130,12 +130,31 @@ def run() -> dict[str, Any]:
                             OR src.currency IS DISTINCT FROM dst.currency
                           )
                     """,
+                    "correction_semantic_mismatch_count": """
+                        SELECT count(*)
+                        FROM fact_relationships r
+                        LEFT JOIN invoice_facts src ON src.fact_id=r.source_fact_id
+                        LEFT JOIN invoice_facts dst ON dst.fact_id=r.target_fact_id
+                        WHERE r.relationship_type IN ('REPLACES','CORRECTS')
+                          AND (
+                            src.fact_id IS NULL OR dst.fact_id IS NULL
+                            OR src.seller_party_id IS DISTINCT FROM dst.seller_party_id
+                            OR src.buyer_party_id IS DISTINCT FROM dst.buyer_party_id
+                            OR src.currency IS DISTINCT FROM dst.currency
+                          )
+                    """,
                     "void_semantic_mismatch_count": """
                         SELECT count(*)
                         FROM fact_relationships r
+                        LEFT JOIN facts src_fact ON src_fact.id=r.source_fact_id
                         LEFT JOIN invoice_facts dst ON dst.fact_id=r.target_fact_id
                         WHERE r.relationship_type='VOID_RELATION'
-                          AND (dst.fact_id IS NULL OR dst.invoice_status <> 'VOIDED')
+                          AND (
+                            src_fact.id IS NULL
+                            OR src_fact.fact_type <> 'INVOICE_STATUS_EVENT'
+                            OR dst.fact_id IS NULL
+                            OR dst.invoice_status <> 'VOIDED'
+                          )
                     """,
                     "relationship_cycle_count": """
                         WITH RECURSIVE walk AS (
