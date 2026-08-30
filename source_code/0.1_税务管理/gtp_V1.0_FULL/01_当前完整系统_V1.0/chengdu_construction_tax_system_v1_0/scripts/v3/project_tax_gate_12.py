@@ -64,15 +64,16 @@ def run() -> dict[str, Any]:
             if missing:
                 failures.append(f"missing Task12 tables: {missing}")
 
-            treatment_columns = {
-                row["name"]
-                for row in inspector.get_columns("project_tax_treatments", schema="public")
-            } if "project_tax_treatments" in tables else set()
-            prepayment_columns = {
-                row["name"]
-                for row in inspector.get_columns("tax_prepayment_facts", schema="public")
-            } if "tax_prepayment_facts" in tables else set()
-
+            treatment_columns = (
+                {row["name"] for row in inspector.get_columns("project_tax_treatments", schema="public")}
+                if "project_tax_treatments" in tables
+                else set()
+            )
+            prepayment_columns = (
+                {row["name"] for row in inspector.get_columns("tax_prepayment_facts", schema="public")}
+                if "tax_prepayment_facts" in tables
+                else set()
+            )
             treatment_prohibited = sorted(
                 treatment_columns
                 & {"rate", "prepayment_rate", "cashflow_id", "bank_transaction_id"}
@@ -90,108 +91,84 @@ def run() -> dict[str, Any]:
                 }
             )
             if treatment_prohibited:
-                failures.append(f"project_tax_treatments mixed/prohibited columns: {treatment_prohibited}")
+                failures.append(f"project_tax_treatments prohibited columns: {treatment_prohibited}")
             if prepayment_prohibited:
-                failures.append(f"tax_prepayment_facts mixed/prohibited columns: {prepayment_prohibited}")
+                failures.append(f"tax_prepayment_facts prohibited columns: {prepayment_prohibited}")
 
-            treatment_count = _scalar(conn, "SELECT count(*) FROM project_tax_treatments") if required <= tables else 0
-            prepayment_count = _scalar(conn, "SELECT count(*) FROM tax_prepayment_facts") if required <= tables else 0
-
+            ready = required <= tables
+            treatment_count = _scalar(conn, "SELECT count(*) FROM project_tax_treatments") if ready else 0
+            prepayment_count = _scalar(conn, "SELECT count(*) FROM tax_prepayment_facts") if ready else 0
             wrong_fact_type_count = _scalar(
                 conn,
-                """
-                SELECT count(*)
-                FROM tax_prepayment_facts p
-                JOIN facts f ON f.id=p.fact_id
-                WHERE f.fact_type <> 'TAX_PREPAYMENT'
-                """,
-            ) if required <= tables else 0
-            if wrong_fact_type_count:
-                failures.append(f"TaxPrepayment subtype rows with wrong Fact type: {wrong_fact_type_count}")
-
+                "SELECT count(*) FROM tax_prepayment_facts p JOIN facts f ON f.id=p.fact_id "
+                "WHERE f.fact_type <> 'TAX_PREPAYMENT'",
+            ) if ready else 0
             invalid_period_count = _scalar(
                 conn,
                 "SELECT count(*) FROM tax_prepayment_facts WHERE EXTRACT(DAY FROM tax_period) <> 1",
-            ) if required <= tables else 0
-            if invalid_period_count:
-                failures.append(f"TaxPrepayment rows with non-month-start tax_period: {invalid_period_count}")
-
+            ) if ready else 0
             invalid_sign_count = _scalar(
                 conn,
                 """
-                SELECT count(*)
-                FROM tax_prepayment_facts
+                SELECT count(*) FROM tax_prepayment_facts
                 WHERE (event_type='PREPAYMENT' AND tax_amount <= 0)
                    OR (event_type='REVERSAL' AND tax_amount >= 0)
                    OR (event_type='ADJUSTMENT' AND tax_amount = 0)
                 """,
-            ) if required <= tables else 0
-            if invalid_sign_count:
-                failures.append(f"TaxPrepayment rows with invalid event sign: {invalid_sign_count}")
-
+            ) if ready else 0
             valid_without_treatment_count = _scalar(
                 conn,
                 """
-                SELECT count(*)
-                FROM tax_prepayment_facts p
+                SELECT count(*) FROM tax_prepayment_facts p
                 JOIN facts f ON f.id=p.fact_id
                 WHERE f.validation_status='VALID' AND f.is_current
                   AND p.treatment_id IS NULL
                 """,
-            ) if required <= tables else 0
-            if valid_without_treatment_count:
-                failures.append(
-                    f"current VALID TaxPrepayment Facts without treatment: {valid_without_treatment_count}"
-                )
-
+            ) if ready else 0
             valid_unreviewed_treatment_count = _scalar(
                 conn,
                 """
-                SELECT count(*)
-                FROM tax_prepayment_facts p
+                SELECT count(*) FROM tax_prepayment_facts p
                 JOIN facts f ON f.id=p.fact_id
                 JOIN project_tax_treatments t ON t.id=p.treatment_id
                 WHERE f.validation_status='VALID' AND f.is_current AND NOT t.reviewed
                 """,
-            ) if required <= tables else 0
-            if valid_unreviewed_treatment_count:
-                failures.append(
-                    "current VALID TaxPrepayment Facts linked to unreviewed treatment: "
-                    f"{valid_unreviewed_treatment_count}"
-                )
-
+            ) if ready else 0
             valid_treatment_mismatch_count = _scalar(
                 conn,
                 """
-                SELECT count(*)
-                FROM tax_prepayment_facts p
+                SELECT count(*) FROM tax_prepayment_facts p
                 JOIN facts f ON f.id=p.fact_id
                 JOIN project_tax_treatments t ON t.id=p.treatment_id
                 WHERE f.validation_status='VALID' AND f.is_current
-                  AND (
-                       t.project_id <> p.project_id
+                  AND (t.project_id <> p.project_id
                     OR t.tax_type <> p.tax_type
                     OR t.reporting_party_id <> p.reporting_party_id
                     OR p.tax_event_date < t.effective_from
-                    OR (t.effective_to IS NOT NULL AND p.tax_event_date > t.effective_to)
-                  )
+                    OR (t.effective_to IS NOT NULL AND p.tax_event_date > t.effective_to))
                 """,
-            ) if required <= tables else 0
-            if valid_treatment_mismatch_count:
-                failures.append(
-                    "current VALID TaxPrepayment Facts with mismatched/ineffective treatment: "
-                    f"{valid_treatment_mismatch_count}"
-                )
-
+            ) if ready else 0
             noncurrent_valid_count = _scalar(
                 conn,
                 """
-                SELECT count(*)
-                FROM tax_prepayment_facts p
+                SELECT count(*) FROM tax_prepayment_facts p
                 JOIN facts f ON f.id=p.fact_id
                 WHERE f.validation_status='VALID' AND NOT f.is_current
                 """,
-            ) if required <= tables else 0
+            ) if ready else 0
+
+            blockers = (
+                (wrong_fact_type_count, "TaxPrepayment subtype rows with wrong Fact type"),
+                (invalid_period_count, "TaxPrepayment rows with non-month-start tax_period"),
+                (invalid_sign_count, "TaxPrepayment rows with invalid event sign"),
+                (valid_without_treatment_count, "current VALID TaxPrepayment Facts without treatment"),
+                (valid_unreviewed_treatment_count, "current VALID TaxPrepayment Facts linked to unreviewed treatment"),
+                (valid_treatment_mismatch_count, "current VALID TaxPrepayment Facts with mismatched/ineffective treatment"),
+                (noncurrent_valid_count, "non-current TaxPrepayment Facts still marked VALID"),
+            )
+            for count, label in blockers:
+                if count:
+                    failures.append(f"{label}: {count}")
 
             evidence = {
                 "database": make_url(database_url).database,
@@ -212,12 +189,7 @@ def run() -> dict[str, Any]:
         finally:
             conn.exec_driver_sql("ROLLBACK")
     engine.dispose()
-
-    return {
-        "status": "PASS" if not failures else "FAIL",
-        "failures": failures,
-        "evidence": evidence,
-    }
+    return {"status": "PASS" if not failures else "FAIL", "failures": failures, "evidence": evidence}
 
 
 def main() -> int:
