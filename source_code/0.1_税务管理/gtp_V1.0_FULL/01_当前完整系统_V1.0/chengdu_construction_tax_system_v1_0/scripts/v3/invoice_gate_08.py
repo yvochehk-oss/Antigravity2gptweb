@@ -78,6 +78,8 @@ def run(result_path: str) -> dict[str, Any]:
     }
     if not selected_ids:
         return {"status": "FAIL", "failures": ["result selected_ids is empty"], "evidence": evidence}
+    if len(selected_ids) > 500:
+        failures.append(f"pilot exceeds small-batch hard ceiling: selected={len(selected_ids)} > 500")
 
     engine = create_engine(_database_url(), future=True, pool_pre_ping=True)
     with engine.connect() as conn:
@@ -230,9 +232,12 @@ def run(result_path: str) -> dict[str, Any]:
                     fact_row = conn.execute(
                         text(
                             """
-                            SELECT f.fact_type, f.validation_status, i.invoice_identity_version,
-                                   i.seller_party_id, i.buyer_party_id,
-                                   i.net_amount, i.vat_amount, i.gross_amount
+                            SELECT f.fact_type, f.validation_status,
+                                   i.invoice_identity_version, i.invoice_status,
+                                   i.document_type, i.seller_party_id, i.buyer_party_id,
+                                   i.net_amount, i.vat_amount, i.gross_amount,
+                                   (SELECT count(*) FROM invoice_lines l
+                                    WHERE l.invoice_fact_id=i.fact_id) AS line_count
                             FROM facts f
                             JOIN invoice_facts i ON i.fact_id=f.id
                             WHERE f.id=:fact_id
@@ -254,13 +259,27 @@ def run(result_path: str) -> dict[str, Any]:
                             failures.append(
                                 f"Fact {fact_id} does not use migration-only identity version"
                             )
+                        if fact_row["invoice_status"] is not None:
+                            failures.append(
+                                f"Task 08 Fact {fact_id} must not invent invoice_status"
+                            )
+                        if fact_row["document_type"] != "LEGACY_LEDGER_MIGRATION":
+                            failures.append(
+                                f"Task 08 Fact {fact_id} has unexpected document_type"
+                            )
+                        if int(fact_row["line_count"] or 0):
+                            failures.append(
+                                f"Task 08 Fact {fact_id} must not synthesize invoice_lines"
+                            )
                         seller = action.get("seller_party_id")
                         buyer = action.get("buyer_party_id")
-                        if int(fact_row["seller_party_id"]) != int(seller):
+                        db_seller = fact_row["seller_party_id"]
+                        db_buyer = fact_row["buyer_party_id"]
+                        if seller is None or db_seller is None or int(db_seller) != int(seller):
                             failures.append(f"Fact {fact_id} seller_party_id mismatch")
-                        if int(fact_row["buyer_party_id"]) != int(buyer):
+                        if buyer is None or db_buyer is None or int(db_buyer) != int(buyer):
                             failures.append(f"Fact {fact_id} buyer_party_id mismatch")
-                        if ids and ids[0] in legacy_rows:
+                        if ids and min(ids) in legacy_rows:
                             source = legacy_rows[min(ids)]
                             net = _money(source["net"])
                             vat = _money(source["vat"])
@@ -283,6 +302,23 @@ def run(result_path: str) -> dict[str, Any]:
                 failures.append(
                     f"created_fact_ids mismatch: result={sorted(result_fact_ids)} "
                     f"actions={sorted(expected_fact_ids)}"
+                )
+
+            all_migration_fact_ids = {
+                int(row[0])
+                for row in conn.execute(
+                    text(
+                        "SELECT fact_id FROM invoice_facts "
+                        "WHERE invoice_identity_version=:version"
+                    ),
+                    {"version": MIGRATION_IDENTITY_VERSION},
+                )
+            }
+            evidence["all_task08_migration_fact_ids"] = sorted(all_migration_fact_ids)
+            if all_migration_fact_ids != expected_fact_ids:
+                failures.append(
+                    "migration-only InvoiceFacts exist outside the recorded Task 08 result: "
+                    f"db={sorted(all_migration_fact_ids)} result={sorted(expected_fact_ids)}"
                 )
 
             bridge_stmt = text(
