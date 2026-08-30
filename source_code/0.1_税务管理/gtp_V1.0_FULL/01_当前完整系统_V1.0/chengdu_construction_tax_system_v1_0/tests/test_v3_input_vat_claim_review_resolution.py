@@ -21,52 +21,26 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def _legacy_claim(session: Session) -> InputVatClaim:
     suffix = uuid4().hex[:8]
-    buyer = Party(
-        code=f"T14C-B-{suffix}",
-        name=f"Task14c Buyer {suffix}",
-        short_name="T14CB",
-        party_type="internal",
-        active=True,
-    )
-    seller = Party(
-        code=f"T14C-S-{suffix}",
-        name=f"Task14c Seller {suffix}",
-        short_name="T14CS",
-        party_type="external",
-        active=True,
-    )
+    buyer = Party(code=f"T14C-B-{suffix}", name=f"Task14c Buyer {suffix}", short_name="T14CB", party_type="internal", active=True)
+    seller = Party(code=f"T14C-S-{suffix}", name=f"Task14c Seller {suffix}", short_name="T14CS", party_type="external", active=True)
     session.add_all([buyer, seller])
     session.flush()
-    session.add(
-        InternalEntity(
-            party_id=buyer.id,
-            canonical_code=f"C{suffix[:7]}".upper(),
-            business_role="A",
-            legal_entity=True,
-            active=True,
-        )
-    )
-    fact = Fact(
-        fact_type="INVOICE",
-        business_identity_key=f"INVOICE|LEGACY_MIGRATION_V1|T14C-{suffix}",
-        validation_status="NEEDS_REVIEW",
-    )
+    session.add(InternalEntity(party_id=buyer.id, canonical_code=f"C{suffix[:7]}".upper(), business_role="A", legal_entity=True, active=True))
+    fact = Fact(fact_type="INVOICE", business_identity_key=f"INVOICE|LEGACY_MIGRATION_V1|T14C-{suffix}", validation_status="NEEDS_REVIEW")
     session.add(fact)
     session.flush()
-    session.add(
-        InvoiceFact(
-            fact_id=fact.id,
-            seller_party_id=seller.id,
-            buyer_party_id=buyer.id,
-            invoice_identity_key=f"LEGACY_MIGRATION_V1|T14C-{suffix}",
-            invoice_identity_version="LEGACY_MIGRATION_V1",
-            invoice_number=f"T14C-{suffix}",
-            gross_amount=Decimal("113.00"),
-            net_amount=Decimal("100.00"),
-            vat_amount=Decimal("13.00"),
-            currency="CNY",
-        )
-    )
+    session.add(InvoiceFact(
+        fact_id=fact.id,
+        seller_party_id=seller.id,
+        buyer_party_id=buyer.id,
+        invoice_identity_key=f"LEGACY_MIGRATION_V1|T14C-{suffix}",
+        invoice_identity_version="LEGACY_MIGRATION_V1",
+        invoice_number=f"T14C-{suffix}",
+        gross_amount=Decimal("113.00"),
+        net_amount=Decimal("100.00"),
+        vat_amount=Decimal("13.00"),
+        currency="CNY",
+    ))
     session.flush()
     claim = InputVatClaim(
         invoice_fact_id=fact.id,
@@ -88,9 +62,9 @@ def _legacy_claim(session: Session) -> InputVatClaim:
 def test_revision_86_is_additive_and_keeps_legacy_confirmation_blocked():
     migration = (ROOT / "alembic" / "versions" / "86_v3_input_vat_claim_review_resolution.py").read_text(encoding="utf-8")
     assert 'down_revision = "85_v3_vat_output_period_assertions"' in migration
-    assert "REJECTED" in migration
-    assert "SUPERSEDED" in migration
-    assert "CONFIRMED" not in migration.split("ck_input_vat_claims_legacy_assumption_fail_closed", 1)[1].split(")\n    op.create_check_constraint", 1)[0]
+    assert "claim_status IN ('NEEDS_REVIEW','REJECTED','SUPERSEDED')" in migration
+    assert "ck_input_vat_claims_resolution_reviewed" in migration
+    assert "claim_status IN ('NEEDS_REVIEW','REJECTED','SUPERSEDED','CONFIRMED')" not in migration
 
 
 def test_postgresql_reviewed_legacy_assumption_can_be_rejected(seeded_app):
@@ -149,13 +123,12 @@ def test_review_workflow_reject_plan_and_apply_is_atomic(seeded_app):
         session = Session(bind=conn, expire_on_commit=False)
         try:
             claim = _legacy_claim(session)
-            reviewed_at = datetime.now(timezone.utc).isoformat()
             manifest = {
                 "kind": "V3_TASK14C_INPUT_VAT_CLAIM_REVIEW",
                 "version": 1,
                 "reviewed": True,
                 "reviewed_by": "pytest",
-                "reviewed_at": reviewed_at,
+                "reviewed_at": datetime.now(timezone.utc).isoformat(),
                 "legacy_claim_id": claim.id,
                 "action": "REJECT",
                 "reason": "reviewed source evidence says claim is not deductible",
