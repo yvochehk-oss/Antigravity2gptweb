@@ -15,8 +15,10 @@ from app.v3_fact_models import Fact, InvoiceFact
 from app.v3_party_models import InternalEntity, Party
 from app.v3_period_models import CalculationRun, TaxPeriodState
 from app.v3_vat_ledger_models import EntityVatLedger, OutputVatEvent, VatOpeningBalanceSeed
-from scripts.v3.entity_vat_ledger import build_one
+from app.v3_vat_review_models import VatOutputPeriodAssertion
+from scripts.v3 import entity_vat_ledger_85 as ledger85
 
+build_one = ledger85.base.build_one
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -179,6 +181,7 @@ def test_postgresql_two_month_ledger_credit_continuity(seeded_app):
         session = Session(bind=conn, expire_on_commit=False)
         try:
             entity, _, invoice = _create_output_context(session, "FLOW")
+            reviewed_at = datetime.now(timezone.utc)
             session.add(
                 VatOpeningBalanceSeed(
                     reporting_party_id=entity.party_id,
@@ -187,7 +190,7 @@ def test_postgresql_two_month_ledger_credit_continuity(seeded_app):
                     source="pytest reviewed opening",
                     reviewed=True,
                     reviewed_by="pytest",
-                    reviewed_at=datetime.now(timezone.utc),
+                    reviewed_at=reviewed_at,
                 )
             )
             session.add(
@@ -201,10 +204,32 @@ def test_postgresql_two_month_ledger_credit_continuity(seeded_app):
                     evidence_type="MANUAL_REVIEW",
                     confidence="HIGH",
                     reviewed_by="pytest",
-                    reviewed_at=datetime.now(timezone.utc),
+                    reviewed_at=reviewed_at,
                     source_system="pytest",
                     external_event_id="T14-FLOW-OUTPUT",
                 )
+            )
+            session.add_all(
+                [
+                    VatOutputPeriodAssertion(
+                        reporting_party_id=entity.party_id,
+                        tax_period=date(2026, 2, 1),
+                        asserted_output_vat_total=Decimal("13.00"),
+                        source="pytest reviewed complete output VAT total",
+                        reviewed=True,
+                        reviewed_by="pytest",
+                        reviewed_at=reviewed_at,
+                    ),
+                    VatOutputPeriodAssertion(
+                        reporting_party_id=entity.party_id,
+                        tax_period=date(2026, 3, 1),
+                        asserted_output_vat_total=Decimal("0.00"),
+                        source="pytest reviewed zero Output VAT month",
+                        reviewed=True,
+                        reviewed_by="pytest",
+                        reviewed_at=reviewed_at,
+                    ),
+                ]
             )
             session.flush()
 
@@ -228,6 +253,7 @@ def test_postgresql_two_month_ledger_credit_continuity(seeded_app):
             )
             second_ledger = session.get(EntityVatLedger, second["ledger_id"])
             assert second_ledger.opening_input_credit == Decimal("7.00")
+            assert second_ledger.output_vat == Decimal("0.00")
             assert second_ledger.closing_input_credit == Decimal("7.00")
 
             first_state = session.query(TaxPeriodState).filter_by(
