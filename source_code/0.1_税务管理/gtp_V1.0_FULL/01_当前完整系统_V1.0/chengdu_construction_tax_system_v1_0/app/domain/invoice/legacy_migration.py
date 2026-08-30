@@ -220,19 +220,26 @@ def plan_pilot(
                     reason=error or "UNRESOLVED",
                 )
             )
+        elif not normalize_text(row.invoice_no):
+            review_actions.append(
+                PilotAction(
+                    action="REVIEW_ONLY",
+                    legacy_ids=(row.id,),
+                    migration_status="NEEDS_REVIEW",
+                    reason="MISSING_INVOICE_NUMBER",
+                )
+            )
         else:
             resolved.append(item)
 
     groups: dict[tuple[object, ...], list[ResolvedLegacyInvoice]] = {}
-    blank_number: list[ResolvedLegacyInvoice] = []
     for item in resolved:
         key = _coarse_key(item)
         if key is None:
-            blank_number.append(item)
-        else:
-            groups.setdefault(key, []).append(item)
+            raise AssertionError("resolved rows with invoice number must have a coarse key")
+        groups.setdefault(key, []).append(item)
 
-    actions: list[PilotAction] = review_actions + [_single_action(item) for item in blank_number]
+    actions: list[PilotAction] = list(review_actions)
 
     for _, members in sorted(groups.items(), key=lambda pair: repr(pair[0])):
         members = sorted(members, key=lambda item: item.row.id)
