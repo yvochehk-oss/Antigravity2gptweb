@@ -5,13 +5,17 @@ PLAN mode is read-only. APPLY requires the exact saved plan and exact database
 name confirmation. No invoice business values are edited: Task 09 only updates
 ``facts.validation_status`` according to deterministic stored evidence and
 records an audit log.
+
+Tax rates are never hard-coded. A reviewed/versioned rate manifest may be bound
+to the plan; without one, any Fact containing invoice lines remains
+``NEEDS_REVIEW`` rather than being promoted without rule evidence.
 """
 from __future__ import annotations
 
 import argparse
 from dataclasses import asdict
 from datetime import date, datetime, timezone
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 import hashlib
 import json
 import os
@@ -37,6 +41,7 @@ PLAN_KIND = "V3_TASK09_INVOICE_VALIDATION_PLAN"
 RESULT_KIND = "V3_TASK09_INVOICE_VALIDATION_RESULT"
 EXPECTED_HEAD = "79_v3_legacy_invoice_pilot_bridge"
 MAX_SELECTION = 1000
+RATE_RULES_KIND = "V3_INVOICE_TAX_RATE_RULES"
 
 
 def _database_url() -> str:
@@ -81,6 +86,54 @@ def _require_expected_head(conn) -> None:
         )
 
 
+def _canonical_rate(value: Any) -> str:
+    try:
+        rate = Decimal(str(value))
+    except (InvalidOperation, ValueError) as exc:
+        raise ValueError(f"invalid tax rate {value!r}") from exc
+    if rate < 0 or rate > 1:
+        raise ValueError(f"tax rate must be between 0 and 1: {value!r}")
+    normalized = format(rate.normalize(), "f")
+    return "0" if normalized in {"-0", ""} else normalized
+
+
+def load_rate_rules(path: str | Path | None) -> dict[str, Any] | None:
+    """Load a human-reviewed, versioned allowed-rate manifest."""
+    if path is None:
+        return None
+    payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("rate-rules manifest must be a JSON object")
+    if payload.get("kind") != RATE_RULES_KIND or int(payload.get("version", 0)) != 1:
+        raise ValueError(f"rate-rules manifest must be {RATE_RULES_KIND} version 1")
+    if payload.get("reviewed") is not True:
+        raise ValueError("rate-rules manifest must have reviewed=true")
+    rule_version = str(payload.get("rule_version") or "").strip()
+    reviewed_by = str(payload.get("reviewed_by") or "").strip()
+    source = str(payload.get("source") or "").strip()
+    if not rule_version or not reviewed_by or not source:
+        raise ValueError("rate-rules manifest requires rule_version, reviewed_by and source")
+    raw_rates = payload.get("allowed_tax_rates")
+    if not isinstance(raw_rates, list):
+        raise ValueError("rate-rules manifest requires allowed_tax_rates[]")
+    rates = sorted({_canonical_rate(value) for value in raw_rates}, key=Decimal)
+    return {
+        "kind": RATE_RULES_KIND,
+        "version": 1,
+        "rule_version": rule_version,
+        "reviewed": True,
+        "reviewed_by": reviewed_by,
+        "source": source,
+        "allowed_tax_rates": rates,
+    }
+
+
+def _allowed_rates(rate_rules: dict[str, Any] | None) -> tuple[Decimal, ...] | None:
+    if rate_rules is None:
+        return None
+    return tuple(Decimal(value) for value in rate_rules.get("allowed_tax_rates", []))
+
+
 def _snapshot_sql() -> str:
     return """
         WITH line_stats AS (
@@ -89,21 +142,30 @@ def _snapshot_sql() -> str:
                    count(*) FILTER (
                        WHERE net_amount IS NULL OR vat_amount IS NULL
                    )::int AS incomplete_line_count,
+                   count(*) FILTER (WHERE tax_rate IS NULL)::int
+                       AS line_missing_tax_rate_count,
+                   array_remove(array_agg(DISTINCT tax_rate ORDER BY tax_rate), NULL)
+                       AS line_tax_rates,
                    sum(net_amount) AS line_net_sum,
                    sum(vat_amount) AS line_vat_sum
             FROM invoice_lines
             GROUP BY invoice_fact_id
         ),
         provenance_stats AS (
-            SELECT fact_id,
+            SELECT p.fact_id,
                    count(*)::int AS provenance_count,
-                   count(*) FILTER (WHERE document_id IS NOT NULL)::int
-                       AS document_provenance_count
-            FROM fact_provenance
-            GROUP BY fact_id
+                   count(*) FILTER (WHERE p.document_id IS NOT NULL)::int
+                       AS document_provenance_count,
+                   count(*) FILTER (WHERE d.status='VALIDATED')::int
+                       AS validated_document_provenance_count
+            FROM fact_provenance p
+            LEFT JOIN source_documents d ON d.id=p.document_id
+            GROUP BY p.fact_id
         ),
         seller_tax AS (
-            SELECT party_id, count(*)::int AS seller_tax_identifier_count
+            SELECT party_id,
+                   count(*)::int AS seller_tax_identifier_count,
+                   min(identifier_value) AS seller_tax_identifier_value
             FROM party_identifiers
             WHERE active
               AND identifier_type='TAX_REGISTRATION_ID'
@@ -112,6 +174,7 @@ def _snapshot_sql() -> str:
         )
         SELECT f.id AS fact_id,
                f.validation_status AS current_validation_status,
+               f.business_identity_key,
                i.invoice_identity_key,
                i.invoice_identity_version,
                i.invoice_number,
@@ -126,11 +189,16 @@ def _snapshot_sql() -> str:
                i.currency,
                COALESCE(ls.line_count, 0) AS line_count,
                COALESCE(ls.incomplete_line_count, 0) AS incomplete_line_count,
+               COALESCE(ls.line_missing_tax_rate_count, 0) AS line_missing_tax_rate_count,
+               COALESCE(ls.line_tax_rates, ARRAY[]::numeric[]) AS line_tax_rates,
                ls.line_net_sum,
                ls.line_vat_sum,
                COALESCE(ps.provenance_count, 0) AS provenance_count,
                COALESCE(ps.document_provenance_count, 0) AS document_provenance_count,
+               COALESCE(ps.validated_document_provenance_count, 0)
+                   AS validated_document_provenance_count,
                COALESCE(st.seller_tax_identifier_count, 0) AS seller_tax_identifier_count,
+               st.seller_tax_identifier_value,
                (
                    SELECT count(*)::int
                    FROM fact_relationships r
@@ -158,6 +226,7 @@ def _snapshot(mapping: dict[str, Any]) -> InvoiceEvidenceSnapshot:
     return InvoiceEvidenceSnapshot(
         fact_id=int(mapping["fact_id"]),
         current_validation_status=str(mapping["current_validation_status"]),
+        business_identity_key=str(mapping.get("business_identity_key") or ""),
         invoice_identity_key=str(mapping.get("invoice_identity_key") or ""),
         invoice_identity_version=str(mapping.get("invoice_identity_version") or ""),
         invoice_number=str(mapping.get("invoice_number") or ""),
@@ -172,11 +241,21 @@ def _snapshot(mapping: dict[str, Any]) -> InvoiceEvidenceSnapshot:
         currency=str(mapping.get("currency") or ""),
         line_count=int(mapping.get("line_count") or 0),
         incomplete_line_count=int(mapping.get("incomplete_line_count") or 0),
+        line_missing_tax_rate_count=int(mapping.get("line_missing_tax_rate_count") or 0),
+        line_tax_rates=tuple(Decimal(value) for value in (mapping.get("line_tax_rates") or ())),
         line_net_sum=(Decimal(mapping["line_net_sum"]) if mapping.get("line_net_sum") is not None else None),
         line_vat_sum=(Decimal(mapping["line_vat_sum"]) if mapping.get("line_vat_sum") is not None else None),
         provenance_count=int(mapping.get("provenance_count") or 0),
         document_provenance_count=int(mapping.get("document_provenance_count") or 0),
+        validated_document_provenance_count=int(
+            mapping.get("validated_document_provenance_count") or 0
+        ),
         seller_tax_identifier_count=int(mapping.get("seller_tax_identifier_count") or 0),
+        seller_tax_identifier_value=(
+            str(mapping["seller_tax_identifier_value"])
+            if mapping.get("seller_tax_identifier_value") is not None
+            else None
+        ),
         reversal_relation_count=int(mapping.get("reversal_relation_count") or 0),
         void_relation_count=int(mapping.get("void_relation_count") or 0),
     )
@@ -232,10 +311,14 @@ def _jsonable(value: Any) -> Any:
     return value
 
 
-def _canonical_plan(snapshots: list[InvoiceEvidenceSnapshot]) -> dict[str, Any]:
+def _canonical_plan(
+    snapshots: list[InvoiceEvidenceSnapshot],
+    rate_rules: dict[str, Any] | None,
+) -> dict[str, Any]:
+    rates = _allowed_rates(rate_rules)
     items: list[dict[str, Any]] = []
     for snapshot in sorted(snapshots, key=lambda item: item.fact_id):
-        decision = evaluate_invoice_evidence(snapshot)
+        decision = evaluate_invoice_evidence(snapshot, allowed_tax_rates=rates)
         items.append(
             {
                 "fact_id": snapshot.fact_id,
@@ -246,6 +329,7 @@ def _canonical_plan(snapshots: list[InvoiceEvidenceSnapshot]) -> dict[str, Any]:
     return {
         "version": 1,
         "ruleset_version": RULESET_VERSION,
+        "tax_rate_rules": rate_rules,
         "selected_ids": [item["fact_id"] for item in items],
         "items": items,
     }
@@ -256,10 +340,15 @@ def _digest(plan: dict[str, Any]) -> str:
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
-def _build_wrapper(conn, snapshots: list[InvoiceEvidenceSnapshot]) -> dict[str, Any]:
+def _build_wrapper(
+    conn,
+    snapshots: list[InvoiceEvidenceSnapshot],
+    *,
+    rate_rules: dict[str, Any] | None,
+) -> dict[str, Any]:
     if not snapshots:
         raise RuntimeError("no current DRAFT/NEEDS_REVIEW Invoice Facts selected")
-    plan = _canonical_plan(snapshots)
+    plan = _canonical_plan(snapshots, rate_rules)
     return {
         "kind": PLAN_KIND,
         "version": 1,
@@ -290,8 +379,11 @@ def _rebuild_saved_plan(conn, wrapper: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(plan, dict):
         raise RuntimeError("Task 09 plan payload missing")
     ids = [int(value) for value in plan.get("selected_ids", [])]
+    rate_rules = plan.get("tax_rate_rules")
+    if rate_rules is not None and not isinstance(rate_rules, dict):
+        raise RuntimeError("Task 09 plan tax_rate_rules must be an object or null")
     snapshots = _fetch_snapshots(conn, ids=ids)
-    return _build_wrapper(conn, snapshots)
+    return _build_wrapper(conn, snapshots, rate_rules=rate_rules)
 
 
 def _apply(conn, wrapper: dict[str, Any]) -> dict[str, Any]:
@@ -343,6 +435,11 @@ def _apply(conn, wrapper: dict[str, Any]) -> dict[str, Any]:
                 "message": json.dumps(
                     {
                         "ruleset_version": RULESET_VERSION,
+                        "tax_rate_rule_version": (
+                            plan["tax_rate_rules"]["rule_version"]
+                            if plan.get("tax_rate_rules")
+                            else None
+                        ),
                         "before": before,
                         "after": after,
                         "finding_codes": finding_codes,
@@ -369,6 +466,7 @@ def _apply(conn, wrapper: dict[str, Any]) -> dict[str, Any]:
         "database": _current_database(conn),
         "alembic_head": EXPECTED_HEAD,
         "ruleset_version": RULESET_VERSION,
+        "tax_rate_rules": plan.get("tax_rate_rules"),
         "plan_digest": wrapper["plan_digest"],
         "selected_ids": [int(value) for value in plan["selected_ids"]],
         "selected_count": len(plan["selected_ids"]),
@@ -386,6 +484,10 @@ def main() -> int:
         action="store_true",
         help="select all current DRAFT/NEEDS_REVIEW Invoice Facts (max 1000)",
     )
+    parser.add_argument(
+        "--rate-rules",
+        help="optional reviewed/versioned tax-rate manifest; PLAN mode only",
+    )
     parser.add_argument("--plan", help="saved PLAN JSON; required for --apply")
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--confirm-database")
@@ -398,6 +500,7 @@ def main() -> int:
             raise SystemExit("--plan is only used with --apply")
         if not args.ids and not args.all_review:
             raise SystemExit("PLAN mode requires --ids or --all-review")
+        rate_rules = load_rate_rules(args.rate_rules)
         with engine.connect() as conn:
             conn.exec_driver_sql("BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
             try:
@@ -407,7 +510,7 @@ def main() -> int:
                     snapshots = _fetch_snapshots(conn, ids=ids)
                 else:
                     snapshots = _fetch_snapshots(conn, all_review=True)
-                payload = _build_wrapper(conn, snapshots)
+                payload = _build_wrapper(conn, snapshots, rate_rules=rate_rules)
             finally:
                 conn.rollback()
         engine.dispose()
@@ -418,8 +521,10 @@ def main() -> int:
         raise SystemExit("--apply requires --plan <saved-plan.json>")
     if not args.confirm_database:
         raise SystemExit("--apply requires --confirm-database <exact current_database()>")
-    if args.ids or args.all_review:
-        raise SystemExit("--apply uses the exact saved plan; do not pass selection arguments")
+    if args.ids or args.all_review or args.rate_rules:
+        raise SystemExit(
+            "--apply uses the exact saved plan; do not pass selection or rate-rule arguments"
+        )
 
     wrapper = _read_json(args.plan)
     with engine.begin() as conn:
