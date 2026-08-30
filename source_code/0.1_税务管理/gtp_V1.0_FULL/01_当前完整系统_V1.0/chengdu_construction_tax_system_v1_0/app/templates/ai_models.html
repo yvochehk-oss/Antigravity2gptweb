@@ -26,10 +26,10 @@
 
 <div class="card">
 <table>
-<thead><tr><th>#</th><th>组内顺序</th><th>名称</th><th>适配器</th><th>模型</th><th>凭证状态</th><th>路由组</th><th>启用</th><th>操作</th></tr></thead>
+<thead><tr><th>#</th><th>组内顺序</th><th>名称</th><th>适配器</th><th>模型</th><th>凭证状态</th><th>路由组</th><th>启用状态</th></tr></thead>
 <tbody>
 {% for r in rows %}
-<tr>
+<tr style="border-bottom:none;">
 <td>{{ r.id }}</td>
 <td><strong>顺序 {{ display_order.get(r.id, '—') }}</strong></td>
 <td><strong>{{ r.name }}</strong></td>
@@ -38,64 +38,76 @@
 <td><span class="tag {% if credential_status.get(r.id) == '已配置' or credential_status.get(r.id) == '未配置（本地服务）' %}green{% else %}gray{% endif %}">{{ credential_status.get(r.id, '未知') }}</span></td>
 <td>{{ r.routing_group|default('default', true) }}</td>
 <td><span class="tag {% if r.enabled %}green{% else %}gray{% endif %}">{{ "✓ 启用" if r.enabled else "✗ 禁用" }}</span></td>
-<td>
-  <details>
-    <summary>管理</summary>
+</tr>
+<tr style="background:#f8fafc; border-bottom:2px solid #e2e8f0;">
+<td style="border-top:none;"></td>
+<td colspan="7" style="border-top:none; padding:10px 14px;">
+  <!-- 端点管理操作栏：排成一排 -->
+  <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:8px;">
+    <span style="font-size:13px; font-weight:600; color:#475569; margin-right:4px;">🎮 端点管理：</span>
+    
     <form method="post" action="/ai-models/{{ r.id }}/move" class="inline">
       <input type="hidden" name="_csrf" value="{{ csrf_token }}">
       <input type="hidden" name="direction" value="up">
-      <button type="submit" class="secondary" {% if not can_move_up.get(r.id) %}disabled{% endif %}>↑ 上移</button>
+      <button type="submit" class="btn-secondary btn-sm" {% if not can_move_up.get(r.id) %}disabled style="opacity:0.4;cursor:not-allowed;"{% endif %}>↑ 上移</button>
     </form>
+
     <form method="post" action="/ai-models/{{ r.id }}/move" class="inline">
       <input type="hidden" name="_csrf" value="{{ csrf_token }}">
       <input type="hidden" name="direction" value="down">
-      <button type="submit" class="secondary" {% if not can_move_down.get(r.id) %}disabled{% endif %}>↓ 下移</button>
+      <button type="submit" class="btn-secondary btn-sm" {% if not can_move_down.get(r.id) %}disabled style="opacity:0.4;cursor:not-allowed;"{% endif %}>↓ 下移</button>
     </form>
-    <form method="post" action="/ai-models/{{ r.id }}/rotate" class="inline" autocomplete="off">
-      <input type="hidden" name="_csrf" value="{{ csrf_token }}">
-      <input name="api_key" type="password" placeholder="新 API Key" maxlength="65536" autocomplete="new-password" required>
-      <button type="submit" class="secondary">轮换凭证</button>
-    </form>
-    <form method="post" action="/ai-models/{{ r.id }}/test" class="inline">
-      <input type="hidden" name="_csrf" value="{{ csrf_token }}">
-      <button type="submit" class="secondary">测试连接</button>
-    </form>
+
     <form method="post" action="/ai-models/{{ r.id }}/toggle" class="inline">
       <input type="hidden" name="_csrf" value="{{ csrf_token }}">
-      <button type="submit" class="secondary">{{ "禁用" if r.enabled else "启用" }}</button>
+      <button type="submit" class="btn-sm {% if r.enabled %}btn-secondary{% else %}btn-primary{% endif %}">
+        {{ "⏸ 禁用" if r.enabled else "▶ 启用" }}
+      </button>
     </form>
+
+    <form method="post" action="/ai-models/{{ r.id }}/test" class="inline">
+      <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+      <button type="submit" class="btn-primary btn-sm" style="background:#0284c7;">⚡ 测试连接</button>
+    </form>
+
+    <form method="post" action="/ai-models/{{ r.id }}/rotate" class="inline" autocomplete="off" style="display:inline-flex; align-items:center; gap:4px;">
+      <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+      <input name="api_key" type="password" placeholder="新 API Key" maxlength="65536" autocomplete="new-password" required style="width:140px; padding:4px 8px; font-size:12px;">
+      <button type="submit" class="btn-secondary btn-sm">🔑 轮换凭证</button>
+    </form>
+
     <form method="post" action="/ai-models/{{ r.id }}/revoke" class="inline">
       <input type="hidden" name="_csrf" value="{{ csrf_token }}">
-      <button type="submit" class="secondary">撤销凭证</button>
+      <button type="submit" class="btn-secondary btn-sm">🚫 撤销凭证</button>
     </form>
-    <form method="post" action="/ai-models/{{ r.id }}/delete" class="inline">
+
+    <form method="post" action="/ai-models/{{ r.id }}/delete" class="inline" onsubmit="return confirm('确认删除该模型端点吗？');">
       <input type="hidden" name="_csrf" value="{{ csrf_token }}">
-      <button type="submit" class="secondary">删除端点</button>
+      <button type="submit" class="btn-danger btn-sm">🗑 删除端点</button>
     </form>
-  </details>
-</td>
-</tr>
-<tr>
-<td></td><td colspan="8">
-  <details><summary>编辑连接参数</summary>
-  <form method="post" action="/ai-models/{{ r.id }}/update" class="row" autocomplete="off">
-    <input type="hidden" name="_csrf" value="{{ csrf_token }}">
-    <input name="name" value="{{ r.name }}" maxlength="100" required>
-    <select name="adapter">
-      <option value="openai_compatible" {% if r.adapter == 'openai_compatible' %}selected{% endif %}>OpenAI 兼容接口</option>
-      <option value="openrouter" {% if r.adapter == 'openrouter' %}selected{% endif %}>OpenRouter</option>
-    </select>
-    <input name="base_url" value="{{ r.base_url }}" maxlength="300" required>
-    <input name="chat_path" value="{{ r.chat_path }}" maxlength="200" required>
-    <input name="model" value="{{ r.model }}" maxlength="120" required>
-    <input name="api_key" type="password" placeholder="留空保持现有凭证" maxlength="65536" autocomplete="new-password">
-    <input name="api_key_env" value="{{ r.api_key_env }}" placeholder="环境变量名（不换 Key 时保留）" maxlength="120" autocomplete="off">
-    <input name="timeout_seconds" type="number" min="1" max="600" value="{{ r.timeout_seconds }}">
-    <input name="routing_group" value="{{ r.routing_group|default('default', true) }}" maxlength="80">
-    <input name="note" value="{{ r.note }}" maxlength="300">
-    <button type="submit">保存参数</button>
-  </form>
-  <p class="muted">当前组内顺序：{{ display_order.get(r.id, '—') }}。顺序请使用上方“上移/下移”；修改路由组后端点会追加到新组末尾。</p>
+  </div>
+
+  <!-- 编辑连接参数 -->
+  <details style="margin-top:6px;">
+    <summary style="font-size:12px; color:#2563eb; cursor:pointer; font-weight:500;">⚙️ 编辑连接参数与配置</summary>
+    <form method="post" action="/ai-models/{{ r.id }}/update" class="row" autocomplete="off" style="margin-top:8px; gap:8px;">
+      <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+      <input name="name" value="{{ r.name }}" placeholder="端点名称" maxlength="100" required style="width:160px;">
+      <select name="adapter" style="width:140px;">
+        <option value="openai_compatible" {% if r.adapter == 'openai_compatible' %}selected{% endif %}>OpenAI 兼容接口</option>
+        <option value="openrouter" {% if r.adapter == 'openrouter' %}selected{% endif %}>OpenRouter</option>
+      </select>
+      <input name="base_url" value="{{ r.base_url }}" placeholder="Base URL" maxlength="300" required style="width:220px;">
+      <input name="chat_path" value="{{ r.chat_path }}" placeholder="Chat Path" maxlength="200" required style="width:160px;">
+      <input name="model" value="{{ r.model }}" placeholder="Model" maxlength="120" required style="width:180px;">
+      <input name="api_key" type="password" placeholder="留空保持现有凭证" maxlength="65536" autocomplete="new-password" style="width:150px;">
+      <input name="api_key_env" value="{{ r.api_key_env }}" placeholder="环境变量名" maxlength="120" autocomplete="off" style="width:150px;">
+      <input name="timeout_seconds" type="number" min="1" max="600" value="{{ r.timeout_seconds }}" placeholder="超时(秒)" style="width:90px;">
+      <input name="routing_group" value="{{ r.routing_group|default('default', true) }}" placeholder="路由组" maxlength="80" style="width:100px;">
+      <input name="note" value="{{ r.note }}" placeholder="备注" maxlength="300" style="width:140px;">
+      <button type="submit" class="btn-primary btn-sm">💾 保存参数</button>
+    </form>
+    <p class="muted" style="margin-top:4px; font-size:12px;">当前组内顺序：{{ display_order.get(r.id, '—') }}。顺序调整请使用上方【↑ 上移 / ↓ 下移】按钮；修改路由组后端点会追加到新组末尾。</p>
   </details>
 </td>
 </tr>
