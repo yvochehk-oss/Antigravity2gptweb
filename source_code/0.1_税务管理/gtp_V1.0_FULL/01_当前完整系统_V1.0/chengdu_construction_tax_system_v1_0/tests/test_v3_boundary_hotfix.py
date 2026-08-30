@@ -1,7 +1,7 @@
 """V3 Phase A4 — counterparty / buyer / seller column relaxation.
 
-These tests require a real PostgreSQL instance (env DATABASE_URL).  They
-are NOT meant to run on SQLite.  They verify the v1.1 §A4 contract:
+These tests require a real PostgreSQL instance (env TEST_DATABASE_URL).
+They are NOT meant to run on SQLite.  They verify the v1.1 §A4 contract:
 
   * Counterparty / buyer / seller columns accept up to 64 characters.
   * Internal canonical ``entity_code`` columns stay at VARCHAR(16) — a
@@ -12,13 +12,13 @@ are NOT meant to run on SQLite.  They verify the v1.1 §A4 contract:
 from __future__ import annotations
 
 import os
+import re
 import sys
-from decimal import Decimal
 from pathlib import Path
 
 import pytest
 from sqlalchemy import create_engine, text
-from sqlalchemy.engine import URL, make_url
+from sqlalchemy.engine import make_url
 
 ROOT = Path(__file__).resolve().parents[1]   # TAX_APP root
 sys.path.insert(0, str(ROOT))
@@ -55,13 +55,67 @@ def _exec_write(engine, stmt, params=None):
         conn.execute(stmt, params)
 
 
+def _alembic_heads_from_disk():
+    """Parse ``alembic/versions/*.py`` and return the set of revision IDs
+    that have no down_revision child — i.e. the current alembic heads.
+
+    Doing this from disk (instead of importing alembic modules) keeps the
+    fixture self-contained and side-effect-free.
+    """
+    versions_dir = ROOT / "alembic" / "versions"
+    revs = {}
+    parents = {}
+    for path in sorted(versions_dir.glob("*.py")):
+        if path.name == "script.py.mako":
+            continue
+        src = path.read_text(encoding="utf-8")
+        rev_match = re.search(r'^revision\s*=\s*["\']([^"\']+)', src, re.M)
+        down_match = re.search(r'^down_revision\s*=\s*["\']([^"\']*)', src, re.M)
+        if not rev_match:
+            continue
+        rev = rev_match.group(1)
+        revs[rev] = path.name
+        down = down_match.group(1) if down_match else ""
+        if down:
+            parents.setdefault(rev, set()).add(down)
+    all_parents = set()
+    for parent_set in parents.values():
+        all_parents.update(parent_set)
+    heads = sorted(r for r in revs.keys() if r not in all_parents)
+    return heads
+
+
 @pytest.fixture(scope="module")
 def migrated(engine):
-    """Ensure alembic head 72 is applied; otherwise skip."""
-    row = _exec_one(engine, text("SELECT version_num FROM alembic_version_tax LIMIT 1"))
+    """Hard-fail unless ``alembic_version_tax`` matches an alembic head.
+
+    Reads every migration file under ``alembic/versions`` to compute the
+    current alembic head(s) dynamically, then compares the DB's recorded
+    revision against them.  A stale or empty version row means the rest
+    of this module would be running against an outdated schema and is
+    therefore meaningless — fail loud, do not skip.
+    """
+    expected_heads = _alembic_heads_from_disk()
+    if not expected_heads:
+        pytest.fail("No alembic revisions found under alembic/versions")
+
+    row = _exec_one(
+        engine,
+        text("SELECT version_num FROM alembic_version_tax LIMIT 1"),
+    )
     if row is None:
-        pytest.skip("alembic_version_tax empty — run migrations first")
-    return row[0]
+        pytest.fail(
+            "alembic_version_tax is empty — migrations were never applied. "
+            "Run: alembic upgrade head"
+        )
+    actual = row[0]
+    if actual not in expected_heads:
+        pytest.fail(
+            f"Stale DB revision: alembic_version_tax={actual!r}, "
+            f"expected one of heads {expected_heads}. "
+            "Run: alembic upgrade head"
+        )
+    return actual
 
 
 def _table_max_len(engine, table: str, col: str) -> int:
