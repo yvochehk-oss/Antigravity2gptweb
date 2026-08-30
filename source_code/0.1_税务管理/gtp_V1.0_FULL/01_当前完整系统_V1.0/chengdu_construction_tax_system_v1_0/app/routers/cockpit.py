@@ -7,6 +7,8 @@ from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import select
 
+from pathlib import Path
+
 from ..audit import audit_from_request
 from ..calc import consolidated, project_summary
 from ..db import SessionLocal
@@ -20,6 +22,8 @@ from ..models import (
 )
 from ..templates import templates
 
+STATIC_DIST_INDEX = Path(__file__).resolve().parents[1] / "static_dist" / "index.html"
+
 router = APIRouter()
 
 # V0.2 RAG 同步模式：发票/合同/付款数据强制从 RAG 抽取，禁止手工录入
@@ -28,7 +32,9 @@ RAG_ONLY_MSG = "请使用 RAG 同步获取数据，禁止手工录入"
 
 @router.get("/", response_class=HTMLResponse)
 def home(request: Request) -> HTMLResponse:
-    """Backend entry point; the React UI is served by its own Vite process."""
+    """现代化智控大屏主页 (React SPA)。"""
+    if STATIC_DIST_INDEX.exists():
+        return HTMLResponse(STATIC_DIST_INDEX.read_text(encoding="utf-8"))
     return RedirectResponse(url="/classic", status_code=307)
 
 

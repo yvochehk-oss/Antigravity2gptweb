@@ -153,7 +153,7 @@ th.sortable.desc::after { content: ' ▼'; font-size: 11px; opacity: 1; color: v
       {% if current_role == "manager" %}
         <a href="/manager/dashboard" class="{% if request.url.path == '/manager/dashboard' %}active{% endif %}">总览大屏</a>
       {% endif %}
-      <a href="/" class="{% if request.url.path == '/' %}active{% endif %}">项目驾驶舱</a>
+      <a href="/classic" class="{% if request.url.path == '/classic' %}active{% endif %}">经典驾驶舱</a>
       <a href="/matching" class="{% if request.url.path.startswith('/matching') %}active{% endif %}">四流匹配</a>
       <a href="/tax-ledger" class="{% if request.url.path.startswith('/tax-ledger') %}active{% endif %}">税务台账</a>
       <a href="/risks" class="{% if request.url.path.startswith('/risks') %}active{% endif %}">风险中心</a>
@@ -165,7 +165,7 @@ th.sortable.desc::after { content: ' ▼'; font-size: 11px; opacity: 1; color: v
       {% endif %}
       <a href="/tasks" class="{% if request.url.path.startswith('/tasks') %}active{% endif %}">整改任务</a>
       <a href="/manage" class="{% if request.url.path.startswith('/manage') %}active{% endif %}">主数据</a>
-      <a href="/" target="_blank" style="background:#1e3a8a;color:#93c5fd;font-weight:bold;margin-left:8px;">🚀 智控大屏(React)</a>
+      <a href="/" style="background:#1e3a8a;color:#93c5fd;font-weight:bold;margin-left:8px;">🚀 智控大屏(React)</a>
     {% endif %}
   </nav>
 </header>

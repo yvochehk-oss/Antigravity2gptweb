@@ -118,17 +118,30 @@ def create_app() -> FastAPI:
     for r in ALL_ROUTERS:
         app.include_router(r)
 
-    _mount_avatar_uploads(app)
+    _mount_static_assets(app)
 
     return app
 
 
-def _mount_avatar_uploads(app: FastAPI) -> None:
-    """Mount user-uploaded avatars outside the frontend source tree."""
-    avatars_dir = Path(__file__).resolve().parent / "data" / "avatars"
+def _mount_static_assets(app: FastAPI) -> None:
+    """Mount Vite-built frontend assets and avatar uploads when the dist directory exists."""
+    app_dir = Path(__file__).resolve().parent
+    avatars_dir = app_dir / "data" / "avatars"
     avatars_dir.mkdir(parents=True, exist_ok=True)
     app.mount(
         "/avatars",
         StaticFiles(directory=str(avatars_dir)),
         name="avatars",
     )
+    static_dist = app_dir / "static_dist"
+    if static_dist.exists() and (static_dist / "assets").exists():
+        app.mount(
+            "/assets",
+            StaticFiles(directory=str(static_dist / "assets")),
+            name="assets",
+        )
+        app.mount(
+            "/ui",
+            StaticFiles(directory=str(static_dist), html=True),
+            name="ui",
+        )
