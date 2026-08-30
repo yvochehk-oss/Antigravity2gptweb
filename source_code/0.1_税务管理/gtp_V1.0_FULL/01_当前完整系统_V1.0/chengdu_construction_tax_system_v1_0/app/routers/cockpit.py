@@ -34,7 +34,19 @@ RAG_ONLY_MSG = "请使用 RAG 同步获取数据，禁止手工录入"
 def home(request: Request) -> HTMLResponse:
     """现代化智控大屏主页 (React SPA)。"""
     if STATIC_DIST_INDEX.exists():
-        return HTMLResponse(STATIC_DIST_INDEX.read_text(encoding="utf-8"))
+        import secrets
+        from ..auth import COOKIE_MAX_AGE, COOKIE_SECURE, CSRF_COOKIE_NAME
+        response = HTMLResponse(STATIC_DIST_INDEX.read_text(encoding="utf-8"))
+        if not request.cookies.get(CSRF_COOKIE_NAME):
+            response.set_cookie(
+                key=CSRF_COOKIE_NAME,
+                value=secrets.token_urlsafe(32),
+                max_age=COOKIE_MAX_AGE,
+                httponly=False,
+                secure=COOKIE_SECURE,
+                samesite="lax",
+            )
+        return response
     return RedirectResponse(url="/classic", status_code=307)
 
 

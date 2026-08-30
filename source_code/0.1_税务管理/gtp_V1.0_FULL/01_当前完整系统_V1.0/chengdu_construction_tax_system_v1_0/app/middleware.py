@@ -74,7 +74,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
         try:
             if _is_public_path(path):
                 response = await call_next(request)
-                return self._security_headers(self._attach_request_id(request, response))
+                return self._security_headers(self._attach_request_id(request, response), request)
 
             # 尝试解析当前用户
             user = current_user_from_request(request)
@@ -102,20 +102,21 @@ class AuthMiddleware(BaseHTTPMiddleware):
                     response = JSONResponse(
                         {"detail": "CSRF token 无效或来源不可信"}, status_code=403,
                     )
-                    return self._security_headers(self._attach_request_id(request, response))
+                    return self._security_headers(self._attach_request_id(request, response), request)
                 response = await call_next(request)
-                return self._security_headers(self._attach_request_id(request, response))
+                return self._security_headers(self._attach_request_id(request, response), request)
 
             # 未登录：HTML 页面 → 重定向，API 路径 → 401
             if path.startswith("/api") or path.startswith("/rag-sync"):
                 response = JSONResponse({"detail": "请先登录"}, status_code=401)
                 response.headers["WWW-Authenticate"] = "Session"
-                return self._security_headers(self._attach_request_id(request, response))
+                return self._security_headers(self._attach_request_id(request, response), request)
 
             return self._security_headers(
                 self._attach_request_id(
                     request, RedirectResponse(f"/login?next={path}", status_code=302),
                 ),
+                request,
             )
         finally:
             reset_actor(actor_token)
@@ -185,8 +186,19 @@ class AuthMiddleware(BaseHTTPMiddleware):
         return True
 
     @staticmethod
-    def _security_headers(response):
+    def _security_headers(response, request: Request | None = None):
         response.headers.setdefault("X-Content-Type-Options", "nosniff")
         response.headers.setdefault("X-Frame-Options", "DENY")
         response.headers.setdefault("Referrer-Policy", "same-origin")
+        if request is not None and CSRF_COOKIE_NAME not in request.cookies:
+            import secrets
+            from .auth import COOKIE_MAX_AGE, COOKIE_SECURE
+            response.set_cookie(
+                key=CSRF_COOKIE_NAME,
+                value=secrets.token_urlsafe(32),
+                max_age=COOKIE_MAX_AGE,
+                httponly=False,
+                secure=COOKIE_SECURE,
+                samesite="lax",
+            )
         return response
