@@ -327,21 +327,31 @@ export function TaxLedgerView({
       {/* 台账明细表 */}
       <div className="glass-panel rounded-xl p-5 overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse text-[13px] font-mono-num">
+          <table className="w-full table-fixed text-left border-collapse text-[13px] font-mono-num">
+            <colgroup>
+              <col style={{ width: '150px' }} />
+              <col style={{ width: '180px' }} />
+              <col style={{ width: '75px' }} />
+              <col style={{ width: '125px' }} />
+              <col style={{ width: '105px' }} />
+              <col style={{ width: '75px' }} />
+              <col style={{ width: '75px' }} />
+              <col style={{ width: '70px' }} />
+            </colgroup>
             <thead>
               <tr className="border-b border-[#444653]/30 text-[12px] font-semibold text-[#8e909f]">
                 <th 
                   onClick={() => handleSort('projectName')}
-                  className="py-2.5 px-3 w-[180px] min-w-[180px] max-w-[180px] cursor-pointer hover:text-[#4cd7f6] select-none transition-colors group"
+                  className="py-2.5 px-2.5 cursor-pointer hover:text-[#4cd7f6] select-none transition-colors group"
                   title="点击按项目名称排序"
                 >
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex items-center gap-1">
                     <div>
-                      <div className="text-[12px] text-[#8e909f] group-hover:text-[#4cd7f6]">所属工程项目</div>
+                      <div className="text-[12px] text-[#8e909f] group-hover:text-[#4cd7f6] truncate">所属工程项目</div>
                       <div className="text-[10px] text-[#8e909f]/70 font-normal">工程编码</div>
                     </div>
                     {sortField === 'projectName' ? (
-                      sortOrder === 'asc' ? <ArrowUp className="w-3.5 h-3.5 text-[#4cd7f6] flex-shrink-0" /> : <ArrowDown className="w-3.5 h-3.5 text-[#4cd7f6] flex-shrink-0" />
+                      sortOrder === 'asc' ? <ArrowUp className="w-3 h-3 text-[#4cd7f6] flex-shrink-0" /> : <ArrowDown className="w-3 h-3 text-[#4cd7f6] flex-shrink-0" />
                     ) : (
                       <ArrowUpDown className="w-3 h-3 text-[#8e909f]/40 group-hover:text-[#4cd7f6]/70 transition-opacity flex-shrink-0" />
                     )}
@@ -349,37 +359,37 @@ export function TaxLedgerView({
                 </th>
                 <th 
                   onClick={() => handleSort('entityName')}
-                  className="py-2.5 px-3 w-[220px] min-w-[220px] max-w-[220px] cursor-pointer hover:text-[#4cd7f6] select-none transition-colors group"
+                  className="py-2.5 px-2.5 cursor-pointer hover:text-[#4cd7f6] select-none transition-colors group"
                   title="点击按实体名称排序"
                 >
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex items-center gap-1">
                     <div>
-                      <div className="text-[12px] text-[#8e909f] group-hover:text-[#4cd7f6]">实体名称</div>
+                      <div className="text-[12px] text-[#8e909f] group-hover:text-[#4cd7f6] truncate">实体名称</div>
                       <div className="text-[10px] text-[#8e909f]/70 font-normal">标段分类</div>
                     </div>
                     {sortField === 'entityName' ? (
-                      sortOrder === 'asc' ? <ArrowUp className="w-3.5 h-3.5 text-[#4cd7f6] flex-shrink-0" /> : <ArrowDown className="w-3.5 h-3.5 text-[#4cd7f6] flex-shrink-0" />
+                      sortOrder === 'asc' ? <ArrowUp className="w-3 h-3 text-[#4cd7f6] flex-shrink-0" /> : <ArrowDown className="w-3 h-3 text-[#4cd7f6] flex-shrink-0" />
                     ) : (
                       <ArrowUpDown className="w-3 h-3 text-[#8e909f]/40 group-hover:text-[#4cd7f6]/70 transition-opacity flex-shrink-0" />
                     )}
                   </div>
                 </th>
-                <th className="py-2.5 px-2 text-center whitespace-nowrap w-[90px] min-w-[90px]">
+                <th className="py-2.5 px-1.5 text-center whitespace-nowrap">
                   <div>归属属性</div>
                   <div className="text-[10px] text-[#8e909f]/70 font-normal">内部/外部</div>
                 </th>
                 <th 
                   onClick={() => handleSort('declareAmount')}
-                  className="py-2.5 px-3 text-right whitespace-nowrap w-[140px] min-w-[140px] cursor-pointer hover:text-[#4cd7f6] select-none transition-colors group"
+                  className="py-2.5 px-2 text-right whitespace-nowrap cursor-pointer hover:text-[#4cd7f6] select-none transition-colors group"
                   title="点击按金额/税额排序"
                 >
-                  <div className="flex items-center justify-end gap-1.5">
+                  <div className="flex items-center justify-end gap-1">
                     <div className="text-right">
                       <div className="text-[12px] text-[#8e909f] group-hover:text-[#4cd7f6]">申报计税</div>
                       <div className="text-[10px] text-[#8e909f]/70 font-normal">应纳税额</div>
                     </div>
                     {sortField === 'declareAmount' ? (
-                      sortOrder === 'asc' ? <ArrowUp className="w-3.5 h-3.5 text-[#4cd7f6] flex-shrink-0" /> : <ArrowDown className="w-3.5 h-3.5 text-[#4cd7f6] flex-shrink-0" />
+                      sortOrder === 'asc' ? <ArrowUp className="w-3 h-3 text-[#4cd7f6] flex-shrink-0" /> : <ArrowDown className="w-3 h-3 text-[#4cd7f6] flex-shrink-0" />
                     ) : (
                       <ArrowUpDown className="w-3 h-3 text-[#8e909f]/40 group-hover:text-[#4cd7f6]/70 transition-opacity flex-shrink-0" />
                     )}
@@ -387,16 +397,16 @@ export function TaxLedgerView({
                 </th>
                 <th 
                   onClick={() => handleSort('taxCategory')}
-                  className="py-2.5 px-3 w-[180px] min-w-[180px] max-w-[180px] cursor-pointer hover:text-[#4cd7f6] select-none transition-colors group"
+                  className="py-2.5 px-2 cursor-pointer hover:text-[#4cd7f6] select-none transition-colors group"
                   title="点击按税种/所属期排序"
                 >
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex items-center gap-1">
                     <div>
-                      <div className="text-[12px] text-[#8e909f] group-hover:text-[#4cd7f6]">税种类别</div>
+                      <div className="text-[12px] text-[#8e909f] group-hover:text-[#4cd7f6] truncate">税种类别</div>
                       <div className="text-[10px] text-[#8e909f]/70 font-normal">税款所属期</div>
                     </div>
                     {sortField === 'taxCategory' ? (
-                      sortOrder === 'asc' ? <ArrowUp className="w-3.5 h-3.5 text-[#4cd7f6] flex-shrink-0" /> : <ArrowDown className="w-3.5 h-3.5 text-[#4cd7f6] flex-shrink-0" />
+                      sortOrder === 'asc' ? <ArrowUp className="w-3 h-3 text-[#4cd7f6] flex-shrink-0" /> : <ArrowDown className="w-3 h-3 text-[#4cd7f6] flex-shrink-0" />
                     ) : (
                       <ArrowUpDown className="w-3 h-3 text-[#8e909f]/40 group-hover:text-[#4cd7f6]/70 transition-opacity flex-shrink-0" />
                     )}
@@ -404,16 +414,16 @@ export function TaxLedgerView({
                 </th>
                 <th 
                   onClick={() => handleSort('status')}
-                  className="py-2.5 px-2 text-center whitespace-nowrap w-[110px] min-w-[110px] cursor-pointer hover:text-[#4cd7f6] select-none transition-colors group"
+                  className="py-2.5 px-1.5 text-center whitespace-nowrap cursor-pointer hover:text-[#4cd7f6] select-none transition-colors group"
                   title="点击按审核状态排序"
                 >
-                  <div className="flex items-center justify-center gap-1.5">
+                  <div className="flex items-center justify-center gap-1">
                     <div>
                       <div className="text-[12px] text-[#8e909f] group-hover:text-[#4cd7f6]">审核状态</div>
                       <div className="text-[10px] text-[#8e909f]/70 font-normal">入库/复核</div>
                     </div>
                     {sortField === 'status' ? (
-                      sortOrder === 'asc' ? <ArrowUp className="w-3.5 h-3.5 text-[#4cd7f6] flex-shrink-0" /> : <ArrowDown className="w-3.5 h-3.5 text-[#4cd7f6] flex-shrink-0" />
+                      sortOrder === 'asc' ? <ArrowUp className="w-3 h-3 text-[#4cd7f6] flex-shrink-0" /> : <ArrowDown className="w-3 h-3 text-[#4cd7f6] flex-shrink-0" />
                     ) : (
                       <ArrowUpDown className="w-3 h-3 text-[#8e909f]/40 group-hover:text-[#4cd7f6]/70 transition-opacity flex-shrink-0" />
                     )}
@@ -421,22 +431,22 @@ export function TaxLedgerView({
                 </th>
                 <th 
                   onClick={() => handleSort('flow')}
-                  className="py-2.5 px-2 text-center whitespace-nowrap w-[100px] min-w-[100px] cursor-pointer hover:text-[#4cd7f6] select-none transition-colors group"
+                  className="py-2.5 px-1.5 text-center whitespace-nowrap cursor-pointer hover:text-[#4cd7f6] select-none transition-colors group"
                   title="点击按四流合一合规性排序"
                 >
-                  <div className="flex items-center justify-center gap-1.5">
+                  <div className="flex items-center justify-center gap-1">
                     <div>
                       <div className="text-[12px] text-[#8e909f] group-hover:text-[#4cd7f6]">四流合一</div>
                       <div className="text-[10px] text-[#8e909f]/70 font-normal">核验结果</div>
                     </div>
                     {sortField === 'flow' ? (
-                      sortOrder === 'asc' ? <ArrowUp className="w-3.5 h-3.5 text-[#4cd7f6] flex-shrink-0" /> : <ArrowDown className="w-3.5 h-3.5 text-[#4cd7f6] flex-shrink-0" />
+                      sortOrder === 'asc' ? <ArrowUp className="w-3 h-3 text-[#4cd7f6] flex-shrink-0" /> : <ArrowDown className="w-3 h-3 text-[#4cd7f6] flex-shrink-0" />
                     ) : (
                       <ArrowUpDown className="w-3 h-3 text-[#8e909f]/40 group-hover:text-[#4cd7f6]/70 transition-opacity flex-shrink-0" />
                     )}
                   </div>
                 </th>
-                <th className="py-2.5 px-3 text-right whitespace-nowrap w-[80px]">
+                <th className="py-2.5 px-2 text-center whitespace-nowrap">
                   <div>操作</div>
                   <div className="text-[10px] text-[#8e909f]/70 font-normal">AI研判</div>
                 </th>
@@ -455,9 +465,9 @@ export function TaxLedgerView({
                       isHighRisk ? 'bg-[#EF4444]/10 border-l-2 border-[#EF4444]' : isMedium ? 'bg-[#F59E0B]/5' : ''
                     }`}
                   >
-                    {/* 所属工程项目（固定宽度，自动换行） */}
-                    <td className="py-2.5 px-3 w-[180px] min-w-[180px] max-w-[180px]">
-                      <div className="font-bold text-[#dae2fd] text-[13px] leading-snug break-words whitespace-normal" title={rec.projectName}>
+                    {/* 所属工程项目（紧凑固定宽度，自动换行） */}
+                    <td className="py-2.5 px-2.5">
+                      <div className="font-bold text-[#dae2fd] text-[12.5px] leading-snug break-words whitespace-normal" title={rec.projectName}>
                         {rec.projectName}
                       </div>
                       <div className="text-[11px] text-[#8e909f] font-mono-num mt-0.5">
@@ -465,9 +475,9 @@ export function TaxLedgerView({
                       </div>
                     </td>
 
-                    {/* 实体名称与标段分类（固定宽度，自动换行） */}
-                    <td className="py-2.5 px-3 w-[220px] min-w-[220px] max-w-[220px]">
-                      <div className={`font-semibold text-[13px] leading-snug break-words whitespace-normal ${isHighRisk ? 'text-[#ffb4ab]' : 'text-[#dde1ff]'}`} title={rec.entityName}>
+                    {/* 实体名称与标段分类（紧凑固定宽度，自动换行） */}
+                    <td className="py-2.5 px-2.5">
+                      <div className={`font-semibold text-[12.5px] leading-snug break-words whitespace-normal ${isHighRisk ? 'text-[#ffb4ab]' : 'text-[#dde1ff]'}`} title={rec.entityName}>
                         {rec.entityName}
                       </div>
                       <div className="text-[11px] text-[#8e909f] break-words whitespace-normal mt-0.5" title={rec.entityCategory}>
@@ -476,34 +486,34 @@ export function TaxLedgerView({
                     </td>
 
                     {/* 归属属性：系统内 / 系统外 */}
-                    <td className="py-2.5 px-2 text-center whitespace-nowrap w-[90px] min-w-[90px]">
+                    <td className="py-2.5 px-1.5 text-center whitespace-nowrap">
                       {(() => {
                         const isExt = rec.entityName.includes('EXT-') || rec.entityName.includes('外部') || rec.entityName.includes('系统外') || rec.isInternal === false;
 
                         return !isExt ? (
-                          <span className="inline-flex items-center gap-1 text-[11px] text-[#10B981] bg-[#10B981]/15 px-2 py-0.5 rounded border border-[#10B981]/30 font-medium">
-                            🏢 系统内
+                          <span className="inline-flex items-center gap-0.5 text-[11px] text-[#10B981] bg-[#10B981]/15 px-1.5 py-0.5 rounded border border-[#10B981]/30 font-medium">
+                            🏢 内部
                           </span>
                         ) : (
-                          <span className="inline-flex items-center gap-1 text-[11px] text-[#a78bfa] bg-[#8b5cf6]/15 px-2 py-0.5 rounded border border-[#8b5cf6]/30 font-medium">
-                            🌐 系统外
+                          <span className="inline-flex items-center gap-0.5 text-[11px] text-[#a78bfa] bg-[#8b5cf6]/15 px-1.5 py-0.5 rounded border border-[#8b5cf6]/30 font-medium">
+                            🌐 外部
                           </span>
                         );
                       })()}
                     </td>
 
                     {/* 申报计税金额与应纳/预提税额 */}
-                    <td className="py-2.5 px-3 text-right whitespace-nowrap w-[140px] min-w-[140px]">
-                      <div className="font-bold text-[#dae2fd] text-[13px]">
+                    <td className="py-2.5 px-2 text-right whitespace-nowrap">
+                      <div className="font-bold text-[#dae2fd] text-[12.5px]">
                         ¥ {rec.declareAmount.toLocaleString('zh-CN')}
                       </div>
-                      <div className="text-[11.5px] font-semibold text-[#4cd7f6] mt-0.5">
-                        税额: ¥ {rec.taxAmount.toLocaleString('zh-CN')}
+                      <div className="text-[11px] font-semibold text-[#4cd7f6] mt-0.5">
+                        税: ¥ {rec.taxAmount.toLocaleString('zh-CN')}
                       </div>
                     </td>
 
-                    {/* 税种类别与所属期（固定宽度，自动换行） */}
-                    <td className="py-2.5 px-3 w-[180px] min-w-[180px] max-w-[180px]">
+                    {/* 税种类别与所属期 */}
+                    <td className="py-2.5 px-2">
                       <div className="text-[#c4c5d5] text-[12px] font-medium leading-snug break-words whitespace-normal">
                         {rec.taxCategory}
                       </div>
@@ -513,8 +523,8 @@ export function TaxLedgerView({
                     </td>
 
                     {/* 审核状态 */}
-                    <td className="py-2.5 px-2 text-center whitespace-nowrap">
-                      <span className={`text-[11.5px] font-bold px-2 py-0.5 rounded ${
+                    <td className="py-2.5 px-1.5 text-center whitespace-nowrap">
+                      <span className={`text-[11px] font-bold px-1.5 py-0.5 rounded ${
                         isHighRisk 
                           ? 'text-[#EF4444] bg-[#EF4444]/15 border border-[#EF4444]/30' 
                           : isMedium 
@@ -526,21 +536,21 @@ export function TaxLedgerView({
                     </td>
 
                     {/* 四流核验 */}
-                    <td className="py-2.5 px-2 text-center whitespace-nowrap">
-                      <span className={`inline-flex items-center justify-center whitespace-nowrap text-[11px] px-2 py-0.5 rounded border font-medium ${
+                    <td className="py-2.5 px-1.5 text-center whitespace-nowrap">
+                      <span className={`inline-flex items-center justify-center whitespace-nowrap text-[11px] px-1.5 py-0.5 rounded border font-medium ${
                         isFlowOk ? 'bg-[#10B981]/15 text-[#10B981] border-[#10B981]/30' : 'bg-[#EF4444]/20 text-[#EF4444] border-[#EF4444]/40 font-bold animate-pulse'
                       }`}>
-                        {isFlowOk ? '完全合规' : '存在差异'}
+                        {isFlowOk ? '合规' : '差异'}
                       </span>
                     </td>
 
                     {/* 操作动作 */}
-                    <td className="py-2.5 px-3 text-right whitespace-nowrap">
+                    <td className="py-2.5 px-2 text-center whitespace-nowrap">
                       <button
                         onClick={() => onAskAiAboutRisk(rec.entityName)}
-                        className="px-2.5 py-1 text-[11px] font-semibold bg-[#1e40af]/60 hover:bg-[#1e40af] text-[#dde1ff] rounded border border-[#4cd7f6]/30 cursor-pointer transition-colors"
+                        className="px-2 py-1 text-[11px] font-semibold bg-[#1e40af]/60 hover:bg-[#1e40af] text-[#dde1ff] rounded border border-[#4cd7f6]/30 cursor-pointer transition-colors"
                       >
-                        智能研判
+                        研判
                       </button>
                     </td>
                   </tr>
