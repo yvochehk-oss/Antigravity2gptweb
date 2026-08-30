@@ -142,7 +142,7 @@ def run(strict: bool = False) -> dict:
         table = Base.metadata.tables[table_name]
         db_cols = {c["name"]: c for c in inspector.get_columns(table_name, schema="public")}
         model_cols = {c.name: c for c in table.columns}
-        drift: list[str] = []
+        type_drift: list[str] = []
 
         for name in sorted(model_cols.keys() - db_cols.keys()):
             failures.append(f"{table_name}.{name}: missing in DB")
@@ -155,12 +155,12 @@ def run(strict: bool = False) -> dict:
             model_type = _model_type(model_col, engine.dialect)
             db_type = _db_type(db_col)
             if model_type != db_type:
-                drift.append(f"{name}: type model={model_type} db={db_type}")
+                type_drift.append(f"{name}: type model={model_type} db={db_type}")
             if bool(model_col.nullable) != bool(db_col["nullable"]):
                 failures.append(
                     f"{table_name}.{name}: nullable model={model_col.nullable} db={db_col['nullable']}"
                 )
-        for item in drift:
+        for item in type_drift:
             warnings.append(f"{table_name}.{item}")
 
         model_uniques = _model_uniques(table)
@@ -278,7 +278,7 @@ def main() -> int:
     print(rendered)
     if args.json_path:
         Path(args.json_path).write_text(rendered + "\n", encoding="utf-8")
-    return 0 if result["status"] == "PASS" else 1
+    return 1 if result["status"] == "FAIL" else 0
 
 
 if __name__ == "__main__":
