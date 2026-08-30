@@ -437,114 +437,114 @@ export function ProjectDetailView({
 
         {/* 表格容器 */}
         <div className="overflow-x-auto">
-          <table className="w-full table-fixed text-left border-collapse text-[12px] font-mono-num">
+          <table className="w-full table-fixed text-left border-collapse text-[12.5px] font-mono-num">
             <colgroup>
-              <col style={{ width: 'auto', minWidth: '180px' }} />
-              <col style={{ width: '65px' }} />
-              <col style={{ width: '110px' }} />
-              <col style={{ width: '90px' }} />
-              <col style={{ width: '65px' }} />
-              <col style={{ width: '70px' }} />
-              <col style={{ width: '85px' }} />
+              <col style={{ width: '28%' }} />
+              <col style={{ width: '10%' }} />
+              <col style={{ width: '18%' }} />
+              <col style={{ width: '14%' }} />
+              <col style={{ width: '10%' }} />
+              <col style={{ width: '10%' }} />
+              <col style={{ width: '10%' }} />
             </colgroup>
             <thead>
-              <tr className="border-b border-[#444653]/30 text-[11.5px] font-semibold text-[#8e909f]">
+              <tr className="border-b border-[#444653]/30 text-[12px] font-semibold text-[#8e909f]">
                 <th 
                   onClick={() => handleSort('entityName')}
-                  className="py-1.5 px-2 cursor-pointer hover:text-[#4cd7f6] select-none transition-colors group"
+                  className="py-2.5 px-3 cursor-pointer hover:text-[#4cd7f6] select-none transition-colors group"
                   title="点击按实体名称排序"
                 >
-                  <div className="flex items-center gap-1">
+                  <div className="flex items-center gap-1.5">
                     <div>
-                      <div className="text-[11.5px] text-[#8e909f] group-hover:text-[#4cd7f6] truncate">实体名称</div>
-                      <div className="text-[9.5px] text-[#8e909f]/70 font-normal">标段分类</div>
+                      <div className="text-[12px] text-[#8e909f] group-hover:text-[#4cd7f6] truncate">实体名称</div>
+                      <div className="text-[10px] text-[#8e909f]/70 font-normal">标段分类</div>
                     </div>
                     {sortField === 'entityName' ? (
-                      sortOrder === 'asc' ? <ArrowUp className="w-3 h-3 text-[#4cd7f6] flex-shrink-0" /> : <ArrowDown className="w-3 h-3 text-[#4cd7f6] flex-shrink-0" />
+                      sortOrder === 'asc' ? <ArrowUp className="w-3.5 h-3.5 text-[#4cd7f6] flex-shrink-0" /> : <ArrowDown className="w-3.5 h-3.5 text-[#4cd7f6] flex-shrink-0" />
                     ) : (
-                      <ArrowUpDown className="w-2.5 h-2.5 text-[#8e909f]/40 group-hover:text-[#4cd7f6]/70 transition-opacity flex-shrink-0" />
+                      <ArrowUpDown className="w-3 h-3 text-[#8e909f]/40 group-hover:text-[#4cd7f6]/70 transition-opacity flex-shrink-0" />
                     )}
                   </div>
                 </th>
-                <th className="py-1.5 px-1 text-center whitespace-nowrap">
+                <th className="py-2.5 px-2 text-center whitespace-nowrap">
                   <div>归属属性</div>
-                  <div className="text-[9.5px] text-[#8e909f]/70 font-normal">内部/外部</div>
+                  <div className="text-[10px] text-[#8e909f]/70 font-normal">内部/外部</div>
                 </th>
                 <th 
                   onClick={() => handleSort('declareAmount')}
-                  className="py-1.5 px-2 text-right whitespace-nowrap cursor-pointer hover:text-[#4cd7f6] select-none transition-colors group"
+                  className="py-2.5 px-3 text-right whitespace-nowrap cursor-pointer hover:text-[#4cd7f6] select-none transition-colors group"
                   title="点击按金额/税额排序"
                 >
-                  <div className="flex items-center justify-end gap-1">
+                  <div className="flex items-center justify-end gap-1.5">
                     <div className="text-right">
-                      <div className="text-[11.5px] text-[#8e909f] group-hover:text-[#4cd7f6]">申报计税</div>
-                      <div className="text-[9.5px] text-[#8e909f]/70 font-normal">应纳税额</div>
+                      <div className="text-[12px] text-[#8e909f] group-hover:text-[#4cd7f6]">申报计税</div>
+                      <div className="text-[10px] text-[#8e909f]/70 font-normal">应纳税额</div>
                     </div>
                     {sortField === 'declareAmount' ? (
-                      sortOrder === 'asc' ? <ArrowUp className="w-3 h-3 text-[#4cd7f6] flex-shrink-0" /> : <ArrowDown className="w-3 h-3 text-[#4cd7f6] flex-shrink-0" />
+                      sortOrder === 'asc' ? <ArrowUp className="w-3.5 h-3.5 text-[#4cd7f6] flex-shrink-0" /> : <ArrowDown className="w-3.5 h-3.5 text-[#4cd7f6] flex-shrink-0" />
                     ) : (
-                      <ArrowUpDown className="w-2.5 h-2.5 text-[#8e909f]/40 group-hover:text-[#4cd7f6]/70 transition-opacity flex-shrink-0" />
+                      <ArrowUpDown className="w-3 h-3 text-[#8e909f]/40 group-hover:text-[#4cd7f6]/70 transition-opacity flex-shrink-0" />
                     )}
                   </div>
                 </th>
                 <th 
                   onClick={() => handleSort('taxCategory')}
-                  className="py-1.5 px-2 cursor-pointer hover:text-[#4cd7f6] select-none transition-colors group"
+                  className="py-2.5 px-3 cursor-pointer hover:text-[#4cd7f6] select-none transition-colors group"
                   title="点击按税种/周期排序"
                 >
-                  <div className="flex items-center gap-1">
+                  <div className="flex items-center gap-1.5">
                     <div>
-                      <div className="text-[11.5px] text-[#8e909f] group-hover:text-[#4cd7f6] truncate">税种类别</div>
-                      <div className="text-[9.5px] text-[#8e909f]/70 font-normal">申报周期</div>
+                      <div className="text-[12px] text-[#8e909f] group-hover:text-[#4cd7f6] truncate">税种类别</div>
+                      <div className="text-[10px] text-[#8e909f]/70 font-normal">申报周期</div>
                     </div>
                     {sortField === 'taxCategory' ? (
-                      sortOrder === 'asc' ? <ArrowUp className="w-3 h-3 text-[#4cd7f6] flex-shrink-0" /> : <ArrowDown className="w-3 h-3 text-[#4cd7f6] flex-shrink-0" />
+                      sortOrder === 'asc' ? <ArrowUp className="w-3.5 h-3.5 text-[#4cd7f6] flex-shrink-0" /> : <ArrowDown className="w-3.5 h-3.5 text-[#4cd7f6] flex-shrink-0" />
                     ) : (
-                      <ArrowUpDown className="w-2.5 h-2.5 text-[#8e909f]/40 group-hover:text-[#4cd7f6]/70 transition-opacity flex-shrink-0" />
+                      <ArrowUpDown className="w-3 h-3 text-[#8e909f]/40 group-hover:text-[#4cd7f6]/70 transition-opacity flex-shrink-0" />
                     )}
                   </div>
                 </th>
                 <th 
                   onClick={() => handleSort('status')}
-                  className="py-1.5 px-1 text-center whitespace-nowrap cursor-pointer hover:text-[#4cd7f6] select-none transition-colors group"
+                  className="py-2.5 px-2 text-center whitespace-nowrap cursor-pointer hover:text-[#4cd7f6] select-none transition-colors group"
                   title="点击按审核状态排序"
                 >
-                  <div className="flex items-center justify-center gap-1">
+                  <div className="flex items-center justify-center gap-1.5">
                     <div>
-                      <div className="text-[11.5px] text-[#8e909f] group-hover:text-[#4cd7f6]">审核状态</div>
-                      <div className="text-[9.5px] text-[#8e909f]/70 font-normal">入库/复核</div>
+                      <div className="text-[12px] text-[#8e909f] group-hover:text-[#4cd7f6]">审核状态</div>
+                      <div className="text-[10px] text-[#8e909f]/70 font-normal">入库/复核</div>
                     </div>
                     {sortField === 'status' ? (
-                      sortOrder === 'asc' ? <ArrowUp className="w-3 h-3 text-[#4cd7f6] flex-shrink-0" /> : <ArrowDown className="w-3 h-3 text-[#4cd7f6] flex-shrink-0" />
+                      sortOrder === 'asc' ? <ArrowUp className="w-3.5 h-3.5 text-[#4cd7f6] flex-shrink-0" /> : <ArrowDown className="w-3.5 h-3.5 text-[#4cd7f6] flex-shrink-0" />
                     ) : (
-                      <ArrowUpDown className="w-2.5 h-2.5 text-[#8e909f]/40 group-hover:text-[#4cd7f6]/70 transition-opacity flex-shrink-0" />
+                      <ArrowUpDown className="w-3 h-3 text-[#8e909f]/40 group-hover:text-[#4cd7f6]/70 transition-opacity flex-shrink-0" />
                     )}
                   </div>
                 </th>
                 <th 
                   onClick={() => handleSort('flow')}
-                  className="py-1.5 px-1 text-center whitespace-nowrap cursor-pointer hover:text-[#4cd7f6] select-none transition-colors group"
+                  className="py-2.5 px-2 text-center whitespace-nowrap cursor-pointer hover:text-[#4cd7f6] select-none transition-colors group"
                   title="点击按四流合一合规性排序"
                 >
-                  <div className="flex items-center justify-center gap-1">
+                  <div className="flex items-center justify-center gap-1.5">
                     <div>
-                      <div className="text-[11.5px] text-[#8e909f] group-hover:text-[#4cd7f6]">四流合一</div>
-                      <div className="text-[9.5px] text-[#8e909f]/70 font-normal">核验结果</div>
+                      <div className="text-[12px] text-[#8e909f] group-hover:text-[#4cd7f6]">四流合一</div>
+                      <div className="text-[10px] text-[#8e909f]/70 font-normal">核验结果</div>
                     </div>
                     {sortField === 'flow' ? (
-                      sortOrder === 'asc' ? <ArrowUp className="w-3 h-3 text-[#4cd7f6] flex-shrink-0" /> : <ArrowDown className="w-3 h-3 text-[#4cd7f6] flex-shrink-0" />
+                      sortOrder === 'asc' ? <ArrowUp className="w-3.5 h-3.5 text-[#4cd7f6] flex-shrink-0" /> : <ArrowDown className="w-3.5 h-3.5 text-[#4cd7f6] flex-shrink-0" />
                     ) : (
-                      <ArrowUpDown className="w-2.5 h-2.5 text-[#8e909f]/40 group-hover:text-[#4cd7f6]/70 transition-opacity flex-shrink-0" />
+                      <ArrowUpDown className="w-3 h-3 text-[#8e909f]/40 group-hover:text-[#4cd7f6]/70 transition-opacity flex-shrink-0" />
                     )}
                   </div>
                 </th>
-                <th className="py-1.5 px-1 text-center whitespace-nowrap">
+                <th className="py-2.5 px-2 text-center whitespace-nowrap">
                   <div>操作</div>
-                  <div className="text-[9.5px] text-[#8e909f]/70 font-normal">详情/研判</div>
+                  <div className="text-[10px] text-[#8e909f]/70 font-normal">详情/研判</div>
                 </th>
               </tr>
             </thead>
-            <tbody className="text-[12px] font-mono-num divide-y divide-[#444653]/15">
+            <tbody className="text-[12.5px] font-mono-num divide-y divide-[#444653]/20">
               {sortedTaxRecords.map((rec) => {
                 const isHighRisk = rec.riskLevel === '高危';
                 const isMediumRisk = rec.riskLevel === '预警';
@@ -562,26 +562,26 @@ export function ProjectDetailView({
                     }`}
                   >
                     {/* 实体名称与标段分类 */}
-                    <td className="py-1 px-2">
-                      <div className={`font-semibold text-[12px] leading-tight break-words whitespace-normal ${isHighRisk ? 'text-[#ffb4ab]' : 'text-[#dae2fd]'}`} title={rec.entityName}>
+                    <td className="py-2 px-3">
+                      <div className={`font-semibold text-[13px] leading-snug break-words whitespace-normal ${isHighRisk ? 'text-[#ffb4ab]' : 'text-[#dae2fd]'}`} title={rec.entityName}>
                         {rec.entityName}
                       </div>
-                      <div className="text-[10px] text-[#8e909f] break-words whitespace-normal mt-0.5" title={rec.entityCategory}>
+                      <div className="text-[11px] text-[#8e909f] break-words whitespace-normal mt-0.5" title={rec.entityCategory}>
                         {rec.entityCategory}
                       </div>
                     </td>
 
                     {/* 归属属性：系统内 / 系统外 */}
-                    <td className="py-1 px-1 text-center whitespace-nowrap">
+                    <td className="py-2 px-2 text-center whitespace-nowrap">
                       {(() => {
                         const isExt = rec.entityName.includes('EXT-') || rec.entityName.includes('外部') || rec.entityName.includes('系统外') || rec.isInternal === false;
 
                         return !isExt ? (
-                          <span className="inline-flex items-center gap-0.5 text-[10px] text-[#10B981] bg-[#10B981]/15 px-1 py-0.2 rounded border border-[#10B981]/30 font-medium">
+                          <span className="inline-flex items-center gap-1 text-[11px] text-[#10B981] bg-[#10B981]/15 px-2 py-0.5 rounded border border-[#10B981]/30 font-medium">
                             🏢 内部
                           </span>
                         ) : (
-                          <span className="inline-flex items-center gap-0.5 text-[10px] text-[#a78bfa] bg-[#8b5cf6]/15 px-1 py-0.2 rounded border border-[#8b5cf6]/30 font-medium">
+                          <span className="inline-flex items-center gap-1 text-[11px] text-[#a78bfa] bg-[#8b5cf6]/15 px-2 py-0.5 rounded border border-[#8b5cf6]/30 font-medium">
                             🌐 外部
                           </span>
                         );
@@ -589,28 +589,28 @@ export function ProjectDetailView({
                     </td>
 
                     {/* 申报计税金额与应纳税额 */}
-                    <td className="py-1 px-2 text-right whitespace-nowrap">
-                      <div className="font-bold text-[#dae2fd] text-[12px] leading-tight">
+                    <td className="py-2 px-3 text-right whitespace-nowrap">
+                      <div className="font-bold text-[#dae2fd] text-[13px]">
                         ¥ {rec.declareAmount.toLocaleString('zh-CN')}
                       </div>
-                      <div className="text-[10.5px] font-semibold text-[#4cd7f6] mt-0.5 leading-tight">
+                      <div className="text-[11.5px] font-semibold text-[#4cd7f6] mt-0.5">
                         税: ¥ {rec.taxAmount.toLocaleString('zh-CN')}
                       </div>
                     </td>
 
                     {/* 税种类别与所属期 */}
-                    <td className="py-1 px-2">
-                      <div className="text-[#c4c5d5] text-[11.5px] font-medium leading-tight break-words whitespace-normal">
+                    <td className="py-2 px-3">
+                      <div className="text-[#c4c5d5] text-[12px] font-medium leading-snug break-words whitespace-normal">
                         {rec.taxCategory}
                       </div>
-                      <div className="text-[10px] text-[#8e909f] mt-0.5 leading-tight">
+                      <div className="text-[11px] text-[#8e909f] mt-0.5">
                         {rec.filingPeriod}
                       </div>
                     </td>
 
                     {/* 审核状态 */}
-                    <td className="py-1 px-1 text-center whitespace-nowrap">
-                      <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded ${
+                    <td className="py-2 px-2 text-center whitespace-nowrap">
+                      <span className={`text-[11px] font-bold px-2 py-0.5 rounded ${
                         isHighRisk 
                           ? 'text-[#EF4444] bg-[#EF4444]/15 border border-[#EF4444]/30' 
                           : isMediumRisk 
@@ -622,31 +622,31 @@ export function ProjectDetailView({
                     </td>
 
                     {/* 四流合一核验 */}
-                    <td className="py-1 px-1 text-center whitespace-nowrap">
+                    <td className="py-2 px-2 text-center whitespace-nowrap">
                       {allFlowsOk ? (
-                        <span className="inline-flex items-center gap-0.5 text-[10px] text-[#10B981] bg-[#10B981]/15 px-1 py-0.2 rounded border border-[#10B981]/30 font-medium">
-                          <CheckCircle2 className="w-2.5 h-2.5" /> 合规
+                        <span className="inline-flex items-center gap-1 text-[11px] text-[#10B981] bg-[#10B981]/15 px-2 py-0.5 rounded border border-[#10B981]/30 font-medium">
+                          <CheckCircle2 className="w-3 h-3" /> 合规
                         </span>
                       ) : (
-                        <span className="inline-flex items-center gap-0.5 text-[10px] text-[#EF4444] bg-[#EF4444]/20 px-1 py-0.2 rounded border border-[#EF4444]/40 font-bold animate-pulse">
-                          <AlertTriangle className="w-2.5 h-2.5" /> 差异
+                        <span className="inline-flex items-center gap-1 text-[11px] text-[#EF4444] bg-[#EF4444]/20 px-2 py-0.5 rounded border border-[#EF4444]/40 font-bold animate-pulse">
+                          <AlertTriangle className="w-3 h-3" /> 差异
                         </span>
                       )}
                     </td>
 
                     {/* 操作动作 */}
-                    <td className="py-1 px-1 text-center space-x-1 whitespace-nowrap">
+                    <td className="py-2 px-2 text-center space-x-1.5 whitespace-nowrap">
                       {isHighRisk && (
                         <button
                           onClick={() => onAskAiAboutRisk(rec.entityName)}
-                          className="px-1.5 py-0.5 bg-[#EF4444]/20 hover:bg-[#EF4444]/30 text-[#ffb4ab] text-[10px] font-bold rounded border border-[#EF4444]/50 cursor-pointer transition-colors"
+                          className="px-2 py-1 bg-[#EF4444]/20 hover:bg-[#EF4444]/30 text-[#ffb4ab] text-[11px] font-semibold rounded border border-[#EF4444]/50 cursor-pointer transition-colors"
                         >
                           AI研判
                         </button>
                       )}
                       <button
                         onClick={() => setSelectedRecordForDetail(rec)}
-                        className="px-1.5 py-0.5 bg-[#222a3d] hover:bg-[#334155] text-[#4cd7f6] rounded border border-[#4cd7f6]/30 text-[10px] cursor-pointer transition-colors"
+                        className="px-2 py-1 bg-[#222a3d] hover:bg-[#334155] text-[#4cd7f6] rounded border border-[#4cd7f6]/30 text-[11px] font-semibold cursor-pointer transition-colors"
                       >
                         详情
                       </button>
