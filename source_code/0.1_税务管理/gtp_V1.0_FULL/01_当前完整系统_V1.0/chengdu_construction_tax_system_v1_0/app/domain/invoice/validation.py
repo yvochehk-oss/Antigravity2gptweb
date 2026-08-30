@@ -7,7 +7,7 @@ missing evidence -> ``NEEDS_REVIEW``; deterministic contradiction ->
 
 Mutable statutory assumptions (for example fixed invoice number/code lengths or
 tax rates) are deliberately not hard-coded here. Versioned tax-rate rules remain
-an explicit caller input to the Task 07a helper.
+an explicit caller input.
 """
 from __future__ import annotations
 
@@ -16,9 +16,17 @@ from datetime import date
 from decimal import Decimal
 from typing import Iterable
 
+from .identity import (
+    InvoiceIdentityError,
+    build_invoice_business_identity_key,
+    build_invoice_identity_key,
+    normalize_identity_component,
+)
+
 MONEY_TOLERANCE = Decimal("0.01")
 RULESET_VERSION = "V3_INVOICE_VALIDATION_V1"
 LEGACY_MIGRATION_IDENTITY_VERSION = "LEGACY_MIGRATION_V1"
+SUPPORTED_IDENTITY_VERSIONS = frozenset({"DIGITAL_V1", "LEGACY_V1"})
 
 
 def _d(value: Decimal | int | str | None) -> Decimal | None:
@@ -129,6 +137,7 @@ def validate_invoice_values(
 class InvoiceEvidenceSnapshot:
     fact_id: int
     current_validation_status: str
+    business_identity_key: str
     invoice_identity_key: str
     invoice_identity_version: str
     invoice_number: str
@@ -143,11 +152,15 @@ class InvoiceEvidenceSnapshot:
     currency: str
     line_count: int
     incomplete_line_count: int
+    line_missing_tax_rate_count: int
+    line_tax_rates: tuple[Decimal, ...]
     line_net_sum: Decimal | None
     line_vat_sum: Decimal | None
     provenance_count: int
     document_provenance_count: int
+    validated_document_provenance_count: int
     seller_tax_identifier_count: int
+    seller_tax_identifier_value: str | None
     reversal_relation_count: int
     void_relation_count: int
 
@@ -192,9 +205,17 @@ def _finding(severity: str, code: str, message: str) -> ValidationFinding:
     return ValidationFinding(severity=severity, code=code, message=message)
 
 
-def evaluate_invoice_evidence(snapshot: InvoiceEvidenceSnapshot) -> ValidationDecision:
+def evaluate_invoice_evidence(
+    snapshot: InvoiceEvidenceSnapshot,
+    *,
+    allowed_tax_rates: Iterable[Decimal] | None = None,
+) -> ValidationDecision:
     """Return the deterministic Task 09 status supported by current evidence."""
     findings: list[ValidationFinding] = []
+    rate_rules_supplied = allowed_tax_rates is not None
+    rate_rules = {
+        value for value in (_d(item) for item in (allowed_tax_rates or ())) if value is not None
+    }
 
     if snapshot.seller_party_id is None:
         findings.append(_finding("REVIEW", "SELLER_PARTY_MISSING", "seller Party is not resolved"))
@@ -209,18 +230,50 @@ def evaluate_invoice_evidence(snapshot: InvoiceEvidenceSnapshot) -> ValidationDe
             _finding("INVALID", "SELLER_BUYER_SAME_PARTY", "seller and buyer resolve to the same Party")
         )
 
-    if not snapshot.invoice_identity_key.strip():
+    identity_key = snapshot.invoice_identity_key.strip()
+    identity_version = normalize_identity_component(snapshot.invoice_identity_version)
+    if not identity_key:
         findings.append(_finding("REVIEW", "IDENTITY_KEY_MISSING", "invoice identity key is missing"))
-    if not snapshot.invoice_identity_version.strip():
+    else:
+        try:
+            expected_business_key = build_invoice_business_identity_key(identity_key)
+        except InvoiceIdentityError:
+            expected_business_key = None
+        if expected_business_key and snapshot.business_identity_key != expected_business_key:
+            findings.append(
+                _finding(
+                    "INVALID",
+                    "BUSINESS_IDENTITY_KEY_MISMATCH",
+                    "Fact business identity does not match Invoice identity",
+                )
+            )
+
+    if not identity_version:
         findings.append(
             _finding("REVIEW", "IDENTITY_VERSION_MISSING", "invoice identity version is missing")
         )
-    elif snapshot.invoice_identity_version == LEGACY_MIGRATION_IDENTITY_VERSION:
+    elif identity_version == LEGACY_MIGRATION_IDENTITY_VERSION:
         findings.append(
             _finding(
                 "REVIEW",
                 "LEGACY_MIGRATION_IDENTITY",
                 "Task 08 migration identity is not sufficient document identity evidence",
+            )
+        )
+    elif identity_version not in SUPPORTED_IDENTITY_VERSIONS:
+        findings.append(
+            _finding(
+                "REVIEW",
+                "UNSUPPORTED_IDENTITY_VERSION",
+                f"identity version {identity_version!r} is not a Task 07a supported contract",
+            )
+        )
+    elif snapshot.invoice_identity_version != identity_version:
+        findings.append(
+            _finding(
+                "REVIEW",
+                "IDENTITY_VERSION_NOT_CANONICAL",
+                f"identity version must be stored canonically as {identity_version}",
             )
         )
 
@@ -241,6 +294,47 @@ def evaluate_invoice_evidence(snapshot: InvoiceEvidenceSnapshot) -> ValidationDe
                 "seller has no active TAX_REGISTRATION_ID Party identifier",
             )
         )
+    elif snapshot.seller_tax_identifier_count > 1:
+        findings.append(
+            _finding(
+                "REVIEW",
+                "SELLER_TAX_IDENTITY_AMBIGUOUS",
+                "seller has multiple active TAX_REGISTRATION_ID Party identifiers",
+            )
+        )
+
+    if identity_version == "LEGACY_V1" and not str(snapshot.invoice_code or "").strip():
+        findings.append(
+            _finding("REVIEW", "LEGACY_INVOICE_CODE_MISSING", "LEGACY_V1 identity requires invoice code")
+        )
+
+    if identity_version in SUPPORTED_IDENTITY_VERSIONS and identity_key:
+        seller_tax = (
+            snapshot.seller_tax_identifier_value
+            if snapshot.seller_tax_identifier_count == 1
+            else None
+        )
+        can_build = bool(snapshot.invoice_number.strip())
+        if identity_version == "LEGACY_V1":
+            can_build = can_build and bool(str(snapshot.invoice_code or "").strip()) and bool(seller_tax)
+        if can_build:
+            try:
+                expected_identity = build_invoice_identity_key(
+                    identity_version,
+                    invoice_number=snapshot.invoice_number,
+                    invoice_code=snapshot.invoice_code,
+                    seller_tax_identity=seller_tax,
+                )
+            except InvoiceIdentityError:
+                expected_identity = None
+            if expected_identity and identity_key != expected_identity:
+                findings.append(
+                    _finding(
+                        "INVALID",
+                        "INVOICE_IDENTITY_KEY_MISMATCH",
+                        "stored Invoice identity key differs from deterministic Task 07a identity",
+                    )
+                )
 
     gross = _money(snapshot.gross_amount)
     net = _money(snapshot.net_amount)
@@ -266,38 +360,83 @@ def evaluate_invoice_evidence(snapshot: InvoiceEvidenceSnapshot) -> ValidationDe
                 "no Fact provenance row points to a source document",
             )
         )
+    elif snapshot.validated_document_provenance_count < 1:
+        findings.append(
+            _finding(
+                "REVIEW",
+                "SOURCE_DOCUMENT_NOT_VALIDATED",
+                "source document provenance exists but no linked document is VALIDATED",
+            )
+        )
 
     if snapshot.line_count < 1:
         findings.append(
             _finding("REVIEW", "INVOICE_LINES_MISSING", "no invoice line evidence is stored")
         )
-    elif snapshot.incomplete_line_count:
-        findings.append(
-            _finding(
-                "REVIEW",
-                "INVOICE_LINES_INCOMPLETE",
-                f"{snapshot.incomplete_line_count} invoice line(s) lack net or VAT amount",
-            )
-        )
-    elif net is not None and vat is not None:
-        line_net = _money(snapshot.line_net_sum)
-        line_vat = _money(snapshot.line_vat_sum)
-        if line_net is None or abs(line_net - net) > MONEY_TOLERANCE:
+    else:
+        if snapshot.incomplete_line_count:
             findings.append(
                 _finding(
-                    "INVALID",
-                    "LINE_NET_SUM_MISMATCH",
-                    f"line net sum {line_net} != header net {net}",
+                    "REVIEW",
+                    "INVOICE_LINES_INCOMPLETE",
+                    f"{snapshot.incomplete_line_count} invoice line(s) lack net or VAT amount",
                 )
             )
-        if line_vat is None or abs(line_vat - vat) > MONEY_TOLERANCE:
+        if snapshot.line_missing_tax_rate_count:
             findings.append(
                 _finding(
-                    "INVALID",
-                    "LINE_VAT_SUM_MISMATCH",
-                    f"line VAT sum {line_vat} != header VAT {vat}",
+                    "REVIEW",
+                    "LINE_TAX_RATE_MISSING",
+                    f"{snapshot.line_missing_tax_rate_count} invoice line(s) lack tax rate",
                 )
             )
+        if not rate_rules_supplied:
+            findings.append(
+                _finding(
+                    "REVIEW",
+                    "VERSIONED_TAX_RATE_RULES_MISSING",
+                    "no reviewed/versioned allowed tax-rate set was supplied",
+                )
+            )
+        elif not rate_rules:
+            findings.append(
+                _finding(
+                    "REVIEW",
+                    "VERSIONED_TAX_RATE_RULES_EMPTY",
+                    "reviewed/versioned allowed tax-rate set is empty",
+                )
+            )
+        else:
+            disallowed = sorted({rate for rate in snapshot.line_tax_rates if rate not in rate_rules})
+            if disallowed:
+                findings.append(
+                    _finding(
+                        "INVALID",
+                        "LINE_TAX_RATE_NOT_ALLOWED",
+                        "line tax rate(s) not allowed by reviewed rules: "
+                        + ",".join(str(value) for value in disallowed),
+                    )
+                )
+
+        if not snapshot.incomplete_line_count and net is not None and vat is not None:
+            line_net = _money(snapshot.line_net_sum)
+            line_vat = _money(snapshot.line_vat_sum)
+            if line_net is None or abs(line_net - net) > MONEY_TOLERANCE:
+                findings.append(
+                    _finding(
+                        "INVALID",
+                        "LINE_NET_SUM_MISMATCH",
+                        f"line net sum {line_net} != header net {net}",
+                    )
+                )
+            if line_vat is None or abs(line_vat - vat) > MONEY_TOLERANCE:
+                findings.append(
+                    _finding(
+                        "INVALID",
+                        "LINE_VAT_SUM_MISMATCH",
+                        f"line VAT sum {line_vat} != header VAT {vat}",
+                    )
+                )
 
     if snapshot.invoice_status == "RED":
         for label, value in (("net", net), ("VAT", vat), ("gross", gross)):
@@ -340,5 +479,9 @@ def evaluate_invoice_evidence(snapshot: InvoiceEvidenceSnapshot) -> ValidationDe
 
 def evaluate_many_evidence(
     rows: Iterable[InvoiceEvidenceSnapshot],
+    *,
+    allowed_tax_rates: Iterable[Decimal] | None = None,
 ) -> tuple[ValidationDecision, ...]:
-    return tuple(evaluate_invoice_evidence(row) for row in rows)
+    return tuple(
+        evaluate_invoice_evidence(row, allowed_tax_rates=allowed_tax_rates) for row in rows
+    )
