@@ -1,6 +1,7 @@
 """Task 07a Fact/Invoice identity, schema and PostgreSQL contract tests."""
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
@@ -23,7 +24,7 @@ from app.domain.invoice.validation import (
     validate_invoice_values,
 )
 from app.v3_fact_models import Fact, InvoiceFact, InvoiceLine
-from app.v3_party_models import InternalEntity, Party
+from app.v3_party_models import InternalEntity
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -72,9 +73,7 @@ def test_pure_validation_requires_balanced_header_lines_and_versioned_rate_set()
     assert result.valid is True
     assert result.violations == ()
 
-    bad = InvoiceValidationInput(
-        **{**good.__dict__, "gross_amount": Decimal("112.00")}
-    )
+    bad = replace(good, gross_amount=Decimal("112.00"))
     result = validate_invoice_values(bad, allowed_tax_rates={Decimal("0.09")})
     assert result.valid is False
     assert "HEADER_AMOUNT_UNBALANCED" in result.violations
@@ -109,10 +108,11 @@ def test_revision_77_is_additive_and_follows_revision_76():
     migration = (
         ROOT / "alembic" / "versions" / "77_v3_fact_core_invoice.py"
     ).read_text(encoding="utf-8")
+    upper = migration.upper()
     assert 'down_revision = "76_v3_party_migration_conflicts"' in migration
-    assert "DROP TABLE invoices" not in migration.lower()
-    assert "CREATE VIEW invoices_compat" not in migration.upper()
-    assert "fact_type + fact_id" not in migration
+    assert "DROP TABLE INVOICES" not in upper
+    assert "CREATE VIEW INVOICES_COMPAT" not in upper
+    assert "FACT_TYPE + FACT_ID" not in upper
 
 
 def _internal_party_ids(session: Session) -> tuple[int, int]:
