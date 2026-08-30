@@ -64,6 +64,9 @@ class CollectionEnvelope(BaseModel):
     page: int = Field(ge=1)
     page_size: int = Field(ge=1)
     has_more: bool = False
+    deprecated: bool | None = None
+    deprecation_message: str = ""
+    recommended_endpoints: dict[str, str] = Field(default_factory=dict)
 
 
 class ProjectCollectionItem(BaseModel):
