@@ -27,16 +27,12 @@ from app.v3_fact_models import Fact
 from app.v3_period_models import CalculationRun, TaxPeriodState
 from app.v3_project_tax_models import TaxPrepaymentFact
 from app.v3_tax_models import InputVatClaim
-from app.v3_vat_ledger_models import (
-    EntityVatLedger,
-    EntityVatLedgerComponent,
-    OutputVatEvent,
-    VatOpeningBalanceSeed,
-)
+from app.v3_vat_ledger_models import EntityVatLedger, EntityVatLedgerComponent, OutputVatEvent, VatOpeningBalanceSeed
 from app.v3_party_models import InternalEntity
 
 RULESET_VERSION = "V3_ENTITY_VAT_LEDGER_V1"
 EXPECTED_HEAD = "84_v3_entity_vat_ledgers"
+PLAN_KIND = "V3_TASK14_VAT_LEDGER_PLAN"
 
 
 def _database_url() -> str:
@@ -176,6 +172,55 @@ def _result_from_snapshot(snapshot: dict[str, Any]):
     )
 
 
+def _state_summary(session: Session, reporting_party_id: int, tax_period: date) -> dict[str, Any]:
+    state = session.scalar(
+        select(TaxPeriodState).where(
+            TaxPeriodState.reporting_party_id == reporting_party_id,
+            TaxPeriodState.tax_type == "VAT",
+            TaxPeriodState.tax_period == tax_period,
+        )
+    )
+    return {
+        "state": state.state if state is not None else None,
+        "current_run_id": state.current_run_id if state is not None else None,
+        "state_version": state.state_version if state is not None else None,
+        "restatement_required": bool(state is not None and state.state == "CLOSED"),
+    }
+
+
+def make_plan(session: Session, *, entity_code: str, period: str | date) -> dict[str, Any]:
+    if _head(session) != EXPECTED_HEAD:
+        raise ValueError(f"formal DB head must be {EXPECTED_HEAD}")
+    entity = _entity(session, entity_code)
+    tax_period = _period(period)
+    snapshot = _source_snapshot(session, entity.party_id, tax_period)
+    calculation = _result_from_snapshot(snapshot)
+    core = {
+        "kind": PLAN_KIND,
+        "version": 1,
+        "entity_code": entity_code,
+        "reporting_party_id": entity.party_id,
+        "tax_period": str(tax_period),
+        "ruleset_version": RULESET_VERSION,
+        "input_snapshot_sha256": _canonical_hash(snapshot),
+        "period_state": _state_summary(session, entity.party_id, tax_period),
+        "source_snapshot": snapshot,
+        "calculation": calculation.__dict__,
+    }
+    return {**core, "plan_digest": _canonical_hash(core)}
+
+
+def _load_plan(path: str) -> dict[str, Any]:
+    plan = json.loads(Path(path).read_text(encoding="utf-8"))
+    if plan.get("kind") != PLAN_KIND or plan.get("version") != 1:
+        raise ValueError("unsupported Task14 VAT Ledger plan")
+    digest = plan.get("plan_digest")
+    core = {key: value for key, value in plan.items() if key != "plan_digest"}
+    if digest != _canonical_hash(core):
+        raise ValueError("Task14 VAT Ledger plan_digest mismatch")
+    return plan
+
+
 def discover(session: Session) -> list[dict[str, Any]]:
     candidates = session.execute(
         select(InternalEntity.canonical_code, InternalEntity.party_id).order_by(InternalEntity.canonical_code)
@@ -192,17 +237,18 @@ def discover(session: Session) -> list[dict[str, Any]]:
     for code, party_id in candidates:
         for period in sorted(periods_by_party.get(int(party_id), set())):
             try:
-                snapshot = _source_snapshot(session, int(party_id), period)
+                plan = make_plan(session, entity_code=code, period=period)
                 results.append({
                     "entity_code": code,
                     "reporting_party_id": int(party_id),
                     "period": period.strftime("%Y-%m"),
                     "eligible": True,
-                    "snapshot_sha256": _canonical_hash(snapshot),
-                    "output_event_count": len(snapshot["output_events"]),
-                    "input_claim_count": len(snapshot["input_claims"]),
-                    "tax_prepayment_count": len(snapshot["tax_prepayments"]),
-                    "opening_source": snapshot["opening"],
+                    "snapshot_sha256": plan["input_snapshot_sha256"],
+                    "output_event_count": len(plan["source_snapshot"]["output_events"]),
+                    "input_claim_count": len(plan["source_snapshot"]["input_claims"]),
+                    "tax_prepayment_count": len(plan["source_snapshot"]["tax_prepayments"]),
+                    "opening_source": plan["source_snapshot"]["opening"],
+                    "period_state": plan["period_state"],
                     "blocker": None,
                 })
             except ValueError as exc:
@@ -223,6 +269,7 @@ def build_one(
     period: str | date,
     created_by: str,
     allow_restatement: bool = False,
+    expected_input_snapshot_sha256: str | None = None,
 ) -> dict[str, Any]:
     if _head(session) != EXPECTED_HEAD:
         raise ValueError(f"formal DB head must be {EXPECTED_HEAD}")
@@ -230,6 +277,8 @@ def build_one(
     tax_period = _period(period)
     snapshot = _source_snapshot(session, entity.party_id, tax_period)
     input_hash = _canonical_hash(snapshot)
+    if expected_input_snapshot_sha256 is not None and input_hash != expected_input_snapshot_sha256:
+        raise ValueError("stale Task14 plan: VAT source snapshot changed after PLAN review")
     result = _result_from_snapshot(snapshot)
 
     state = session.scalar(
@@ -361,6 +410,7 @@ def main() -> int:
     parser.add_argument("--discover", action="store_true")
     parser.add_argument("--entity")
     parser.add_argument("--period")
+    parser.add_argument("--plan")
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--restatement", action="store_true")
     parser.add_argument("--confirm-database")
@@ -372,38 +422,43 @@ def main() -> int:
     engine = create_engine(database_url, future=True, pool_pre_ping=True)
     with Session(engine) as session:
         if args.discover:
+            if args.apply or args.plan or args.entity or args.period:
+                raise SystemExit("--discover cannot be combined with PLAN/APPLY arguments")
             result: Any = {"kind": "V3_TASK14_VAT_LEDGER_DISCOVERY", "database": make_url(database_url).database, "items": discover(session)}
-        else:
+        elif not args.apply:
+            if args.plan:
+                raise SystemExit("--plan is used only with --apply")
             if not args.entity or not args.period:
-                raise SystemExit("--entity and --period are required unless --discover is used")
-            if not args.apply:
-                entity = _entity(session, args.entity)
-                period = _period(args.period)
-                snapshot = _source_snapshot(session, entity.party_id, period)
-                result = {
-                    "kind": "V3_TASK14_VAT_LEDGER_PLAN",
-                    "database": make_url(database_url).database,
-                    "entity_code": args.entity,
-                    "reporting_party_id": entity.party_id,
-                    "tax_period": str(period),
-                    "ruleset_version": RULESET_VERSION,
-                    "input_snapshot_sha256": _canonical_hash(snapshot),
-                    "source_snapshot": snapshot,
-                    "calculation": _result_from_snapshot(snapshot).__dict__,
-                }
-            else:
-                current_db = session.connection().exec_driver_sql("SELECT current_database()").scalar_one()
-                if args.confirm_database != current_db:
-                    raise SystemExit("--confirm-database must exactly match current_database()")
-                result = build_one(
-                    session,
-                    entity_code=args.entity,
-                    period=args.period,
-                    created_by=args.created_by,
-                    allow_restatement=args.restatement,
-                )
-                session.commit()
-                result = {"kind": "V3_TASK14_VAT_LEDGER_RESULT", "database": current_db, **result}
+                raise SystemExit("--entity and --period are required to generate a PLAN")
+            result = {"database": make_url(database_url).database, **make_plan(session, entity_code=args.entity, period=args.period)}
+        else:
+            if not args.plan:
+                raise SystemExit("--apply requires an exact saved --plan file")
+            if args.entity or args.period:
+                raise SystemExit("do not combine --entity/--period with --plan --apply")
+            plan = _load_plan(args.plan)
+            current_db = session.connection().exec_driver_sql("SELECT current_database()").scalar_one()
+            if args.confirm_database != current_db:
+                raise SystemExit("--confirm-database must exactly match current_database()")
+            if plan.get("database") not in {None, current_db}:
+                raise SystemExit("saved Task14 plan targets a different database")
+            if plan["period_state"].get("restatement_required") and not args.restatement:
+                raise SystemExit("saved Task14 plan targets a CLOSED period; --restatement is required")
+            result = build_one(
+                session,
+                entity_code=plan["entity_code"],
+                period=plan["tax_period"],
+                created_by=args.created_by,
+                allow_restatement=args.restatement,
+                expected_input_snapshot_sha256=plan["input_snapshot_sha256"],
+            )
+            session.commit()
+            result = {
+                "kind": "V3_TASK14_VAT_LEDGER_RESULT",
+                "database": current_db,
+                "plan_digest": plan["plan_digest"],
+                **result,
+            }
 
     engine.dispose()
     rendered = json.dumps(result, ensure_ascii=False, indent=2, default=str)
