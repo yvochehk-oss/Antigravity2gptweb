@@ -80,7 +80,7 @@ def _alembic_heads_from_disk() -> set[str]:
 
 
 @pytest.fixture(scope="module")
-def migrated(engine):
+def migrated(engine, seeded_app):
     """Hard-fail unless DB revision rows exactly equal the Alembic head set."""
     expected_heads = _alembic_heads_from_disk()
     if not expected_heads:
@@ -220,3 +220,51 @@ def test_preflight_sentinel_scan_is_well_formed(engine, migrated):
         )
         assert row is not None
         assert all(int(value or 0) >= 0 for value in row), (table, col, row, sentinels)
+
+
+def test_preflight_counts_trimmed_unresolved_codes(engine, migrated):
+    """Regression: the correlated lookup must not bind ``code`` to itself."""
+    from scripts.v3_boundary_preflight import run as run_preflight
+
+    project_id = _exec_scalar(engine, text("SELECT id FROM projects LIMIT 1"))
+    entity_code = _exec_scalar(engine, text("SELECT code FROM entities LIMIT 1"))
+    if project_id is None or entity_code is None:
+        pytest.skip("seeded project/entity is required")
+
+    invoice_no = "V3S003-UNRESOLVED"
+    unresolved_code = "V3-UNRESOLVED-PARTY"
+    try:
+        _exec_write(
+            engine,
+            text(
+                """
+                INSERT INTO invoices (
+                    project_id, invoice_no, period, entity_code, direction,
+                    counterparty_code, category, net, vat, rate, deductible, note
+                ) VALUES (
+                    :project_id, :invoice_no, '2099-02', :entity_code, 'in',
+                    :counterparty_code, 'TEST', 0, 0, 0, true, 'v3-preflight-regression'
+                )
+                """
+            ),
+            {
+                "project_id": int(project_id),
+                "invoice_no": invoice_no,
+                "entity_code": str(entity_code),
+                "counterparty_code": f"  {unresolved_code}  ",
+            },
+        )
+        result = run_preflight()
+        invoice_result = next(
+            item
+            for item in result["columns"]
+            if item["table"] == "invoices" and item["column"] == "counterparty_code"
+        )
+        assert invoice_result["unresolved_count"] >= 1
+        assert unresolved_code in invoice_result["unresolved_sample"]
+    finally:
+        _exec_write(
+            engine,
+            text("DELETE FROM invoices WHERE invoice_no=:invoice_no"),
+            {"invoice_no": invoice_no},
+        )

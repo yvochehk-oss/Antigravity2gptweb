@@ -27,8 +27,15 @@ TEST_LOGIN_PASSWORD = "888888"
 os.environ.setdefault("APP_ENV", "test")
 os.environ.setdefault("JWT_SECRET_KEY", "tax-test-secret-at-least-32-characters")
 os.environ.setdefault("RAG_SHARED_API_KEY", "rag-test-secret-at-least-32-characters")
+_USER_CENTER_TEST_DB = Path(os.getenv("TMPDIR", "/tmp")) / f"chengdu_user_center_test_{os.getpid()}.db"
+os.environ.setdefault("USER_CENTER_DB_URL", f"sqlite:///{_USER_CENTER_TEST_DB}")
 os.environ.pop("INITIAL_ADMIN_PASSWORD", None)
 os.environ.pop("INITIAL_OPERATOR_PASSWORD", None)
+
+
+def pytest_sessionfinish(session, exitstatus):
+    """Remove only the per-process disposable user-center SQLite file."""
+    _USER_CENTER_TEST_DB.unlink(missing_ok=True)
 
 
 def require_test_database() -> str:

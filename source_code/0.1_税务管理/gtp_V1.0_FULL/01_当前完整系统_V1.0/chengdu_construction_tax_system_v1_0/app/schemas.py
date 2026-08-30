@@ -9,7 +9,7 @@ Severity = Literal["LOW", "MEDIUM", "HIGH", "CRITICAL"]
 RiskLevel = Literal["LOW", "MEDIUM", "HIGH", "CRITICAL", "UNKNOWN"]
 Priority = Literal["P0", "P1", "P2", "P3"]
 TaskStatus = Literal["open", "in_progress", "done", "rechecked", "verified", "closed"]
-CollectionStatus = Literal["LOADING", "READY", "DEGRADED", "UNAVAILABLE"]
+CollectionStatus = Literal["LOADING", "READY", "DEGRADED", "UNAVAILABLE", "DEPRECATED"]
 
 
 class Finding(BaseModel):

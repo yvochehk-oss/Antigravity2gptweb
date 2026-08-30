@@ -12,6 +12,8 @@ These tests require a seeded PostgreSQL via TEST_DATABASE_URL.
 """
 from __future__ import annotations
 
+from decimal import Decimal
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import case, func
@@ -53,25 +55,68 @@ def test_entity_tax_ledger_rejects_project_id(seeded_app):
 def test_entity_tax_ledger_supports_entity_filter(seeded_app):
     from app.db import SessionLocal
     from app.main import app
-    from app.models import TaxLedger
+    from app.models import Entity, TaxLedger
 
     db = SessionLocal()
+    period = "2099-11"
     try:
-        row = db.query(TaxLedger).first()
-        if row is None:
-            pytest.skip("seeded DB has no tax ledger rows")
-        entity = row.entity_code
-        period = row.period
-    finally:
-        db.close()
+        entity_codes = [
+            str(row[0])
+            for row in db.query(Entity.code).order_by(Entity.code).limit(2).all()
+        ]
+        assert len(entity_codes) >= 2, "seeded test DB must contain at least two entities"
+        target_entity, control_entity = entity_codes
+        rows = [
+            TaxLedger(
+                period=period,
+                entity_code=target_entity,
+                output_vat=Decimal("11.00"),
+                input_vat=Decimal("1.00"),
+                vat_payable=Decimal("10.00"),
+                revenue=Decimal("100.00"),
+                real_cost=Decimal("20.00"),
+                estimated_profit=Decimal("80.00"),
+                estimated_cit=Decimal("20.00"),
+                cit_note="v3-s0-02 target ledger",
+            ),
+            TaxLedger(
+                period=period,
+                entity_code=control_entity,
+                output_vat=Decimal("99.00"),
+                input_vat=Decimal("9.00"),
+                vat_payable=Decimal("90.00"),
+                revenue=Decimal("900.00"),
+                real_cost=Decimal("200.00"),
+                estimated_profit=Decimal("700.00"),
+                estimated_cit=Decimal("175.00"),
+                cit_note="v3-s0-02 control ledger",
+            ),
+        ]
+        db.add_all(rows)
+        db.commit()
 
-    client = TestClient(app)
-    _login(client)
-    r = client.get(f"/api/entity-tax-ledger?period={period}&entity={entity}")
-    assert r.status_code == 200, r.text
-    body = r.json()
-    assert all(item["entity_code"] == entity for item in body["items"])
-    assert all("project_id" not in item for item in body["items"])
+        client = TestClient(app)
+        _login(client)
+        r = client.get(
+            f"/api/entity-tax-ledger?period={period}&entity={target_entity}"
+        )
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert len(body["items"]) == 1
+        assert body["items"][0]["entity_code"] == target_entity
+        assert body["items"][0]["output_vat"] == 11.0
+        assert all("project_id" not in item for item in body["items"])
+        assert control_entity not in {item["entity_code"] for item in body["items"]}
+    finally:
+        db.rollback()
+        db.query(TaxLedger).filter(
+            TaxLedger.period == period,
+            TaxLedger.cit_note.in_(
+                ("v3-s0-02 target ledger", "v3-s0-02 control ledger")
+            ),
+        ).delete(synchronize_session=False)
+        db.commit()
+        db.close()
 
 
 def test_entity_tax_ledger_returns_legal_entities(seeded_app):
@@ -171,27 +216,55 @@ def test_project_tax_analysis_returns_404_for_unknown_project(seeded_app):
 
 
 def test_project_tax_does_not_leak_other_projects(seeded_app):
-    """Gate S0-02: same entity on multiple projects must remain project-scoped."""
+    """Gate S0-02: constructed cross-project evidence must remain isolated."""
     from app.db import SessionLocal
     from app.main import app
-    from app.models import Invoice
+    from app.models import Entity, Invoice, Project
 
     db = SessionLocal()
+    period = "2099-12"
+    invoice_nos = ("V3S002-PROJECT-A", "V3S002-PROJECT-B")
     try:
-        candidates = (
-            db.query(Invoice.entity_code, Invoice.period)
-            .group_by(Invoice.entity_code, Invoice.period)
-            .having(func.count(func.distinct(Invoice.project_id)) >= 2)
-            .all()
+        project_rows = db.query(Project).order_by(Project.id).limit(2).all()
+        assert len(project_rows) >= 2, "seeded test DB must contain at least two projects"
+        entity_row = db.query(Entity.code).order_by(Entity.code).first()
+        assert entity_row is not None, "seeded test DB must contain an entity"
+        entity = str(entity_row[0])
+        project_id = int(project_rows[0].id)
+        other_project_id = int(project_rows[1].id)
+        db.add_all(
+            [
+                Invoice(
+                    project_id=project_id,
+                    invoice_no=invoice_nos[0],
+                    period=period,
+                    entity_code=entity,
+                    direction="out",
+                    counterparty_code="V3-TEST-PARTY-A",
+                    category="TEST",
+                    net=Decimal("111.00"),
+                    vat=Decimal("11.10"),
+                    rate=Decimal("0.10"),
+                    deductible=True,
+                    note="v3-s0-02 project isolation target",
+                ),
+                Invoice(
+                    project_id=other_project_id,
+                    invoice_no=invoice_nos[1],
+                    period=period,
+                    entity_code=entity,
+                    direction="out",
+                    counterparty_code="V3-TEST-PARTY-B",
+                    category="TEST",
+                    net=Decimal("999.00"),
+                    vat=Decimal("99.90"),
+                    rate=Decimal("0.10"),
+                    deductible=True,
+                    note="v3-s0-02 project isolation control",
+                ),
+            ]
         )
-        if not candidates:
-            pytest.skip("seeded data has no entity/period spanning multiple projects")
-        entity, period = candidates[0]
-        project_id = (
-            db.query(Invoice.project_id)
-            .filter(Invoice.entity_code == entity, Invoice.period == period)
-            .first()[0]
-        )
+        db.commit()
 
         expected = db.query(
             func.coalesce(func.sum(case((Invoice.direction == "out", Invoice.net), else_=0)), 0),
@@ -211,27 +284,31 @@ def test_project_tax_does_not_leak_other_projects(seeded_app):
             Invoice.period == period,
             Invoice.entity_code == entity,
         ).scalar()
-    finally:
-        db.close()
-
-    client = TestClient(app)
-    _login(client)
-    r = client.get(
-        f"/api/project-tax-analysis?project_id={project_id}&period={period}&entity={entity}"
-    )
-    assert r.status_code == 200, r.text
-    items = r.json()["items"]
-    assert items, "selected project/entity/period should contain seeded invoice evidence"
-    item = items[0]
-    assert item["out_invoice_net"] == float(expected[0] or 0)
-    assert item["out_invoice_vat"] == float(expected[1] or 0)
-    assert item["in_invoice_net"] == float(expected[2] or 0)
-    assert item["in_invoice_vat"] == float(expected[3] or 0)
-    assert item["invoice_count"] == int(expected[4] or 0)
-    if float(all_projects_out_net or 0) != float(expected[0] or 0):
+        client = TestClient(app)
+        _login(client)
+        r = client.get(
+            f"/api/project-tax-analysis?project_id={project_id}&period={period}&entity={entity}"
+        )
+        assert r.status_code == 200, r.text
+        items = r.json()["items"]
+        assert len(items) == 1
+        item = items[0]
+        assert item["out_invoice_net"] == float(expected[0] or 0) == 111.0
+        assert item["out_invoice_vat"] == float(expected[1] or 0) == 11.1
+        assert item["in_invoice_net"] == float(expected[2] or 0) == 0.0
+        assert item["in_invoice_vat"] == float(expected[3] or 0) == 0.0
+        assert item["invoice_count"] == int(expected[4] or 0) == 1
+        assert float(all_projects_out_net or 0) == 1110.0
         assert item["out_invoice_net"] != float(all_projects_out_net or 0), (
             "project tax analysis leaked another project's invoice totals"
         )
+    finally:
+        db.rollback()
+        db.query(Invoice).filter(Invoice.invoice_no.in_(invoice_nos)).delete(
+            synchronize_session=False
+        )
+        db.commit()
+        db.close()
 
 
 def test_legacy_project_filter_returns_warning_not_mixed_ledger(seeded_app):

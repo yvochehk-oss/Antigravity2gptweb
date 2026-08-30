@@ -53,19 +53,19 @@ def run() -> dict:
                       FROM "{table}"
                     )
                     SELECT
-                      COALESCE(MAX(LENGTH(code)), 0) AS max_length,
-                      COUNT(*) FILTER (WHERE code IS NULL) AS blank_count,
-                      COUNT(*) FILTER (WHERE UPPER(code)='UNKNOWN') AS unknown_count,
-                      COUNT(*) FILTER (WHERE code IN ('A','B','C','D')) AS virtual_role_count,
-                      COUNT(*) FILTER (WHERE LENGTH(code) > 64) AS over_64_count,
+                      COALESCE(MAX(LENGTH(v.code)), 0) AS max_length,
+                      COUNT(*) FILTER (WHERE v.code IS NULL) AS blank_count,
+                      COUNT(*) FILTER (WHERE UPPER(v.code)='UNKNOWN') AS unknown_count,
+                      COUNT(*) FILTER (WHERE v.code IN ('A','B','C','D')) AS virtual_role_count,
+                      COUNT(*) FILTER (WHERE LENGTH(v.code) > 64) AS over_64_count,
                       COUNT(*) FILTER (
-                        WHERE code IS NOT NULL
-                          AND UPPER(code) <> 'UNKNOWN'
-                          AND code NOT IN ('A','B','C','D')
-                          AND NOT EXISTS (SELECT 1 FROM entities e WHERE e.code=code)
-                          AND NOT EXISTS (SELECT 1 FROM external_parties p WHERE p.code=code)
+                        WHERE v.code IS NOT NULL
+                          AND UPPER(v.code) <> 'UNKNOWN'
+                          AND v.code NOT IN ('A','B','C','D')
+                          AND NOT EXISTS (SELECT 1 FROM entities e WHERE e.code=v.code)
+                          AND NOT EXISTS (SELECT 1 FROM external_parties p WHERE p.code=v.code)
                       ) AS unresolved_count
-                    FROM valueset
+                    FROM valueset v
                     """
                 )
             ).mappings().one()
