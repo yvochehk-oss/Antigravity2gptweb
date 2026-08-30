@@ -77,9 +77,64 @@ def upgrade() -> None:
         ["source_document_id"],
     )
 
+    op.execute(
+        """
+        CREATE FUNCTION v3_guard_entity_vat_ledger_output_completeness()
+        RETURNS trigger AS $$
+        DECLARE
+            asserted_total numeric(18,2);
+            event_total numeric(18,2);
+        BEGIN
+            SELECT a.asserted_output_vat_total
+              INTO asserted_total
+              FROM vat_output_period_assertions a
+             WHERE a.reporting_party_id = NEW.reporting_party_id
+               AND a.tax_period = NEW.tax_period
+               AND a.reviewed = true;
+
+            IF NOT FOUND THEN
+                RAISE EXCEPTION 'reviewed Output VAT completeness assertion required for party % period %',
+                    NEW.reporting_party_id, NEW.tax_period;
+            END IF;
+
+            SELECT COALESCE(SUM(e.vat_amount), 0)::numeric(18,2)
+              INTO event_total
+              FROM output_vat_events e
+             WHERE e.reporting_party_id = NEW.reporting_party_id
+               AND e.output_vat_period = NEW.tax_period
+               AND e.event_status = 'CONFIRMED';
+
+            IF event_total IS DISTINCT FROM asserted_total THEN
+                RAISE EXCEPTION 'confirmed Output VAT events total % does not match reviewed assertion %',
+                    event_total, asserted_total;
+            END IF;
+
+            IF NEW.output_vat IS DISTINCT FROM asserted_total THEN
+                RAISE EXCEPTION 'Entity VAT Ledger output_vat % does not match reviewed assertion %',
+                    NEW.output_vat, asserted_total;
+            END IF;
+
+            RETURN NEW;
+        END;
+        $$ LANGUAGE plpgsql;
+        """
+    )
+    op.execute(
+        """
+        CREATE TRIGGER trg_v3_guard_entity_vat_ledger_output_completeness
+        BEFORE INSERT OR UPDATE OF reporting_party_id, tax_period, output_vat
+        ON entity_vat_ledgers
+        FOR EACH ROW EXECUTE FUNCTION v3_guard_entity_vat_ledger_output_completeness()
+        """
+    )
+
 
 def downgrade() -> None:
     _require_postgresql()
+    op.execute(
+        "DROP TRIGGER IF EXISTS trg_v3_guard_entity_vat_ledger_output_completeness ON entity_vat_ledgers"
+    )
+    op.execute("DROP FUNCTION IF EXISTS v3_guard_entity_vat_ledger_output_completeness()")
     op.drop_index(
         "ix_vat_output_assertions_source_document",
         table_name="vat_output_period_assertions",
