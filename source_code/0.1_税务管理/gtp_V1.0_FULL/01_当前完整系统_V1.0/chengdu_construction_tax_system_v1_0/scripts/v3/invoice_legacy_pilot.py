@@ -42,6 +42,7 @@ from app.v3_fact_models import Fact, InvoiceFact, LegacyInvoiceMap  # noqa: E402
 PLAN_KIND = "V3_TASK08_LEGACY_INVOICE_PILOT_PLAN"
 RESULT_KIND = "V3_TASK08_LEGACY_INVOICE_PILOT_RESULT"
 EXPECTED_HEAD = "79_v3_legacy_invoice_pilot_bridge"
+MAX_PILOT_ROWS = 500
 
 
 def _database_url() -> str:
@@ -216,6 +217,10 @@ def _existing_map_ids(conn, ids: Iterable[int]) -> list[int]:
 def _subset_plan(full_plan: PilotPlan, requested_ids: set[int]) -> PilotPlan:
     if not requested_ids:
         raise RuntimeError("pilot selection is empty")
+    if len(requested_ids) > MAX_PILOT_ROWS:
+        raise RuntimeError(
+            f"explicit Task 08 pilot exceeds {MAX_PILOT_ROWS} row hard ceiling"
+        )
     known = set(full_plan.selected_ids)
     missing = sorted(requested_ids - known)
     if missing:
@@ -248,17 +253,29 @@ def _subset_plan(full_plan: PilotPlan, requested_ids: set[int]) -> PilotPlan:
 
 
 def _limit_plan(full_plan: PilotPlan, limit: int) -> PilotPlan:
-    if limit < 1 or limit > 500:
-        raise RuntimeError("--limit must be between 1 and 500")
+    if limit < 1 or limit > MAX_PILOT_ROWS:
+        raise RuntimeError(f"--limit must be between 1 and {MAX_PILOT_ROWS}")
     selected_actions: list[PilotAction] = []
     selected_ids: set[int] = set()
     for action in full_plan.actions:
+        action_ids = set(action.legacy_ids)
+        if len(action_ids) > MAX_PILOT_ROWS:
+            raise RuntimeError(
+                "one legacy invoice cluster exceeds the Task 08 small-batch hard ceiling; "
+                f"cluster_size={len(action_ids)} ids={sorted(action_ids)[:20]}"
+            )
         if selected_actions and len(selected_ids) >= limit:
             break
+        if selected_actions and len(selected_ids | action_ids) > MAX_PILOT_ROWS:
+            break
         selected_actions.append(action)
-        selected_ids.update(action.legacy_ids)
+        selected_ids.update(action_ids)
     if not selected_actions:
         raise RuntimeError("no unmapped legacy invoice rows remain")
+    if len(selected_ids) > MAX_PILOT_ROWS:
+        raise RuntimeError(
+            f"Task 08 pilot selection exceeds {MAX_PILOT_ROWS} row hard ceiling"
+        )
     return PilotPlan(
         selected_ids=tuple(sorted(selected_ids)),
         actions=tuple(selected_actions),
@@ -387,6 +404,10 @@ def _apply_plan(conn, wrapper: dict[str, Any]) -> dict[str, Any]:
     selected_ids = [int(value) for value in plan.get("selected_ids", [])]
     if not selected_ids:
         raise RuntimeError("pilot plan contains no selected ids")
+    if len(selected_ids) > MAX_PILOT_ROWS:
+        raise RuntimeError(
+            f"refusing apply: Task 08 pilot exceeds {MAX_PILOT_ROWS} row hard ceiling"
+        )
 
     # Task 08 is intentionally a single small pilot.  Refuse incremental runs
     # because a later row could be the missing perspective of an already-mapped
