@@ -66,7 +66,7 @@ class InputVatClaim(Base):
 
     __table_args__ = (
         CheckConstraint(
-            "claim_period = date_trunc('month', claim_period)::date",
+            "EXTRACT(DAY FROM claim_period) = 1",
             name="ck_input_vat_claims_period_month_start",
         ),
         CheckConstraint(
@@ -93,6 +93,10 @@ class InputVatClaim(Base):
         CheckConstraint(
             "confidence IN ('HIGH','MEDIUM','LOW')",
             name="ck_input_vat_claims_confidence",
+        ),
+        CheckConstraint(
+            "evidence_type <> 'DOCUMENT_EVIDENCE' OR source_document_id IS NOT NULL",
+            name="ck_input_vat_claims_document_evidence_source",
         ),
         CheckConstraint(
             "evidence_type <> 'LEGACY_ASSUMPTION' OR "
