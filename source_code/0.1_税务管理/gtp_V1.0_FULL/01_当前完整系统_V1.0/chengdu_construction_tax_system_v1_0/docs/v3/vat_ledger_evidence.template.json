@@ -1,0 +1,33 @@
+{
+  "kind": "V3_TASK14_VAT_EVIDENCE_MANIFEST",
+  "version": 1,
+  "reviewed": false,
+  "reviewed_by": "",
+  "reviewed_at": "",
+  "reason": "",
+  "output_vat_events": [
+    {
+      "invoice_fact_id": 0,
+      "entity_code": "",
+      "output_vat_period": "YYYY-MM",
+      "vat_amount": "0.00",
+      "event_type": "OUTPUT",
+      "evidence_type": "DOCUMENT_EVIDENCE",
+      "confidence": "HIGH",
+      "source_document_id": null,
+      "source_system": "TASK14_REVIEW",
+      "external_event_id": "",
+      "note": ""
+    }
+  ],
+  "opening_balance_seeds": [
+    {
+      "entity_code": "",
+      "tax_period": "YYYY-MM",
+      "opening_input_credit": "0.00",
+      "source_document_id": null,
+      "source": "",
+      "note": ""
+    }
+  ]
+}
