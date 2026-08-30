@@ -1,8 +1,10 @@
 """V3 Party/Taxpayer ORM models sharing the existing Tax ``Base`` metadata.
 
-The legacy ``ExternalParty`` mapping is extended in-place with the nullable
-``party_id`` bridge introduced by revision 74. No second SQLAlchemy Base is
-created.
+The legacy ``external_parties`` table metadata is extended in-place with the
+nullable ``party_id`` bridge introduced by revision 74, but those new columns
+are deliberately not added as runtime attributes to the legacy ExternalParty
+mapper. This keeps pre-74 legacy ORM reads from selecting columns that do not
+exist yet while Alembic/schema-audit still see the complete target metadata.
 """
 from __future__ import annotations
 
@@ -195,7 +197,8 @@ class PartyTaxProfile(Base):
     )
 
 
-# Extend the existing legacy mapper after ``parties`` has been registered.
+# Extend only Table metadata after ``parties`` has been registered. Legacy ORM
+# attributes remain unchanged until readers explicitly cut over after migration.
 _external_table = legacy_models.ExternalParty.__table__
 if "party_id" not in _external_table.c:
     _external_table.append_column(
@@ -220,8 +223,3 @@ if not any(
             name="uq_external_parties_party_id",
         )
     )
-
-if "party_id" not in legacy_models.ExternalParty.__mapper__.attrs:
-    legacy_models.ExternalParty.__mapper__.add_property("party_id", _external_table.c.party_id)
-if "industry" not in legacy_models.ExternalParty.__mapper__.attrs:
-    legacy_models.ExternalParty.__mapper__.add_property("industry", _external_table.c.industry)
