@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
@@ -19,12 +20,19 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session
 
-from app.models import Invoice
-from app.v3_fact_models import Fact, FactProvenance, InvoiceFact, LegacyInvoiceMap
-from app.v3_party_models import InternalEntity
-from app.v3_period_models import TaxPeriodState
-from app.v3_tax_models import InputVatClaim
-from app.v3_vat_ledger_models import EntityVatLedger, OutputVatEvent, VatOpeningBalanceSeed
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
+
+from app.models import Invoice  # noqa: E402
+from app.v3_fact_models import Fact, FactProvenance, InvoiceFact, LegacyInvoiceMap  # noqa: E402
+from app.v3_party_models import InternalEntity  # noqa: E402
+from app.v3_period_models import TaxPeriodState  # noqa: E402
+from app.v3_tax_models import InputVatClaim  # noqa: E402
+from app.v3_vat_ledger_models import (  # noqa: E402
+    EntityVatLedger,
+    OutputVatEvent,
+    VatOpeningBalanceSeed,
+)
 
 EXPECTED_HEAD = "84_v3_entity_vat_ledgers"
 
@@ -212,8 +220,6 @@ def build_packet(session: Session, *, entity_code: str, period: date) -> dict[st
         for row in output_events
     ]
 
-    # Historical context only. These rows help a reviewer locate source material;
-    # legacy period/direction must never be copied into Output VAT attribution.
     legacy_output_context: list[dict[str, Any]] = []
     legacy_rows = session.scalars(
         select(Invoice)
