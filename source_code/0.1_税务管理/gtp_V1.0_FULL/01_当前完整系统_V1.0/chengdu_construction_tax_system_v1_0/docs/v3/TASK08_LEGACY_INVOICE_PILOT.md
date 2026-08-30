@@ -37,6 +37,8 @@ facts. Every Fact created by the pilot therefore uses:
 
 - `invoice_identity_version = LEGACY_MIGRATION_V1`
 - `facts.validation_status = NEEDS_REVIEW`
+- `invoice_status = NULL`
+- zero synthetic `invoice_lines`
 
 Task 09 owns legal validation and promotion to `VALID`.
 
@@ -55,7 +57,8 @@ to the same InvoiceFact.
 
 ### Single perspective
 
-A resolved row without an eligible mirror is migrated as one InvoiceFact with:
+A resolved row with a nonblank invoice number and without an eligible mirror is
+migrated as one InvoiceFact with:
 
 - `MIGRATED_SINGLE_PERSPECTIVE`
 - Fact status `NEEDS_REVIEW`
@@ -66,6 +69,7 @@ No project truth or deductible truth is copied into InvoiceFact.
 
 The pilot creates **no Fact** when:
 
+- invoice number is blank or missing;
 - a Party cannot be resolved;
 - direction is invalid;
 - seller and buyer resolve to the same Party;
@@ -76,7 +80,7 @@ The pilot creates **no Fact** when:
 Every such legacy row still receives a `legacy_invoice_map` row with
 `NEEDS_REVIEW`. There is no silent drop.
 
-## Cluster-atomic selection
+## Cluster-atomic selection and hard ceiling
 
 `--limit` is approximate: the planner first classifies the complete unmapped
 legacy population, then selects whole actions/clusters. A two-row pair is never
@@ -84,6 +88,10 @@ split just because the requested limit ends between the rows.
 
 Explicit `--ids` is also fail-closed. If the supplied IDs select only part of a
 pair/ambiguous cluster, planning stops and reports the full cluster.
+
+Task 08 has a hard ceiling of **500 legacy rows**. PLAN and APPLY both refuse a
+larger batch. If a single ambiguous cluster itself exceeds 500 rows, the pilot
+stops rather than partially migrating that cluster.
 
 ## 1. Generate a read-only plan
 
@@ -156,6 +164,7 @@ uv run python scripts/v3/invoice_gate_08.py \
 Gate S08 requires:
 
 - revision 79 is DB/disk head;
+- selected batch is at most 500 rows;
 - selected legacy rows have 100% `legacy_invoice_map` coverage;
 - no selected row silently disappears;
 - MERGED actions contain exactly two rows with IN/OUT directions and one Fact;
@@ -163,8 +172,10 @@ Gate S08 requires:
 - REVIEW_ONLY actions have no invented Fact;
 - every created Task 08 Fact remains `NEEDS_REVIEW`;
 - every created InvoiceFact uses `LEGACY_MIGRATION_V1`;
+- Task 08 creates no invoice status and no synthetic invoice lines;
 - header net/VAT/gross equal the representative legacy evidence;
 - `real_cost_invoice_links.invoice_fact_id` agrees with `legacy_invoice_map`;
+- no migration-only InvoiceFacts exist outside the recorded result;
 - invoice identity remains unique.
 
 Task 09 must not begin until S08 is PASS (or an explicitly documented explained
