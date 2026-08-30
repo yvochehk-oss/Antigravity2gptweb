@@ -100,8 +100,13 @@ class InputVatClaim(Base):
         ),
         CheckConstraint(
             "evidence_type <> 'LEGACY_ASSUMPTION' OR "
-            "(confidence='LOW' AND claim_status='NEEDS_REVIEW')",
+            "(confidence='LOW' AND claim_status IN ('NEEDS_REVIEW','REJECTED','SUPERSEDED'))",
             name="ck_input_vat_claims_legacy_assumption_fail_closed",
+        ),
+        CheckConstraint(
+            "claim_status NOT IN ('REJECTED','SUPERSEDED') OR "
+            "(reviewed_by IS NOT NULL AND btrim(reviewed_by) <> '' AND reviewed_at IS NOT NULL)",
+            name="ck_input_vat_claims_resolution_reviewed",
         ),
         CheckConstraint(
             "claim_status <> 'CONFIRMED' OR "
