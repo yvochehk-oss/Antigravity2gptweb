@@ -67,8 +67,8 @@ def _ensure_version_column_capacity(connection) -> None:
     if length is not None and int(length) < VERSION_COLUMN_LENGTH:
         connection.execute(
             text(
-                f"ALTER TABLE {VERSION_TABLE} "
-                f"ALTER COLUMN version_num TYPE VARCHAR({VERSION_COLUMN_LENGTH})"
+                "ALTER TABLE IF EXISTS alembic_version_tax "
+                "ALTER COLUMN version_num TYPE VARCHAR(64)"
             )
         )
         connection.commit()
@@ -81,7 +81,7 @@ def run_migrations_offline() -> None:
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
         version_table=VERSION_TABLE,
-        version_table_col_length=VERSION_COLUMN_LENGTH,
+        version_table_col_length=64,
         compare_type=True,
     )
     with context.begin_transaction():
@@ -100,7 +100,7 @@ def run_migrations_online() -> None:
             connection=connection,
             target_metadata=target_metadata,
             version_table=VERSION_TABLE,
-            version_table_col_length=VERSION_COLUMN_LENGTH,
+            version_table_col_length=64,
             compare_type=True,
         )
         with context.begin_transaction():
