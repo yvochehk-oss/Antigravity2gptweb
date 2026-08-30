@@ -13,5 +13,9 @@ import entity_vat_ledger_85 as wrapped  # noqa: E402
 
 wrapped.base.EXPECTED_HEAD = "86_v3_input_vat_claim_review_resolution"
 
+build_one = wrapped.base.build_one
+make_plan = wrapped.base.make_plan
+discover = wrapped.base.discover
+
 if __name__ == "__main__":
     raise SystemExit(wrapped.base.main())
