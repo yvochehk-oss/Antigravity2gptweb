@@ -1,8 +1,9 @@
-"""V3 Task 07a Fact/Invoice ORM models sharing the Tax ``Base`` metadata.
+"""V3 Fact/Invoice ORM models sharing the Tax ``Base`` metadata.
 
-The legacy ``invoices`` table remains untouched and is not shadowed by these
-models. A physical invoice is represented once in ``invoice_facts`` and old
-IN/OUT rows are mapped later through ``legacy_invoice_map``.
+The legacy ``invoices`` table remains untouched. A physical invoice is stored
+once in ``invoice_facts``; red invoices are separate Facts linked through
+``fact_relationships`` and legacy IN/OUT rows are mapped through
+``legacy_invoice_map``.
 """
 from __future__ import annotations
 
@@ -97,7 +98,11 @@ class InvoiceFact(Base):
     invoice_identity_version: Mapped[str] = mapped_column(String(24), nullable=False)
     invoice_number: Mapped[str] = mapped_column(String(100), nullable=False)
     invoice_code: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    # Deprecated compatibility axis from Task 07a. New code uses the two
+    # orthogonal fields below and must not overload invoice_type further.
     invoice_type: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    invoice_medium: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    invoice_category: Mapped[str | None] = mapped_column(String(20), nullable=True)
     invoice_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     invoice_status: Mapped[str | None] = mapped_column(String(24), nullable=True)
     document_type: Mapped[str | None] = mapped_column(String(40), nullable=True)
@@ -110,9 +115,26 @@ class InvoiceFact(Base):
 
     __table_args__ = (
         UniqueConstraint("invoice_identity_key", name="uq_invoice_facts_identity_key"),
+        CheckConstraint(
+            "invoice_status IS NULL OR invoice_status IN ('VALID','VOIDED','RED')",
+            name="ck_invoice_facts_invoice_status",
+        ),
+        CheckConstraint(
+            "invoice_medium IS NULL OR invoice_medium IN ('DIGITAL','PAPER','OTHER')",
+            name="ck_invoice_facts_invoice_medium",
+        ),
+        CheckConstraint(
+            "invoice_category IS NULL OR invoice_category IN ('SPECIAL','ORDINARY','OTHER')",
+            name="ck_invoice_facts_invoice_category",
+        ),
+        CheckConstraint(
+            "invoice_status <> 'RED' OR ((net_amount IS NULL OR net_amount <= 0) AND (vat_amount IS NULL OR vat_amount <= 0) AND (gross_amount IS NULL OR gross_amount <= 0))",
+            name="ck_invoice_facts_red_amount_sign",
+        ),
         Index("ix_invoice_facts_seller_party_id", "seller_party_id"),
         Index("ix_invoice_facts_buyer_party_id", "buyer_party_id"),
         Index("ix_invoice_facts_invoice_date", "invoice_date"),
+        Index("ix_invoice_facts_invoice_status", "invoice_status"),
     )
 
 
@@ -212,4 +234,45 @@ class LegacyInvoiceMap(Base):
         ),
         Index("ix_legacy_invoice_map_invoice_fact_id", "invoice_fact_id"),
         Index("ix_legacy_invoice_map_status", "migration_status"),
+    )
+
+
+class FactRelationship(Base):
+    __tablename__ = "fact_relationships"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    source_fact_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("facts.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    target_fact_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("facts.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    relationship_type: Mapped[str] = mapped_column(String(24), nullable=False)
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("CURRENT_TIMESTAMP")
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "relationship_type IN ('REVERSAL_OF','REPLACES','VOID_RELATION','CORRECTS')",
+            name="ck_fact_relationships_type",
+        ),
+        CheckConstraint(
+            "source_fact_id <> target_fact_id",
+            name="ck_fact_relationships_not_self",
+        ),
+        UniqueConstraint(
+            "source_fact_id",
+            "target_fact_id",
+            "relationship_type",
+            name="uq_fact_relationships_source_target_type",
+        ),
+        Index("ix_fact_relationships_source", "source_fact_id"),
+        Index("ix_fact_relationships_target", "target_fact_id"),
+        Index("ix_fact_relationships_type", "relationship_type"),
     )
