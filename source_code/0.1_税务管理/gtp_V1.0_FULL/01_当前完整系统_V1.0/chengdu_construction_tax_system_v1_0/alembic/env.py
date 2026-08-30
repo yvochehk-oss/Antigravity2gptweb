@@ -23,7 +23,7 @@ config = context.config
 if config.config_file_name:
     fileConfig(config.config_file_name)
 
-# Import metadata in dependency order: legacy -> Party -> Fact -> tax -> contract -> project tax -> period state.
+# Import metadata in dependency order: legacy -> Party -> Fact -> tax -> contract -> project tax -> period state -> VAT ledger.
 from app import models  # noqa: E402,F401
 from app import v3_party_models  # noqa: E402,F401
 from app import v3_fact_models  # noqa: E402,F401
@@ -31,6 +31,7 @@ from app import v3_tax_models  # noqa: E402,F401
 from app import v3_contract_models  # noqa: E402,F401
 from app import v3_project_tax_models  # noqa: E402,F401
 from app import v3_period_models  # noqa: E402,F401
+from app import v3_vat_ledger_models  # noqa: E402,F401
 from app.db import Base  # noqa: E402
 
 url = os.getenv("DATABASE_URL", "").strip() or config.get_main_option("sqlalchemy.url").strip()
