@@ -59,11 +59,20 @@ fi
 
 # (2) 强制清理占用 8921(Tax), 8922(RAG), 5173(App), 8930(Ling), 8931(Granite), 8933(IDP) 端口的残留进程
 for port in 8921 8922 5173 8930 8931 8933; do
-  pids=$(lsof -t -i:"$port" 2>/dev/null || true)
+  pids=$(lsof -t -nP -iTCP:"$port" -sTCP:LISTEN 2>/dev/null || true)
   if [[ -n "$pids" ]]; then
-    kill -9 $pids 2>/dev/null || true
+    echo "$pids" | while read -r p; do
+      [[ -n "$p" ]] && kill -9 "$p" 2>/dev/null || true
+    done
   fi
 done
+
+# 辅以进程名特征清理残留孤儿进程
+pkill -9 -f "uvicorn.*8921" 2>/dev/null || true
+pkill -9 -f "uvicorn.*8922" 2>/dev/null || true
+pkill -9 -f "uvicorn.*8933" 2>/dev/null || true
+pkill -9 -f "llama-server.*8930" 2>/dev/null || true
+pkill -9 -f "vite.*5173" 2>/dev/null || true
 
 # (3) 清理所有 PID 记录文件
 rm -f "${PROJECT_DIR}/.tax.pid" "${PROJECT_DIR}/.rag.pid" "${PROJECT_DIR}/.local_llm.pid" "${PROJECT_DIR}/.app.pid" "${PROJECT_DIR}/.idp.pid"
@@ -89,18 +98,7 @@ if (( start_exit != 0 )); then
   exit $start_exit
 fi
 
-# 5. 启动 V3.0 IDP 智能文档录入与合规审计引擎 (端口 8933)
-if [[ -d "$IDP_DIR" ]]; then
-  print -- "📄 正在启动 IDP 智能文档录入与合规审计中枢 (端口 8933)..."
-  (
-    cd "$IDP_DIR"
-    IDP_PORT=8933 nohup "${PROJECT_DIR}/.venv/bin/uvicorn" app.main:app --host 127.0.0.1 --port 8933 > /tmp/idp_v3.log 2>&1 &
-    echo $! > "$IDP_PID_FILE"
-  )
-  sleep 1
-fi
-
-# 6. 启动老板端移动驾驶舱前端预览 (端口 5173)
+# 5. 启动老板端移动驾驶舱前端预览 (端口 5173)
 if [[ -d "$APP_DIR" ]]; then
   print -- "📱 正在启动老板端移动驾驶舱 (端口 5173)..."
   (

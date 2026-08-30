@@ -31,11 +31,20 @@ fi
 
 # 强制清理前端、IDP 与残留端口
 for port in 8921 8922 5173 8930 8931 8933; do
-  pids=$(lsof -t -i:"$port" 2>/dev/null || true)
+  pids=$(lsof -t -nP -iTCP:"$port" -sTCP:LISTEN 2>/dev/null || true)
   if [[ -n "$pids" ]]; then
-    kill -9 $pids 2>/dev/null || true
+    echo "$pids" | while read -r p; do
+      [[ -n "$p" ]] && kill -9 "$p" 2>/dev/null || true
+    done
   fi
 done
+
+# 辅以进程名特征清理残留孤儿进程
+pkill -9 -f "uvicorn.*8921" 2>/dev/null || true
+pkill -9 -f "uvicorn.*8922" 2>/dev/null || true
+pkill -9 -f "uvicorn.*8933" 2>/dev/null || true
+pkill -9 -f "llama-server.*8930" 2>/dev/null || true
+pkill -9 -f "vite.*5173" 2>/dev/null || true
 
 rm -f "${PROJECT_DIR}/.tax.pid" "${PROJECT_DIR}/.rag.pid" "${PROJECT_DIR}/.local_llm.pid" "${PROJECT_DIR}/.app.pid" "${PROJECT_DIR}/.idp.pid"
 
