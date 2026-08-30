@@ -37,10 +37,21 @@ interface TaxLedgerViewProps {
   settings?: SystemSettings;
 }
 
-function currentMonth(): string {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-}
+const YEAR_OPTIONS = ['2023', '2024', '2025', '2026', '2027', '2028'];
+const MONTH_OPTIONS = [
+  { value: '01', label: '01月' },
+  { value: '02', label: '02月' },
+  { value: '03', label: '03月' },
+  { value: '04', label: '04月' },
+  { value: '05', label: '05月' },
+  { value: '06', label: '06月' },
+  { value: '07', label: '07月' },
+  { value: '08', label: '08月' },
+  { value: '09', label: '09月' },
+  { value: '10', label: '10月' },
+  { value: '11', label: '11月' },
+  { value: '12', label: '12月' },
+];
 
 export function TaxLedgerView({
   projects,
@@ -54,12 +65,20 @@ export function TaxLedgerView({
   isRebuilding,
   settings
 }: TaxLedgerViewProps) {
+  const now = new Date();
+  const defaultYear = String(now.getFullYear());
+  const defaultMonth = String(now.getMonth() + 1).padStart(2, '0');
+
   const [searchWord, setSearchWord] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('全部税种');
   const [selectedRisk, setSelectedRisk] = useState('全部风险');
+  const [filterYear, setFilterYear] = useState('全部年份');
+  const [filterMonth, setFilterMonth] = useState('全部月份');
   const [sortField, setSortField] = useState<SortField>(null);
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
-  const [rebuildPeriod, setRebuildPeriod] = useState(() => currentMonth());
+  const [rebuildYear, setRebuildYear] = useState(defaultYear);
+  const [rebuildMonth, setRebuildMonth] = useState(defaultMonth);
+  const rebuildPeriod = `${rebuildYear}-${rebuildMonth}`;
 
   const handleSort = (field: SortField) => {
     if (sortField === field) {
@@ -86,8 +105,10 @@ export function TaxLedgerView({
     
     const matchesCat = selectedCategory === '全部税种' || item.taxCategory.includes(selectedCategory);
     const matchesRisk = selectedRisk === '全部风险' || item.riskLevel === selectedRisk;
+    const matchesYear = filterYear === '全部年份' || item.filingPeriod.startsWith(filterYear);
+    const matchesMonth = filterMonth === '全部月份' || item.filingPeriod.endsWith(`-${filterMonth}`);
 
-    return matchesSearch && matchesCat && matchesRisk;
+    return matchesSearch && matchesCat && matchesRisk && matchesYear && matchesMonth;
   });
 
   const sortedRecords = [...filteredRecords].sort((a, b) => {
@@ -177,21 +198,35 @@ export function TaxLedgerView({
           <p className="font-semibold text-[#dae2fd]">受控确定性台账生成/重建</p>
           <p className="text-[12px] text-[#c4c5d5] mt-1 leading-relaxed">请先完成 RAG 凭证同步/结构化入库；确认后将原子替换所选期间汇总。</p>
         </div>
-        <div className="flex items-center gap-2">
-          <label htmlFor="tax-ledger-rebuild-period" className="text-[12px] text-[#8e909f]">所属月份</label>
-          <input
-            id="tax-ledger-rebuild-period"
-            type="month"
-            value={rebuildPeriod}
-            onChange={event => setRebuildPeriod(event.target.value)}
-            className="bg-[#131b2e] border border-[#444653]/40 rounded-lg px-2.5 py-1.5 text-[12px] text-[#dae2fd] focus:border-[#4cd7f6] focus:outline-none"
+        <div className="flex items-center gap-2 flex-wrap">
+          <label htmlFor="tax-ledger-rebuild-year" className="text-[12px] text-[#8e909f]">所属期间：</label>
+          <select
+            id="tax-ledger-rebuild-year"
+            value={rebuildYear}
+            onChange={event => setRebuildYear(event.target.value)}
+            className="bg-[#131b2e] border border-[#444653]/40 rounded-lg px-2.5 py-1.5 text-[12px] text-[#dae2fd] focus:border-[#4cd7f6] focus:outline-none cursor-pointer"
             disabled={isRebuilding}
-          />
+          >
+            {YEAR_OPTIONS.map(y => (
+              <option key={y} value={y}>{y}年</option>
+            ))}
+          </select>
+          <select
+            id="tax-ledger-rebuild-month"
+            value={rebuildMonth}
+            onChange={event => setRebuildMonth(event.target.value)}
+            className="bg-[#131b2e] border border-[#444653]/40 rounded-lg px-2.5 py-1.5 text-[12px] text-[#dae2fd] focus:border-[#4cd7f6] focus:outline-none cursor-pointer"
+            disabled={isRebuilding}
+          >
+            {MONTH_OPTIONS.map(m => (
+              <option key={m.value} value={m.value}>{m.label}</option>
+            ))}
+          </select>
           <button
             type="button"
             onClick={handleRebuild}
             disabled={isRebuilding || !/^(?:\d{4})-(?:0[1-9]|1[0-2])$/.test(rebuildPeriod)}
-            className="px-3.5 py-2 rounded-lg bg-[#1e40af] hover:bg-[#1e40af]/80 disabled:opacity-50 disabled:cursor-not-allowed text-[#dde1ff] text-[12px] font-semibold border border-[#4cd7f6]/30"
+            className="px-3.5 py-2 rounded-lg bg-[#1e40af] hover:bg-[#1e40af]/80 disabled:opacity-50 disabled:cursor-not-allowed text-[#dde1ff] text-[12px] font-semibold border border-[#4cd7f6]/30 transition-all cursor-pointer shadow-md"
           >
             {isRebuilding ? '正在生成…' : '生成/重建台账'}
           </button>
@@ -217,7 +252,7 @@ export function TaxLedgerView({
       {/* 筛选与搜索工具栏 */}
       <div className="glass-panel rounded-xl p-4 flex flex-wrap items-center justify-between gap-4">
         <div className="flex flex-wrap items-center gap-3 flex-1">
-          <div className="relative min-w-[240px]">
+          <div className="relative min-w-[220px]">
             <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[#8e909f]" />
             <input
               type="text"
@@ -226,6 +261,34 @@ export function TaxLedgerView({
               placeholder="按实体名称、所属项目或发票号检索..."
               className="w-full bg-[#131b2e] border border-[#444653]/40 rounded-lg pl-9 pr-3 py-1.5 text-[12px] text-[#dae2fd] focus:border-[#4cd7f6] focus:outline-none font-mono-num"
             />
+          </div>
+
+          <div className="flex items-center gap-2">
+            <span className="text-[12px] text-[#8e909f]">所属年份：</span>
+            <select
+              value={filterYear}
+              onChange={(e) => setFilterYear(e.target.value)}
+              className="bg-[#131b2e] border border-[#444653]/40 rounded-lg px-2.5 py-1.5 text-[12px] text-[#dae2fd] focus:border-[#4cd7f6] focus:outline-none cursor-pointer"
+            >
+              <option value="全部年份">全部年份</option>
+              {YEAR_OPTIONS.map(y => (
+                <option key={y} value={y}>{y}年</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <span className="text-[12px] text-[#8e909f]">所属月份：</span>
+            <select
+              value={filterMonth}
+              onChange={(e) => setFilterMonth(e.target.value)}
+              className="bg-[#131b2e] border border-[#444653]/40 rounded-lg px-2.5 py-1.5 text-[12px] text-[#dae2fd] focus:border-[#4cd7f6] focus:outline-none cursor-pointer"
+            >
+              <option value="全部月份">全部月份</option>
+              {MONTH_OPTIONS.map(m => (
+                <option key={m.value} value={m.value}>{m.label}</option>
+              ))}
+            </select>
           </div>
 
           <div className="flex items-center gap-2">
