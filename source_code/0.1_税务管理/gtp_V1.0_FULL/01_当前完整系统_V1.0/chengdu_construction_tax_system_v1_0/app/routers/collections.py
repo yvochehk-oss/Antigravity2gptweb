@@ -14,7 +14,7 @@ from typing import Any, TypeVar
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import JSONResponse
-from sqlalchemy import inspect, select, text
+from sqlalchemy import func, inspect, select, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -660,10 +660,84 @@ def _project_entity_codes(db: Session, project_id: int) -> set[str]:
     return {str(code).strip() for code in codes if str(code or "").strip()}
 
 
+def _build_legacy_tax_ledger_envelope(
+    db: Session,
+    *,
+    period: str | None,
+    project_id: int | None,
+    entity_code: str | None,
+    page: int,
+    page_size: int,
+):
+    """Return the legacy tax-ledger envelope shared by the v3 split endpoints.
+
+    The ``tax_ledger`` (deprecated), ``entity_tax_ledger``, and the
+    project-scoped variant all reuse this assembly.  Splitting the routes
+    keeps the JSON shape identical so a frontend migration is a swap of the
+    path, not a re-mapping of fields.
+    """
+    project_codes: set[str] | None = None
+    note_message = ""
+    if project_id is None:
+        scoped_projects = db.execute(
+            select(Project).order_by(Project.id)
+        ).scalars().all()
+    else:
+        selected_project = db.get(Project, project_id)
+        if selected_project is None:
+            return _paged_envelope(
+                items=[], page=page, page_size=page_size,
+                message="未找到指定项目的税务台账数据。",
+            ), None
+        scoped_projects = [selected_project]
+        project_codes = _project_entity_codes(db, project_id)
+    quality = _project_quality_index(db, scoped_projects)
+    gate_status = _project_gate_status(quality)
+    gate_gaps = sorted({
+        gap for state in quality.values() for gap in state["data_gaps"]
+    })
+    item_quality = {
+        "data_status": gate_status,
+        "data_gaps": gate_gaps,
+        "trusted": gate_status == "READY",
+    }
+
+    # This is a GET collection endpoint and must remain strictly read-only.
+    # Ledger generation/deletion belongs to the explicit, RBAC/CSRF-protected
+    # tax calculation command; never rebuild a period as a side effect of a
+    # browser read.
+    query = select(TaxLedger)
+    if period:
+        query = query.where(TaxLedger.period == period)
+    rows = db.execute(
+        query.order_by(TaxLedger.period.desc(), TaxLedger.entity_code, TaxLedger.id)
+    ).scalars().all()
+    entities = _entity_name_map(db)
+    items = [
+        _tax_item(row, entities.get(row.entity_code), quality=item_quality)
+        for row in rows
+    ]
+    if project_codes is not None:
+        items = [item for item in items if item["entity_code"] in project_codes]
+    if entity_code:
+        wanted = entity_code.strip()
+        items = [item for item in items if item["entity_code"] == wanted]
+    if gate_status != "READY":
+        note_message = _project_gate_message(quality)
+    elif not items:
+        note_message = "指定期间没有可用的税务台账记录。"
+    envelope = _paged_envelope(
+        items=items, page=page, page_size=page_size,
+        status_value=gate_status,
+        message=note_message,
+    )
+    return envelope, gate_status
+
+
 @router.get(
     "/api/tax-ledger",
     response_model=CollectionEnvelope,
-    summary="确定性税务台账 JSON 集合",
+    summary="确定性税务台账 JSON 集合（已弃用，请使用 /api/entity-tax-ledger 或 /api/project-tax-analysis）",
 )
 def tax_ledger_collection(
     period: str | None = Query(default=None, min_length=7, max_length=7),
@@ -673,64 +747,41 @@ def tax_ledger_collection(
     page_size: int = Query(default=50, ge=1, le=_MAX_PAGE_SIZE),
     _user=_reader_dependency,
 ) -> dict[str, Any] | JSONResponse:
+    """Legacy tax-ledger collection, kept for backward compatibility.
+
+    v1.1 §A3 splits this endpoint into two purpose-built routes:
+
+      * ``/api/entity-tax-ledger``   — entity-month tax position (NO project_id)
+      * ``/api/project-tax-analysis`` — project-scope VAT/cost picture
+
+    The deprecated contract here continues to honour the legacy
+    ``project_id`` / ``entity_code`` filters so callers don't break, but
+    every successful response now carries an explicit deprecation hint with
+    the recommended replacement endpoints.
+    """
     if period and not _PERIOD_RE.fullmatch(period):
         raise HTTPException(status_code=422, detail="period 必须为 YYYY-MM 格式")
     db = SessionLocal()
     try:
-        project_codes: set[str] | None = None
-        if project_id is None:
-            scoped_projects = db.execute(
-                select(Project).order_by(Project.id)
-            ).scalars().all()
-        else:
-            selected_project = db.get(Project, project_id)
-            if selected_project is None:
-                return _paged_envelope(
-                    items=[], page=page, page_size=page_size,
-                    message="未找到指定项目的税务台账数据。",
-                )
-            scoped_projects = [selected_project]
-            project_codes = _project_entity_codes(db, project_id)
-        quality = _project_quality_index(db, scoped_projects)
-        gate_status = _project_gate_status(quality)
-        gate_gaps = sorted({
-            gap for state in quality.values() for gap in state["data_gaps"]
-        })
-        item_quality = {
-            "data_status": gate_status,
-            "data_gaps": gate_gaps,
-            "trusted": gate_status == "READY",
-        }
-
-        # This is a GET collection endpoint and must remain strictly read-only.
-        # Ledger generation/deletion belongs to the explicit, RBAC/CSRF-protected
-        # tax calculation command; never rebuild a period as a side effect of a
-        # browser read.
-        query = select(TaxLedger)
-        if period:
-            query = query.where(TaxLedger.period == period)
-        rows = db.execute(
-            query.order_by(TaxLedger.period.desc(), TaxLedger.entity_code, TaxLedger.id)
-        ).scalars().all()
-        entities = _entity_name_map(db)
-        items = [
-            _tax_item(row, entities.get(row.entity_code), quality=item_quality)
-            for row in rows
-        ]
-        if project_codes is not None:
-            items = [item for item in items if item["entity_code"] in project_codes]
-        if entity_code:
-            wanted = entity_code.strip()
-            items = [item for item in items if item["entity_code"] == wanted]
-        return _paged_envelope(
-            items=items, page=page, page_size=page_size,
-            status_value=gate_status,
-            message=(
-                _project_gate_message(quality)
-                if gate_status != "READY"
-                else "指定期间没有可用的税务台账记录。" if not items else ""
-            ),
+        envelope, _gate_status = _build_legacy_tax_ledger_envelope(
+            db,
+            period=period,
+            project_id=project_id,
+            entity_code=entity_code,
+            page=page,
+            page_size=page_size,
         )
+        envelope["deprecated"] = True
+        envelope["deprecation_message"] = (
+            "/api/tax-ledger 自 v3.0 起已弃用；请改用 /api/entity-tax-ledger "
+            "查询法人月度台账，或 /api/project-tax-analysis 查询项目税务分析。"
+            "该接口仅保留过渡期内的向后兼容，不再增加新功能。"
+        )
+        envelope["recommended_endpoints"] = {
+            "entity_ledger": "/api/entity-tax-ledger",
+            "project_analysis": "/api/project-tax-analysis",
+        }
+        return envelope
     except SQLAlchemyError:
         db.rollback()
         _LOGGER.exception("tax ledger collection database failure")
@@ -739,6 +790,149 @@ def tax_ledger_collection(
         db.rollback()
         _LOGGER.warning("tax ledger collection degraded: %s", exc)
         return _dependency_error(f"税务台账暂时降级：{exc}", degraded=True)
+    finally:
+        db.close()
+
+
+@router.get(
+    "/api/entity-tax-ledger",
+    response_model=CollectionEnvelope,
+    summary="法人月度税务台账 JSON 集合（v3 A3 拆分契约；不接受 project_id）",
+)
+def entity_tax_ledger_collection(
+    period: str | None = Query(default=None, min_length=7, max_length=7),
+    entity_code: str | None = Query(default=None, min_length=1, max_length=16),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=_MAX_PAGE_SIZE),
+    project_id: int | None = Query(
+        default=None,
+        description="(rejected) 项目 ID 不属于法人台账语义",
+    ),
+    _user=_reader_dependency,
+) -> dict[str, Any] | JSONResponse:
+    """Legal-entity monthly tax ledger (v3 A3).
+
+    The endpoint is intentionally scoped to legal entities and one month; it
+    must NOT accept ``project_id``.  Supplying ``project_id`` is a contract
+    violation: a project-scope VAT/cost picture belongs to
+    ``/api/project-tax-analysis``.  v1.1 §A3 explicitly forbids mixing the
+    two semantic scopes.
+    """
+    if project_id is not None:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "/api/entity-tax-ledger 不接受 project_id；项目范围内的"
+                "进销项与实际成本分析请使用 /api/project-tax-analysis。"
+            ),
+        )
+    if period and not _PERIOD_RE.fullmatch(period):
+        raise HTTPException(status_code=422, detail="period 必须为 YYYY-MM 格式")
+    db = SessionLocal()
+    try:
+        envelope, _ = _build_legacy_tax_ledger_envelope(
+            db,
+            period=period,
+            project_id=None,
+            entity_code=entity_code,
+            page=page,
+            page_size=page_size,
+        )
+        return envelope
+    except SQLAlchemyError:
+        db.rollback()
+        _LOGGER.exception("entity tax ledger collection database failure")
+        return _dependency_error("法人税务台账数据源暂时不可用，请稍后重试。")
+    except (ValueError, RuntimeError) as exc:
+        db.rollback()
+        _LOGGER.warning("entity tax ledger collection degraded: %s", exc)
+        return _dependency_error(f"法人税务台账暂时降级：{exc}", degraded=True)
+    finally:
+        db.close()
+
+
+@router.get(
+    "/api/project-tax-analysis",
+    summary="项目税务进销项与实际成本分析（v3 A3 拆分契约；必须有 project_id）",
+)
+def project_tax_analysis(
+    project_id: int | None = Query(default=None, ge=1),
+    period: str | None = Query(default=None, min_length=7, max_length=7),
+    _user=_reader_dependency,
+) -> dict[str, Any]:
+    """Project-scope VAT / cost picture (v3 A3).
+
+    Aggregates the four-flow evidence tables (invoices / real_costs / contracts
+    / cashflows) into a single row per project.  Distinct from
+    ``/api/entity-tax-ledger`` which is the legal-entity monthly position —
+    mixing the two scopes was the v1.0 cross-project pollution bug.
+
+    Contract:
+      * ``project_id`` is required; missing -> 422.
+      * Unknown ``project_id`` -> 404.
+      * Unknown ``project_id`` is distinct from "project exists but the
+        chosen period has no data" (200, items=[{}]).
+    """
+    if project_id is None:
+        raise HTTPException(
+            status_code=422,
+            detail="/api/project-tax-analysis 必须提供 project_id 查询参数",
+        )
+    if period and not _PERIOD_RE.fullmatch(period):
+        raise HTTPException(status_code=422, detail="period 必须为 YYYY-MM 格式")
+
+    db = SessionLocal()
+    try:
+        project = db.get(Project, project_id)
+        if project is None:
+            raise HTTPException(status_code=404, detail=f"项目不存在：project_id={project_id}")
+
+        inv_filters = [Invoice.project_id == project_id]
+        rc_filters = [RealCost.project_id == project_id]
+        if period:
+            inv_filters.append(Invoice.period == period)
+            rc_filters.append(RealCost.period == period)
+
+        out_net = db.scalar(
+            select(func.coalesce(func.sum(Invoice.net), 0)).where(*inv_filters, Invoice.direction == "out")
+        ) or 0
+        in_net = db.scalar(
+            select(func.coalesce(func.sum(Invoice.net), 0)).where(*inv_filters, Invoice.direction == "in")
+        ) or 0
+        real_cost = db.scalar(
+            select(func.coalesce(func.sum(RealCost.amount), 0)).where(*rc_filters)
+        ) or 0
+        invoice_count = db.scalar(
+            select(func.count(Invoice.id)).where(*inv_filters)
+        ) or 0
+
+        item = {
+            "project_id": int(project.id),
+            "project_code": str(project.code or project.project_code or ""),
+            "project_name": str(project.name or ""),
+            "period": period or "",
+            "out_invoice_net": float(out_net),
+            "in_invoice_net": float(in_net),
+            "real_cost": float(real_cost),
+            "invoice_count": int(invoice_count),
+        }
+        return {
+            "status": "READY",
+            "message": "",
+            "items": [item],
+            "total": 1,
+        }
+    except HTTPException:
+        db.rollback()
+        raise
+    except SQLAlchemyError:
+        db.rollback()
+        _LOGGER.exception("project tax analysis database failure: pid=%s", project_id)
+        raise HTTPException(status_code=503, detail="项目税务分析数据源暂时不可用，请稍后重试。") from None
+    except (ValueError, RuntimeError) as exc:
+        db.rollback()
+        _LOGGER.warning("project tax analysis degraded: pid=%s err=%s", project_id, exc)
+        raise HTTPException(status_code=503, detail=f"项目税务分析暂时降级：{exc}") from None
     finally:
         db.close()
 

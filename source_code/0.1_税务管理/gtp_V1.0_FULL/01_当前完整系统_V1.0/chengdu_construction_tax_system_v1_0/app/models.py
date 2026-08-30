@@ -157,6 +157,9 @@ class Contract(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"), index=True)
     contract_no: Mapped[str] = mapped_column(String(50), default="")
+    # v3 boundary hotfix: buyer / seller codes widened to 64 chars to accept
+    # external counterparty codes (e.g. EXT-CQ-HEAVY-CRANE).  Internal
+    # entity_code remains VARCHAR(16) — see Entity / Project / etc.
     buyer_code: Mapped[str] = mapped_column(String(64), index=True)
     seller_code: Mapped[str] = mapped_column(String(64), index=True)
     category: Mapped[str] = mapped_column(String(30), index=True)
@@ -173,6 +176,7 @@ class Invoice(Base):
     period: Mapped[str] = mapped_column(String(7), index=True)
     entity_code: Mapped[str] = mapped_column(String(16), index=True)
     direction: Mapped[str] = mapped_column(String(10), index=True)  # in/out
+    # v3 boundary hotfix: external counterparty_code widened to 64 chars.
     counterparty_code: Mapped[str] = mapped_column(String(64), index=True)
     category: Mapped[str] = mapped_column(String(30), index=True)
     net: Mapped[Decimal] = mapped_column(Numeric(18, 2))
@@ -187,6 +191,7 @@ class CashFlow(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"), index=True)
     entity_code: Mapped[str] = mapped_column(String(16), index=True)
+    # v3 boundary hotfix: external counterparty_code widened to 64 chars.
     counterparty_code: Mapped[str] = mapped_column(String(64), index=True)
     direction: Mapped[str] = mapped_column(String(10), index=True)  # in/out
     amount: Mapped[Decimal] = mapped_column(Numeric(18, 2))
@@ -201,6 +206,7 @@ class Fulfillment(Base):
     __tablename__ = "fulfillment"
     id: Mapped[int] = mapped_column(primary_key=True)
     project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"), index=True)
+    # v3 boundary hotfix: external counterparty_code widened to 64 chars.
     counterparty_code: Mapped[str] = mapped_column(String(64), index=True)
     kind: Mapped[str] = mapped_column(String(30), index=True)
     category: Mapped[str] = mapped_column(String(30), default="", index=True)
@@ -215,6 +221,7 @@ class RealCost(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"), index=True)
     entity_code: Mapped[str] = mapped_column(String(16), index=True)
+    # v3 boundary hotfix: external counterparty_code widened to 64 chars.
     counterparty_code: Mapped[str] = mapped_column(String(64), default="", index=True)
     category: Mapped[str] = mapped_column(String(30), index=True)
     subcategory: Mapped[str] = mapped_column(String(50), default="", index=True)
