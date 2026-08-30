@@ -1,12 +1,9 @@
 #!/usr/bin/env python3
 """Reviewed Task14c resolution workflow for legacy Input VAT claim assumptions.
 
-The workflow never promotes a LEGACY_ASSUMPTION in place. A reviewed action may:
-- REJECT the legacy claim; or
-- atomically create a new evidence-backed CONFIRMED claim and mark the legacy
-  assumption SUPERSEDED.
-
-PLAN is read-only. APPLY binds to the reviewed saved plan and rechecks source state.
+A LEGACY_ASSUMPTION is never promoted in place. Human review may either reject
+it, or atomically create an evidence-backed replacement CONFIRMED claim and mark
+the legacy candidate SUPERSEDED. PLAN is read-only and APPLY rechecks source state.
 """
 from __future__ import annotations
 
@@ -112,12 +109,7 @@ def _claim_snapshot(claim: InputVatClaim) -> dict[str, Any]:
     }
 
 
-def _validate_replacement(
-    session: Session,
-    *,
-    legacy: InputVatClaim,
-    replacement: dict[str, Any],
-) -> dict[str, Any]:
+def _validate_replacement(session: Session, legacy: InputVatClaim, replacement: dict[str, Any]) -> dict[str, Any]:
     row = session.execute(
         select(InvoiceFact, Fact)
         .join(Fact, Fact.id == InvoiceFact.fact_id)
@@ -142,16 +134,12 @@ def _validate_replacement(
         require_reviewed=True,
     )
     if reporting_party_id != legacy.reporting_party_id:
-        raise ValueError(
-            f"reviewed reporting Party {reporting_party_id} does not match legacy claim Party {legacy.reporting_party_id}"
-        )
+        raise ValueError("replacement reporting Party does not match the reviewed legacy claim scope")
 
-    amount = Decimal(str(replacement["claim_amount"]))
-    invoice_vat = Decimal(invoice.vat_amount or Decimal("0.00"))
-    if amount <= 0:
-        raise ValueError("replacement CLAIM amount must be positive")
-    if invoice_vat <= 0 or amount > invoice_vat:
-        raise ValueError("replacement CLAIM amount cannot exceed positive InvoiceFact VAT")
+    amount = Decimal(str(replacement["claim_amount"])).quantize(Decimal("0.01"))
+    invoice_vat = Decimal(invoice.vat_amount or Decimal("0.00")).quantize(Decimal("0.01"))
+    if amount <= 0 or invoice_vat <= 0 or amount > invoice_vat:
+        raise ValueError("replacement CLAIM must be positive and cannot exceed InvoiceFact VAT")
 
     evidence_type = str(replacement["evidence_type"])
     confidence = str(replacement["confidence"])
@@ -190,7 +178,7 @@ def _validate_replacement(
         "invoice_fact_id": legacy.invoice_fact_id,
         "reporting_party_id": legacy.reporting_party_id,
         "claim_period": str(claim_period),
-        "claim_amount": str(amount.quantize(Decimal("0.01"))),
+        "claim_amount": str(amount),
         "event_type": "CLAIM",
         "evidence_type": evidence_type,
         "confidence": confidence,
@@ -218,8 +206,8 @@ def make_plan(session: Session, manifest: dict[str, Any], database: str) -> dict
         replacement = manifest.get("replacement")
         if not isinstance(replacement, dict):
             raise ValueError("REPLACE_CONFIRMED requires replacement object")
-        replacement_plan = _validate_replacement(session, legacy=legacy, replacement=replacement)
-    elif manifest.get("replacement") not in {None, {}}:
+        replacement_plan = _validate_replacement(session, legacy, replacement)
+    elif manifest.get("replacement") not in (None, {}):
         raise ValueError("REJECT must not include a replacement claim")
 
     core = {
@@ -260,8 +248,7 @@ def apply_plan(session: Session, plan: dict[str, Any]) -> dict[str, Any]:
     replacement_claim_id = None
     if plan["action"] == "REPLACE_CONFIRMED":
         replacement = plan["replacement"]
-        # Re-run semantic validation against current invoice/tax-profile evidence.
-        validated = _validate_replacement(session, legacy=legacy, replacement=replacement)
+        validated = _validate_replacement(session, legacy, replacement)
         if validated != replacement:
             raise ValueError("stale Task14c plan: replacement evidence changed")
         new_claim = InputVatClaim(
@@ -278,7 +265,7 @@ def apply_plan(session: Session, plan: dict[str, Any]) -> dict[str, Any]:
             external_claim_id=replacement["external_claim_id"],
             reviewed_by=plan["reviewed_by"],
             reviewed_at=reviewed_at,
-            note=(replacement.get("note") or "") + f" | replaces legacy claim {legacy.id}",
+            note=((replacement.get("note") or "").strip() + f" | replaces legacy claim {legacy.id}").strip(" |"),
         )
         session.add(new_claim)
         session.flush()
