@@ -8,10 +8,12 @@ from . import models as models  # noqa: F401
 from . import v3_party_models as v3_party_models  # noqa: F401
 from . import v3_party_conflict_models as v3_party_conflict_models  # noqa: F401
 from . import v3_fact_models as v3_fact_models  # noqa: F401
+from . import v3_tax_models as v3_tax_models  # noqa: F401
 
 __all__ = [
     "models",
     "v3_party_models",
     "v3_party_conflict_models",
     "v3_fact_models",
+    "v3_tax_models",
 ]
