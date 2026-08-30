@@ -25,7 +25,6 @@ def _require_postgresql() -> None:
 
 def upgrade() -> None:
     _require_postgresql()
-    op.execute("ALTER TABLE alembic_version_tax ALTER COLUMN version_num TYPE VARCHAR(64)")
 
     op.add_column("invoice_facts", sa.Column("invoice_medium", sa.String(20), nullable=True))
     op.add_column("invoice_facts", sa.Column("invoice_category", sa.String(20), nullable=True))
