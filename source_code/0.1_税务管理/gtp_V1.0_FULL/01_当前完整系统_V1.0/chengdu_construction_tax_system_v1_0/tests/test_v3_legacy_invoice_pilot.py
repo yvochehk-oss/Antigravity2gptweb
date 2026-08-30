@@ -4,8 +4,7 @@ from __future__ import annotations
 from decimal import Decimal
 from pathlib import Path
 
-import pytest
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
 from app.db import engine
@@ -127,7 +126,7 @@ def test_unresolved_party_is_covered_as_review_only_not_dropped():
     assert action.reason.startswith("UNRESOLVED_PARTY:")
 
 
-def test_blank_invoice_number_is_never_used_for_pair_merge():
+def test_blank_invoice_number_is_review_only_and_never_creates_fact_identity():
     plan = plan_pilot(
         (
             _row(50, entity="A08", counterparty="B01", direction="out", invoice_no=""),
@@ -135,7 +134,9 @@ def test_blank_invoice_number_is_never_used_for_pair_merge():
         ),
         _lookup(),
     )
-    assert [action.action for action in plan.actions] == ["MIGRATE_SINGLE", "MIGRATE_SINGLE"]
+    assert [action.action for action in plan.actions] == ["REVIEW_ONLY", "REVIEW_ONLY"]
+    assert {action.reason for action in plan.actions} == {"MISSING_INVOICE_NUMBER"}
+    assert all(action.identity_key is None for action in plan.actions)
 
 
 def test_revision_79_is_additive_nonunique_bridge():
@@ -215,9 +216,7 @@ def test_postgresql_pair_pilot_maps_two_rows_to_one_fact_and_bridges_real_cost(s
         tx = conn.begin()
         session = Session(bind=conn, expire_on_commit=False)
         try:
-            # Keep the pilot precondition deterministic even when other tests add
-            # and roll back their own maps.
-            assert session.scalar(select(text("count(*)")).select_from(LegacyInvoiceMap)) == 0
+            assert session.scalar(select(func.count()).select_from(LegacyInvoiceMap)) == 0
             seller, buyer = _ensure_internal_pair(session)
             seller_code = session.scalar(
                 select(InternalEntity.canonical_code).where(InternalEntity.party_id == seller.id)
