@@ -3,7 +3,7 @@ from __future__ import annotations
 import os, sys
 from logging.config import fileConfig
 from pathlib import Path
-from sqlalchemy import engine_from_config, pool
+from sqlalchemy import engine_from_config, pool, text
 from sqlalchemy.engine import make_url
 from alembic import context
 ROOT=Path(__file__).resolve().parents[1]; sys.path.insert(0,str(ROOT))
@@ -23,13 +23,15 @@ config.set_main_option("sqlalchemy.url",url)
 target_metadata=Base.metadata
 
 def run_migrations_offline():
-    context.configure(url=url,target_metadata=target_metadata,literal_binds=True,dialect_opts={"paramstyle":"named"},version_table="alembic_version_tax",compare_type=True)
+    context.configure(url=url,target_metadata=target_metadata,literal_binds=True,dialect_opts={"paramstyle":"named"},version_table="alembic_version_tax",version_table_col_length=64,compare_type=True)
     with context.begin_transaction(): context.run_migrations()
 
 def run_migrations_online():
     connectable=engine_from_config(config.get_section(config.config_ini_section) or {},prefix="sqlalchemy.",poolclass=pool.NullPool)
     with connectable.connect() as connection:
-        context.configure(connection=connection,target_metadata=target_metadata,version_table="alembic_version_tax",compare_type=True)
+        connection.execute(text("ALTER TABLE IF EXISTS alembic_version_tax ALTER COLUMN version_num TYPE VARCHAR(64)"))
+        connection.commit()
+        context.configure(connection=connection,target_metadata=target_metadata,version_table="alembic_version_tax",version_table_col_length=64,compare_type=True)
         with context.begin_transaction(): context.run_migrations()
 if context.is_offline_mode(): run_migrations_offline()
 else: run_migrations_online()

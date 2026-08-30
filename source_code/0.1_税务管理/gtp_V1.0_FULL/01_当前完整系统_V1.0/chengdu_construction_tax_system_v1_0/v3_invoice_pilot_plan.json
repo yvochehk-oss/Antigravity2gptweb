@@ -1,0 +1,259 @@
+{
+  "kind": "V3_TASK08_LEGACY_INVOICE_PILOT_PLAN",
+  "version": 1,
+  "generated_at": "2026-08-30T13:37:56.508990+00:00",
+  "database": "projectrag",
+  "alembic_head": "79_v3_legacy_invoice_pilot_bridge",
+  "plan_digest": "c07f3758882d4034a12ef8d8002e9fb1957130a373da0a714ff3b1be677de37a",
+  "ambiguous_party_aliases": [
+    "91510104MA6CM8P59N",
+    "91510104MA6CYN4T2A",
+    "91510106MA61UEJ48K",
+    "91510106MA6D2K9L3E",
+    "91510106MA6D7H4N9A",
+    "91510107350645934C"
+  ],
+  "plan": {
+    "version": 1,
+    "identity_version": "LEGACY_MIGRATION_V1",
+    "selected_ids": [
+      247,
+      248,
+      249,
+      250,
+      251,
+      252,
+      253,
+      254,
+      255,
+      256,
+      257,
+      258,
+      259,
+      260,
+      261,
+      262,
+      263,
+      273,
+      276,
+      279,
+      283
+    ],
+    "source_fingerprints": {
+      "247": "1653b7ab1eb8859083cf6239fc7ea8f6bc5b935c284b319b5dee6d09fab68c99",
+      "248": "de7410f78045f940620b11914e417419cac5019bae3c8c4ee66c31ada25032b1",
+      "249": "64f0f1321bee9460077b9ab7e82e0da62f7ff53e7a00abfbdad7f96673ce35f8",
+      "250": "af094db02680eb787fe1144f72962822ae50ab289852460438a29ce77e6c7d57",
+      "251": "7263984153d0b02086823c4a30d330290484dcaeb522e4f98e05f7e0ed564401",
+      "252": "033950482e2667048caa74d7a57e1e3a926e38d6e8b8dc0c94b3e32a4af0c6e9",
+      "253": "496c6c0d39705d0a94133623829319fff395f1f3135e75e272ccc823958f3714",
+      "254": "96065ee9a5bb7e28161bd47d9ac1ddf59043b23d52753c20a029e8b20a525af8",
+      "255": "4a96415fde30648c04f2d1883ada0042ad36f5b5fe930b27ffec1e28334e9876",
+      "256": "a43365dd7843b6a20979a2d1f1471c9f6c77935bd4fc88e8710bad502ca731cc",
+      "257": "7f386b8ebe2afb7e880aeefcf587870d54be4cd982be202b9b4932f8a5ec9166",
+      "258": "885a0e33f708340963f1c5ca1f91932e2426205bd4803b37f7913f7ca4a39ca9",
+      "259": "46f47d900dd9d82f88300e3da628ee5b65f3dc29aa3332ce2fd3859dc2b9477b",
+      "260": "eefe9e93f3fabf6f6c6486402d76f1ec82b127dbf0eeef241acca01d9f9fbf9b",
+      "261": "26f431506f8c27aefec5c1894150a86b4009e963ce9cd4db6870c7f8619c244f",
+      "262": "bcad9c98ff4ec03f9c8e87780d24d06d5151d706b8b450078246a01064acb141",
+      "263": "7d257a3a9fe934f7b606a00daad8866ed6effb9d46104307f21085969a715fd4",
+      "273": "a5e88eb7fb6e3a68def631c028b6e64635ecc17462b8a400a2f5dda726d76195",
+      "276": "ec667c871b3a391c6101ded367db92b16197a7b42a2e8088a1f359dadb6801a2",
+      "279": "cdfceefa56c0b65ecfd0d38fb1eec769690a4f9bd160b0f69d4c56a863bb448d",
+      "283": "82fac20207d2b4bb712b5b523bf0f26539da5ac53e6dcda91ab7b8e278fb9555"
+    },
+    "actions": [
+      {
+        "action": "MIGRATE_SINGLE",
+        "legacy_ids": [
+          247
+        ],
+        "migration_status": "MIGRATED_SINGLE_PERSPECTIVE",
+        "reason": "SINGLE_PERSPECTIVE_REQUIRES_REVIEW",
+        "seller_party_id": 32,
+        "buyer_party_id": 8,
+        "identity_key": "LEGACY_MIGRATION_V1|ROW|247"
+      },
+      {
+        "action": "MIGRATE_SINGLE",
+        "legacy_ids": [
+          248
+        ],
+        "migration_status": "MIGRATED_SINGLE_PERSPECTIVE",
+        "reason": "SINGLE_PERSPECTIVE_REQUIRES_REVIEW",
+        "seller_party_id": 32,
+        "buyer_party_id": 8,
+        "identity_key": "LEGACY_MIGRATION_V1|ROW|248"
+      },
+      {
+        "action": "MIGRATE_SINGLE",
+        "legacy_ids": [
+          249
+        ],
+        "migration_status": "MIGRATED_SINGLE_PERSPECTIVE",
+        "reason": "SINGLE_PERSPECTIVE_REQUIRES_REVIEW",
+        "seller_party_id": 35,
+        "buyer_party_id": 8,
+        "identity_key": "LEGACY_MIGRATION_V1|ROW|249"
+      },
+      {
+        "action": "MIGRATE_SINGLE",
+        "legacy_ids": [
+          250
+        ],
+        "migration_status": "MIGRATED_SINGLE_PERSPECTIVE",
+        "reason": "SINGLE_PERSPECTIVE_REQUIRES_REVIEW",
+        "seller_party_id": 35,
+        "buyer_party_id": 8,
+        "identity_key": "LEGACY_MIGRATION_V1|ROW|250"
+      },
+      {
+        "action": "MIGRATE_SINGLE",
+        "legacy_ids": [
+          251
+        ],
+        "migration_status": "MIGRATED_SINGLE_PERSPECTIVE",
+        "reason": "SINGLE_PERSPECTIVE_REQUIRES_REVIEW",
+        "seller_party_id": 32,
+        "buyer_party_id": 8,
+        "identity_key": "LEGACY_MIGRATION_V1|ROW|251"
+      },
+      {
+        "action": "MIGRATE_SINGLE",
+        "legacy_ids": [
+          252
+        ],
+        "migration_status": "MIGRATED_SINGLE_PERSPECTIVE",
+        "reason": "SINGLE_PERSPECTIVE_REQUIRES_REVIEW",
+        "seller_party_id": 28,
+        "buyer_party_id": 8,
+        "identity_key": "LEGACY_MIGRATION_V1|ROW|252"
+      },
+      {
+        "action": "REVIEW_ONLY",
+        "legacy_ids": [
+          253,
+          273
+        ],
+        "migration_status": "NEEDS_REVIEW",
+        "reason": "DUPLICATE_OR_AMBIGUOUS_SINGLE_PERSPECTIVE",
+        "seller_party_id": null,
+        "buyer_party_id": null,
+        "identity_key": null
+      },
+      {
+        "action": "MIGRATE_SINGLE",
+        "legacy_ids": [
+          254
+        ],
+        "migration_status": "MIGRATED_SINGLE_PERSPECTIVE",
+        "reason": "SINGLE_PERSPECTIVE_REQUIRES_REVIEW",
+        "seller_party_id": 35,
+        "buyer_party_id": 8,
+        "identity_key": "LEGACY_MIGRATION_V1|ROW|254"
+      },
+      {
+        "action": "MIGRATE_SINGLE",
+        "legacy_ids": [
+          255
+        ],
+        "migration_status": "MIGRATED_SINGLE_PERSPECTIVE",
+        "reason": "SINGLE_PERSPECTIVE_REQUIRES_REVIEW",
+        "seller_party_id": 36,
+        "buyer_party_id": 8,
+        "identity_key": "LEGACY_MIGRATION_V1|ROW|255"
+      },
+      {
+        "action": "REVIEW_ONLY",
+        "legacy_ids": [
+          256,
+          276
+        ],
+        "migration_status": "NEEDS_REVIEW",
+        "reason": "DUPLICATE_OR_AMBIGUOUS_SINGLE_PERSPECTIVE",
+        "seller_party_id": null,
+        "buyer_party_id": null,
+        "identity_key": null
+      },
+      {
+        "action": "MIGRATE_SINGLE",
+        "legacy_ids": [
+          257
+        ],
+        "migration_status": "MIGRATED_SINGLE_PERSPECTIVE",
+        "reason": "SINGLE_PERSPECTIVE_REQUIRES_REVIEW",
+        "seller_party_id": 33,
+        "buyer_party_id": 8,
+        "identity_key": "LEGACY_MIGRATION_V1|ROW|257"
+      },
+      {
+        "action": "MIGRATE_SINGLE",
+        "legacy_ids": [
+          258
+        ],
+        "migration_status": "MIGRATED_SINGLE_PERSPECTIVE",
+        "reason": "SINGLE_PERSPECTIVE_REQUIRES_REVIEW",
+        "seller_party_id": 36,
+        "buyer_party_id": 8,
+        "identity_key": "LEGACY_MIGRATION_V1|ROW|258"
+      },
+      {
+        "action": "MIGRATE_SINGLE",
+        "legacy_ids": [
+          259
+        ],
+        "migration_status": "MIGRATED_SINGLE_PERSPECTIVE",
+        "reason": "SINGLE_PERSPECTIVE_REQUIRES_REVIEW",
+        "seller_party_id": 36,
+        "buyer_party_id": 8,
+        "identity_key": "LEGACY_MIGRATION_V1|ROW|259"
+      },
+      {
+        "action": "REVIEW_ONLY",
+        "legacy_ids": [
+          260,
+          279
+        ],
+        "migration_status": "NEEDS_REVIEW",
+        "reason": "DUPLICATE_OR_AMBIGUOUS_SINGLE_PERSPECTIVE",
+        "seller_party_id": null,
+        "buyer_party_id": null,
+        "identity_key": null
+      },
+      {
+        "action": "MIGRATE_SINGLE",
+        "legacy_ids": [
+          261
+        ],
+        "migration_status": "MIGRATED_SINGLE_PERSPECTIVE",
+        "reason": "SINGLE_PERSPECTIVE_REQUIRES_REVIEW",
+        "seller_party_id": 33,
+        "buyer_party_id": 8,
+        "identity_key": "LEGACY_MIGRATION_V1|ROW|261"
+      },
+      {
+        "action": "MIGRATE_SINGLE",
+        "legacy_ids": [
+          262
+        ],
+        "migration_status": "MIGRATED_SINGLE_PERSPECTIVE",
+        "reason": "SINGLE_PERSPECTIVE_REQUIRES_REVIEW",
+        "seller_party_id": 34,
+        "buyer_party_id": 8,
+        "identity_key": "LEGACY_MIGRATION_V1|ROW|262"
+      },
+      {
+        "action": "REVIEW_ONLY",
+        "legacy_ids": [
+          263,
+          283
+        ],
+        "migration_status": "NEEDS_REVIEW",
+        "reason": "DUPLICATE_OR_AMBIGUOUS_SINGLE_PERSPECTIVE",
+        "seller_party_id": null,
+        "buyer_party_id": null,
+        "identity_key": null
+      }
+    ]
+  }
+}
