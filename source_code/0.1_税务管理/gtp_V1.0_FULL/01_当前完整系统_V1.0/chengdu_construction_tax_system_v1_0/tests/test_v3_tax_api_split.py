@@ -1,10 +1,12 @@
-"""V3 Phase A3 — Tax API split regression tests.
+"""V3 Phase A3 / v1.2 S0-02 — Tax API split regression tests.
 
-v1.1 §A3 contract:
-  - /api/entity-tax-ledger: entity-month ledger; project_id is NOT accepted
-  - /api/project-tax-analysis: project-scope VAT/cost picture, NEVER
-    mixes tax ledger rows from other projects' entities
-  - /api/tax-ledger: marked deprecated, payload exposes deprecation hint
+v1.2 Step 0.1 contract:
+  - /api/entity-tax-ledger: legal-entity month ledger; accepts period + entity,
+    and MUST reject project_id.
+  - /api/project-tax-analysis: accepts project_id + period + entity and derives
+    project-only VAT/cost numbers from project evidence, never TaxLedger.
+  - /api/tax-ledger?project_id=: first-stage compatibility response is only a
+    deprecation warning; it must not return the old mixed-scope result.
 
 These tests require a seeded PostgreSQL via TEST_DATABASE_URL.
 """
@@ -12,6 +14,7 @@ from __future__ import annotations
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import case, func
 
 
 def _login(client: TestClient) -> None:
@@ -25,70 +28,70 @@ def _login(client: TestClient) -> None:
 
 
 def test_tax_ledger_marked_deprecated(seeded_app):
-    """Old endpoint must be marked deprecated with recommendation hints.
-
-    ``seeded_app`` rebuilds the schema, runs migrations to head, and
-    seeds a known fixture set — there is no path for a 503 here.  A 503
-    would mean the DB layer is broken, not "degraded".
-    """
     from app.main import app
+
     client = TestClient(app)
     _login(client)
     r = client.get("/api/tax-ledger")
-    assert r.status_code == 200, (
-        f"seeded integration must return 200; got {r.status_code}: {r.text}"
-    )
+    assert r.status_code == 200, r.text
     body = r.json()
-    assert body.get("deprecated") is True, "v3 routing must mark /api/tax-ledger deprecated"
+    assert body.get("deprecated") is True
     assert "deprecation_message" in body
     assert body["recommended_endpoints"]["entity_ledger"] == "/api/entity-tax-ledger"
     assert body["recommended_endpoints"]["project_analysis"] == "/api/project-tax-analysis"
 
 
 def test_entity_tax_ledger_rejects_project_id(seeded_app):
-    """/api/entity-tax-ledger MUST NOT accept project_id.
-
-    v1.1 §A3: the legal entity's monthly tax position must never be
-    derived from the project scope.  project_id is rejected with 422.
-    """
     from app.main import app
+
     client = TestClient(app)
     _login(client)
-
     r = client.get("/api/entity-tax-ledger?project_id=1")
-    assert r.status_code == 422, (
-        "entity-tax-ledger must reject project_id; got "
-        f"{r.status_code}: {r.text}"
-    )
+    assert r.status_code == 422, r.text
+
+
+def test_entity_tax_ledger_supports_entity_filter(seeded_app):
+    from app.db import SessionLocal
+    from app.main import app
+    from app.models import TaxLedger
+
+    db = SessionLocal()
+    try:
+        row = db.query(TaxLedger).first()
+        if row is None:
+            pytest.skip("seeded DB has no tax ledger rows")
+        entity = row.entity_code
+        period = row.period
+    finally:
+        db.close()
+
+    client = TestClient(app)
+    _login(client)
+    r = client.get(f"/api/entity-tax-ledger?period={period}&entity={entity}")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert all(item["entity_code"] == entity for item in body["items"])
+    assert all("project_id" not in item for item in body["items"])
 
 
 def test_entity_tax_ledger_returns_legal_entities(seeded_app):
-    """/api/entity-tax-ledger returns TaxLedger rows for the requested period.
-
-    Strict 200 under ``seeded_app`` — a 503 would mean the SQL layer
-    crashed, which the regression suite must surface, not absorb.
-    """
     from app.main import app
+
     client = TestClient(app)
     _login(client)
-
     r = client.get("/api/entity-tax-ledger?period=2026-08")
-    assert r.status_code == 200, (
-        f"seeded integration must return 200; got {r.status_code}: {r.text}"
-    )
+    assert r.status_code == 200, r.text
     body = r.json()
-    assert body.get("status") in ("READY", "DEGRADED", "UNAVAILABLE")
+    assert body.get("status") in {"READY", "DEGRADED"}
     assert "items" in body
-    # Each item carries entity_code and is not polluted by project_id
     for item in body["items"]:
         assert "entity_code" in item
         assert "project_id" not in item
 
 
 def test_project_tax_analysis_strictly_scopes_to_one_project(seeded_app):
-    """/api/project-tax-analysis returns ONE row whose project_id matches."""
-    from app.main import app
     from app.db import SessionLocal
+    from app.main import app
     from app.models import Project
 
     db = SessionLocal()
@@ -97,68 +100,146 @@ def test_project_tax_analysis_strictly_scopes_to_one_project(seeded_app):
         if proj is None:
             pytest.skip("no projects in seeded DB")
         project_id = int(proj.id)
-        proj_code = proj.code
+        proj_code = proj.project_code or proj.code
     finally:
         db.close()
 
     client = TestClient(app)
     _login(client)
-
     r = client.get(f"/api/project-tax-analysis?project_id={project_id}&period=2026-08")
-    assert r.status_code == 200, (
-        f"seeded integration must return 200; got {r.status_code}: {r.text}"
-    )
-    body = r.json()
-    items = body.get("items", [])
-    # When data exists we want at most one (this project only)
+    assert r.status_code == 200, r.text
+    items = r.json().get("items", [])
     assert len(items) <= 1
     if items:
         assert items[0]["project_id"] == project_id
         assert items[0]["project_code"] == proj_code
         assert "out_invoice_net" in items[0]
+        assert "out_invoice_vat" in items[0]
         assert "in_invoice_net" in items[0]
+        assert "in_invoice_vat" in items[0]
+        assert "deductible_input_vat" in items[0]
         assert "real_cost" in items[0]
         assert "invoice_count" in items[0]
 
 
-def test_project_tax_analysis_rejects_missing_project_id(seeded_app):
-    """/api/project-tax-analysis requires project_id (no implicit scope)."""
+def test_project_tax_analysis_supports_entity_filter(seeded_app):
+    from app.db import SessionLocal
     from app.main import app
+    from app.models import Invoice
+
+    db = SessionLocal()
+    try:
+        invoice = db.query(Invoice).first()
+        if invoice is None:
+            pytest.skip("no invoices in seeded DB")
+        project_id = int(invoice.project_id)
+        entity = invoice.entity_code
+        period = invoice.period
+    finally:
+        db.close()
+
     client = TestClient(app)
     _login(client)
+    r = client.get(
+        f"/api/project-tax-analysis?project_id={project_id}&period={period}&entity={entity}"
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["entity"] == entity
+    for item in body["items"]:
+        assert item["project_id"] == project_id
+        assert item["entity"] == entity
+        assert item["entity_code"] == entity
 
+
+def test_project_tax_analysis_rejects_missing_project_id(seeded_app):
+    from app.main import app
+
+    client = TestClient(app)
+    _login(client)
     r = client.get("/api/project-tax-analysis")
     assert r.status_code == 422
 
 
 def test_project_tax_analysis_returns_404_for_unknown_project(seeded_app):
-    """Unknown ``project_id`` MUST return 404.
-
-    "Project does not exist" (404) is a distinct business state from
-    "project exists but the period has no tax data" (200, items=[]).
-    Forcing them apart lets the UI / AI ingest pipeline tell one from
-    the other.
-    """
     from app.main import app
+
     client = TestClient(app)
     _login(client)
-
     r = client.get("/api/project-tax-analysis?project_id=9999999")
-    assert r.status_code == 404, (
-        f"unknown project_id must yield 404; got {r.status_code}: {r.text}"
-    )
+    assert r.status_code == 404, r.text
 
 
-def test_old_tax_ledger_does_not_leak_unrelated_projects(seeded_app):
-    """Even the deprecated endpoint must not leak unrelated projects when
-    project_id is supplied.  This was the v1.0 cross-project pollution bug."""
+def test_project_tax_does_not_leak_other_projects(seeded_app):
+    """Gate S0-02: same entity on multiple projects must remain project-scoped."""
+    from app.db import SessionLocal
     from app.main import app
+    from app.models import Invoice
+
+    db = SessionLocal()
+    try:
+        candidates = (
+            db.query(Invoice.entity_code, Invoice.period)
+            .group_by(Invoice.entity_code, Invoice.period)
+            .having(func.count(func.distinct(Invoice.project_id)) >= 2)
+            .all()
+        )
+        if not candidates:
+            pytest.skip("seeded data has no entity/period spanning multiple projects")
+        entity, period = candidates[0]
+        project_id = (
+            db.query(Invoice.project_id)
+            .filter(Invoice.entity_code == entity, Invoice.period == period)
+            .first()[0]
+        )
+
+        expected = db.query(
+            func.coalesce(func.sum(case((Invoice.direction == "out", Invoice.net), else_=0)), 0),
+            func.coalesce(func.sum(case((Invoice.direction == "out", Invoice.vat), else_=0)), 0),
+            func.coalesce(func.sum(case((Invoice.direction == "in", Invoice.net), else_=0)), 0),
+            func.coalesce(func.sum(case((Invoice.direction == "in", Invoice.vat), else_=0)), 0),
+            func.count(Invoice.id),
+        ).filter(
+            Invoice.project_id == project_id,
+            Invoice.period == period,
+            Invoice.entity_code == entity,
+        ).one()
+
+        all_projects_out_net = db.query(
+            func.coalesce(func.sum(case((Invoice.direction == "out", Invoice.net), else_=0)), 0)
+        ).filter(
+            Invoice.period == period,
+            Invoice.entity_code == entity,
+        ).scalar()
+    finally:
+        db.close()
+
     client = TestClient(app)
     _login(client)
+    r = client.get(
+        f"/api/project-tax-analysis?project_id={project_id}&period={period}&entity={entity}"
+    )
+    assert r.status_code == 200, r.text
+    items = r.json()["items"]
+    assert items, "selected project/entity/period should contain seeded invoice evidence"
+    item = items[0]
+    assert item["out_invoice_net"] == float(expected[0] or 0)
+    assert item["out_invoice_vat"] == float(expected[1] or 0)
+    assert item["in_invoice_net"] == float(expected[2] or 0)
+    assert item["in_invoice_vat"] == float(expected[3] or 0)
+    assert item["invoice_count"] == int(expected[4] or 0)
+    if float(all_projects_out_net or 0) != float(expected[0] or 0):
+        assert item["out_invoice_net"] != float(all_projects_out_net or 0), (
+            "project tax analysis leaked another project's invoice totals"
+        )
 
-    # Pick an existing project
+
+def test_legacy_project_filter_returns_warning_not_mixed_ledger(seeded_app):
+    """v1.2 first-stage cutover: project_id on old endpoint returns no old result."""
     from app.db import SessionLocal
+    from app.main import app
     from app.models import Project
+
     db = SessionLocal()
     try:
         proj = db.query(Project).first()
@@ -168,28 +249,13 @@ def test_old_tax_ledger_does_not_leak_unrelated_projects(seeded_app):
     finally:
         db.close()
 
+    client = TestClient(app)
+    _login(client)
     r = client.get(f"/api/tax-ledger?project_id={project_id}")
-    assert r.status_code == 200, (
-        f"seeded integration must return 200; got {r.status_code}: {r.text}"
-    )
+    assert r.status_code == 200, r.text
     body = r.json()
-    # Verify items only contain entity_codes that this project touches
-    # (via Invoice / RealCost tables)
-    from app.db import SessionLocal
-    from app.models import Invoice, RealCost
-    db = SessionLocal()
-    try:
-        allowed = set(
-            db.query(Invoice.entity_code).filter(Invoice.project_id == project_id).all()
-        )
-        allowed |= set(
-            db.query(RealCost.entity_code).filter(RealCost.project_id == project_id).all()
-        )
-        allowed = {str(c[0]).strip() for c in allowed if str(c[0] or "").strip()}
-    finally:
-        db.close()
-    for item in body["items"]:
-        assert item["entity_code"] in allowed, (
-            f"entity {item['entity_code']} leaked from an unrelated project; "
-            "v1.1 §A3 fix violated"
-        )
+    assert body["deprecated"] is True
+    assert body["status"] == "DEPRECATED"
+    assert body["items"] == []
+    assert body["total"] == 0
+    assert "/api/project-tax-analysis" in body["deprecation_message"]

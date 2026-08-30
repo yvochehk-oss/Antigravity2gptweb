@@ -14,7 +14,7 @@ from typing import Any, TypeVar
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import JSONResponse
-from sqlalchemy import func, inspect, select, text
+from sqlalchemy import case, func, inspect, select, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -208,7 +208,6 @@ def _risk_item(
         "data_status": quality.get("data_status", "DEGRADED"),
         "data_gaps": list(quality.get("data_gaps") or []),
         "trusted": bool(quality.get("trusted")),
-        # Compatibility aliases for the current React type names.
         "projectName": project.name,
         "entityName": entity_display,
         "riskType": RISK_CODE_LABELS.get(event.code, event.code),
@@ -229,13 +228,7 @@ def _load_project_entity_codes(
     db: Session,
     projects: list[Project],
 ) -> tuple[dict[int, str | None], bool]:
-    """Read the explicit project owner column without inferring an owner.
-
-    Some deployed Tax databases already contain the shared-master
-    ``projects.entity_code`` column while older Alembic-created test schemas do
-    not.  A missing column is a data-quality gap, not permission to derive an
-    owner from invoices, costs, or a demo-looking project code.
-    """
+    """Read the explicit project owner column without inferring an owner."""
     inline_codes: dict[int, str | None] = {}
     inline_seen = False
     for project in projects:
@@ -254,13 +247,8 @@ def _load_project_entity_codes(
     if "entity_code" not in columns:
         return {}, False
 
-    rows = db.execute(
-        text("SELECT id, entity_code FROM projects")
-    ).mappings().all()
-    return {
-        int(row["id"]): row.get("entity_code") or "A08"
-        for row in rows
-    }, True
+    rows = db.execute(text("SELECT id, entity_code FROM projects")).mappings().all()
+    return {int(row["id"]): row.get("entity_code") or "A08" for row in rows}, True
 
 
 def _project_data_quality(
@@ -282,8 +270,6 @@ def _project_data_quality(
     elif not code:
         gaps.append("PROJECT_ENTITY_CODE_MISSING")
     elif code not in CANONICAL_ENTITY_CODES:
-        # A/B/C/D are roles, and YB-DEMO-001 is a project code; neither can
-        # become a legal-entity owner by convention.
         gaps.append(f"PROJECT_ENTITY_CODE_INVALID:{code}")
     else:
         entity = (entities or {}).get(code)
@@ -307,7 +293,6 @@ def _project_quality_index(
     db: Session,
     projects: list[Project],
 ) -> dict[int, dict[str, Any]]:
-    """Build integrity state for one selected project scope."""
     if not projects:
         return {}
     entities = _entity_name_map(db)
@@ -323,7 +308,6 @@ def _project_quality_index(
     }
 
 
-# 数据缺口代码 → 中文解释映射
 GAP_CODE_LABELS: dict[str, str] = {
     "PROJECT_ENTITY_CODE_MISSING": "缺失项目所属企业主体编码",
     "PROJECT_ENTITY_CODE_COLUMN_MISSING": "项目表缺少主体编码字段",
@@ -395,11 +379,7 @@ def _tax_item(
     entity_name = str((entity.name if entity else "") or entity_code)
     role = str((entity.business_role if entity else "") or (entity.kind if entity else ""))
     updated = _now_label()
-    quality = quality or {
-        "data_status": "READY",
-        "data_gaps": [],
-        "trusted": True,
-    }
+    quality = quality or {"data_status": "READY", "data_gaps": [], "trusted": True}
     return {
         "id": str(row.id),
         "period": row.period,
@@ -450,11 +430,7 @@ def _audit_item(
     object_type = str(row.object_type or "")
     object_id = str(row.object_id or "")
     target = f"{object_type}:{object_id}" if object_id else object_type
-    quality = quality or {
-        "data_status": "READY",
-        "data_gaps": [],
-        "trusted": True,
-    }
+    quality = quality or {"data_status": "READY", "data_gaps": [], "trusted": True}
     return {
         "id": str(row.id),
         "timestamp": timestamp,
@@ -472,18 +448,13 @@ def _audit_item(
         "data_status": quality["data_status"],
         "data_gaps": list(quality.get("data_gaps") or []),
         "trusted": bool(quality.get("trusted")),
-        # Compatibility aliases for the current React type names.
         "targetSubject": target,
         "actionType": action,
         "integrityHash": "",
     }
 
 
-@router.get(
-    "/api/projects",
-    response_model=CollectionEnvelope,
-    summary="项目 JSON 集合",
-)
+@router.get("/api/projects", response_model=CollectionEnvelope, summary="项目 JSON 集合")
 def project_collection(
     search: str | None = Query(default=None, max_length=200),
     page: int = Query(default=1, ge=1),
@@ -494,10 +465,7 @@ def project_collection(
     try:
         rows = db.execute(select(Project).order_by(Project.id)).scalars().all()
         quality = _project_quality_index(db, rows)
-        items = [
-            _project_item(project, quality=quality[int(project.id)])
-            for project in rows
-        ]
+        items = [_project_item(project, quality=quality[int(project.id)]) for project in rows]
         if search:
             term = search.casefold()
             items = [
@@ -508,7 +476,9 @@ def project_collection(
             ]
         gate_status = _project_gate_status(quality)
         payload = _paged_envelope(
-            items=items, page=page, page_size=page_size,
+            items=items,
+            page=page,
+            page_size=page_size,
             status_value=gate_status,
             message=(
                 _project_gate_message(quality)
@@ -526,11 +496,7 @@ def project_collection(
         db.close()
 
 
-@router.get(
-    "/api/risks",
-    response_model=CollectionEnvelope,
-    summary="风险事件 JSON 集合",
-)
+@router.get("/api/risks", response_model=CollectionEnvelope, summary="风险事件 JSON 集合")
 def risk_collection(
     project_id: int | None = Query(default=None, ge=1),
     severity: str | None = Query(default=None, min_length=1, max_length=20),
@@ -553,9 +519,7 @@ def risk_collection(
             query = query.where(RiskEvent.resolved.is_(resolved))
         rows = db.execute(query).all()
         if project_id is None:
-            scoped_projects = db.execute(
-                select(Project).order_by(Project.id)
-            ).scalars().all()
+            scoped_projects = db.execute(select(Project).order_by(Project.id)).scalars().all()
         else:
             scoped_projects = []
             selected_project = db.get(Project, project_id)
@@ -563,21 +527,14 @@ def risk_collection(
                 scoped_projects = [selected_project]
         quality = _project_quality_index(db, scoped_projects)
         items = [
-            _risk_item(
-                event,
-                project,
-                quality=_quality_for_project(quality, project.id),
-            )
+            _risk_item(event, project, quality=_quality_for_project(quality, project.id))
             for event, project in rows
         ]
         if severity:
             wanted = severity.strip().upper()
             items = [
                 item for item in items
-                if wanted in {
-                    str(item["severity_code"]).upper(),
-                    str(item["severity"]).upper(),
-                }
+                if wanted in {str(item["severity_code"]).upper(), str(item["severity"]).upper()}
             ]
         if search:
             term = search.casefold()
@@ -589,7 +546,9 @@ def risk_collection(
             ]
         gate_status = _project_gate_status(quality)
         return _paged_envelope(
-            items=items, page=page, page_size=page_size,
+            items=items,
+            page=page,
+            page_size=page_size,
             status_value=gate_status,
             message=(
                 _project_gate_message(quality)
@@ -605,14 +564,8 @@ def risk_collection(
         db.close()
 
 
-@router.post(
-    "/api/risks/{risk_id}/resolve",
-    summary="完成风险闭环整改",
-)
-def resolve_risk_endpoint(
-    risk_id: int,
-    _user=_reader_dependency,
-) -> dict[str, Any]:
+@router.post("/api/risks/{risk_id}/resolve", summary="完成风险闭环整改")
+def resolve_risk_endpoint(risk_id: int, _user=_reader_dependency) -> dict[str, Any]:
     db = SessionLocal()
     try:
         risk = db.get(RiskEvent, risk_id)
@@ -620,13 +573,15 @@ def resolve_risk_endpoint(
             raise HTTPException(status_code=404, detail="未找到指定的风险事件")
         risk.resolved = True
         actor = getattr(_user, "username", "operator") if hasattr(_user, "username") else "operator"
-        db.add(AuditLog(
-            actor=actor,
-            action="RESOLVE_RISK",
-            object_type="RiskEvent",
-            object_id=str(risk_id),
-            message=f"已成功完成风险事件【{risk.code}】的闭环整改。",
-        ))
+        db.add(
+            AuditLog(
+                actor=actor,
+                action="RESOLVE_RISK",
+                object_type="RiskEvent",
+                object_id=str(risk_id),
+                message=f"已成功完成风险事件【{risk.code}】的闭环整改。",
+            )
+        )
         db.commit()
         return {
             "status": "success",
@@ -645,70 +600,28 @@ def resolve_risk_endpoint(
         db.close()
 
 
-
-def _project_entity_codes(db: Session, project_id: int) -> set[str]:
-    codes = set(
-        db.execute(
-            select(Invoice.entity_code).where(Invoice.project_id == project_id)
-        ).scalars().all()
-    )
-    codes.update(
-        db.execute(
-            select(RealCost.entity_code).where(RealCost.project_id == project_id)
-        ).scalars().all()
-    )
-    return {str(code).strip() for code in codes if str(code or "").strip()}
-
-
-def _build_legacy_tax_ledger_envelope(
+def _build_entity_tax_ledger_envelope(
     db: Session,
     *,
     period: str | None,
-    project_id: int | None,
-    entity_code: str | None,
+    entity: str | None,
     page: int,
     page_size: int,
-):
-    """Return the legacy tax-ledger envelope shared by the v3 split endpoints.
-
-    The ``tax_ledger`` (deprecated), ``entity_tax_ledger``, and the
-    project-scoped variant all reuse this assembly.  Splitting the routes
-    keeps the JSON shape identical so a frontend migration is a swap of the
-    path, not a re-mapping of fields.
-    """
-    project_codes: set[str] | None = None
-    note_message = ""
-    if project_id is None:
-        scoped_projects = db.execute(
-            select(Project).order_by(Project.id)
-        ).scalars().all()
-    else:
-        selected_project = db.get(Project, project_id)
-        if selected_project is None:
-            return _paged_envelope(
-                items=[], page=page, page_size=page_size,
-                message="未找到指定项目的税务台账数据。",
-            ), None
-        scoped_projects = [selected_project]
-        project_codes = _project_entity_codes(db, project_id)
-    quality = _project_quality_index(db, scoped_projects)
+) -> dict[str, Any]:
+    projects = db.execute(select(Project).order_by(Project.id)).scalars().all()
+    quality = _project_quality_index(db, projects)
     gate_status = _project_gate_status(quality)
-    gate_gaps = sorted({
-        gap for state in quality.values() for gap in state["data_gaps"]
-    })
+    gate_gaps = sorted({gap for state in quality.values() for gap in state["data_gaps"]})
     item_quality = {
         "data_status": gate_status,
         "data_gaps": gate_gaps,
         "trusted": gate_status == "READY",
     }
-
-    # This is a GET collection endpoint and must remain strictly read-only.
-    # Ledger generation/deletion belongs to the explicit, RBAC/CSRF-protected
-    # tax calculation command; never rebuild a period as a side effect of a
-    # browser read.
     query = select(TaxLedger)
     if period:
         query = query.where(TaxLedger.period == period)
+    if entity:
+        query = query.where(TaxLedger.entity_code == entity.strip())
     rows = db.execute(
         query.order_by(TaxLedger.period.desc(), TaxLedger.entity_code, TaxLedger.id)
     ).scalars().all()
@@ -717,79 +630,79 @@ def _build_legacy_tax_ledger_envelope(
         _tax_item(row, entities.get(row.entity_code), quality=item_quality)
         for row in rows
     ]
-    if project_codes is not None:
-        items = [item for item in items if item["entity_code"] in project_codes]
-    if entity_code:
-        wanted = entity_code.strip()
-        items = [item for item in items if item["entity_code"] == wanted]
-    if gate_status != "READY":
-        note_message = _project_gate_message(quality)
-    elif not items:
-        note_message = "指定期间没有可用的税务台账记录。"
-    envelope = _paged_envelope(
-        items=items, page=page, page_size=page_size,
+    return _paged_envelope(
+        items=items,
+        page=page,
+        page_size=page_size,
         status_value=gate_status,
-        message=note_message,
+        message=(
+            _project_gate_message(quality)
+            if gate_status != "READY"
+            else "指定期间/法人没有可用的税务台账记录。" if not items else ""
+        ),
     )
-    return envelope, gate_status
 
 
 @router.get(
     "/api/tax-ledger",
     response_model=CollectionEnvelope,
-    summary="确定性税务台账 JSON 集合（已弃用，请使用 /api/entity-tax-ledger 或 /api/project-tax-analysis）",
+    summary="确定性税务台账 JSON 集合（已弃用）",
 )
 def tax_ledger_collection(
     period: str | None = Query(default=None, min_length=7, max_length=7),
     project_id: int | None = Query(default=None, ge=1),
-    entity_code: str | None = Query(default=None, min_length=1, max_length=16),
+    entity: str | None = Query(default=None, min_length=1, max_length=64),
+    entity_code: str | None = Query(default=None, min_length=1, max_length=64),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=_MAX_PAGE_SIZE),
     _user=_reader_dependency,
 ) -> dict[str, Any] | JSONResponse:
-    """Legacy tax-ledger collection, kept for backward compatibility.
-
-    v1.1 §A3 splits this endpoint into two purpose-built routes:
-
-      * ``/api/entity-tax-ledger``   — entity-month tax position (NO project_id)
-      * ``/api/project-tax-analysis`` — project-scope VAT/cost picture
-
-    The deprecated contract here continues to honour the legacy
-    ``project_id`` / ``entity_code`` filters so callers don't break, but
-    every successful response now carries an explicit deprecation hint with
-    the recommended replacement endpoints.
-    """
+    """v1.2 first-stage compatibility: stop the old project-mixed semantics."""
     if period and not _PERIOD_RE.fullmatch(period):
         raise HTTPException(status_code=422, detail="period 必须为 YYYY-MM 格式")
+    wanted_entity = (entity or entity_code or "").strip() or None
+    if entity and entity_code and entity.strip() != entity_code.strip():
+        raise HTTPException(status_code=422, detail="entity 与 entity_code 不能冲突")
     db = SessionLocal()
     try:
-        envelope, _gate_status = _build_legacy_tax_ledger_envelope(
-            db,
-            period=period,
-            project_id=project_id,
-            entity_code=entity_code,
-            page=page,
-            page_size=page_size,
-        )
+        if project_id is not None:
+            if db.get(Project, project_id) is None:
+                raise HTTPException(status_code=404, detail=f"项目不存在：project_id={project_id}")
+            envelope = _paged_envelope(
+                items=[],
+                page=page,
+                page_size=page_size,
+                status_value="DEPRECATED",
+                message=(
+                    "/api/tax-ledger?project_id= 的旧混合口径已停止返回结果；"
+                    "请使用 /api/project-tax-analysis。"
+                ),
+            )
+        else:
+            envelope = _build_entity_tax_ledger_envelope(
+                db,
+                period=period,
+                entity=wanted_entity,
+                page=page,
+                page_size=page_size,
+            )
         envelope["deprecated"] = True
         envelope["deprecation_message"] = (
-            "/api/tax-ledger 自 v3.0 起已弃用；请改用 /api/entity-tax-ledger "
-            "查询法人月度台账，或 /api/project-tax-analysis 查询项目税务分析。"
-            "该接口仅保留过渡期内的向后兼容，不再增加新功能。"
+            "/api/tax-ledger 自 v3.0 起已弃用；法人月度台账请使用 /api/entity-tax-ledger，"
+            "项目税务分析请使用 /api/project-tax-analysis。"
         )
         envelope["recommended_endpoints"] = {
             "entity_ledger": "/api/entity-tax-ledger",
             "project_analysis": "/api/project-tax-analysis",
         }
         return envelope
+    except HTTPException:
+        db.rollback()
+        raise
     except SQLAlchemyError:
         db.rollback()
         _LOGGER.exception("tax ledger collection database failure")
         return _dependency_error("税务台账数据源暂时不可用，请稍后重试。")
-    except (ValueError, RuntimeError) as exc:
-        db.rollback()
-        _LOGGER.warning("tax ledger collection degraded: %s", exc)
-        return _dependency_error(f"税务台账暂时降级：{exc}", degraded=True)
     finally:
         db.close()
 
@@ -797,82 +710,56 @@ def tax_ledger_collection(
 @router.get(
     "/api/entity-tax-ledger",
     response_model=CollectionEnvelope,
-    summary="法人月度税务台账 JSON 集合（v3 A3 拆分契约；不接受 project_id）",
+    summary="法人月度税务台账 JSON 集合（v3 S0-02）",
 )
 def entity_tax_ledger_collection(
     period: str | None = Query(default=None, min_length=7, max_length=7),
-    entity_code: str | None = Query(default=None, min_length=1, max_length=16),
+    entity: str | None = Query(default=None, min_length=1, max_length=64),
+    entity_code: str | None = Query(default=None, min_length=1, max_length=64),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=_MAX_PAGE_SIZE),
-    project_id: int | None = Query(
-        default=None,
-        description="(rejected) 项目 ID 不属于法人台账语义",
-    ),
+    project_id: int | None = Query(default=None, include_in_schema=False),
     _user=_reader_dependency,
 ) -> dict[str, Any] | JSONResponse:
-    """Legal-entity monthly tax ledger (v3 A3).
-
-    The endpoint is intentionally scoped to legal entities and one month; it
-    must NOT accept ``project_id``.  Supplying ``project_id`` is a contract
-    violation: a project-scope VAT/cost picture belongs to
-    ``/api/project-tax-analysis``.  v1.1 §A3 explicitly forbids mixing the
-    two semantic scopes.
-    """
     if project_id is not None:
         raise HTTPException(
             status_code=422,
-            detail=(
-                "/api/entity-tax-ledger 不接受 project_id；项目范围内的"
-                "进销项与实际成本分析请使用 /api/project-tax-analysis。"
-            ),
+            detail="/api/entity-tax-ledger 不接受 project_id；请使用 /api/project-tax-analysis。",
         )
     if period and not _PERIOD_RE.fullmatch(period):
         raise HTTPException(status_code=422, detail="period 必须为 YYYY-MM 格式")
+    if entity and entity_code and entity.strip() != entity_code.strip():
+        raise HTTPException(status_code=422, detail="entity 与 entity_code 不能冲突")
+    wanted_entity = (entity or entity_code or "").strip() or None
     db = SessionLocal()
     try:
-        envelope, _ = _build_legacy_tax_ledger_envelope(
+        return _build_entity_tax_ledger_envelope(
             db,
             period=period,
-            project_id=None,
-            entity_code=entity_code,
+            entity=wanted_entity,
             page=page,
             page_size=page_size,
         )
-        return envelope
     except SQLAlchemyError:
         db.rollback()
         _LOGGER.exception("entity tax ledger collection database failure")
         return _dependency_error("法人税务台账数据源暂时不可用，请稍后重试。")
-    except (ValueError, RuntimeError) as exc:
-        db.rollback()
-        _LOGGER.warning("entity tax ledger collection degraded: %s", exc)
-        return _dependency_error(f"法人税务台账暂时降级：{exc}", degraded=True)
     finally:
         db.close()
 
 
 @router.get(
     "/api/project-tax-analysis",
-    summary="项目税务进销项与实际成本分析（v3 A3 拆分契约；必须有 project_id）",
+    summary="项目税务进销项与实际成本分析（v3 S0-02）",
 )
 def project_tax_analysis(
     project_id: int | None = Query(default=None, ge=1),
     period: str | None = Query(default=None, min_length=7, max_length=7),
+    entity: str | None = Query(default=None, min_length=1, max_length=64),
+    entity_code: str | None = Query(default=None, min_length=1, max_length=64),
     _user=_reader_dependency,
 ) -> dict[str, Any]:
-    """Project-scope VAT / cost picture (v3 A3).
-
-    Aggregates the four-flow evidence tables (invoices / real_costs / contracts
-    / cashflows) into a single row per project.  Distinct from
-    ``/api/entity-tax-ledger`` which is the legal-entity monthly position —
-    mixing the two scopes was the v1.0 cross-project pollution bug.
-
-    Contract:
-      * ``project_id`` is required; missing -> 422.
-      * Unknown ``project_id`` -> 404.
-      * Unknown ``project_id`` is distinct from "project exists but the
-        chosen period has no data" (200, items=[{}]).
-    """
+    """Project tax analysis is computed only from rows carrying project_id."""
     if project_id is None:
         raise HTTPException(
             status_code=422,
@@ -880,6 +767,9 @@ def project_tax_analysis(
         )
     if period and not _PERIOD_RE.fullmatch(period):
         raise HTTPException(status_code=422, detail="period 必须为 YYYY-MM 格式")
+    if entity and entity_code and entity.strip() != entity_code.strip():
+        raise HTTPException(status_code=422, detail="entity 与 entity_code 不能冲突")
+    wanted_entity = (entity or entity_code or "").strip() or None
 
     db = SessionLocal()
     try:
@@ -892,35 +782,59 @@ def project_tax_analysis(
         if period:
             inv_filters.append(Invoice.period == period)
             rc_filters.append(RealCost.period == period)
+        if wanted_entity:
+            inv_filters.append(Invoice.entity_code == wanted_entity)
+            rc_filters.append(RealCost.entity_code == wanted_entity)
 
-        out_net = db.scalar(
-            select(func.coalesce(func.sum(Invoice.net), 0)).where(*inv_filters, Invoice.direction == "out")
-        ) or 0
-        in_net = db.scalar(
-            select(func.coalesce(func.sum(Invoice.net), 0)).where(*inv_filters, Invoice.direction == "in")
-        ) or 0
+        totals = db.execute(
+            select(
+                func.coalesce(func.sum(case((Invoice.direction == "out", Invoice.net), else_=0)), 0),
+                func.coalesce(func.sum(case((Invoice.direction == "out", Invoice.vat), else_=0)), 0),
+                func.coalesce(func.sum(case((Invoice.direction == "in", Invoice.net), else_=0)), 0),
+                func.coalesce(func.sum(case((Invoice.direction == "in", Invoice.vat), else_=0)), 0),
+                func.coalesce(
+                    func.sum(
+                        case(
+                            ((Invoice.direction == "in") & (Invoice.deductible.is_(True)), Invoice.vat),
+                            else_=0,
+                        )
+                    ),
+                    0,
+                ),
+                func.count(Invoice.id),
+            ).where(*inv_filters)
+        ).one()
         real_cost = db.scalar(
             select(func.coalesce(func.sum(RealCost.amount), 0)).where(*rc_filters)
         ) or 0
-        invoice_count = db.scalar(
-            select(func.count(Invoice.id)).where(*inv_filters)
-        ) or 0
 
-        item = {
-            "project_id": int(project.id),
-            "project_code": str(project.code or project.project_code or ""),
-            "project_name": str(project.name or ""),
-            "period": period or "",
-            "out_invoice_net": float(out_net),
-            "in_invoice_net": float(in_net),
-            "real_cost": float(real_cost),
-            "invoice_count": int(invoice_count),
-        }
+        has_data = int(totals[5] or 0) > 0 or _number(real_cost) != 0.0
+        items: list[dict[str, Any]] = []
+        if has_data:
+            items.append(
+                {
+                    "project_id": int(project.id),
+                    "project_code": str(project.project_code or project.code or ""),
+                    "project_name": str(project.name or ""),
+                    "period": period or "",
+                    "entity": wanted_entity,
+                    "entity_code": wanted_entity,
+                    "out_invoice_net": _number(totals[0]),
+                    "out_invoice_vat": _number(totals[1]),
+                    "in_invoice_net": _number(totals[2]),
+                    "in_invoice_vat": _number(totals[3]),
+                    "deductible_input_vat": _number(totals[4]),
+                    "real_cost": _number(real_cost),
+                    "invoice_count": int(totals[5] or 0),
+                }
+            )
         return {
             "status": "READY",
-            "message": "",
-            "items": [item],
-            "total": 1,
+            "message": "" if items else "项目在该期间/主体下暂无税务分析数据。",
+            "period": period or "",
+            "entity": wanted_entity,
+            "items": items,
+            "total": len(items),
         }
     except HTTPException:
         db.rollback()
@@ -929,19 +843,11 @@ def project_tax_analysis(
         db.rollback()
         _LOGGER.exception("project tax analysis database failure: pid=%s", project_id)
         raise HTTPException(status_code=503, detail="项目税务分析数据源暂时不可用，请稍后重试。") from None
-    except (ValueError, RuntimeError) as exc:
-        db.rollback()
-        _LOGGER.warning("project tax analysis degraded: pid=%s err=%s", project_id, exc)
-        raise HTTPException(status_code=503, detail=f"项目税务分析暂时降级：{exc}") from None
     finally:
         db.close()
 
 
-@router.get(
-    "/api/audit",
-    response_model=CollectionEnvelope,
-    summary="操作审计日志 JSON 集合",
-)
+@router.get("/api/audit", response_model=CollectionEnvelope, summary="操作审计日志 JSON 集合")
 def audit_collection(
     actor: str | None = Query(default=None, max_length=80),
     object_type: str | None = Query(default=None, max_length=30),
@@ -964,9 +870,7 @@ def audit_collection(
         projects = db.execute(select(Project).order_by(Project.id)).scalars().all()
         quality = _project_quality_index(db, projects)
         gate_status = _project_gate_status(quality)
-        gate_gaps = sorted({
-            gap for state in quality.values() for gap in state["data_gaps"]
-        })
+        gate_gaps = sorted({gap for state in quality.values() for gap in state["data_gaps"]})
         audit_quality = {
             "data_status": gate_status,
             "data_gaps": gate_gaps,
@@ -982,7 +886,9 @@ def audit_collection(
                 ).casefold()
             ]
         return _paged_envelope(
-            items=items, page=page, page_size=page_size,
+            items=items,
+            page=page,
+            page_size=page_size,
             status_value=gate_status,
             message=(
                 _project_gate_message(quality)

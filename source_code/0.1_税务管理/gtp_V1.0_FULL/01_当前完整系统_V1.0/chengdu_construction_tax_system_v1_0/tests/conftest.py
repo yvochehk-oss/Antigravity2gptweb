@@ -6,11 +6,10 @@ import sys
 from pathlib import Path
 
 import pytest
+from alembic import command
 from alembic.config import Config
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
-
-from alembic import command
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -21,17 +20,15 @@ os.environ["DATABASE_URL"] = (
     or "postgresql+psycopg://invalid:invalid@127.0.0.1:1/projectrag_invalid_test"
 )
 
-# Keep the browser-login credential in the test process only.  The active
-# tests use the same value for both seeded users; production .env files are
-# never changed by the test harness.
-TEST_LOGIN_PASSWORD = (
-    os.getenv("TEST_LOGIN_PASSWORD", "TestPass12345!").strip() or "TestPass12345!"
-)
+# Test login is an explicit fixed contract for this repository.  Do not route
+# it through the production password-strength bootstrap path: in APP_ENV=test
+# the seed's built-in development/test fallback creates admin/operator 888888.
+TEST_LOGIN_PASSWORD = "888888"
 os.environ.setdefault("APP_ENV", "test")
 os.environ.setdefault("JWT_SECRET_KEY", "tax-test-secret-at-least-32-characters")
 os.environ.setdefault("RAG_SHARED_API_KEY", "rag-test-secret-at-least-32-characters")
-os.environ.setdefault("INITIAL_ADMIN_PASSWORD", TEST_LOGIN_PASSWORD)
-os.environ.setdefault("INITIAL_OPERATOR_PASSWORD", TEST_LOGIN_PASSWORD)
+os.environ.pop("INITIAL_ADMIN_PASSWORD", None)
+os.environ.pop("INITIAL_OPERATOR_PASSWORD", None)
 
 
 def require_test_database() -> str:

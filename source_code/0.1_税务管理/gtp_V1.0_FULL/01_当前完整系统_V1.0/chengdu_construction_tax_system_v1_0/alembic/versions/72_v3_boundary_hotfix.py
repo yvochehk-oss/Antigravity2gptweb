@@ -1,10 +1,14 @@
-"""V3 A4: widen external counterparty reference columns to VARCHAR(64).
+"""V3 S0-03: widen legacy party-code reference columns to VARCHAR(64).
 
 Revision ID: 72_v3_boundary_hotfix
 Revises: 71_timezone_aware_timestamps
 
-Internal canonical ``entity_code`` columns remain VARCHAR(16).  Only fields
-that can hold an external buyer/seller/counterparty identifier are widened.
+This is a migration-period safety hotfix from the V3.0 Database Core v1.2
+implementation guide.  The legacy transaction tables still carry string party
+references, so both the local entity-side reference and the counterparty-side
+reference must accept 64 characters until Party foreign keys replace them.
+Canonical ``entities.code`` / ``entities.entity_code`` and authoritative ledger
+entity identifiers remain unchanged.
 """
 from __future__ import annotations
 
@@ -19,9 +23,12 @@ depends_on = None
 _TARGETS = (
     ("contracts", "buyer_code"),
     ("contracts", "seller_code"),
+    ("invoices", "entity_code"),
     ("invoices", "counterparty_code"),
+    ("cashflows", "entity_code"),
     ("cashflows", "counterparty_code"),
     ("fulfillment", "counterparty_code"),
+    ("real_costs", "entity_code"),
     ("real_costs", "counterparty_code"),
 )
 
@@ -48,7 +55,7 @@ def downgrade() -> None:
     bind = op.get_bind()
 
     # Narrowing after V3 data has been written is destructive.  Fail closed
-    # instead of silently truncating an external identifier.
+    # instead of silently truncating a legacy party identifier.
     offenders: list[str] = []
     for table, column in _TARGETS:
         count = bind.execute(
@@ -62,7 +69,7 @@ def downgrade() -> None:
 
     if offenders:
         raise RuntimeError(
-            "Refusing V3 A4 downgrade: values longer than 16 characters exist in "
+            "Refusing V3 boundary downgrade: values longer than 16 characters exist in "
             + ", ".join(offenders)
         )
 
