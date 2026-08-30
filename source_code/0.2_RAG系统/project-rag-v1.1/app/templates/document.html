@@ -103,7 +103,7 @@
       <h1>{{ doc.filename }}</h1>
       {% if doc.parse_status == 'INDEXED' %}
       <span class="badge badge-emerald">● 已建立向量索引</span>
-      {% elif doc.parse_status in ['QUEUED', 'WAITING_MINERU'] %}
+      {% elif doc.parse_status == 'QUEUED' %}
       <span class="badge badge-amber">● 等待解析</span>
       {% elif doc.parse_status == 'RUNNING' %}
       <span class="badge badge-amber">● 解析中</span>
@@ -185,7 +185,6 @@
         <span class="font-mono" style="color: var(--accent-emerald);">
           {% if doc.parse_status == 'INDEXED' %}已完成索引
           {% elif doc.parse_status == 'QUEUED' %}排队等待
-          {% elif doc.parse_status == 'WAITING_MINERU' %}等待深度解析
           {% elif doc.parse_status == 'RUNNING' %}解析进行中
           {% elif doc.parse_status == 'PARSE_FAILED' %}解析失败
           {% else %}{{ doc.parse_status or '待处理' }}{% endif %}

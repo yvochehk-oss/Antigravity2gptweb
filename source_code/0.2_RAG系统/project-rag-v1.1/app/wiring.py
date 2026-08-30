@@ -12,7 +12,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
-from .config import AUTO_START_WORKER
+from .config import AUTO_START_WORKER, RERANKER_ENABLED
 from .logging_config import get_logger, setup_logging
 from .middleware import RateLimitMiddleware, RequestIdMiddleware
 from .security import RAGSecurityMiddleware
@@ -133,17 +133,21 @@ async def lifespan(app: FastAPI):
     init_db()
     logger.info("PostgreSQL schema and pgvector prerequisites validated")
 
-    # 预热本地 BGE-M3 与 BGE-Reranker 模型至内存，确保后续网页检索瞬间响应
+    # BGE-M3 is always required. The reranker remains disabled unless explicitly enabled.
     try:
         from .services.embeddings import embed
-        from .services.reranker import rerank
 
         embed("预热系统", raise_on_error=True)
-        rerank("预热系统", [{"text": "预热样本"}], top_k=1, raise_on_error=True)
-        logger.info("Local BGE-M3 & Reranker models pre-warmed successfully")
+        if RERANKER_ENABLED:
+            from .services.reranker import rerank
+
+            rerank("预热系统", [{"text": "预热样本"}], top_k=1, raise_on_error=True)
+            logger.info("Local BGE-M3 and enabled reranker models pre-warmed successfully")
+        else:
+            logger.info("Local BGE-M3 model pre-warmed; reranker remains disabled")
     except Exception as _e:
         logger.exception("Local model pre-warm failed; refusing to start")
-        raise RuntimeError("Local embedding/reranker model pre-warm failed") from _e
+        raise RuntimeError("Local embedding model pre-warm failed") from _e
 
     if AUTO_START_WORKER:
         # Uvicorn owns SIGTERM/SIGINT and must receive those signals to enter

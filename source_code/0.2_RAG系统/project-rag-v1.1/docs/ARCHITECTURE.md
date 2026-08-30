@@ -11,7 +11,7 @@ Upload / Folder Scan
 → SHA-256
 → Document metadata
 → IngestJob
-→ MinerU
+→ 内置 PDF/OCR/Office 解析器
 → content_list / Markdown
 → page-aware Chunk
 → BGE-M3
@@ -28,8 +28,7 @@ Project + Metadata Filter
                  ↓
              RRF-style fusion
                  ↓
-        bge-reranker-v2-m3
-                 ↓
+           Evidence Results
            Evidence Results
 ```
 

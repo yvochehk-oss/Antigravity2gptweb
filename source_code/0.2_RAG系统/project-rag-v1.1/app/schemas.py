@@ -625,7 +625,7 @@ class HealthResponse(BaseModel):
     status: str
     service: str
     version: str
-    mineru_available: bool
+    native_parser_available: bool
     database: dict
     embedding: dict
     reranker: dict

@@ -26,7 +26,7 @@ if "%UV_BIN%"=="" (
     exit /b 1
 )
 
-echo [1/3] 正在配置 RAG 事实中台虚拟环境 (Python 3.14 Free-Threaded)...
+echo [1/2] 正在配置 RAG 事实中台虚拟环境 (Python 3.14 Free-Threaded)...
 cd "source_code\0.2_RAG系统\project-rag-v1.1"
 "%UV_BIN%" venv --python 3.14 .venv
 call .venv\Scripts\activate.bat
@@ -35,29 +35,12 @@ call deactivate
 cd /d "%SCRIPT_DIR%.."
 
 echo.
-echo [2/3] 正在配置 税务管理系统虚拟环境 (Python 3.14)...
+echo [2/2] 正在配置 税务管理系统虚拟环境 (Python 3.14)...
 cd "source_code\0.1_税务管理\gtp_V1.0_FULL\01_当前完整系统_V1.0\chengdu_construction_tax_system_v1_0"
 "%UV_BIN%" venv --python 3.14 .venv
 call .venv\Scripts\activate.bat
 "%UV_BIN%" pip install -i https://mirrors.aliyun.com/pypi/simple/ -r requirements.txt
 call deactivate
-cd /d "%SCRIPT_DIR%.."
-
-echo.
-echo [3/3] 检查前端生产构建包...
-cd "source_code\0.3_老板端安卓App_天府掌舵"
-if not exist "dist\index.html" (
-    where npm >nul 2>nul
-    if not errorlevel 1 (
-        echo 正在安装前端依赖并编译静态资源...
-        call npm install --registry=https://registry.npmmirror.com
-        call npm run build
-    ) else (
-        echo [提示] 未检测到 Node.js，如有需要请安装 Node.js！
-    )
-) else (
-    echo [OK] 前端 dist 生产包已就绪！
-)
 cd /d "%SCRIPT_DIR%.."
 
 echo.

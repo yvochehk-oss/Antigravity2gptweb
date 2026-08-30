@@ -32,7 +32,7 @@ class _FakeDB:
         return None
 
 
-def test_mineru_ingest_falls_back_to_project_entity_code(monkeypatch, tmp_path):
+def test_native_parser_ingest_falls_back_to_project_entity_code(monkeypatch, tmp_path):
     """A document without an entity inherits its project's canonical code."""
     source = tmp_path / "contract.pdf"
     source.write_bytes(b"%PDF-1.7")
@@ -59,9 +59,9 @@ def test_mineru_ingest_falls_back_to_project_entity_code(monkeypatch, tmp_path):
     monkeypatch.setattr(ingest, "detect_encrypted_pdf", lambda _path: False)
     monkeypatch.setattr(
         ingest,
-        "parse_with_mineru",
+        "parse_with_native_idp",
         lambda _document_code, _path: {
-            "output_dir": str(tmp_path / "mineru"),
+            "output_dir": str(tmp_path / "parsed"),
             "markdown_path": "",
             "content_list_path": str(tmp_path / "content.json"),
         },

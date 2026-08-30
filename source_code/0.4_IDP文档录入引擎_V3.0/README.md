@@ -19,7 +19,7 @@ V3.0 是面向合同、发票、收据、银行回单等业务材料的轻量 ID
   -> PostgreSQL 确认业务表
 ```
 
-MinerU 不属于最小运行依赖，只保留为复杂排版 PDF 的可选 fallback。
+IDP 只使用内置 PyMuPDF 与按需 PaddleOCR 解析；不使用外部 PDF 解析 fallback。
 
 ## 模型职责
 
@@ -29,13 +29,13 @@ MinerU 不属于最小运行依赖，只保留为复杂排版 PDF 的可选 fall
 | PaddleOCR | 开启、按需加载 | 扫描 PDF 和图片文字识别 |
 | Granite 4.2 3B | **关闭** | 确定性异常、风险关键词或业务配置高金额材料的第二道风险审计 |
 | BGE-M3 | 不使用 | 仅属于 RAG 检索系统 |
-| Reranker | 不使用 | 仅属于 RAG，且 RAG 中默认关闭 |
+| Reranker | 不使用 | RAG 中关闭，不下载也不加载 |
 
 Granite 是审计员，不是录入员。Granite 调用失败不会毁掉已经完成的规则/Ling 抽取结果，而是把材料路由到人工复核。Granite 的金额阈值没有系统硬编码默认值，必须由财务/审计按业务口径在环境变量中明确配置。
 
 ## 目录
 
-- `app/parsers.py`：PyMuPDF -> OCR -> 可选 MinerU 的解析路由
+- `app/parsers.py`：PyMuPDF -> OCR 的解析路由
 - `app/ocr.py`：PaddleOCR 懒加载适配器
 - `app/extractors.py`：规则优先 + Ling 语义补全
 - `app/ling_client.py`：Ling OpenAI-compatible 客户端

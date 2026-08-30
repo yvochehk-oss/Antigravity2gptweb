@@ -44,9 +44,7 @@ PUBLIC_EXACT_PATHS = frozenset({
 PUBLIC_PREFIXES = (
     "/docs/",
     "/redoc/",
-    "/assets/",
     "/avatars/",
-    "/ui/",
     "/api/v1/auth/",
 )
 

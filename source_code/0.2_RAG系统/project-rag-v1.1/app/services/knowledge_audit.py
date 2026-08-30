@@ -120,7 +120,7 @@ def _compute_counts(docs: list[dict]) -> dict:
         "indexed": 0,
         "duplicates": 0,
         "queued": 0,
-        "waiting_mineru": 0,
+        "waiting_parse": 0,
         "parse_failed": 0,
         "unclassified": 0,
         "missing_business_category": 0,
@@ -132,8 +132,6 @@ def _compute_counts(docs: list[dict]) -> dict:
             counts["duplicates"] += 1
         if d.get("parse_status") in ("QUEUED", "UPLOADED"):
             counts["queued"] += 1
-        if d.get("parse_status") == "WAITING_MINERU":
-            counts["waiting_mineru"] += 1
         if d.get("parse_status") == "PARSE_FAILED":
             counts["parse_failed"] += 1
         if not d.get("document_type") or d.get("document_type") == "other":
@@ -350,7 +348,6 @@ def _build_issues_and_recommendations(result: AuditResult) -> None:
 
     # ---- Count-based issues ----
     for key, msg in [
-        ("waiting_mineru", "存在等待 MinerU 解析的资料"),
         ("parse_failed", "存在解析失败资料"),
         ("unclassified", "存在未分类资料，需要确认元数据"),
         ("duplicates", "存在重复文件，系统已阻止重复索引"),

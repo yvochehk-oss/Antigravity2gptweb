@@ -19,8 +19,8 @@ V3.0 将“业务字段录入”和“知识检索问答”明确拆成两条链
                  │                     │
           Ling-3.0-tiny              pgvector + BM25/RRF
           语义字段补全                 │
-                 │              Optional Reranker
-          Pydantic/业务校验           默认关闭
+                 │              Reranker 已关闭
+          Pydantic/业务校验
                  │                     │
         ┌────────┴────────┐        Ling-3.0-tiny
         │                 │          生成答案
@@ -37,13 +37,12 @@ V3.0 将“业务字段录入”和“知识检索问答”明确拆成两条链
 - `Ling-3.0-tiny`：IDP 语义字段补全 + RAG 最终生成模型。
 - `Granite 4.2 3B`：仅作为可选第二道风险审计，不参与普通字段录入。
 - `BGE-M3`：仅用于 RAG embedding，不进入 IDP。
-- `BGE reranker`：仅用于 RAG，`PROJECT_RAG_RERANKER_ENABLED=0` 默认关闭，需要时再开启。
-- `MinerU`：复杂 PDF 的可选 fallback，不再是 IDP 主链路常驻组件。
+- `BGE reranker`：RAG 中已关闭，不下载、不校验也不加载模型。
 
 ## 目录结构
 
 - `source_code/0.1_税务管理/`：现有财税智控系统，保留兼容。
-- `source_code/0.2_RAG系统/`：RAG 知识引擎；V3 保留 BGE-M3，Reranker 默认关闭，生成模型默认 Ling-3.0-tiny。
+- `source_code/0.2_RAG系统/`：RAG 知识引擎；V3 保留 BGE-M3，Reranker 关闭，生成模型默认 Ling-3.0-tiny。
 - `source_code/0.3_老板端安卓App_天府掌舵/`：移动决策端。
 - `source_code/0.4_IDP文档录入引擎_V3.0/`：**V3.0 新核心模块**，负责结构化抽取、校验、去重、人工复核与 PostgreSQL 入库。
 - `database/`：现有 PostgreSQL 工程资产；V3 IDP 新表定义位于 `source_code/0.4_IDP文档录入引擎_V3.0/database/schema_v3.sql`。
@@ -87,8 +86,7 @@ V3.0 将“业务字段录入”和“知识检索问答”明确拆成两条链
 - LLM 只接收候选段落，不默认读取整份合同全文。
 - Granite 默认关闭，仅在高金额、规则异常等场景按需开启。
 - IDP 不加载 BGE-M3 或 Reranker。
-- RAG 保留 BGE-M3；Cross-Encoder Reranker 默认关闭，不加载第二套 Transformer。
-- MinerU 默认不常驻。
+- RAG 保留 BGE-M3；Cross-Encoder Reranker 已关闭，不下载、不校验也不加载第二套 Transformer。
 
 ## IDP 快速启动
 
@@ -129,6 +127,6 @@ RAG_LLM_BASE_URL=http://127.0.0.1:8000/v1
 RAG_LLM_MODEL=Ling-3.0-tiny
 ```
 
-RAG 运行时代码同样以 `PROJECT_RAG_RERANKER_ENABLED=0` 为默认；关闭时不会加载 reranker 的 torch/transformers 模型。
+RAG 运行时代码固定以 `PROJECT_RAG_RERANKER_ENABLED=0` 运行；关闭时不会校验、下载或加载 reranker 模型。
 
 > 当前 `v3.0` 分支作为 V3.0 开发基线；`main` 继续保留 V2.0 稳定版本，便于对比和回退。

@@ -1,6 +1,6 @@
 """Model auto-downloader for Windows and offline deployment.
 
-Downloads Ling-3.0-tiny, BGE-M3, and BGE-Reranker from fast domestic mirrors (ModelScope / HF-Mirror).
+Downloads Ling-3.0-tiny and BGE-M3 from fast domestic mirrors (ModelScope / HF-Mirror).
 Strictly writes to project local directory (models/), never pollutes ~/.cache.
 """
 import os
@@ -113,7 +113,7 @@ def main():
     print("==================================================================")
     
     # 1. Download Ling-3.0-tiny (GGUF 4.9GB)
-    print_step("[1/3] 检查并下载本地百灵大模型 (Ling-3.0-tiny-Q4_K_M.gguf)")
+    print_step("[1/2] 检查并下载本地百灵大模型 (Ling-3.0-tiny-Q4_K_M.gguf)")
     ling_url = "https://modelscope.cn/models/bartowski/Ling-3.0-tiny-GGUF/resolve/master/Ling-3.0-tiny-Q4_K_M.gguf"
     ling_fallback_url = "https://hf-mirror.com/bartowski/Ling-3.0-tiny-GGUF/resolve/main/Ling-3.0-tiny-Q4_K_M.gguf"
     ling_path = MODELS_DIR / "local-llm" / "Ling-3.0-tiny-Q4_K_M.gguf"
@@ -123,14 +123,9 @@ def main():
         download_file_with_progress(ling_fallback_url, ling_path)
 
     # 2. Download BGE-M3 (Vector Embedding Model)
-    print_step("[2/3] 检查并下载全文向量检索模型 (BAAI/bge-m3)")
+    print_step("[2/2] 检查并下载全文向量检索模型 (BAAI/bge-m3)")
     bge_m3_dir = MODELS_DIR / "bge-m3"
     download_hf_or_modelscope_repo("BAAI/bge-m3", bge_m3_dir)
-
-    # 3. Download BGE-Reranker-v2-m3 (Reranker Model)
-    print_step("[3/3] 检查并下载重排序检索模型 (BAAI/bge-reranker-v2-m3)")
-    bge_rerank_dir = MODELS_DIR / "bge-reranker-v2-m3"
-    download_hf_or_modelscope_repo("BAAI/bge-reranker-v2-m3", bge_rerank_dir)
 
     print("\n==================================================================")
     print("  🎉 全部 AI 模型已自动下载并装载完毕！")

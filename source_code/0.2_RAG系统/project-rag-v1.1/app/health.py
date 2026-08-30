@@ -13,7 +13,6 @@ from .observability import get_request_id
 from .services.embeddings import embedding_runtime
 from .services.extractor import llm_extraction_available
 from .services.jobs import get_worker_status
-from .services.mineru_adapter import mineru_available
 from .services.reranker import reranker_runtime
 
 
@@ -160,7 +159,7 @@ def collect_health_snapshot() -> dict[str, Any]:
         "service": "project-rag",
         "version": "1.1.0",
         "request_id": get_request_id(),
-        "mineru_available": bool(mineru_available()),
+        "native_parser_available": True,
         "database": components["db"],
         "embedding": components["embedding"],
         "reranker": components["reranker"],

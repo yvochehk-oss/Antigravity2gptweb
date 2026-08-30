@@ -35,14 +35,7 @@ else
 fi
 git merge --ff-only origin/macos
 
-echo ">>> [4/4] 重新构建并同步 Tax 前端静态资源..."
-FRONTEND_DIR="source_code/0.1_税务管理/gtp_V1.0_FULL/01_当前完整系统_V1.0/frontend_stitch"
-if [[ -d "$FRONTEND_DIR" ]]; then
-  (
-    cd "$FRONTEND_DIR"
-    npm run sync:tax-static
-  )
-fi
+echo ">>> [4/4] 前端由独立 Vite 服务运行，不生成或同步后端静态资源。"
 
 echo "=================================================================="
 echo "✓ macOS 已同步到统一主体提交：$MAIN_SHA"

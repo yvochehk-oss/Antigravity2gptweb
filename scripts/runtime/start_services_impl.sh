@@ -349,20 +349,33 @@ prepare_rag_runtime() {
   else
     embedding_model="$PROJECT_DIR/models/bge-m3"
   fi
-  if [ "$_RAG_RERANKER_WAS_SET" = x ]; then
-    reranker_model="$_RAG_RERANKER_OVERRIDE"
-  elif [ -n "${PROJECT_RAG_RERANKER_MODEL:-}" ] && [ -f "${PROJECT_RAG_RERANKER_MODEL}/config.json" ]; then
-    reranker_model="$PROJECT_RAG_RERANKER_MODEL"
-  else
-    reranker_model="$PROJECT_DIR/models/bge-reranker-v2-m3"
-  fi
   [ -f "$embedding_model/config.json" ] || die "Embedding 模型路径不可用：$embedding_model"
-  [ -f "$reranker_model/config.json" ] || die "Reranker 模型路径不可用：$reranker_model"
   export PROJECT_RAG_EMBEDDING_MODEL="$embedding_model"
-  export PROJECT_RAG_RERANKER_MODEL="$reranker_model"
+
+  if reranker_is_enabled; then
+    if [ "$_RAG_RERANKER_WAS_SET" = x ]; then
+      reranker_model="$_RAG_RERANKER_OVERRIDE"
+    elif [ -n "${PROJECT_RAG_RERANKER_MODEL:-}" ] && [ -f "${PROJECT_RAG_RERANKER_MODEL}/config.json" ]; then
+      reranker_model="$PROJECT_RAG_RERANKER_MODEL"
+    else
+      reranker_model="$PROJECT_DIR/models/bge-reranker-v2-m3"
+    fi
+    [ -f "$reranker_model/config.json" ] || die "Reranker 模型路径不可用：$reranker_model"
+    export PROJECT_RAG_RERANKER_MODEL="$reranker_model"
+  else
+    unset PROJECT_RAG_RERANKER_MODEL
+    log "Reranker 已关闭；跳过模型目录校验与加载。"
+  fi
 
   command -v uv >/dev/null 2>&1 || die "未找到 uv，无法准备 RAG 运行环境"
   (cd "$RAG_DIR" && uv sync --inexact)
+}
+
+reranker_is_enabled() {
+  case "${PROJECT_RAG_RERANKER_ENABLED:-0}" in
+    1|true|TRUE|yes|YES|on|ON) return 0 ;;
+    *) return 1 ;;
+  esac
 }
 
 local_llm_is_enabled() {

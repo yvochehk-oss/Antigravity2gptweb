@@ -36,28 +36,21 @@ it does not expose JSON collection contracts for the React risk, tax-ledger, or 
 views. Those views therefore remain explicitly `UNAVAILABLE` rather than parsing or
 fabricating data from HTML.
 
-## Production static deployment
+## Frontend runtime
 
-The Tax service serves the React SPA root from
-`chengdu_construction_tax_system_v1_0/app/static_dist/index.html` and its `assets/`
-directory. Build and synchronize the current frontend with:
+The React UI runs as its own Vite process. The Tax service does not build,
+copy, or serve frontend static files. Start it with:
 
 ```text
-npm run sync:tax-static
-npm run verify:tax-static
+npm run dev
 ```
 
-The sync script copies only Vite build files (`index.html` and `assets/*`) and keeps a
-manifest of files it owns. It refuses to overwrite an untracked target asset and only
-removes files listed by its previous manifest. `verify:tax-static` compares SHA-256
-checksums between `frontend_stitch/dist` and the backend static directory. Set
-`TAX_STATIC_DIST_DIR` to override the target directory when deploying elsewhere.
+Open the Vite URL printed in the terminal. Browser access to the Tax API remains
+limited by its explicit CORS allow-list.
 
 Verification commands:
 
 ```text
 npm run lint
 npm test
-npm run build
-npm run verify:tax-static
 ```

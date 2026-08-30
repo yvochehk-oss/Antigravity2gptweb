@@ -1,48 +1,15 @@
-"""MinerU adapter with retry support."""
+"""Built-in IDP parser and parse-quality helpers."""
 
 import json
-import shutil
-import subprocess
-import sys
-import time
 from pathlib import Path
 
-from ..config import MINERU_API_URL, MINERU_BACKEND, MINERU_BIN, PARSE_QUALITY_REVIEW_THRESHOLD, PARSED_DIR
+from ..config import PARSE_QUALITY_REVIEW_THRESHOLD, PARSED_DIR
 from ..logging_config import get_logger
 
 logger = get_logger(__name__)
 
-# Retry configuration
-MAX_RETRIES = 3
-RETRY_DELAY = 10  # seconds
-
-
-class MinerUUnavailable(RuntimeError):
-    """Raised when MinerU CLI is not available."""
-    pass
-
-
-class MinerUError(RuntimeError):
-    """Raised when MinerU parsing fails."""
-    pass
-
-
-def _mineru_command(*args: str) -> list[str]:
-    """Build a portable CLI command for either a binary or a Python adapter.
-
-    ``MINERU_BIN`` can point to the local RapidOCR compatibility script.  In
-    that case using the service interpreter keeps the parser on the same
-    locked dependencies on macOS and Windows instead of relying on a shebang
-    or a machine-global Python installation.
-    """
-    executable = Path(MINERU_BIN)
-    prefix = [sys.executable, MINERU_BIN] if executable.suffix.lower() == ".py" else [MINERU_BIN]
-    return [*prefix, *args]
-
-
-def mineru_available() -> bool:
-    """Check if document parsing engine is available."""
-    return True
+class NativeParserError(RuntimeError):
+    """Raised when the built-in parser cannot extract usable content."""
 
 
 def parse_with_native_idp(document_code: str, input_path: str) -> dict:
@@ -86,7 +53,7 @@ def parse_with_native_idp(document_code: str, input_path: str) -> dict:
             doc.close()
         except Exception as pdf_err:
             logger.error(f"Native PDF parse error: {pdf_err}")
-            raise MinerUError(f"PDF parsing error: {pdf_err}")
+            raise NativeParserError(f"PDF parsing error: {pdf_err}")
 
     elif suffix in (".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".webp"):
         try:
@@ -105,7 +72,7 @@ def parse_with_native_idp(document_code: str, input_path: str) -> dict:
                 })
         except Exception as img_err:
             logger.error(f"Native image OCR error: {img_err}")
-            raise MinerUError(f"Image OCR error: {img_err}")
+            raise NativeParserError(f"Image OCR error: {img_err}")
 
     elif suffix in (".docx", ".doc"):
         try:
@@ -136,7 +103,7 @@ def parse_with_native_idp(document_code: str, input_path: str) -> dict:
                     md_lines.append(table_md)
         except Exception as docx_err:
             logger.error(f"Native DOCX error: {docx_err}")
-            raise MinerUError(f"DOCX parsing error: {docx_err}")
+            raise NativeParserError(f"DOCX parsing error: {docx_err}")
 
     elif suffix in (".xlsx", ".xls"):
         try:
@@ -158,7 +125,7 @@ def parse_with_native_idp(document_code: str, input_path: str) -> dict:
                     md_lines.append(table_md)
         except Exception as xls_err:
             logger.error(f"Native Excel error: {xls_err}")
-            raise MinerUError(f"Excel parsing error: {xls_err}")
+            raise NativeParserError(f"Excel parsing error: {xls_err}")
 
     else:
         # Plain text / Markdown
@@ -174,10 +141,10 @@ def parse_with_native_idp(document_code: str, input_path: str) -> dict:
                 })
         except Exception as txt_err:
             logger.error(f"Native text read error: {txt_err}")
-            raise MinerUError(f"Text read error: {txt_err}")
+            raise NativeParserError(f"Text read error: {txt_err}")
 
     if not md_lines and not content_list:
-        raise MinerUError(f"No extractable text or content found in {path.name}")
+        raise NativeParserError(f"No extractable text or content found in {path.name}")
 
     md_path = out_dir / f"{document_code}.md"
     cl_path = out_dir / f"{document_code}_content_list.json"
@@ -194,71 +161,6 @@ def parse_with_native_idp(document_code: str, input_path: str) -> dict:
         "stdout": "IDP 3.0 Native Parser",
         "attempts": 1,
     }
-
-
-def parse_with_mineru(
-    document_code: str,
-    input_path: str,
-    max_retries: int = MAX_RETRIES
-) -> dict:
-    """Parse a document using IDP 3.0 native parser with MinerU CLI fallback.
-
-    Args:
-        document_code: Document identifier for output directory
-        input_path: Path to input file
-        max_retries: Maximum retry attempts
-
-    Returns:
-        Dict with output_dir, markdown_path, content_list_path
-
-    Raises:
-        MinerUError: If parsing fails
-    """
-    # If external mineru binary exists, attempt it first
-    if shutil.which(MINERU_BIN) is not None:
-        try:
-            out_dir = PARSED_DIR / document_code
-            out_dir.mkdir(parents=True, exist_ok=True)
-            cmd = _mineru_command("-p", str(input_path), "-o", str(out_dir))
-            if MINERU_BACKEND:
-                cmd += ["-b", MINERU_BACKEND]
-            if MINERU_API_URL:
-                cmd += ["--api-url", MINERU_API_URL]
-            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=1800)
-            if proc.returncode == 0:
-                md_files = sorted(out_dir.rglob("*.md"), key=lambda p: p.stat().st_size, reverse=True)
-                content_lists = sorted(out_dir.rglob("*content_list.json"), key=lambda p: p.stat().st_size, reverse=True)
-                if md_files or content_lists:
-                    return {
-                        "output_dir": str(out_dir),
-                        "markdown_path": str(md_files[0]) if md_files else "",
-                        "content_list_path": str(content_lists[0]) if content_lists else "",
-                        "stdout": proc.stdout[-2000:],
-                        "attempts": 1,
-                    }
-        except Exception as e:
-            logger.warning(f"MinerU CLI invocation failed; falling back to IDP 3.0 Native Parser: {e}")
-
-    # Seamlessly use IDP 3.0 Native Parser
-    return parse_with_native_idp(document_code, input_path)
-
-
-def get_mineru_version() -> str:
-    """Get MinerU version string.
-
-    Returns:
-        Version string or "unknown"
-    """
-    try:
-        proc = subprocess.run(
-            _mineru_command("--version"),
-            capture_output=True,
-            text=True,
-            timeout=5
-        )
-        return proc.stdout.strip() or proc.stderr.strip() or "unknown"
-    except:
-        return "unknown"
 
 
 # ============================================
@@ -300,13 +202,13 @@ def detect_encrypted_pdf(file_path: str) -> bool:
 
 
 def assess_content_list(content_list_path: str) -> dict:
-    """Compute coarse parse-quality metrics from a MinerU content_list.json.
+    """Compute coarse parse-quality metrics from a native content-list file.
 
     The function is best-effort: any read or parse error yields an empty
     metric dict so callers can still compute a partial score.
 
     Args:
-        content_list_path: Path to a MinerU ``*content_list.json`` file.
+        content_list_path: Path to a native parser content-list file.
 
     Returns:
         Dict with keys: page_count, table_count, text_count, char_density,
@@ -389,7 +291,7 @@ def assess_content_list(content_list_path: str) -> dict:
 
 
 def assess_parse_quality(parse_result: dict, markdown_text: str = "") -> dict:
-    """Compute a parse-quality score and per-check flags for MinerU output.
+    """Compute a parse-quality score and per-check flags for native output.
 
     Each individual check is independent and graceful: if the required input
     is missing, the check defaults to ``True`` (passed) so the score reflects
@@ -404,7 +306,7 @@ def assess_parse_quality(parse_result: dict, markdown_text: str = "") -> dict:
         * ``empty_page_ratio``: < 0.5 (if computable).
 
     Args:
-        parse_result: Dict returned by :func:`parse_with_mineru`.
+        parse_result: Dict returned by :func:`parse_with_native_idp`.
         markdown_text: Optional pre-loaded markdown string.
 
     Returns:

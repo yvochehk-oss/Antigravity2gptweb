@@ -9,7 +9,7 @@
 
 V1.1 在三个前代基础上收敛：
 
-1. **v0.2-optimized**：MinerU 文档摄取、BM25+pgvector+RRF 混合检索、Worker 异步解析
+1. **v0.2-optimized**：内置文档摄取、BM25+pgvector+RRF 混合检索、Worker 异步解析
 2. **v1.0**：Analytics Contract / Facts Provider / AI Review / 四层 Truth 模型
 3. **v0.2 base**：法规知识引擎（BM25 + Embedding + RRF + 条款级读取）
 
@@ -28,8 +28,8 @@ project-rag-v1.1/
 │   │   ├── retrieval.py                # 文档混合检索（BM25 + pgvector + RRF）
 │   │   ├── regulation_retrieval.py     # 法规混合检索
 │   │   ├── rag_http_client.py          # HTTP 桥接层（V1.1 新增）
-│   │   ├── embeddings.py / reranker.py # bge-m3 / bge-reranker-v2-m3
-│   │   ├── mineru_adapter.py           # MinerU PDF 解析
+│   │   ├── embeddings.py / reranker.py # bge-m3 / disabled reranker gate
+│   │   ├── native_parser.py             # 内置 PDF/OCR/Office 解析
 │   │   ├── llm.py                      # OpenAI-compatible LLM 调用
 │   │   ├── jobs.py                     # 异步 Ingest Worker
 │   │   ├── extractor.py                # LLM 结构化抽取
@@ -95,7 +95,7 @@ AI Review = L2 + L3 + L4（做 Reasoning，不做 Calculation）
 | `GET  /api/v1/health` | 健康检查（含 DB / Embedding / Reranker / Worker 状态） |
 | `POST /api/v1/projects` | 创建项目 |
 | `POST /api/v1/projects/sync` | 按 external_system + external_project_id 同步项目 |
-| `POST /api/v1/documents/upload` | 上传文档（multipart，自动 MinerU 解析） |
+| `POST /api/v1/documents/upload` | 上传文档（multipart，自动内置解析） |
 | `POST /api/v1/documents/import-folder` | 批量导入文件夹 |
 | `POST /api/v1/retrieve` | 文档混合检索（无 LLM） |
 | `POST /api/v1/query` | 文档问答（检索 + LLM 回答） |
@@ -122,7 +122,6 @@ AI Review = L2 + L3 + L4（做 Reasoning，不做 Calculation）
 
 ```bash
 ./setup_v11_mac.sh           # 安装 PostgreSQL + AI 模型
-./install_mineru_mac.sh      # （可选）MinerU PDF 解析
 ./run.sh                     # 启动 FastAPI（默认端口 8922，可由 PROJECT_RAG_PORT 覆盖）
 ```
 
@@ -165,8 +164,7 @@ pytest tests/ -v                     # smoke + 桥接
 
 - [架构文档](docs/ARCHITECTURE.md)
 - [API 参考](docs/API.md)
-- [安装说明](docs/INSTALL_MAC_V02.md)（MinerU 见 INSTALL_MINERU_MAC.md）
-- [MinerU 兼容性](docs/MINERU_COMPATIBILITY.md)
+- [安装说明](docs/INSTALL_MAC_V02.md)
 - [对接建筑项目管理系统](docs/INTEGRATION_CONSTRUCTION_SYSTEM.md)
 - [v0.2 优化报告](docs/optimization/OPTIMIZATION_REPORT.md)
 - [变更日志](CHANGELOG.md)
@@ -177,7 +175,7 @@ pytest tests/ -v                     # smoke + 桥接
 |---|---|---|
 | 1.1.0 | 2026-08-19 | 合并 v0.2-optimized + v1.0 + v0.2 regulation |
 | 1.0.0 | 2026-08-18 | 初始 v1.0（Analytics Contract + Facts Provider + AI Review） |
-| 0.2.1-optimized | 2026-08-16 | v0.2 优化版（DB 连接 / 路径安全 / Worker 监控 / MinerU 重试） |
+| 0.2.1-optimized | 2026-08-16 | v0.2 优化版（DB 连接 / 路径安全 / Worker 监控 / 任务重试） |
 | 0.2.0 | 2026-08-15 | v0.2 base（RAG 服务 + 法规检索初版） |
 
 

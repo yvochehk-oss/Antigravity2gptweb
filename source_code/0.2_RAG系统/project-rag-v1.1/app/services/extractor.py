@@ -446,7 +446,7 @@ def clean_chunk_html(text: str) -> str:
 
 
 def extract_invoice_fields_from_text(text: str) -> dict[str, Any]:
-    """Extract invoice identity/amounts directly from OCR/MinerU text."""
+    """Extract invoice identity/amounts directly from native OCR text."""
     raw_text = str(text or "").replace("\x00", "").strip()
     if not raw_text:
         return validate_invoice_fields({})

@@ -1,4 +1,4 @@
-"""Regression tests for the dashboard's MinerU job monitor contract."""
+"""Regression tests for the dashboard's document-processing monitor contract."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -184,17 +184,16 @@ def test_monitor_exposes_document_and_chunk_kpis_with_document_waiting_semantics
                 ("INDEXED", 28),
                 ("PARSE_FAILED", 114),
                 ("QUEUED", 464),
-                ("WAITING_MINERU", 2),
                 ("UPLOADED", 1),
                 ],
                 chunk_count=74,
                 project_stats_rows=[(1, 581, 28)],
             )
     )
-    assert payload["document_total"] == 609
+    assert payload["document_total"] == 607
     assert payload["indexed_documents"] == 28
     assert payload["indexed_chunks"] == 74
-    assert payload["waiting_documents"] == 581
+    assert payload["waiting_documents"] == 579
     assert payload["projects_stats"] == {1: {"doc_count": 581, "indexed_count": 28}}
     for stats in payload["projects_stats"].values():
         assert set(stats) == {"doc_count", "indexed_count"}
@@ -227,7 +226,6 @@ def test_dashboard_project_stats_contract_is_non_negative_and_balanced(main_modu
     monkeypatch.setattr(main_module, "get_db", lambda: _DbContext(session))
     monkeypatch.setattr(main_module._legacy, "get_db", lambda: _DbContext(session))
     monkeypatch.setattr(main_module, "_canonical_entity_views", lambda db: [])
-    monkeypatch.setattr(main_module, "mineru_available", lambda: False)
     monkeypatch.setattr(main_module, "get_worker_status", lambda: {})
     monkeypatch.setattr(
         main_module.templates,

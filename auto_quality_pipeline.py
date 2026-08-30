@@ -69,20 +69,9 @@ def write_env(content: str):
         f.write(content)
 
 
-def set_env_backend(backend: str, concurrency: int):
-    """修改 .env 里的 MINERU_BACKEND 和 WORKER_CONCURRENCY。"""
+def set_worker_concurrency(concurrency: int):
+    """Update the worker concurrency without selecting a parser backend."""
     content = read_env()
-
-    # MINERU_BACKEND
-    if "MINERU_BACKEND=" in content:
-        lines = content.splitlines()
-        lines = [
-            f"MINERU_BACKEND={backend}" if l.startswith("MINERU_BACKEND=") else l
-            for l in lines
-        ]
-        content = "\n".join(lines) + "\n"
-    else:
-        content += f"\nMINERU_BACKEND={backend}\n"
 
     # WORKER_CONCURRENCY
     if "PROJECT_RAG_WORKER_CONCURRENCY=" in content:
@@ -97,7 +86,7 @@ def set_env_backend(backend: str, concurrency: int):
         content += f"\nPROJECT_RAG_WORKER_CONCURRENCY={concurrency}\n"
 
     write_env(content)
-    log(f"✅ .env → MINERU_BACKEND={backend}, WORKER_CONCURRENCY={concurrency}")
+    log(f"✅ .env → WORKER_CONCURRENCY={concurrency}")
 
 
 def restart_rag():
@@ -243,7 +232,7 @@ def main():
     log("\n🔄 第二阶段：切换到 hybrid-engine（串行，高精度）...")
 
     # 1. 修改 .env
-    set_env_backend("hybrid-engine", 1)
+    set_worker_concurrency(1)
 
     # 2. 把低分文件重新入队
     requeue_docs([doc_id for doc_id, *_ in low_docs])
@@ -272,7 +261,7 @@ def main():
 
     # ── 收尾：恢复 pipeline 4-worker ─────────────────────────────────────
     log("\n🔄 收尾：恢复 pipeline 后端（4-worker）...")
-    set_env_backend("pipeline", 4)
+    set_worker_concurrency(4)
     restart_rag()
 
     # ── 最终统计 ──────────────────────────────────────────────────────────

@@ -8,4 +8,3 @@ python -m pip install -r requirements.txt -r requirements-ai.txt
 echo
 echo "BGE 运行依赖已安装。首次检索/索引时会下载："
 echo "  BAAI/bge-m3"
-echo "  BAAI/bge-reranker-v2-m3"

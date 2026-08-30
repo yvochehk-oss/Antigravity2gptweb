@@ -9,20 +9,17 @@ from .schemas import ParsedDocument
 
 
 OCRCallable = Callable[[Path], ParsedDocument]
-MinerUCallable = Callable[[Path], ParsedDocument]
 
 
 class DocumentParser:
-    """V3 parser router: native PDF text -> OCR -> MinerU fallback."""
+    """V3 parser router: native PDF text -> OCR."""
 
     def __init__(
         self,
         ocr_parser: Optional[OCRCallable] = None,
-        mineru_parser: Optional[MinerUCallable] = None,
         min_native_chars: int = 80,
     ) -> None:
         self.ocr_parser = ocr_parser
-        self.mineru_parser = mineru_parser
         self.min_native_chars = min_native_chars
 
     def parse(self, file_path: str | Path) -> ParsedDocument:
@@ -38,9 +35,6 @@ class DocumentParser:
                 ocr = self.ocr_parser(path)
                 if len(ocr.text.strip()) >= self.min_native_chars:
                     return ocr
-
-            if self.mineru_parser is not None:
-                return self.mineru_parser(path)
 
             return native
 

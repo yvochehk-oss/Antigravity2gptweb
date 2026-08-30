@@ -6,7 +6,7 @@ cd "$(dirname "$0")"
 ./install_ai_models_mac.sh
 if [ ! -f .env ]; then cp .env.example .env; fi
 echo
-echo "基础环境完成。MinerU 尚未安装时再执行： ./install_mineru_mac.sh"
+echo "基础环境完成。文档由内置 PDF/OCR 解析器处理。"
 echo "启动： ./run.sh"
 echo
 echo "V1.1 额外说明："
