@@ -430,7 +430,10 @@ def main() -> int:
                 raise SystemExit("--plan is used only with --apply")
             if not args.entity or not args.period:
                 raise SystemExit("--entity and --period are required to generate a PLAN")
-            result = {"database": make_url(database_url).database, **make_plan(session, entity_code=args.entity, period=args.period)}
+            raw_plan = make_plan(session, entity_code=args.entity, period=args.period)
+            core = {key: value for key, value in raw_plan.items() if key != "plan_digest"}
+            core["database"] = make_url(database_url).database
+            result = {**core, "plan_digest": _canonical_hash(core)}
         else:
             if not args.plan:
                 raise SystemExit("--apply requires an exact saved --plan file")
