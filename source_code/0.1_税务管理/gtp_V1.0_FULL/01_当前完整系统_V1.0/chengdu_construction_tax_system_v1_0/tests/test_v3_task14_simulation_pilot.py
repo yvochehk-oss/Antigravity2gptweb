@@ -14,8 +14,9 @@ from app.db import engine
 from app.v3_fact_models import Fact, FactRelationship, InvoiceFact
 from app.v3_party_models import InternalEntity, Party, SourceDocument
 from app.v3_tax_models import InputVatClaim
-from app.v3_vat_ledger_models import VatOpeningBalanceSeed
+from app.v3_vat_ledger_models import EntityVatLedger, VatOpeningBalanceSeed
 from app.v3_vat_review_models import VatOutputPeriodAssertion
+from scripts.v3 import entity_vat_ledger_86 as ledger86
 from scripts.v3.task14_simulation_pilot import apply_plan, make_plan
 
 
@@ -160,7 +161,7 @@ def test_simulation_plan_binds_exact_source_file_sha(seeded_app, tmp_path):
             tx.rollback()
 
 
-def test_simulation_apply_creates_new_valid_fact_and_supersedes_legacy(seeded_app, tmp_path):
+def test_simulation_apply_creates_valid_fact_and_builds_vat_ledger(seeded_app, tmp_path):
     with engine.connect() as conn:
         tx = conn.begin()
         session = Session(bind=conn, expire_on_commit=False)
@@ -214,6 +215,19 @@ def test_simulation_apply_creates_new_valid_fact_and_supersedes_legacy(seeded_ap
             assert seed.reviewed is True
             assert assertion.asserted_output_vat_total == Decimal("0.00")
             assert assertion.reviewed is True
+
+            ledger_result = ledger86.wrapped.base.build_one(
+                session,
+                entity_code=entity_code,
+                period="2026-09",
+                created_by="pytest",
+            )
+            ledger = session.get(EntityVatLedger, ledger_result["ledger_id"])
+            assert ledger.output_vat == Decimal("0.00")
+            assert ledger.input_vat == Decimal("6.00")
+            assert ledger.opening_input_credit == Decimal("0.00")
+            assert ledger.closing_input_credit == Decimal("6.00")
+            assert ledger.vat_payable_after_prepayment == Decimal("0.00")
         finally:
             session.close()
             tx.rollback()
