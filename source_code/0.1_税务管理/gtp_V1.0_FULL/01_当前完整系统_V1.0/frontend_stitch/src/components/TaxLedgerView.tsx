@@ -335,12 +335,15 @@ export function TaxLedgerView({
                   className="py-2.5 px-3 w-[180px] min-w-[180px] max-w-[180px] cursor-pointer hover:text-[#4cd7f6] select-none transition-colors group"
                   title="点击按项目名称排序"
                 >
-                  <div className="flex items-center gap-1">
-                    <span>所属工程项目</span>
+                  <div className="flex items-center gap-1.5">
+                    <div>
+                      <div className="text-[12px] text-[#8e909f] group-hover:text-[#4cd7f6]">所属工程项目</div>
+                      <div className="text-[10px] text-[#8e909f]/70 font-normal">工程编码</div>
+                    </div>
                     {sortField === 'projectName' ? (
-                      sortOrder === 'asc' ? <ArrowUp className="w-3.5 h-3.5 text-[#4cd7f6]" /> : <ArrowDown className="w-3.5 h-3.5 text-[#4cd7f6]" />
+                      sortOrder === 'asc' ? <ArrowUp className="w-3.5 h-3.5 text-[#4cd7f6] flex-shrink-0" /> : <ArrowDown className="w-3.5 h-3.5 text-[#4cd7f6] flex-shrink-0" />
                     ) : (
-                      <ArrowUpDown className="w-3 h-3 text-[#8e909f]/40 group-hover:text-[#4cd7f6]/70 transition-opacity" />
+                      <ArrowUpDown className="w-3 h-3 text-[#8e909f]/40 group-hover:text-[#4cd7f6]/70 transition-opacity flex-shrink-0" />
                     )}
                   </div>
                 </th>
@@ -349,29 +352,36 @@ export function TaxLedgerView({
                   className="py-2.5 px-3 w-[220px] min-w-[220px] max-w-[220px] cursor-pointer hover:text-[#4cd7f6] select-none transition-colors group"
                   title="点击按实体名称排序"
                 >
-                  <div className="flex items-center gap-1">
-                    <span>实体名称 / 标段分类</span>
+                  <div className="flex items-center gap-1.5">
+                    <div>
+                      <div className="text-[12px] text-[#8e909f] group-hover:text-[#4cd7f6]">实体名称</div>
+                      <div className="text-[10px] text-[#8e909f]/70 font-normal">标段分类</div>
+                    </div>
                     {sortField === 'entityName' ? (
-                      sortOrder === 'asc' ? <ArrowUp className="w-3.5 h-3.5 text-[#4cd7f6]" /> : <ArrowDown className="w-3.5 h-3.5 text-[#4cd7f6]" />
+                      sortOrder === 'asc' ? <ArrowUp className="w-3.5 h-3.5 text-[#4cd7f6] flex-shrink-0" /> : <ArrowDown className="w-3.5 h-3.5 text-[#4cd7f6] flex-shrink-0" />
                     ) : (
-                      <ArrowUpDown className="w-3 h-3 text-[#8e909f]/40 group-hover:text-[#4cd7f6]/70 transition-opacity" />
+                      <ArrowUpDown className="w-3 h-3 text-[#8e909f]/40 group-hover:text-[#4cd7f6]/70 transition-opacity flex-shrink-0" />
                     )}
                   </div>
                 </th>
                 <th className="py-2.5 px-2 text-center whitespace-nowrap w-[90px] min-w-[90px]">
-                  <span>归属属性</span>
+                  <div>归属属性</div>
+                  <div className="text-[10px] text-[#8e909f]/70 font-normal">内部/外部</div>
                 </th>
                 <th 
                   onClick={() => handleSort('declareAmount')}
                   className="py-2.5 px-3 text-right whitespace-nowrap w-[140px] min-w-[140px] cursor-pointer hover:text-[#4cd7f6] select-none transition-colors group"
                   title="点击按金额/税额排序"
                 >
-                  <div className="flex items-center justify-end gap-1">
-                    <span>申报计税 / 应纳税额</span>
+                  <div className="flex items-center justify-end gap-1.5">
+                    <div className="text-right">
+                      <div className="text-[12px] text-[#8e909f] group-hover:text-[#4cd7f6]">申报计税</div>
+                      <div className="text-[10px] text-[#8e909f]/70 font-normal">应纳税额</div>
+                    </div>
                     {sortField === 'declareAmount' ? (
-                      sortOrder === 'asc' ? <ArrowUp className="w-3.5 h-3.5 text-[#4cd7f6]" /> : <ArrowDown className="w-3.5 h-3.5 text-[#4cd7f6]" />
+                      sortOrder === 'asc' ? <ArrowUp className="w-3.5 h-3.5 text-[#4cd7f6] flex-shrink-0" /> : <ArrowDown className="w-3.5 h-3.5 text-[#4cd7f6] flex-shrink-0" />
                     ) : (
-                      <ArrowUpDown className="w-3 h-3 text-[#8e909f]/40 group-hover:text-[#4cd7f6]/70 transition-opacity" />
+                      <ArrowUpDown className="w-3 h-3 text-[#8e909f]/40 group-hover:text-[#4cd7f6]/70 transition-opacity flex-shrink-0" />
                     )}
                   </div>
                 </th>
@@ -380,12 +390,15 @@ export function TaxLedgerView({
                   className="py-2.5 px-3 w-[180px] min-w-[180px] max-w-[180px] cursor-pointer hover:text-[#4cd7f6] select-none transition-colors group"
                   title="点击按税种/所属期排序"
                 >
-                  <div className="flex items-center gap-1">
-                    <span>税种 / 所属期</span>
+                  <div className="flex items-center gap-1.5">
+                    <div>
+                      <div className="text-[12px] text-[#8e909f] group-hover:text-[#4cd7f6]">税种类别</div>
+                      <div className="text-[10px] text-[#8e909f]/70 font-normal">税款所属期</div>
+                    </div>
                     {sortField === 'taxCategory' ? (
-                      sortOrder === 'asc' ? <ArrowUp className="w-3.5 h-3.5 text-[#4cd7f6]" /> : <ArrowDown className="w-3.5 h-3.5 text-[#4cd7f6]" />
+                      sortOrder === 'asc' ? <ArrowUp className="w-3.5 h-3.5 text-[#4cd7f6] flex-shrink-0" /> : <ArrowDown className="w-3.5 h-3.5 text-[#4cd7f6] flex-shrink-0" />
                     ) : (
-                      <ArrowUpDown className="w-3 h-3 text-[#8e909f]/40 group-hover:text-[#4cd7f6]/70 transition-opacity" />
+                      <ArrowUpDown className="w-3 h-3 text-[#8e909f]/40 group-hover:text-[#4cd7f6]/70 transition-opacity flex-shrink-0" />
                     )}
                   </div>
                 </th>
@@ -394,12 +407,15 @@ export function TaxLedgerView({
                   className="py-2.5 px-2 text-center whitespace-nowrap w-[110px] min-w-[110px] cursor-pointer hover:text-[#4cd7f6] select-none transition-colors group"
                   title="点击按审核状态排序"
                 >
-                  <div className="flex items-center justify-center gap-1">
-                    <span>审核状态</span>
+                  <div className="flex items-center justify-center gap-1.5">
+                    <div>
+                      <div className="text-[12px] text-[#8e909f] group-hover:text-[#4cd7f6]">审核状态</div>
+                      <div className="text-[10px] text-[#8e909f]/70 font-normal">入库/复核</div>
+                    </div>
                     {sortField === 'status' ? (
-                      sortOrder === 'asc' ? <ArrowUp className="w-3.5 h-3.5 text-[#4cd7f6]" /> : <ArrowDown className="w-3.5 h-3.5 text-[#4cd7f6]" />
+                      sortOrder === 'asc' ? <ArrowUp className="w-3.5 h-3.5 text-[#4cd7f6] flex-shrink-0" /> : <ArrowDown className="w-3.5 h-3.5 text-[#4cd7f6] flex-shrink-0" />
                     ) : (
-                      <ArrowUpDown className="w-3 h-3 text-[#8e909f]/40 group-hover:text-[#4cd7f6]/70 transition-opacity" />
+                      <ArrowUpDown className="w-3 h-3 text-[#8e909f]/40 group-hover:text-[#4cd7f6]/70 transition-opacity flex-shrink-0" />
                     )}
                   </div>
                 </th>
@@ -408,16 +424,22 @@ export function TaxLedgerView({
                   className="py-2.5 px-2 text-center whitespace-nowrap w-[100px] min-w-[100px] cursor-pointer hover:text-[#4cd7f6] select-none transition-colors group"
                   title="点击按四流合一合规性排序"
                 >
-                  <div className="flex items-center justify-center gap-1">
-                    <span>四流合一</span>
+                  <div className="flex items-center justify-center gap-1.5">
+                    <div>
+                      <div className="text-[12px] text-[#8e909f] group-hover:text-[#4cd7f6]">四流合一</div>
+                      <div className="text-[10px] text-[#8e909f]/70 font-normal">核验结果</div>
+                    </div>
                     {sortField === 'flow' ? (
-                      sortOrder === 'asc' ? <ArrowUp className="w-3.5 h-3.5 text-[#4cd7f6]" /> : <ArrowDown className="w-3.5 h-3.5 text-[#4cd7f6]" />
+                      sortOrder === 'asc' ? <ArrowUp className="w-3.5 h-3.5 text-[#4cd7f6] flex-shrink-0" /> : <ArrowDown className="w-3.5 h-3.5 text-[#4cd7f6] flex-shrink-0" />
                     ) : (
-                      <ArrowUpDown className="w-3 h-3 text-[#8e909f]/40 group-hover:text-[#4cd7f6]/70 transition-opacity" />
+                      <ArrowUpDown className="w-3 h-3 text-[#8e909f]/40 group-hover:text-[#4cd7f6]/70 transition-opacity flex-shrink-0" />
                     )}
                   </div>
                 </th>
-                <th className="py-2.5 px-3 text-right whitespace-nowrap w-[80px]">操作</th>
+                <th className="py-2.5 px-3 text-right whitespace-nowrap w-[80px]">
+                  <div>操作</div>
+                  <div className="text-[10px] text-[#8e909f]/70 font-normal">AI研判</div>
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-[#444653]/20">
