@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Task 08 small-batch legacy invoice migration runner.
 
-PLAN mode is read-only. APPLY mode requires the exact saved plan plus an exact
-formal database-name confirmation.  All writes run in one transaction.  No
-reader cutover occurs here.
+PLAN mode is read-only.  The planner classifies the complete unmapped legacy
+population first, then selects whole actions/clusters so a limit can never split
+an internal IN/OUT pair.  APPLY requires the exact saved plan and an exact
+database-name confirmation.  All writes run in one transaction.  No reader
+cutover occurs here.
 """
 from __future__ import annotations
 
@@ -29,6 +31,8 @@ from app.domain.invoice.legacy_migration import (  # noqa: E402
     MIGRATION_IDENTITY_VERSION,
     LegacyInvoiceSnapshot,
     PartyRef,
+    PilotAction,
+    PilotPlan,
     canonical_plan_payload,
     plan_digest,
     plan_pilot,
@@ -100,19 +104,21 @@ def _snapshot(mapping: dict[str, Any]) -> LegacyInvoiceSnapshot:
     )
 
 
+def _invoice_select_sql() -> str:
+    return """
+        SELECT id, project_id, invoice_no, period, entity_code, direction,
+               counterparty_code, category, net, vat, rate, deductible, note
+        FROM invoices
+    """
+
+
 def _fetch_rows_by_ids(conn, ids: Iterable[int]) -> list[LegacyInvoiceSnapshot]:
     ids = tuple(sorted({int(value) for value in ids}))
     if not ids:
         return []
-    stmt = text(
-        """
-        SELECT id, project_id, invoice_no, period, entity_code, direction,
-               counterparty_code, category, net, vat, rate, deductible, note
-        FROM invoices
-        WHERE id IN :ids
-        ORDER BY id
-        """
-    ).bindparams(bindparam("ids", expanding=True))
+    stmt = text(_invoice_select_sql() + " WHERE id IN :ids ORDER BY id").bindparams(
+        bindparam("ids", expanding=True)
+    )
     rows = [_snapshot(dict(row._mapping)) for row in conn.execute(stmt, {"ids": ids})]
     found = {row.id for row in rows}
     missing = sorted(set(ids) - found)
@@ -121,25 +127,23 @@ def _fetch_rows_by_ids(conn, ids: Iterable[int]) -> list[LegacyInvoiceSnapshot]:
     return rows
 
 
-def _select_unmapped_rows(conn, limit: int) -> list[LegacyInvoiceSnapshot]:
-    if limit < 1 or limit > 500:
-        raise RuntimeError("--limit must be between 1 and 500")
+def _fetch_all_unmapped_rows(conn) -> list[LegacyInvoiceSnapshot]:
     rows = conn.execute(
         text(
+            _invoice_select_sql()
+            + """
+            WHERE NOT EXISTS (
+                SELECT 1 FROM legacy_invoice_map m WHERE m.legacy_invoice_id=invoices.id
+            )
+            ORDER BY id
             """
-            SELECT i.id, i.project_id, i.invoice_no, i.period, i.entity_code,
-                   i.direction, i.counterparty_code, i.category, i.net, i.vat,
-                   i.rate, i.deductible, i.note
-            FROM invoices i
-            LEFT JOIN legacy_invoice_map m ON m.legacy_invoice_id=i.id
-            WHERE m.legacy_invoice_id IS NULL
-            ORDER BY i.id
-            LIMIT :limit
-            """
-        ),
-        {"limit": limit},
+        )
     )
     return [_snapshot(dict(row._mapping)) for row in rows]
+
+
+def _legacy_map_count(conn) -> int:
+    return int(conn.execute(text("SELECT count(*) FROM legacy_invoice_map")).scalar_one())
 
 
 def _register_alias(
@@ -172,13 +176,7 @@ def _party_lookup(conn) -> tuple[dict[str, PartyRef], list[str]]:
         _register_alias(aliases, ambiguous, party.code, party)
 
     for row in conn.execute(
-        text(
-            """
-            SELECT ie.party_id, ie.canonical_code
-            FROM internal_entities ie
-            WHERE ie.active
-            """
-        )
+        text("SELECT party_id, canonical_code FROM internal_entities WHERE active")
     ):
         party = parties.get(int(row.party_id))
         if party:
@@ -186,11 +184,8 @@ def _party_lookup(conn) -> tuple[dict[str, PartyRef], list[str]]:
 
     for row in conn.execute(
         text(
-            """
-            SELECT ep.party_id, ep.code
-            FROM external_parties ep
-            WHERE ep.active AND ep.party_id IS NOT NULL
-            """
+            "SELECT party_id, code FROM external_parties "
+            "WHERE active AND party_id IS NOT NULL"
         )
     ):
         party = parties.get(int(row.party_id))
@@ -198,13 +193,7 @@ def _party_lookup(conn) -> tuple[dict[str, PartyRef], list[str]]:
             _register_alias(aliases, ambiguous, row.code, party)
 
     for row in conn.execute(
-        text(
-            """
-            SELECT pi.party_id, pi.identifier_value
-            FROM party_identifiers pi
-            WHERE pi.active
-            """
-        )
+        text("SELECT party_id, identifier_value FROM party_identifiers WHERE active")
     ):
         party = parties.get(int(row.party_id))
         if party:
@@ -224,21 +213,111 @@ def _existing_map_ids(conn, ids: Iterable[int]) -> list[int]:
     return [int(row[0]) for row in conn.execute(stmt, {"ids": ids})]
 
 
-def _build_plan_wrapper(conn, rows: list[LegacyInvoiceSnapshot]) -> dict[str, Any]:
+def _subset_plan(full_plan: PilotPlan, requested_ids: set[int]) -> PilotPlan:
+    if not requested_ids:
+        raise RuntimeError("pilot selection is empty")
+    known = set(full_plan.selected_ids)
+    missing = sorted(requested_ids - known)
+    if missing:
+        raise RuntimeError(
+            f"requested ids are not currently-unmapped legacy invoices: {missing}"
+        )
+
+    selected_actions: list[PilotAction] = []
+    selected_ids: set[int] = set()
+    for action in full_plan.actions:
+        action_ids = set(action.legacy_ids)
+        overlap = action_ids & requested_ids
+        if overlap and overlap != action_ids:
+            raise RuntimeError(
+                "explicit selection would split a deterministic/ambiguous invoice cluster: "
+                f"requested={sorted(overlap)} full_cluster={sorted(action_ids)}"
+            )
+        if overlap:
+            selected_actions.append(action)
+            selected_ids.update(action_ids)
+    if selected_ids != requested_ids:
+        raise RuntimeError(
+            f"selection coverage mismatch: requested={sorted(requested_ids)} "
+            f"selected={sorted(selected_ids)}"
+        )
+    return PilotPlan(
+        selected_ids=tuple(sorted(selected_ids)),
+        actions=tuple(sorted(selected_actions, key=lambda item: item.legacy_ids)),
+    )
+
+
+def _limit_plan(full_plan: PilotPlan, limit: int) -> PilotPlan:
+    if limit < 1 or limit > 500:
+        raise RuntimeError("--limit must be between 1 and 500")
+    selected_actions: list[PilotAction] = []
+    selected_ids: set[int] = set()
+    for action in full_plan.actions:
+        if selected_actions and len(selected_ids) >= limit:
+            break
+        selected_actions.append(action)
+        selected_ids.update(action.legacy_ids)
+    if not selected_actions:
+        raise RuntimeError("no unmapped legacy invoice rows remain")
+    return PilotPlan(
+        selected_ids=tuple(sorted(selected_ids)),
+        actions=tuple(selected_actions),
+    )
+
+
+def _canonical_for_selection(
+    all_rows: list[LegacyInvoiceSnapshot],
+    lookup: dict[str, PartyRef],
+    *,
+    explicit_ids: set[int] | None = None,
+    limit: int | None = None,
+) -> tuple[PilotPlan, list[LegacyInvoiceSnapshot]]:
+    full_plan = plan_pilot(all_rows, lookup)
+    if explicit_ids is not None:
+        selected_plan = _subset_plan(full_plan, explicit_ids)
+    elif limit is not None:
+        selected_plan = _limit_plan(full_plan, limit)
+    else:
+        raise RuntimeError("selection mode missing")
+    selected_set = set(selected_plan.selected_ids)
+    selected_rows = [row for row in all_rows if row.id in selected_set]
+    return selected_plan, selected_rows
+
+
+def _build_plan_wrapper(
+    conn,
+    all_rows: list[LegacyInvoiceSnapshot],
+    *,
+    explicit_ids: set[int] | None = None,
+    limit: int | None = None,
+) -> dict[str, Any]:
     lookup, ambiguous_aliases = _party_lookup(conn)
-    plan = plan_pilot(rows, lookup)
-    canonical = canonical_plan_payload(plan, rows)
-    digest = plan_digest(canonical)
+    selected_plan, selected_rows = _canonical_for_selection(
+        all_rows,
+        lookup,
+        explicit_ids=explicit_ids,
+        limit=limit,
+    )
+    canonical = canonical_plan_payload(selected_plan, selected_rows)
     return {
         "kind": PLAN_KIND,
         "version": 1,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "database": _current_database(conn),
         "alembic_head": EXPECTED_HEAD,
-        "plan_digest": digest,
+        "plan_digest": plan_digest(canonical),
         "ambiguous_party_aliases": ambiguous_aliases,
         "plan": canonical,
     }
+
+
+def _rebuild_saved_selection(conn, wrapper: dict[str, Any]) -> dict[str, Any]:
+    plan = wrapper.get("plan")
+    if not isinstance(plan, dict):
+        raise RuntimeError("plan payload missing")
+    requested_ids = {int(value) for value in plan.get("selected_ids", [])}
+    all_rows = _fetch_all_unmapped_rows(conn)
+    return _build_plan_wrapper(conn, all_rows, explicit_ids=requested_ids)
 
 
 def _read_json(path: str) -> dict[str, Any]:
@@ -309,34 +388,41 @@ def _apply_plan(conn, wrapper: dict[str, Any]) -> dict[str, Any]:
     if not selected_ids:
         raise RuntimeError("pilot plan contains no selected ids")
 
-    existing = _existing_map_ids(conn, selected_ids)
-    if existing:
+    # Task 08 is intentionally a single small pilot.  Refuse incremental runs
+    # because a later row could be the missing perspective of an already-mapped
+    # singleton and would require a separate reviewed reconciliation workflow.
+    existing_total = _legacy_map_count(conn)
+    if existing_total:
         raise RuntimeError(
-            f"refusing apply: selected legacy invoices already mapped: {existing}"
+            f"refusing Task 08 pilot: legacy_invoice_map already contains {existing_total} rows; "
+            "do not run a second pilot batch without a reviewed reconciliation step"
         )
 
-    bridged = conn.execute(
-        text(
-            "SELECT invoice_id, invoice_fact_id FROM real_cost_invoice_links "
-            "WHERE invoice_id = ANY(:ids) AND invoice_fact_id IS NOT NULL"
-        ),
-        {"ids": selected_ids},
-    ).all()
+    existing = _existing_map_ids(conn, selected_ids)
+    if existing:
+        raise RuntimeError(f"selected legacy invoices already mapped: {existing}")
+
+    bridge_stmt = text(
+        "SELECT invoice_id, invoice_fact_id FROM real_cost_invoice_links "
+        "WHERE invoice_id IN :ids AND invoice_fact_id IS NOT NULL"
+    ).bindparams(bindparam("ids", expanding=True))
+    bridged = conn.execute(bridge_stmt, {"ids": selected_ids}).all()
     if bridged:
         raise RuntimeError(
-            "refusing apply: selected legacy invoices already have real-cost Fact bridges: "
+            "selected legacy invoices already have real-cost Fact bridges: "
             + repr([(int(row[0]), int(row[1])) for row in bridged])
         )
 
-    rows = _fetch_rows_by_ids(conn, selected_ids)
-    current_wrapper = _build_plan_wrapper(conn, rows)
+    current_wrapper = _rebuild_saved_selection(conn, wrapper)
     if current_wrapper["plan_digest"] != wrapper.get("plan_digest"):
         raise RuntimeError(
-            "pilot plan is stale: source rows/Party resolution/classification changed; regenerate plan"
+            "pilot plan is stale: source rows/Party resolution/group membership changed; "
+            "regenerate the plan"
         )
     if current_wrapper["plan"] != plan:
         raise RuntimeError("pilot plan canonical payload mismatch")
 
+    rows = _fetch_rows_by_ids(conn, selected_ids)
     rows_by_id = {row.id: row for row in rows}
     session = Session(bind=conn, expire_on_commit=False)
     applied_actions: list[dict[str, Any]] = []
@@ -421,7 +507,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     selection = parser.add_mutually_exclusive_group()
     selection.add_argument("--ids", help="comma-separated explicit legacy invoice ids")
-    selection.add_argument("--limit", type=int, help="oldest currently-unmapped rows, max 500")
+    selection.add_argument("--limit", type=int, help="approximate row limit; whole clusters are kept")
     parser.add_argument("--plan", help="saved PLAN JSON; required for --apply")
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--confirm-database")
@@ -438,19 +524,25 @@ def main() -> int:
             conn.exec_driver_sql("BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
             try:
                 _require_expected_head(conn)
+                if _legacy_map_count(conn):
+                    raise RuntimeError(
+                        "Task 08 pilot expects legacy_invoice_map to be empty; "
+                        "a prior pilot/migration already exists"
+                    )
+                all_rows = _fetch_all_unmapped_rows(conn)
+                if not all_rows:
+                    raise RuntimeError("no unmapped legacy invoice rows remain")
                 if args.ids:
-                    ids = [int(value.strip()) for value in args.ids.split(",") if value.strip()]
-                    if not ids:
-                        raise RuntimeError("--ids did not contain any ids")
-                    existing = _existing_map_ids(conn, ids)
-                    if existing:
-                        raise RuntimeError(f"selected legacy invoices already mapped: {existing}")
-                    rows = _fetch_rows_by_ids(conn, ids)
+                    explicit_ids = {
+                        int(value.strip()) for value in args.ids.split(",") if value.strip()
+                    }
+                    payload = _build_plan_wrapper(
+                        conn, all_rows, explicit_ids=explicit_ids
+                    )
                 else:
-                    rows = _select_unmapped_rows(conn, int(args.limit))
-                if not rows:
-                    raise RuntimeError("no unmapped legacy invoice rows selected")
-                payload = _build_plan_wrapper(conn, rows)
+                    payload = _build_plan_wrapper(
+                        conn, all_rows, limit=int(args.limit)
+                    )
             finally:
                 conn.rollback()
         engine.dispose()
