@@ -82,6 +82,15 @@ def _ensure_version_column_capacity(connection) -> None:
         )
 
 
+def _assert_clean_transaction_boundary(connection, *, stage: str) -> None:
+    """Fail closed if a transaction leaks across Alembic ownership boundaries."""
+    if connection.in_transaction():
+        raise RuntimeError(
+            f"Alembic transaction boundary is dirty at {stage}; "
+            "an unexpected SQLAlchemy transaction is still active"
+        )
+
+
 def run_migrations_offline() -> None:
     context.configure(
         url=url,
@@ -109,6 +118,10 @@ def run_migrations_online() -> None:
         with connection.begin():
             _ensure_version_column_capacity(connection)
 
+        _assert_clean_transaction_boundary(
+            connection,
+            stage="after version-table bootstrap / before Alembic migration",
+        )
         context.configure(
             connection=connection,
             target_metadata=target_metadata,
@@ -117,7 +130,14 @@ def run_migrations_online() -> None:
             compare_type=True,
         )
         with context.begin_transaction():
+            # Deliberately do not catch exceptions here. The migration
+            # transaction must roll back and the original failure must escape.
             context.run_migrations()
+
+        _assert_clean_transaction_boundary(
+            connection,
+            stage="after Alembic migration",
+        )
 
 
 if context.is_offline_mode():
