@@ -53,7 +53,14 @@ VERSION_COLUMN_LENGTH = 64
 
 
 def _ensure_version_column_capacity(connection) -> None:
-    """Widen only an existing undersized Alembic version column."""
+    """Widen only an existing undersized Alembic version column.
+
+    This helper deliberately does not commit. SQLAlchemy 2.0 autobegins a
+    transaction for the metadata probe itself, so transaction ownership belongs
+    to the caller. Leaving that implicit transaction open before Alembic starts
+    its migration transaction can make DDL appear to run and then roll back when
+    the connection closes.
+    """
     length = connection.execute(
         text(
             """
@@ -73,7 +80,6 @@ def _ensure_version_column_capacity(connection) -> None:
                 "ALTER COLUMN version_num TYPE VARCHAR(64)"
             )
         )
-        connection.commit()
 
 
 def run_migrations_offline() -> None:
@@ -97,7 +103,12 @@ def run_migrations_online() -> None:
         poolclass=pool.NullPool,
     )
     with connectable.connect() as connection:
-        _ensure_version_column_capacity(connection)
+        # Keep the technical version-table probe/resize in its own explicit
+        # transaction. This closes SQLAlchemy 2.0's autobegin transaction
+        # before Alembic takes ownership of the migration transaction.
+        with connection.begin():
+            _ensure_version_column_capacity(connection)
+
         context.configure(
             connection=connection,
             target_metadata=target_metadata,
