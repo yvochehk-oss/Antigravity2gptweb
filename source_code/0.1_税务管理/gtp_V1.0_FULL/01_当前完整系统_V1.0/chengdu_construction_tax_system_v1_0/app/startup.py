@@ -33,7 +33,7 @@ from .structured_logging import (
 logger = get_logger("app.startup")
 
 _HEALTH_TIMEOUT_SECONDS = min(
-    max(float(os.getenv("HEALTH_CHECK_TIMEOUT_SECONDS", "3.0")), 0.1),
+    max(float(os.getenv("HEALTH_CHECK_TIMEOUT_SECONDS", "1.5")), 0.1),
     10.0,
 )
 
@@ -42,12 +42,12 @@ def _ai_health_deadline_seconds() -> float:
     """Return a bounded total budget for one synchronous AI health pass."""
     raw = os.getenv(
         "AI_HEALTH_ENDPOINT_DEADLINE_SECONDS",
-        str(max(_HEALTH_TIMEOUT_SECONDS * 2, 6.0)),
+        str(max(_HEALTH_TIMEOUT_SECONDS * 2, 3.0)),
     )
     try:
         configured = float(raw)
     except (TypeError, ValueError):
-        configured = 6.0
+        configured = 3.0
     return min(max(configured, 0.1), 15.0)
 
 
@@ -257,9 +257,9 @@ def _check_ai() -> dict[str, object]:
         }
     latency_ms = int((time.monotonic() - started) * 1000)
     statuses = {str(endpoint.get("status") or "") for endpoint in endpoints}
-    if statuses == {"ok"}:
+    if "ok" in statuses:
         overall = "ok"
-    elif "ok" in statuses:
+    elif "degraded" in statuses:
         overall = "degraded"
     else:
         overall = "down"

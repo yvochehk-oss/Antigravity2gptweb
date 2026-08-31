@@ -33,28 +33,37 @@ except ValueError as exc:
     ) from exc
 
 # Database
-DB_URL_RAW = os.getenv("PROJECT_RAG_DB_URL", "").strip()
-if not DB_URL_RAW:
-    raise RuntimeError("PROJECT_RAG_DB_URL is required; ProjectRAG is PostgreSQL-only")
+DB_URL = (os.getenv("PROJECT_RAG_DB_URL", "").strip() or os.getenv("DATABASE_URL", "").strip())
+if not DB_URL:
+    raise RuntimeError("PROJECT_RAG_DB_URL or DATABASE_URL is required; ProjectRAG is PostgreSQL-only")
 from sqlalchemy.engine import make_url
-_backend = make_url(DB_URL_RAW).get_backend_name()
+_backend = make_url(DB_URL).get_backend_name()
 if _backend not in {"postgresql", "postgres"}:
     raise RuntimeError(f"ProjectRAG is PostgreSQL-only; unsupported database backend: {_backend}")
-if DB_URL_RAW.startswith("postgresql://"):
-    DB_URL = "postgresql+psycopg://" + DB_URL_RAW[len("postgresql://"):]
-elif DB_URL_RAW.startswith("postgres://"):
-    DB_URL = "postgresql+psycopg://" + DB_URL_RAW[len("postgres://"):]
-else:
-    DB_URL = DB_URL_RAW
 IS_POSTGRES = True
 
 # Server
 HOST = os.getenv("PROJECT_RAG_HOST", "127.0.0.1")
 PORT = int(os.getenv("PROJECT_RAG_PORT", "8922"))
 
+# MinerU settings
+LOCAL_MINERU_BIN = BASE_DIR / ".mineru-venv" / "bin" / "mineru"
+MINERU_BIN = os.getenv(
+    "MINERU_BIN",
+    str(LOCAL_MINERU_BIN) if LOCAL_MINERU_BIN.exists() else "mineru"
+)
+MINERU_BACKEND = os.getenv("MINERU_BACKEND", "").strip()
+MINERU_API_URL = os.getenv("MINERU_API_URL", "").strip()
+
 # Embedding settings
+_default_embedding_path = V2_ROOT / "models" / "bge-m3"
+_default_reranker_path = V2_ROOT / "models" / "bge-reranker-v2-m3"
+
 EMBEDDING_BACKEND = os.getenv("PROJECT_RAG_EMBEDDING_BACKEND", "bge_m3").strip()
-EMBEDDING_MODEL = os.getenv("PROJECT_RAG_EMBEDDING_MODEL", "BAAI/bge-m3")
+EMBEDDING_MODEL = os.getenv(
+    "PROJECT_RAG_EMBEDDING_MODEL",
+    str(_default_embedding_path) if _default_embedding_path.exists() else "BAAI/bge-m3",
+)
 EMBEDDING_DIM = int(os.getenv("PROJECT_RAG_EMBEDDING_DIM", "1024"))
 if EMBEDDING_DIM != 1024:
     raise RuntimeError("PROJECT_RAG_EMBEDDING_DIM must be 1024; dimension changes require an explicit migration")
@@ -71,7 +80,7 @@ RERANKER_BACKEND = (
     else "off"
 )
 RERANKER_MODEL = (
-    os.getenv("PROJECT_RAG_RERANKER_MODEL", "BAAI/bge-reranker-v2-m3")
+    os.getenv("PROJECT_RAG_RERANKER_MODEL", str(_default_reranker_path) if _default_reranker_path.exists() else "BAAI/bge-reranker-v2-m3")
     if RERANKER_ENABLED
     else ""
 )
