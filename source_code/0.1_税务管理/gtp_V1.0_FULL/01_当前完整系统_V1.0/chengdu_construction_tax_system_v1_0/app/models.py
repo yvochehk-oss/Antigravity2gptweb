@@ -845,6 +845,12 @@ class User(Base):
     )
 
 
+from .v3_entity_tax_models import (
+    EntityTaxManagementInput,
+    EntityTaxLedger,
+    EntityTaxLedgerComponent,
+)
+
 __all__ = [
     "Entity", "ExternalParty", "Project", "Contract", "Invoice", "CashFlow",
     "Fulfillment", "RealCost", "Progress", "Budget", "CostAccount",
@@ -856,4 +862,8 @@ __all__ = [
     "FactsSnapshot", "FactsRequestLog",
     "PlanningScenario", "PlanningAllocation",
     "User",
+    "EntityTaxManagementInput",
+    "EntityTaxLedger",
+    "EntityTaxLedgerComponent",
 ]
+

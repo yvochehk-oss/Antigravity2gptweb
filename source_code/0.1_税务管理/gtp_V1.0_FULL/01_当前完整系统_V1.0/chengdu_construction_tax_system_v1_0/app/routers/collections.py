@@ -643,6 +643,10 @@ def _build_entity_tax_ledger_envelope(
     )
 
 
+_build_v3_entity_tax_ledger_envelope = _build_entity_tax_ledger_envelope
+
+
+
 @router.get(
     "/api/tax-ledger",
     response_model=CollectionEnvelope,
