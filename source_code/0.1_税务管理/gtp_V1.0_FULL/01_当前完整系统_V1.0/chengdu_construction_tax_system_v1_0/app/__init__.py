@@ -14,6 +14,7 @@ from . import v3_project_tax_models as v3_project_tax_models  # noqa: F401
 from . import v3_period_models as v3_period_models  # noqa: F401
 from . import v3_vat_ledger_models as v3_vat_ledger_models  # noqa: F401
 from . import v3_vat_review_models as v3_vat_review_models  # noqa: F401
+from . import v3_project_analysis_models as v3_project_analysis_models  # noqa: F401
 
 __all__ = [
     "models",
@@ -26,4 +27,5 @@ __all__ = [
     "v3_period_models",
     "v3_vat_ledger_models",
     "v3_vat_review_models",
+    "v3_project_analysis_models",
 ]
