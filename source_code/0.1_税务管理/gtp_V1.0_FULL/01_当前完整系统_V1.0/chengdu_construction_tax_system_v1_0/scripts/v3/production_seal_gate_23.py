@@ -78,7 +78,7 @@ def main() -> int:
             if not evidence["premature_seal_rejected"]: failures.append("unresolved production diff did not block production seal")
             session.execute(text("UPDATE shadow_write_diffs SET review_status='RESOLVED',resolved_by='gate:S23',resolved_at=CURRENT_TIMESTAMP WHERE operation_key='S23:PROD:BLOCKER'"))
             session.execute(text("UPDATE review_diff_queue SET status='RESOLVED',reviewed_by='gate:S23',reviewed_at=CURRENT_TIMESTAMP WHERE shadow_diff_id=(SELECT id FROM shadow_write_diffs WHERE operation_key='S23:PROD:BLOCKER')"))
-
+            session.expire_all()
             seal=finalize_v3_production_cutover(session,actor="gate:S23",commit=False)
             session.expire(seal)
             evidence["seal"]={"scope":seal.scope,"finalized_by":seal.finalized_by,"state_snapshot":seal.state_snapshot,"evidence_snapshot":seal.evidence_snapshot}
