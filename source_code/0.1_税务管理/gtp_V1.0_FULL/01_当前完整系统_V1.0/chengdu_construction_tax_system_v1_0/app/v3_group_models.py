@@ -1,0 +1,93 @@
+"""Task18 canonical group-penetration ORM projections.
+
+The three analytical bases remain separate. ACCRUAL eliminates internal operating
+edges, TAX preserves every legal-entity VAT ledger, and CASH stays unavailable
+until canonical PaymentFact exists in Task19.
+"""
+from __future__ import annotations
+
+from datetime import date, datetime
+from decimal import Decimal
+
+from sqlalchemy import Boolean, CheckConstraint, Date, DateTime, ForeignKey, Index, Integer, Numeric, String, Text, UniqueConstraint, text
+from sqlalchemy.orm import Mapped, mapped_column
+
+from .db import Base
+
+
+class GroupPenetrationResult(Base):
+    __tablename__ = "group_penetration_results"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    calculation_run_id: Mapped[int] = mapped_column(Integer, ForeignKey("calculation_runs.id", ondelete="RESTRICT"), nullable=False, unique=True)
+    anchor_party_id: Mapped[int] = mapped_column(Integer, ForeignKey("internal_entities.party_id", ondelete="RESTRICT"), nullable=False)
+    analysis_period: Mapped[date] = mapped_column(Date, nullable=False)
+    basis: Mapped[str] = mapped_column(String(12), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, server_default=text("'READY'"))
+    external_revenue: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
+    external_leaf_cost: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
+    internal_eliminated: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
+    group_gross_margin: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
+    tax_output_vat: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
+    tax_input_vat: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
+    tax_prepayment: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
+    tax_payable_after_prepayment: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
+    cash_inflow: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
+    cash_outflow: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
+    net_cash: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
+    cycle_detected: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    max_depth: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+    input_snapshot_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    result_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=text("CURRENT_TIMESTAMP"))
+
+    __table_args__ = (
+        CheckConstraint("EXTRACT(DAY FROM analysis_period)=1", name="ck_group_penetration_period_month_start"),
+        CheckConstraint("basis IN ('ACCRUAL','TAX','CASH')", name="ck_group_penetration_basis"),
+        CheckConstraint("status IN ('READY','NOT_READY','CYCLE_DETECTED')", name="ck_group_penetration_status"),
+        CheckConstraint("max_depth >= 0", name="ck_group_penetration_depth_nonnegative"),
+        CheckConstraint("length(input_snapshot_sha256)=64 AND length(result_sha256)=64", name="ck_group_penetration_hash_lengths"),
+        CheckConstraint("""
+            (basis='ACCRUAL' AND external_revenue IS NOT NULL AND external_leaf_cost IS NOT NULL
+             AND internal_eliminated IS NOT NULL AND group_gross_margin IS NOT NULL
+             AND tax_output_vat IS NULL AND tax_input_vat IS NULL AND tax_prepayment IS NULL
+             AND tax_payable_after_prepayment IS NULL AND cash_inflow IS NULL AND cash_outflow IS NULL AND net_cash IS NULL)
+            OR
+            (basis='TAX' AND external_revenue IS NULL AND external_leaf_cost IS NULL
+             AND internal_eliminated IS NULL AND group_gross_margin IS NULL
+             AND tax_output_vat IS NOT NULL AND tax_input_vat IS NOT NULL AND tax_prepayment IS NOT NULL
+             AND tax_payable_after_prepayment IS NOT NULL AND cash_inflow IS NULL AND cash_outflow IS NULL AND net_cash IS NULL)
+            OR
+            (basis='CASH' AND external_revenue IS NULL AND external_leaf_cost IS NULL
+             AND internal_eliminated IS NULL AND group_gross_margin IS NULL
+             AND tax_output_vat IS NULL AND tax_input_vat IS NULL AND tax_prepayment IS NULL
+             AND tax_payable_after_prepayment IS NULL AND cash_inflow IS NOT NULL AND cash_outflow IS NOT NULL AND net_cash IS NOT NULL)
+            """, name="ck_group_penetration_basis_fields"),
+        CheckConstraint("basis <> 'ACCRUAL' OR group_gross_margin = external_revenue - external_leaf_cost", name="ck_group_penetration_accrual_formula"),
+        CheckConstraint("basis <> 'CASH' OR net_cash = cash_inflow - cash_outflow", name="ck_group_penetration_cash_formula"),
+        CheckConstraint("status <> 'READY' OR cycle_detected IS FALSE", name="ck_group_penetration_ready_no_cycle"),
+        Index("ix_group_penetration_scope", "anchor_party_id", "analysis_period", "basis"),
+    )
+
+
+class GroupPenetrationComponent(Base):
+    __tablename__ = "group_penetration_components"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    result_id: Mapped[int] = mapped_column(Integer, ForeignKey("group_penetration_results.id", ondelete="CASCADE"), nullable=False)
+    component_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    amount: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
+    fulfillment_fact_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("fulfillment_facts.fact_id", ondelete="RESTRICT"), nullable=True)
+    entity_vat_ledger_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("entity_vat_ledgers.id", ondelete="RESTRICT"), nullable=True)
+    depth: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+    path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=text("CURRENT_TIMESTAMP"))
+
+    __table_args__ = (
+        CheckConstraint("component_type IN ('EXTERNAL_REVENUE','EXTERNAL_LEAF_COST','INTERNAL_ELIMINATION','ENTITY_VAT_LEDGER')", name="ck_group_penetration_components_type"),
+        CheckConstraint("depth >= 0", name="ck_group_penetration_components_depth"),
+        CheckConstraint("(component_type IN ('EXTERNAL_REVENUE','EXTERNAL_LEAF_COST','INTERNAL_ELIMINATION') AND fulfillment_fact_id IS NOT NULL AND entity_vat_ledger_id IS NULL) OR (component_type='ENTITY_VAT_LEDGER' AND fulfillment_fact_id IS NULL AND entity_vat_ledger_id IS NOT NULL)", name="ck_group_penetration_components_typed_source"),
+        UniqueConstraint("result_id", "component_type", "fulfillment_fact_id", name="uq_group_penetration_component_fulfillment"),
+        UniqueConstraint("result_id", "entity_vat_ledger_id", name="uq_group_penetration_component_vat_ledger"),
+        Index("ix_group_penetration_components_result", "result_id"),
+    )
