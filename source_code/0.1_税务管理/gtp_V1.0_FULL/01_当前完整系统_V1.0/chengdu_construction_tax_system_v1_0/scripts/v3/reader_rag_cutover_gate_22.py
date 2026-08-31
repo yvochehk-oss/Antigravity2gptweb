@@ -70,18 +70,20 @@ def main() -> int:
             else: evidence["premature_cutover_rejected"] = "not_applicable_already_primary"
             session.execute(text("UPDATE writer_cutover_states SET writer_mode='DUAL_WRITE', legacy_write_enabled=true, new_fact_write_enabled=true, updated_by='gate:S22' WHERE scope='GLOBAL' AND writer_mode='SHADOW'"))
             session.execute(text("UPDATE writer_cutover_states SET writer_mode='V3_PRIMARY', legacy_write_enabled=false, new_fact_write_enabled=true, legacy_frozen=true, updated_by='gate:S22' WHERE scope='GLOBAL' AND writer_mode='DUAL_WRITE'"))
-            session.execute(text("""INSERT INTO shadow_write_diffs(operation_key, object_type, operation, legacy_payload, canonical_payload, normalized_diff, result, review_status, simulation_fixture) VALUES ('S22:PROD:BLOCKER','GENERIC','UPDATE','{}'::jsonb,'{}'::jsonb,'{"x":{"legacy":1,"canonical":2}}'::jsonb,'MISMATCH','OPEN',false) ON CONFLICT (operation_key) DO UPDATE SET review_status='OPEN', simulation_fixture=false, resolved_by=NULL, resolved_at=NULL"""))
+            session.connection().exec_driver_sql("INSERT INTO shadow_write_diffs(operation_key, object_type, operation, legacy_payload, canonical_payload, normalized_diff, result, review_status, simulation_fixture) VALUES ('S22:PROD:BLOCKER','GENERIC','UPDATE','{}'::jsonb,'{}'::jsonb,'{\"x\":{\"legacy\":1,\"canonical\":2}}'::jsonb,'MISMATCH','OPEN',false) ON CONFLICT (operation_key) DO UPDATE SET review_status='OPEN', simulation_fixture=false, resolved_by=NULL, resolved_at=NULL")
             evidence["unresolved_diff_blocks_forward"] = _expected_failure(session, "UPDATE writer_cutover_states SET new_fact_read_mode='PRIMARY', rag_source='CANONICAL_FACTS' WHERE scope='GLOBAL'")
             if not evidence["unresolved_diff_blocks_forward"]: failures.append("unresolved production diff did not block Reader/RAG cutover")
             session.execute(text("UPDATE shadow_write_diffs SET review_status='RESOLVED', resolved_by='gate:S22', resolved_at=CURRENT_TIMESTAMP WHERE operation_key='S22:PROD:BLOCKER'"))
             session.execute(text("UPDATE review_diff_queue SET status='RESOLVED', reviewed_by='gate:S22', reviewed_at=CURRENT_TIMESTAMP WHERE shadow_diff_id=(SELECT id FROM shadow_write_diffs WHERE operation_key='S22:PROD:BLOCKER')"))
             session.execute(text("UPDATE writer_cutover_states SET new_fact_read_mode='PRIMARY', rag_source='CANONICAL_FACTS', updated_by='gate:S22' WHERE scope='GLOBAL'"))
+            session.expire_all()
             route = get_reader_route(session)
             evidence["formal_cutover_route"] = {"new_fact_read_mode": route.mode, "rag_source": route.rag_source}
             if evidence["formal_cutover_route"] != {"new_fact_read_mode":"PRIMARY","rag_source":"CANONICAL_FACTS"}: failures.append("formal cutover route incorrect")
             evidence["split_state_rejected"] = _expected_failure(session, "UPDATE writer_cutover_states SET rag_source='LEGACY' WHERE scope='GLOBAL'")
             if not evidence["split_state_rejected"]: failures.append("Reader/RAG split state was accepted")
             session.execute(text("UPDATE writer_cutover_states SET new_fact_read_mode='SHADOW', rag_source='LEGACY', updated_by='gate:S22' WHERE scope='GLOBAL'"))
+            session.expire_all()
             rolled = get_cutover_state(session)
             evidence["rollback_state"] = {k: getattr(rolled,k) for k in ("writer_mode","legacy_write_enabled","new_fact_write_enabled","legacy_frozen","new_fact_read_mode","rag_source")}
             expected_rollback={"writer_mode":"V3_PRIMARY","legacy_write_enabled":False,"new_fact_write_enabled":True,"legacy_frozen":True,"new_fact_read_mode":"SHADOW","rag_source":"LEGACY"}
