@@ -117,14 +117,3 @@
 {% if not rows %}<p class="muted">暂无可管理的模型端点，请新增外部模型或本地 llama.cpp 端点。</p>{% endif %}
 </div>
 {% endblock %}
-
-/* ===========================================================
-   保持 Windows ClearType 亚像素渲染（系统字体方案下无需 swap）
-   -webkit-font-smoothing: auto  -> Windows 使用 ClearType
-                                -> macOS  使用视网膜灰度平滑
-   =========================================================== */
-*, *::before, *::after, html, body, .antialiased {
-  -webkit-font-smoothing: auto !important;
-  -moz-osx-font-smoothing: auto !important;
-  text-rendering: auto !important;
-}
