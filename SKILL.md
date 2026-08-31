@@ -1,9 +1,9 @@
 ---
 name: safari-chatgpt-reasoner
-description: 双层混合 Agent 系统：以 Safari ChatGPT 网页端为云端认知控制面（High Intelligence / Zero Privilege），以本地 Agent 为确定性数据面（High Privilege / Low Ambiguity）。v4.1 起强制执行 Tab 精确绑定 + 跨进程事务锁 + 精确 user-message identity + assistant message-id 稳定阶段，证据完整性真正可机验。
+description: 双层混合 Agent 系统：以 Safari/Chrome ChatGPT 网页端为云端认知控制面（High Intelligence / Zero Privilege），以本地 Agent 为确定性数据面（High Privilege / Low Ambiguity）。v4.1 起强制执行 Tab 精确绑定 + 跨进程事务锁 + 精确 user-message identity + assistant message-id 稳定阶段，证据完整性真正可机验。浏览器通道可选 Safari（AppleScript）或 Chrome（CDP）；所有 P0/P1/P2 契约完全等价。
 ---
 
-# Safari ChatGPT Reasoner Skill (v4.1 Evidence-Integrity)
+# Safari / Chrome ChatGPT Reasoner Skill (v4.1 Evidence-Integrity)
 
 ### 架构原则与契约 (Architecture Contracts)
 1. **三权分立与单向依赖**：
@@ -24,7 +24,7 @@ description: 双层混合 Agent 系统：以 Safari ChatGPT 网页端为云端�
    - `0`: 正常完成，证据完整
    - `2`: 超时（拿到部分内容，`TIMEOUT_PARTIAL`）
    - `3`: 超时（无内容，`TIMEOUT_EMPTY`）
-   - `4`: Safari / AppleScript / JS 执行异常 (`SAFARI_FAIL`)
+   - `4`: 浏览器 / JS 执行异常 (`BROWSER_FAIL`，Safari AppleScript 和 Chrome CDP 共用)
    - `5`: 基线采集失败 (`BASELINE_FAIL`)
    - `6`: 用户消息未真正提交 (`SUBMIT_FAIL`)
    - `7`: 助手新回合未产生 (`NO_NEW_TURN`)
@@ -45,6 +45,10 @@ description: 双层混合 Agent 系统：以 Safari ChatGPT 网页端为云端�
    - `reset_circuit_breaker` 自身持锁，并可通过 `--reset-circuit` 显式调用。
 
 ### 标准调用模式
+
+> **浏览器选择**：macOS 优先 Safari（AppleScript，无需额外启动）；Linux / Windows 或需要 DevTools 集成时用 Chrome（需 `--remote-debugging-port`）。
+
+#### Safari 版（AppleScript，无需额外设置）
 
 ```bash
 # 1. 精确指定 Tab 执行架构规划
@@ -75,11 +79,70 @@ python3 ~/.gemini/config/skills/safari-chatgpt-reasoner/scripts/safari_chatgpt.p
   --reset-circuit
 ```
 
+#### Chrome 版（CDP，需启动 Chrome with `--remote-debugging-port`）
+
+前置条件：启动 Chrome 并打开目标 ChatGPT Tab 后，执行：
+
+```bash
+# 方式 A：手动指定端口（默认 9222）
+/Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome \
+  --remote-debugging-port=9222 \
+  --remote-allow-origins=* \
+  https://chatgpt.com/c/<conversation-uuid>
+
+# 方式 B：命令行启动 Chrome（推荐脚本化）
+open -a "Google Chrome" --args \
+  --remote-debugging-port=9222 \
+  --remote-allow-origins=*
+# 然后手动导航到目标 ChatGPT 会话页
+```
+
+Chrome bridge 调用：
+
+```bash
+# 1. 精确指定 Tab 执行架构规划（默认 localhost:9222）
+python3 ~/.gemini/config/skills/safari-chatgpt-reasoner/scripts/chrome_chatgpt.py \
+  --target-url "https://chatgpt.com/c/6a93f844-99f8-83ea-b4fd-8b544659e4a0" \
+  --type plan \
+  --prompt "任务目标描述"
+
+# 2. 指定非默认端口 / host
+python3 ~/.gemini/config/skills/safari-chatgpt-reasoner/scripts/chrome_chatgpt.py \
+  --chrome-host 127.0.0.1 \
+  --chrome-port 9222 \
+  --target-url "https://chatgpt.com/c/6a93f844-99f8-83ea-b4fd-8b544659e4a0" \
+  --type feedback \
+  --prompt "正在执行模块 A 重构" \
+  --evidence-file /tmp/pytest_fail.log \
+  --level L1 \
+  --signature "ALEMBIC_MIGRATION_DUPLICATE_KEY_ERR"
+
+# 3. 大体量证据走文件
+python3 ~/.gemini/config/skills/safari-chatgpt-reasoner/scripts/chrome_chatgpt.py \
+  --target-url "https://chatgpt.com/c/6a93f844-99f8-83ea-b4fd-8b544659e4a0" \
+  --type feedback \
+  --prompt "需要审计的执行日志" \
+  --evidence-file /var/log/agent_run/large.log \
+  --level L2
+
+# 4. 仅清空 Chrome 熔断器（独立状态文件，不与 Safari 共享）
+python3 ~/.gemini/config/skills/safari-chatgpt-reasoner/scripts/chrome_chatgpt.py \
+  --reset-circuit
+```
+
+> **注意**：Safari 与 Chrome 熔断器使用**独立**的状态文件（`/tmp/safari_chatgpt_circuit_breaker.json` vs `/tmp/chrome_chatgpt_circuit_breaker.json`），互不影响。
+
 ### 下游消费规范
 
-**重定向 answer 到文件**（推荐）：
+**重定向 answer 到文件**（推荐，Safari 与 Chrome 共用）：
+
 ```bash
+# Safari
 python3 .../safari_chatgpt.py --target-url "..." --prompt "..." >answer.txt 2>events.jsonl
+
+# Chrome
+python3 .../chrome_chatgpt.py --target-url "..." --prompt "..." >answer.txt 2>events.jsonl
+
 ec=$?
 case $ec in
   0)   cat answer.txt ;;          # OK
@@ -100,7 +163,7 @@ esac
 
 ### 新会话流程
 
-v4.1 **删除** `--new` 参数。新会话的开启由 Execution Plane 在调用前完成：
+v4.1 **删除** `--new` 参数。新会话的开启由 Execution Plane 在调用前完成（Safari 和 Chrome 通用）：
 
 1. Execution Plane 打开目标 ChatGPT 会话页（或调用任何外部手段拿到最终 `/c/<uuid>`）。
 2. 把最终 URL 通过 `--target-url` 传入本桥。
