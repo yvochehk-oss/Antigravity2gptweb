@@ -1,6 +1,24 @@
-/* 本地加载 HarmonyOS Sans SC */
+/**
+ * ============================================================================
+ * 成都建工 V3.0 - 锐宝资料管理与 RAG 知识中枢 全局样式 (style.css)
+ * 
+ * 【字体规范与跨平台渲染说明】
+ * 1. 本地 WebFont 方案：
+ *    - 采用开源商用 HarmonyOS Sans SC (鸿蒙字体)，完全本地静态引入 (/static/fonts/)，0 外网 CDN 依赖。
+ * 2. Windows / macOS 跨平台清晰度保障：
+ *    - 严格禁止在 Windows 环境下强开 `-webkit-font-smoothing: antialiased` 或 `grayscale`；
+ *    - 保持 `-webkit-font-smoothing: auto`，使 Windows 原生 ClearType 亚像素平滑引擎充分发挥，文字深黑饱满无毛边；
+ *    - macOS / Retina 高分屏自动匹配系统最佳灰度抗锯齿，两端互不干扰。
+ * 3. 字体回退序列：
+ *    HarmonyOS Sans SC -> Microsoft YaHei UI -> Microsoft YaHei -> Segoe UI -> Arial -> sans-serif。
+ * 4. 金额与表格数字：
+ *    开启 font-variant-numeric: tabular-nums，保障多列金额与代码纵向严格等宽对齐。
+ * ============================================================================
+ */
+
+/* 本地加载 HarmonyOS Sans SC 核心字重 */
 @font-face {
-  font-family: "HarmonyOS Sans SC", "Microsoft YaHei UI", "Microsoft YaHei", "Segoe UI", Arial, sans-serif;
+  font-family: "HarmonyOS Sans SC";
   src: url("/static/fonts/HarmonyOS_Sans_SC_Regular.woff2") format("woff2");
   font-weight: 400;
   font-style: normal;
@@ -8,7 +26,7 @@
 }
 
 @font-face {
-  font-family: "HarmonyOS Sans SC", "Microsoft YaHei UI", "Microsoft YaHei", "Segoe UI", Arial, sans-serif;
+  font-family: "HarmonyOS Sans SC";
   src: url("/static/fonts/HarmonyOS_Sans_SC_Medium.woff2") format("woff2");
   font-weight: 500;
   font-style: normal;
@@ -16,11 +34,16 @@
 }
 
 @font-face {
-  font-family: "HarmonyOS Sans SC", "Microsoft YaHei UI", "Microsoft YaHei", "Segoe UI", Arial, sans-serif;
+  font-family: "HarmonyOS Sans SC";
   src: url("/static/fonts/HarmonyOS_Sans_SC_Bold.woff2") format("woff2");
   font-weight: 700;
   font-style: normal;
   font-display: swap;
+}
+
+:root {
+  --font-ui: "HarmonyOS Sans SC", "Microsoft YaHei UI", "Microsoft YaHei", "Segoe UI", Arial, sans-serif;
+  --font-mono: "Cascadia Code", "Consolas", "Courier New", monospace;
 }
 
 /* ==========================================================================
