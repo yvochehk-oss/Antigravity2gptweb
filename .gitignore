@@ -45,3 +45,6 @@ windows_scripts/tools/
 *.sqlite.bak
 .gemini/
 .system_generated/
+
+*.woff
+*.woff2
