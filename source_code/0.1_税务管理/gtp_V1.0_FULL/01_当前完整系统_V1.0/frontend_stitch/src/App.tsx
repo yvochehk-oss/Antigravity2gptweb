@@ -304,7 +304,7 @@ export default function App() {
   };
 
   return (
-    <div className="fixed inset-0 h-screen w-screen bg-[#0b1326] text-[#dae2fd] flex flex-col md:flex-row antialiased overflow-hidden font-sans">
+    <div className="fixed inset-0 h-screen w-screen bg-[#0b1326] text-[#dae2fd] flex flex-col md:flex-row  overflow-hidden font-sans">
       <Sidebar currentTab={currentTab} onSelectTab={handleSelectTab} unresolvedRiskCount={unresolvedRiskCount} aiModelStatus={aiModelStatus} />
 
       {isMobileMenuOpen && (

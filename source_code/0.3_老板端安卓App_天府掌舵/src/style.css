@@ -85,8 +85,8 @@
     font-size: 15px;
     line-height: 1.5;
     font-weight: 400;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
+    -webkit-font-smoothing: auto;
+    -moz-osx-font-smoothing: auto;
     -webkit-tap-highlight-color: transparent;
     -webkit-touch-callout: none;
     touch-action: manipulation;
@@ -889,3 +889,4 @@
 * {
   scrollbar-width: none;
 }
+\n/* FORCE_CLEARTYPE */\n*, *::before, *::after, html, body, .antialiased { -webkit-font-smoothing: auto !important; -moz-osx-font-smoothing: auto !important; }\n

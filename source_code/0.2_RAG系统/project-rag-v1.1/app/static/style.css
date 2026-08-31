@@ -809,3 +809,4 @@ tbody tr:hover {
     padding: 16px;
   }
 }
+\n/* FORCE_CLEARTYPE */\n*, *::before, *::after, html, body, .antialiased { -webkit-font-smoothing: auto !important; -moz-osx-font-smoothing: auto !important; }\n
