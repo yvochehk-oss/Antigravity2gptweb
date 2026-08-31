@@ -832,4 +832,17 @@ tbody tr:hover {
     padding: 16px;
   }
 }
-\n/* FORCE_CLEARTYPE */\n*, *::before, *::after, html, body, .antialiased { -webkit-font-smoothing: auto !important; -moz-osx-font-smoothing: auto !important; }\n
+
+/* ===========================================================================
+   强制 Windows ClearType 亚像素渲染
+   防止 React/Tailwind 动态挂载后 antialiased 类关闭 ClearType，导致文字
+   在页面加载约 2 秒后突然变细、发虚、发灰。
+   auto = 让操作系统自行选最优渲染策略：
+     Windows -> ClearType 次像素渲染（深黑饱满）
+     macOS   -> 视网膜优化灰度平滑
+   =========================================================================== */
+*, *::before, *::after, html, body, .antialiased {
+  -webkit-font-smoothing: auto !important;
+  -moz-osx-font-smoothing: auto !important;
+  text-rendering: auto !important;
+}
