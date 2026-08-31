@@ -46,7 +46,7 @@ description: 双层混合 Agent 系统：以 Safari/Chrome ChatGPT 网页端为�
 
 ### 标准调用模式
 
-> **浏览器选择**：macOS 优先 Safari（AppleScript，无需额外启动）；Linux / Windows 或需要 DevTools 集成时用 Chrome（需 `--remote-debugging-port`）。
+> **浏览器选择**：macOS 优先 Safari（AppleScript，无需额外启动）；Linux / Windows 或需要 DevTools 集成时用任何 Chromium 内核浏览器（Chrome / Edge / Brave / Arc / Opera 等，统一走 CDP 协议，仅启动时开启 `--remote-debugging-port` 即可）。
 
 #### Safari 版（AppleScript，无需额外设置）
 
@@ -79,13 +79,34 @@ python3 ~/.gemini/config/skills/safari-chatgpt-reasoner/scripts/safari_chatgpt.p
   --reset-circuit
 ```
 
-#### Chrome 版（CDP，需启动 Chrome with `--remote-debugging-port`）
+#### Chromium 版（Chrome / Edge / Brave / Arc / Opera 等，CDP 通用）
 
-前置条件：启动 Chrome 并打开目标 ChatGPT Tab 后，执行：
+所有 Chromium 内核浏览器统一使用同一份 `chrome_chatgpt.py`，协议相同、CDP 端口相同，仅可执行文件路径不同。`--browser-name` 参数用于事件 JSONL 的 `browser` 字段，便于下游审计区分来源，**不影响 CDP 连接**。
+
+前置条件：启动目标浏览器并打开 ChatGPT Tab 后，执行：
 
 ```bash
 # 方式 A：手动指定端口（默认 9222）
+# Chrome
 /Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome \
+  --remote-debugging-port=9222 \
+  --remote-allow-origins=* \
+  https://chatgpt.com/c/<conversation-uuid>
+
+# Microsoft Edge
+"/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge" \
+  --remote-debugging-port=9222 \
+  --remote-allow-origins=* \
+  https://chatgpt.com/c/<conversation-uuid>
+
+# Brave
+/Applications/Brave\ Browser.app/Contents/MacOS/Brave\ Browser \
+  --remote-debugging-port=9222 \
+  --remote-allow-origins=* \
+  https://chatgpt.com/c/<conversation-uuid>
+
+# Arc
+/Applications/Arc.app/Contents/MacOS/Arc \
   --remote-debugging-port=9222 \
   --remote-allow-origins=* \
   https://chatgpt.com/c/<conversation-uuid>
@@ -95,12 +116,19 @@ open -a "Google Chrome" --args \
   --remote-debugging-port=9222 \
   --remote-allow-origins=*
 # 然后手动导航到目标 ChatGPT 会话页
+
+# Linux 上（任选 chromium 内核）
+chromium --remote-debugging-port=9222 --remote-allow-origins=* \
+  https://chatgpt.com/c/<conversation-uuid>
+# 或
+google-chrome --remote-debugging-port=9222 --remote-allow-origins=* \
+  https://chatgpt.com/c/<conversation-uuid>
 ```
 
-Chrome bridge 调用：
+Chromium bridge 调用（默认 `browser="chrome"`，Edge/Brave/Arc 用户用 `--browser-name` 标识来源）：
 
 ```bash
-# 1. 精确指定 Tab 执行架构规划（默认 localhost:9222）
+# 1. 精确指定 Tab 执行架构规划（默认 localhost:9222，browser=chrome）
 python3 ~/.gemini/config/skills/safari-chatgpt-reasoner/scripts/chrome_chatgpt.py \
   --target-url "https://chatgpt.com/c/6a93f844-99f8-83ea-b4fd-8b544659e4a0" \
   --type plan \
@@ -117,7 +145,14 @@ python3 ~/.gemini/config/skills/safari-chatgpt-reasoner/scripts/chrome_chatgpt.p
   --level L1 \
   --signature "ALEMBIC_MIGRATION_DUPLICATE_KEY_ERR"
 
-# 3. 大体量证据走文件
+# 3. Edge 用户：bridge 不变，仅用 --browser-name 标记事件来源
+python3 ~/.gemini/config/skills/safari-chatgpt-reasoner/scripts/chrome_chatgpt.py \
+  --browser-name edge \
+  --target-url "https://chatgpt.com/c/6a93f844-99f8-83ea-b4fd-8b544659e4a0" \
+  --type plan \
+  --prompt "用 Edge 调用"
+
+# 4. 大体量证据走文件
 python3 ~/.gemini/config/skills/safari-chatgpt-reasoner/scripts/chrome_chatgpt.py \
   --target-url "https://chatgpt.com/c/6a93f844-99f8-83ea-b4fd-8b544659e4a0" \
   --type feedback \
@@ -125,12 +160,14 @@ python3 ~/.gemini/config/skills/safari-chatgpt-reasoner/scripts/chrome_chatgpt.p
   --evidence-file /var/log/agent_run/large.log \
   --level L2
 
-# 4. 仅清空 Chrome 熔断器（独立状态文件，不与 Safari 共享）
+# 5. 仅清空 Chromium 熔断器（独立状态文件，不与 Safari 共享）
 python3 ~/.gemini/config/skills/safari-chatgpt-reasoner/scripts/chrome_chatgpt.py \
   --reset-circuit
 ```
 
-> **注意**：Safari 与 Chrome 熔断器使用**独立**的状态文件（`/tmp/safari_chatgpt_circuit_breaker.json` vs `/tmp/chrome_chatgpt_circuit_breaker.json`），互不影响。
+> **注意**：
+> - Safari 与 Chromium 熔断器使用**独立**的状态文件（`/tmp/safari_chatgpt_circuit_breaker.json` vs `/tmp/chrome_chatgpt_circuit_breaker.json`），互不影响。
+> - **不要同时在 9222 端口启两个 Chromium 实例**：CDP 端口冲突会让 `/json/list` 返回错乱 Tab。建议 Edge/Brave 用户把端口改成 9223，并在调用时 `--chrome-port 9223`。
 
 ### 下游消费规范
 

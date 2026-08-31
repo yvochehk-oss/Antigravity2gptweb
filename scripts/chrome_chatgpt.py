@@ -168,6 +168,9 @@ def _sanitize_event_value(value: Any) -> Any:
     return value
 
 
+_BROWSER_NAME: Optional[str] = None  # 由 CLI --browser-name 注入，用于事件元数据
+
+
 def emit_event(stage: str, exit_code: int, message: str, **extra) -> None:
     payload: Dict[str, Any] = {
         "ts": time.time(),
@@ -175,7 +178,7 @@ def emit_event(stage: str, exit_code: int, message: str, **extra) -> None:
         "exit_code": exit_code,
         "exit_name": EXIT_CODE_NAME.get(exit_code, "UNKNOWN"),
         "message": message,
-        "browser": "chrome",
+        "browser": _BROWSER_NAME or "chrome",
     }
     payload.update(extra)
     payload = _sanitize_event_value(payload)
@@ -1266,6 +1269,9 @@ def _build_parser() -> argparse.ArgumentParser:
                    help="Chrome --remote-debugging-port（默认 9222）")
     p.add_argument("--chrome-host", type=str, default="127.0.0.1",
                    help="Chrome remote debugging host（默认 127.0.0.1）")
+    p.add_argument("--browser-name", type=str, default=None,
+                   help="事件 JSONL 中的 browser 字段值（默认 'chrome'；Edge 用户填 'edge'，"
+                        "Brave 填 'brave'，Arc 填 'arc' 等）。不影响 CDP 连接，仅用于下游审计区分来源。")
 
     p.add_argument("--type", type=str, default="raw",
                    choices=["raw", "plan", "feedback", "review"])
@@ -1292,6 +1298,11 @@ def _load_evidence(args) -> Optional[str]:
 
 def main() -> int:
     args = _build_parser().parse_args()
+
+    # 注入 browser 元数据（仅影响事件 JSONL，不影响 CDP 连接）
+    global _BROWSER_NAME
+    if args.browser_name:
+        _BROWSER_NAME = args.browser_name
 
     if args.reset_circuit:
         cleared = reset_circuit_breaker()
