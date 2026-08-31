@@ -26,8 +26,8 @@ V1.1 单进程 FastAPI 提供三组端点（前缀分别为 `/api/v1` / `/api/v1
 - `POST /api/v1/retrieve` — 文档混合检索（无 LLM）
 - `POST /api/v1/query` — 文档问答（检索 + LLM）
 
-`rerank=true` 默认启用 BGE reranker；模型不可用时自动返回融合排序结果。
-返回中 `page_start / page_end / heading_path` 来自 MinerU 结构化结果或 Markdown 标题解析。
+Reranker 已关闭，检索固定返回 BM25/pgvector 融合排序。
+返回中 `page_start / page_end / heading_path` 来自内置解析器结构化结果或 Markdown 标题解析。
 
 ### Regulations（V1.1 新增）
 - `GET  /api/v1/regulations`

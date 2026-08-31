@@ -17,11 +17,10 @@ from .chunker import chunks_from_content_list, chunks_from_markdown, chunks_from
 from .embeddings import embed_many
 from .extractor import extract_invoice_fields_from_text
 from .metadata import refine_from_content
-from .mineru_adapter import (
-    MinerUUnavailable,
+from .native_parser import (
     assess_parse_quality,
     detect_encrypted_pdf,
-    parse_with_mineru,
+    parse_with_native_idp,
 )
 from .storage.write import (
     finalize_document_cleanup,
@@ -305,7 +304,7 @@ def parse_and_index(db: Session, doc: Document) -> Document:
     """Parse document and index its chunks with embeddings.
 
     This is the main ingestion pipeline. It:
-    1. Parses the document using MinerU or direct reading
+    1. Parses the document with the built-in IDP parser or direct reading
     2. Chunks the content with page/heading awareness
     3. Generates embeddings for each chunk
     4. Stores chunks in the database
@@ -321,7 +320,7 @@ def parse_and_index(db: Session, doc: Document) -> Document:
 
     logger.info(f"Starting parse for document {doc.document_code} ({ext})")
 
-    # Pre-flight: reject encrypted PDFs before invoking MinerU.
+    # Pre-flight: reject encrypted PDFs before invoking the native parser.
     if ext == ".pdf" and detect_encrypted_pdf(doc.original_path):
         doc.parse_status = "PASSWORD_REQUIRED"
         doc.parse_message = "PDF文件已加密，请提供密码后重新上传"
@@ -335,7 +334,7 @@ def parse_and_index(db: Session, doc: Document) -> Document:
             is_encrypted=True,
         )
         logger.warning(
-            f"Document {doc.document_code} is encrypted; skipping MinerU"
+            f"Document {doc.document_code} is encrypted; skipping native parsing"
         )
         return doc
 
@@ -355,8 +354,8 @@ def parse_and_index(db: Session, doc: Document) -> Document:
             logger.debug(f"Parsed {doc.filename} directly, got {len(raw)} raw chunks")
 
         else:
-            # Use MinerU for PDF, DOCX, etc.
-            result = parse_with_mineru(doc.document_code, doc.original_path)
+            # Use the built-in IDP parser for PDF, DOCX, spreadsheets, and images.
+            result = parse_with_native_idp(doc.document_code, doc.original_path)
             doc.parsed_dir = result["output_dir"]
             doc.markdown_path = result["markdown_path"]
             doc.content_list_path = result["content_list_path"]
@@ -378,15 +377,15 @@ def parse_and_index(db: Session, doc: Document) -> Document:
                     f"Parse quality assessment failed for {doc.document_code}: {qe}"
                 )
 
-            # Convert MinerU output to chunks
+            # Convert native parser output to chunks.
             if doc.content_list_path:
                 raw = chunks_from_content_list(doc.content_list_path)
             elif doc.markdown_path:
                 raw = chunks_from_markdown(doc.markdown_path)
             else:
-                raise RuntimeError("MinerU produced no usable output")
+                raise RuntimeError("Native parser produced no usable output")
 
-            logger.debug(f"MinerU parsed {doc.filename}, got {len(raw)} raw chunks")
+            logger.debug(f"Native parser parsed {doc.filename}, got {len(raw)} raw chunks")
 
         # Validate we got content
         if not raw:
@@ -495,14 +494,6 @@ def parse_and_index(db: Session, doc: Document) -> Document:
 
         return doc
 
-    except MinerUUnavailable as e:
-        db.rollback()
-        doc.parse_status = "WAITING_MINERU"
-        doc.parse_message = str(e).replace("\\x00", "")
-        db.commit()
-        logger.warning(f"Document {doc.document_code} waiting for MinerU: {e}")
-        return doc
-
     except Exception as e:
         db.rollback()
         doc.parse_status = "PARSE_FAILED"
@@ -510,7 +501,7 @@ def parse_and_index(db: Session, doc: Document) -> Document:
         db.commit()
         logger.error(f"Failed to parse document {doc.document_code}: {e}")
 
-        # Partial parse-quality assessment: only meaningful when MinerU
+        # Partial parse-quality assessment: only meaningful when the native parser
         # already produced some output before the failure.
         try:
             if doc.content_list_path or doc.markdown_path:

@@ -13,4 +13,4 @@ psycopg[binary]>=3.2,<4.0
 
 # Ling-3.0-tiny and optional Granite 4.2 3B are served by local
 # OpenAI-compatible inference endpoints; their Python runtimes are not part of
-# the IDP process. MinerU remains an optional complex-PDF fallback only.
+# the IDP process. There is no external document-parser fallback.

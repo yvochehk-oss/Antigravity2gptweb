@@ -577,7 +577,8 @@ test('TaxLedgerView keeps a successful empty ledger actionable and preserves Tax
   assert.match(ledgerView, /message=\{dataStatusMessage\}/);
   assert.match(ledgerView, /onClick=\{onOpenNewRecordModal\}/);
   assert.match(ledgerView, /TAX_LEDGER_EMPTY_MESSAGE/);
-  assert.match(ledgerView, /type="month"/);
+  assert.match(ledgerView, /tax-ledger-rebuild-year/);
+  assert.match(ledgerView, /tax-ledger-rebuild-month/);
   assert.match(ledgerView, /window\.confirm/);
   assert.match(ledgerView, /原子替换该期间汇总/);
   assert.match(ledgerView, /void onRebuildTaxLedger\(rebuildPeriod\)/);

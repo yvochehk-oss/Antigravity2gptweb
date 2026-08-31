@@ -372,7 +372,7 @@
           <td>
             {% if d.parse_status == 'INDEXED' %}
             <span class="badge badge-emerald">● 已索引</span>
-            {% elif d.parse_status == 'QUEUED' or d.parse_status == 'WAITING_MINERU' %}
+            {% elif d.parse_status == 'QUEUED' %}
             <span class="badge badge-amber">● 解析中</span>
             {% elif d.parse_status == 'PARSE_FAILED' %}
             <span class="badge badge-rose">● 解析失败</span>

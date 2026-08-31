@@ -142,17 +142,26 @@ elif [ -n "${PROJECT_RAG_EMBEDDING_MODEL:-}" ] && [ -f "${PROJECT_RAG_EMBEDDING_
 else
   embedding_model="$V2_ROOT/models/bge-m3"
 fi
-if [ "$_RERANKER_WAS_SET" = x ]; then
-  reranker_model="$_RERANKER_OVERRIDE"
-elif [ -n "${PROJECT_RAG_RERANKER_MODEL:-}" ] && [ -f "${PROJECT_RAG_RERANKER_MODEL}/config.json" ]; then
-  reranker_model="$PROJECT_RAG_RERANKER_MODEL"
-else
-  reranker_model="$V2_ROOT/models/bge-reranker-v2-m3"
-fi
 [ -f "$embedding_model/config.json" ] || die "Embedding 模型路径不可用：$embedding_model"
-[ -f "$reranker_model/config.json" ] || die "Reranker 模型路径不可用：$reranker_model"
 export PROJECT_RAG_EMBEDDING_MODEL="$embedding_model"
-export PROJECT_RAG_RERANKER_MODEL="$reranker_model"
+
+case "${PROJECT_RAG_RERANKER_ENABLED:-0}" in
+  1|true|TRUE|yes|YES|on|ON)
+    if [ "$_RERANKER_WAS_SET" = x ]; then
+      reranker_model="$_RERANKER_OVERRIDE"
+    elif [ -n "${PROJECT_RAG_RERANKER_MODEL:-}" ] && [ -f "${PROJECT_RAG_RERANKER_MODEL}/config.json" ]; then
+      reranker_model="$PROJECT_RAG_RERANKER_MODEL"
+    else
+      reranker_model="$V2_ROOT/models/bge-reranker-v2-m3"
+    fi
+    [ -f "$reranker_model/config.json" ] || die "Reranker 模型路径不可用：$reranker_model"
+    export PROJECT_RAG_RERANKER_MODEL="$reranker_model"
+    ;;
+  *)
+    unset PROJECT_RAG_RERANKER_MODEL
+    echo "Reranker 已关闭；跳过模型目录校验与加载。"
+    ;;
+esac
 
 if command -v uv >/dev/null 2>&1; then
   (cd "$RAG_DIR" && uv sync --inexact)

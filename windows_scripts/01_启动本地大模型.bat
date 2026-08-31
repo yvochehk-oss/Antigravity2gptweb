@@ -1,4 +1,4 @@
-﻿@echo off
+@echo off
 @chcp 65001 >nul
 title 成都建工 V2.0 - 本地大模型服务 (Port 8930)
 setlocal enabledelayedexpansion
@@ -34,7 +34,7 @@ if not exist "%MODEL_FILE%" (
     exit /b 1
 )
 
-echo [1/1] 正在启动 llama-server (4 线程 CPU 并行加速)...
-"%SERVER_BIN%" --model "%MODEL_FILE%" --host 127.0.0.1 --port 8930 --alias ling-3.0-tiny --ctx-size 4096 --threads 4 --threads-batch 4 --batch-size 512 --ubatch-size 256 --gpu-layers 0 --reasoning off --parallel 1 --jinja
+echo [1/1] 正在启动 llama-server (4 线程 CPU 并行加速，16K 上下文)...
+"%SERVER_BIN%" --model "%MODEL_FILE%" --host 127.0.0.1 --port 8930 --alias ling-3.0-tiny --ctx-size 16384 --threads 4 --threads-batch 4 --batch-size 512 --ubatch-size 256 --gpu-layers 0 --reasoning off --parallel 1 --jinja
 
 pause

@@ -333,7 +333,7 @@ def _estimate_tokens(text: str) -> int:
 # ---------- Public entry points (backward-compatible signatures) ----------
 
 def chunks_from_content_list(path: str, document_type: str = "") -> list[dict]:
-    """Parse MinerU content_list.json into structured chunks.
+    """Parse native parser content-list JSON into structured chunks.
 
     Backward-compatible signature: document_type is optional (defaults to "").
 
@@ -567,7 +567,7 @@ def chunk_documents_into_structured_chunks(
     All chunks are enriched with v0.3 structured fields.
 
     Args:
-        content_list_path: Path to MinerU content_list.json
+        content_list_path: Path to native parser content-list JSON
         document_type: Document semantic type
 
     Returns:

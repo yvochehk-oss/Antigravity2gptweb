@@ -241,7 +241,8 @@ def _load_project_entity_codes(
     for project in projects:
         if "entity_code" in getattr(project, "__dict__", {}):
             inline_seen = True
-            inline_codes[int(project.id)] = getattr(project, "entity_code", None)
+            code_val = getattr(project, "entity_code", None) or "A08"
+            inline_codes[int(project.id)] = code_val
     if inline_seen:
         return inline_codes, True
 
@@ -257,7 +258,7 @@ def _load_project_entity_codes(
         text("SELECT id, entity_code FROM projects")
     ).mappings().all()
     return {
-        int(row["id"]): row.get("entity_code")
+        int(row["id"]): row.get("entity_code") or "A08"
         for row in rows
     }, True
 
@@ -672,8 +673,7 @@ def tax_ledger_collection(
     page_size: int = Query(default=50, ge=1, le=_MAX_PAGE_SIZE),
     _user=_reader_dependency,
 ) -> dict[str, Any] | JSONResponse:
-    requested_period = period or datetime.now(timezone.utc).strftime("%Y-%m")
-    if not _PERIOD_RE.fullmatch(requested_period):
+    if period and not _PERIOD_RE.fullmatch(period):
         raise HTTPException(status_code=422, detail="period 必须为 YYYY-MM 格式")
     db = SessionLocal()
     try:
@@ -706,10 +706,11 @@ def tax_ledger_collection(
         # Ledger generation/deletion belongs to the explicit, RBAC/CSRF-protected
         # tax calculation command; never rebuild a period as a side effect of a
         # browser read.
+        query = select(TaxLedger)
+        if period:
+            query = query.where(TaxLedger.period == period)
         rows = db.execute(
-            select(TaxLedger)
-            .where(TaxLedger.period == requested_period)
-            .order_by(TaxLedger.entity_code, TaxLedger.id)
+            query.order_by(TaxLedger.period.desc(), TaxLedger.entity_code, TaxLedger.id)
         ).scalars().all()
         entities = _entity_name_map(db)
         items = [

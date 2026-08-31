@@ -48,31 +48,7 @@ if errorlevel 1 (
     exit /b 3
 )
 
-echo [4/4] 重新构建并同步 Tax 前端静态资源...
-set "FRONTEND_DIR=source_code\0.1_税务管理\gtp_V1.0_FULL\01_当前完整系统_V1.0\frontend_stitch"
-if exist "!FRONTEND_DIR!" (
-    set "BASH_EXE="
-    where bash >nul 2>&1
-    if not errorlevel 1 set "BASH_EXE=bash"
-    if not defined BASH_EXE if exist "%ProgramFiles%\Git\bin\bash.exe" set "BASH_EXE=%ProgramFiles%\Git\bin\bash.exe"
-    if not defined BASH_EXE if exist "%LocalAppData%\Programs\Git\bin\bash.exe" set "BASH_EXE=%LocalAppData%\Programs\Git\bin\bash.exe"
-    if not defined BASH_EXE (
-        echo [ERROR] 未找到 Git Bash，无法执行 scripts\sync-tax-static.sh。
-        echo         请安装 Git for Windows，或把 bash.exe 加入 PATH。
-        pause
-        exit /b 4
-    )
-
-    pushd "!FRONTEND_DIR!"
-    "!BASH_EXE!" scripts/sync-tax-static.sh
-    if errorlevel 1 (
-        popd
-        echo [ERROR] 前端构建或静态资源同步失败。
-        pause
-        exit /b 5
-    )
-    popd
-)
+echo [4/4] 前端由独立 Vite 服务运行，不生成或同步 Tax 后端静态资源。
 
 echo ==============================================================================
 echo [SUCCESS] Windows 已同步到统一主体提交：!MAIN_SHA!

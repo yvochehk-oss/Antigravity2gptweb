@@ -17,7 +17,7 @@
 
 | 问题 | 优化 |
 |------|------|
-| MinerU 无重试 | 添加指数退避重试 (最多3次) |
+| 文档解析失败 | 由 Worker 指数退避重试 (最多3次) |
 | Job 失败无重试 | 添加 `RETRY` 状态和 `next_retry_at` |
 | API 无分页 | 所有列表 API 添加 `page`/`page_size` 参数 |
 | BM25 全内存 | 支持 PostgreSQL FTS 索引加速 |
@@ -141,10 +141,7 @@ cp .env.example .env
 # 2. 一键安装
 ./setup_v02_mac.sh
 
-# 3. 安装 MinerU (可选)
-./install_mineru_mac.sh
-
-# 4. 启动
+# 3. 启动
 ./run.sh
 ```
 

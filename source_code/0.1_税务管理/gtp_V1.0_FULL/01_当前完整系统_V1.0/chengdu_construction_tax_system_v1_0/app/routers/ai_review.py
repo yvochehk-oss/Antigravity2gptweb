@@ -67,13 +67,21 @@ def ai_review_run(
     request: Request,
     project_id: int = Form(...),
     scope: str = Form(...),
-    endpoint_id: int = Form(...),
+    endpoint_id: int | None = Form(None),
     user_instruction: str = Form(""),
 ):
     db = SessionLocal()
     if scope not in SCOPES:
         db.close()
         return RedirectResponse("/ai-review", status_code=303)
+
+    if not endpoint_id or endpoint_id <= 0:
+        ep = db.scalar(
+            select(AIModelEndpoint)
+            .where(AIModelEndpoint.enabled.is_(True))
+            .order_by(AIModelEndpoint.priority.desc(), AIModelEndpoint.id.asc())
+        )
+        endpoint_id = ep.id if ep else 1
 
     job = AIReviewJob(
         project_id=project_id, scope=scope, endpoint_id=endpoint_id,

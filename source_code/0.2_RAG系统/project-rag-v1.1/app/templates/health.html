@@ -94,7 +94,7 @@
       </span>
     </div>
     <div style="font-size: 13px; color: var(--text-secondary); line-height: 1.8;">
-      <div>• 解析引擎: <span style="color: #10b981;">IDP 3.0 + {% if health_data.mineru_available %}MinerU 视觉大模型{% else %}PDF/OCR解析器{% endif %}</span></div>
+      <div>• 解析引擎: <span style="color: #10b981;">IDP 3.0 内置 PDF/OCR 解析器</span></div>
       <div>• 并发线程: <code>{{ health_data.worker.concurrency if health_data.worker else 4 }} 线程</code></div>
       <div>• 智能元数据识别: <span style="color: #10b981;">合同/发票/地磅/结算单智能分类</span></div>
       <div>• 自动启动策略: <code>{{ '已开启 (AUTO)' if health_data.worker_auto_start else '手动' }}</code></div>

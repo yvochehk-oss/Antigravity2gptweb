@@ -435,11 +435,13 @@ def test_invoice_rag_validation_gate_and_exact_identity_idempotency(seeded_app, 
         imported = run_item(valid_fields, "invoice")
         assert imported.status == "SUCCESS"
         assert imported.total_imported == 1
-        assert db.query(Invoice).filter(Invoice.invoice_no == "INV-EXACT-001").count() == before + 2
+        assert db.query(Invoice).count() == before + 2
+        assert db.query(Invoice).filter(Invoice.invoice_no == "INV-EXACT-001").count() == 2
 
         duplicate = run_item(valid_fields, "invoice")
         assert duplicate.status == "SUCCESS"
         assert duplicate.total_imported == 0
-        assert db.query(Invoice).filter(Invoice.invoice_no == "INV-EXACT-001").count() == before + 2
+        assert db.query(Invoice).count() == before + 2
+        assert db.query(Invoice).filter(Invoice.invoice_no == "INV-EXACT-001").count() == 2
     finally:
         db.close()

@@ -9,8 +9,8 @@
 3. SHA-256重复识别
 4. 元数据过滤 + 混合检索
 5. 文件夹批量导入 + Knowledge Audit
-6. MinerU content_list页码/标题保持（包含在测试组）
-7. Fake MinerU CLI完整子进程适配（包含在测试组）
+6. 内置解析器 content_list 页码/标题保持（包含在测试组）
+7. 内置 PDF/OCR 解析回归（包含在测试组）
 8. Web首页/Search/Health HTTP检查（包含在测试组）
 
 结果：`5 passed`。

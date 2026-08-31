@@ -21,9 +21,9 @@ router = APIRouter(prefix="/api/v1/user-center", tags=["独立用户中心"])
 # 确保表已初始化
 init_user_center_db()
 
-# 头像存储目录
-_STATIC_DIST_AVATARS = Path(__file__).resolve().parent.parent / "static_dist" / "avatars"
-_STATIC_DIST_AVATARS.mkdir(parents=True, exist_ok=True)
+# 头像属于运行时用户数据，不得与前端构建产物混放。
+_AVATARS_DIR = Path(__file__).resolve().parent.parent / "data" / "avatars"
+_AVATARS_DIR.mkdir(parents=True, exist_ok=True)
 
 def _get_current_user(request: Request, db: Session = Depends(get_user_center_db)) -> UserAccount:
     """获取当前登录用户；缺少有效认证时明确拒绝请求。
@@ -125,7 +125,7 @@ async def upload_avatar(
         )
 
     file_name = f"avatar_{user.username}_{int(datetime.now().timestamp())}{ext}"
-    dest_path = _STATIC_DIST_AVATARS / file_name
+    dest_path = _AVATARS_DIR / file_name
 
     try:
         with dest_path.open("wb") as buffer:

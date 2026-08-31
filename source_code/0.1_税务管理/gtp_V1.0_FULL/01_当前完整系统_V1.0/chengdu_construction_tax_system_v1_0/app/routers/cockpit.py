@@ -7,6 +7,8 @@ from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import select
 
+from pathlib import Path
+
 from ..audit import audit_from_request
 from ..calc import consolidated, project_summary
 from ..db import SessionLocal
@@ -18,7 +20,6 @@ from ..models import (
     RealCost,
     RiskEvent,
 )
-from pathlib import Path
 from ..templates import templates
 
 STATIC_DIST_INDEX = Path(__file__).resolve().parents[1] / "static_dist" / "index.html"
@@ -32,14 +33,21 @@ RAG_ONLY_MSG = "请使用 RAG 同步获取数据，禁止手工录入"
 @router.get("/", response_class=HTMLResponse)
 def home(request: Request) -> HTMLResponse:
     """现代化智控大屏主页 (React SPA)。"""
-    if not STATIC_DIST_INDEX.exists():
-        raise HTTPException(503, "前端静态资源未找到，请先构建 React SPA Bundle")
-    return HTMLResponse(STATIC_DIST_INDEX.read_text(encoding="utf-8"))
-
-
-@router.get("/demo", response_class=HTMLResponse)
-def demo_home(request: Request) -> HTMLResponse:
-    return home(request)
+    if STATIC_DIST_INDEX.exists():
+        import secrets
+        from ..auth import COOKIE_MAX_AGE, COOKIE_SECURE, CSRF_COOKIE_NAME
+        response = HTMLResponse(STATIC_DIST_INDEX.read_text(encoding="utf-8"))
+        if not request.cookies.get(CSRF_COOKIE_NAME):
+            response.set_cookie(
+                key=CSRF_COOKIE_NAME,
+                value=secrets.token_urlsafe(32),
+                max_age=COOKIE_MAX_AGE,
+                httponly=False,
+                secure=COOKIE_SECURE,
+                samesite="lax",
+            )
+        return response
+    return RedirectResponse(url="/classic", status_code=307)
 
 
 @router.get("/classic", response_class=HTMLResponse)

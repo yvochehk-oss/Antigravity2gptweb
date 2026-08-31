@@ -12,21 +12,20 @@ Covered:
 4. SHA-256 duplicate detection;
 5. metadata-filtered hybrid retrieval;
 6. dashboard/search/health page responses;
-7. synthetic MinerU `content_list.json` parsing with `text_level` heading and `page_idx` page preservation;
-8. fake MinerU executable integration, verifying CLI invocation and automatic discovery of Markdown + `content_list.json` outputs.
+7. native parser `content_list.json` parsing with `text_level` heading and `page_idx` page preservation.
 
-## Expected behavior without MinerU installed
+## Current parser behavior
 
 - Markdown/TXT/HTML: indexes directly;
-- PDF/image/DOCX/PPTX/XLSX: persists original and sets status to `WAITING_MINERU`;
-- after MinerU installation, re-running `/documents/{id}/parse` continues processing without re-upload.
+- PDF/image/DOCX/XLSX: uses the built-in PDF/OCR/Office parser;
+- unsupported, encrypted, or unreadable documents report an explicit parse status.
 
 ## Known V0.1 limitations
 
 - SQLite stores embeddings as JSON; production vector storage is not yet pgvector.
 - default `hash_v1` vector is an architecture-validation embedding, not a production semantic model.
 - BGE-M3 is optional and loaded in-process; production should use a persistent embedding worker.
-- no asynchronous job queue yet; MinerU parsing request is synchronous.
+- no asynchronous job queue yet; document parsing request is synchronous.
 - no user/RBAC/ACL enforcement yet; confidentiality metadata exists but is not authorization enforcement.
 - metadata classification is filename-rule based; AI-assisted metadata review is planned.
 - no folder scanner / bulk ingest yet.

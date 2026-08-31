@@ -5,8 +5,10 @@ import logging
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import func, select
+from pydantic import BaseModel, Field
+from sqlalchemy import func, select, text
 
+from ..auth import login as auth_login, verify_password
 from ..calc import four_flow_evidence_completeness, matching_rows, project_summary
 from ..db import SessionLocal
 from ..dependencies import require_role
@@ -20,12 +22,17 @@ from ..models import (
     Invoice,
     Project,
     RealCost,
+    User,
 )
 
 _LOGGER = logging.getLogger(__name__)
 _reader_dependency = Depends(require_role("admin", "operator"))
 
 router = APIRouter()
+
+
+class DeleteProjectDataRequest(BaseModel):
+    password: str = Field(..., min_length=1, description="操作者确认密码")
 
 
 @router.get("/api/projects/{pid}")
@@ -328,3 +335,98 @@ def api_project_counterparties(pid: int, _user=_reader_dependency):
         raise
     finally:
         db.close()
+
+
+@router.post("/api/projects/{pid}/delete-data")
+@router.delete("/api/projects/{pid}/data")
+def api_delete_project_data(
+    pid: int,
+    body: DeleteProjectDataRequest,
+    _user: Any = _reader_dependency,
+):
+    """彻底删除该项目及关联的所有数据（项目主数据、合同、发票、流水、台账、四流记录、AI快照等，需密码确认）。"""
+    username = getattr(_user, "username", "admin")
+    authenticated = auth_login(username, body.password)
+    if authenticated is None:
+        raise HTTPException(status_code=400, detail="密码错误，安全验证未通过")
+
+    db = SessionLocal()
+    try:
+        project = db.get(Project, pid)
+        if project is None:
+            raise HTTPException(status_code=404, detail="项目不存在")
+
+        project_name = project.name
+        project_code = project.code or project.project_code or str(pid)
+        deleted_counts = {}
+
+        # 1. 严格限定需要保护的 RAG 核心知识库与文档凭证表（绝对不删除）
+        rag_preserve_tables = {
+            "documents",
+            "chunks",
+            "ingest_jobs",
+            "document_path_migrations_012",
+            "query_logs",
+            "query_feedback",
+            "knowledge_conflicts",
+            "benchmark_runs",
+            "benchmark_questions",
+            "rag_evidence_packs",
+            "ai_review_runs",
+            "projects",  # 保留项目主空间定义，以维持底层文档外键完整性
+        }
+
+        # 2. 先级联清理没有直接 project_id 字段但外键依赖 Tax 父表的子台账记录
+        secondary_cleanups = [
+            "DELETE FROM planning_allocations WHERE scenario_id IN (SELECT id FROM planning_scenarios WHERE project_id = :pid)",
+            "DELETE FROM ai_consensus_reports WHERE batch_id IN (SELECT id FROM ai_review_batches WHERE project_id = :pid)",
+            "DELETE FROM ai_review_results WHERE job_id IN (SELECT id FROM ai_review_jobs WHERE project_id = :pid)",
+            "DELETE FROM facts_request_logs WHERE facts_snapshot_id IN (SELECT id FROM facts_snapshots WHERE project_id = :pid)",
+            "DELETE FROM real_cost_invoice_links WHERE real_cost_id IN (SELECT id FROM real_costs WHERE project_id = :pid) OR invoice_id IN (SELECT id FROM invoices WHERE project_id = :pid)",
+            "DELETE FROM sync_pending WHERE project_id = :pid OR sync_log_id IN (SELECT id FROM sync_logs WHERE project_id = :pid)",
+        ]
+        for sql in secondary_cleanups:
+            try:
+                db.execute(text(sql), {"pid": pid})
+            except Exception as sec_err:
+                _LOGGER.debug("secondary cleanup skipped or table missing: %s", sec_err)
+
+        # 3. 动态获取当前数据库中所有具有 project_id 字段的基础数据表（过滤掉 VIEW 视图）
+        table_rows = db.execute(text("""
+            SELECT c.table_name 
+            FROM information_schema.columns c
+            JOIN information_schema.tables t 
+              ON c.table_name = t.table_name AND c.table_schema = t.table_schema
+            WHERE c.column_name = 'project_id' 
+              AND c.table_schema = 'public'
+              AND t.table_type = 'BASE TABLE'
+        """)).all()
+        tables_with_project_id = {row[0] for row in table_rows}
+
+        # 4. 仅清空 Tax 系统所属的全部财务台账表
+        tax_tables_to_wipe = [t for t in tables_with_project_id if t not in rag_preserve_tables]
+
+        for t in tax_tables_to_wipe:
+            r = db.execute(text(f"DELETE FROM {t} WHERE project_id = :pid"), {"pid": pid})
+            deleted_counts[t] = r.rowcount or 0
+
+        db.commit()
+        _LOGGER.info("tax project data wiped successfully: pid=%s code=%s details=%s", pid, project_code, deleted_counts)
+        return {
+            "success": True,
+            "project_id": pid,
+            "project_code": project_code,
+            "project_name": project_name,
+            "message": f"项目【{project_code} · {project_name}】在 Tax 系统中的全部财税数据已彻底删除清空（RAG 凭证知识库已安全保留）！",
+            "deleted_counts": deleted_counts,
+        }
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:
+        db.rollback()
+        _LOGGER.exception("tax project data deletion failed: pid=%s", pid)
+        raise HTTPException(status_code=500, detail=f"删除项目数据失败: {exc}")
+    finally:
+        db.close()
+

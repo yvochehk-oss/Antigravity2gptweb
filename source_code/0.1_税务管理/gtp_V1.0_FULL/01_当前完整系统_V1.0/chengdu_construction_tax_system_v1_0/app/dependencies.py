@@ -43,7 +43,8 @@ def require_role(*roles: str):
     """装饰工厂：只允许指定角色的用户访问。"""
     def dependency(request: Request) -> User:
         user = require_login(request)
-        if user.role not in roles:
+        allowed_roles = {r.lower() for r in roles}
+        if str(user.role or "").lower() not in allowed_roles:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"需要 {roles} 角色，当前为 {user.role}",
@@ -58,6 +59,6 @@ def require_role(*roles: str):
 def admin_only(request: Request) -> User:
     """管理员专属路由。未登录 → 401；非 admin → 403。"""
     user = require_login(request)
-    if user.role != "admin":
+    if str(user.role or "").lower() != "admin":
         raise HTTPException(status_code=403, detail="需要管理员权限")
     return user

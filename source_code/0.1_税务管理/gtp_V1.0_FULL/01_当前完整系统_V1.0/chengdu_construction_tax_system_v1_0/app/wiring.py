@@ -1,4 +1,4 @@
-"""V0.2: FastAPI app wiring - router, middleware, and static file registration.
+"""V0.2: FastAPI app wiring - router, middleware, and avatar file registration.
 
 Separated from main.py to reduce entry-point complexity and enable independent
 testing of the app assembly without loading all endpoint logic.
@@ -79,7 +79,7 @@ def _cors_origins() -> list[str]:
 def create_app() -> FastAPI:
     """Construct and configure the FastAPI application.
 
-    All router, middleware, and static-file wiring lives here so that
+    All router, middleware, and avatar-file wiring lives here so that
     ``app.main`` can be imported without triggering the full endpoint
     module graph during module-load-time checks.
     """
@@ -125,14 +125,15 @@ def create_app() -> FastAPI:
 
 def _mount_static_assets(app: FastAPI) -> None:
     """Mount Vite-built frontend assets and avatar uploads when the dist directory exists."""
-    static_dist = Path(__file__).resolve().parent / "static_dist"
-    avatars_dir = static_dist / "avatars"
+    app_dir = Path(__file__).resolve().parent
+    avatars_dir = app_dir / "data" / "avatars"
     avatars_dir.mkdir(parents=True, exist_ok=True)
     app.mount(
         "/avatars",
         StaticFiles(directory=str(avatars_dir)),
         name="avatars",
     )
+    static_dist = app_dir / "static_dist"
     if static_dist.exists() and (static_dist / "assets").exists():
         app.mount(
             "/assets",

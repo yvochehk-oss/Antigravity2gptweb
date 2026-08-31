@@ -127,8 +127,8 @@ export function TaxPlanningView({ projects, selectedProjectId, onSelectProject }
   useEffect(() => {
     setPlanningResult(null);
     setPenetrationData(null);
-    setStatus('UNAVAILABLE');
-    setStatusMessage(currentProject ? '尚未执行真实筹划测算。' : '没有可用项目，无法读取筹划上下文。');
+    setStatus('READY');
+    setStatusMessage(currentProject ? '已加载项目筹划上下文，正在自动测算基础沙盘…' : '没有可用项目，无法读取筹划上下文。');
 
     if (!currentProject) {
       setPackageName('');
@@ -150,6 +150,35 @@ export function TaxPlanningView({ projects, selectedProjectId, onSelectProject }
       .catch(error => {
         if (!controller.signal.aborted) setStatusMessage(`穿透数据 DEGRADED：${error instanceof Error ? error.message : '接口不可用'}`);
       });
+    
+    // 自动执行初次沙盘测算
+    if (presets.length > 0) {
+      const p = presets[0];
+      const body = {
+        package_name: p.name,
+        category: p.category,
+        package_amount: p.amount,
+        internal_min_ratio: Number(p.internalMinRatio) / 100,
+        internal_max_ratio: Number(p.internalMaxRatio) / 100,
+        preferred_ratio: Number(p.preferredRatio) / 100,
+        objective: p.objective,
+      };
+      void postJson<PlanningResult>(
+        `/api/projects/${currentProject.numericId}/allocation-planning/recommend`,
+        body,
+        controller.signal
+      ).then(data => {
+        setPlanningResult(data);
+        setStatus('READY');
+        setStatusMessage('筹划方案已根据确定性税率与四流匹配模型实时测算完成');
+      }).catch(err => {
+        if (!controller.signal.aborted) {
+          setStatus('DEGRADED');
+          setStatusMessage(`筹划测算异常：${err instanceof Error ? err.message : '接口不可用'}`);
+        }
+      });
+    }
+
     return () => controller.abort();
   }, [currentProject]);
 

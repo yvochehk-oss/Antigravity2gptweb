@@ -6,12 +6,9 @@
   "scripts": {
     "dev": "vite --port=3000 --host=0.0.0.0",
     "build": "vite build",
-    "preview": "vite preview",
     "test": "tsx --test src/api.test.ts src/ragMappingUi.test.ts",
     "clean": "rm -rf dist server.js",
-    "lint": "tsc --noEmit",
-    "sync:tax-static": "bash scripts/sync-tax-static.sh",
-    "verify:tax-static": "bash scripts/sync-tax-static.sh --check"
+    "lint": "tsc --noEmit"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

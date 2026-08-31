@@ -68,10 +68,18 @@ def health_check_run(
     request: Request,
     project_id: int = Form(...),
     profile: str = Form("standard"),
-    endpoint_ids: list[int] = Form(...),  # noqa: B008
+    endpoint_ids: list[int] | None = Form(None),  # noqa: B008
     user_instruction: str = Form(""),
 ):
     db = SessionLocal()
+    if not endpoint_ids:
+        primary = db.scalar(
+            select(AIModelEndpoint.id)
+            .where(AIModelEndpoint.enabled.is_(True))
+            .order_by(AIModelEndpoint.priority.asc(), AIModelEndpoint.id.asc())
+        )
+        endpoint_ids = [primary] if primary is not None else [1]
+
     scopes = HEALTH_PROFILES.get(profile, HEALTH_PROFILES["standard"])
     try:
         recover_stale_health_batches(db)
@@ -178,7 +186,9 @@ def api_health_check(batch_id: int):
         select(AIReviewJob).where(AIReviewJob.batch_id == batch.id)
     ).scalars().all()
     failed_jobs = [job for job in jobs if job.status == "failed"]
-    if batch.status == "completed" and not failed_jobs:
+    if batch.status in ("pending", "running"):
+        status = "RUNNING"
+    elif batch.status == "completed" and not failed_jobs:
         status = "READY"
     elif batch.status == "failed" or (
         jobs and not any(job.status == "completed" for job in jobs)

@@ -52,15 +52,6 @@ IS_POSTGRES = True
 HOST = os.getenv("PROJECT_RAG_HOST", "127.0.0.1")
 PORT = int(os.getenv("PROJECT_RAG_PORT", "8922"))
 
-# MinerU settings
-LOCAL_MINERU_BIN = BASE_DIR / ".mineru-venv" / "bin" / "mineru"
-MINERU_BIN = os.getenv(
-    "MINERU_BIN",
-    str(LOCAL_MINERU_BIN) if LOCAL_MINERU_BIN.exists() else "mineru"
-)
-MINERU_BACKEND = os.getenv("MINERU_BACKEND", "").strip()
-MINERU_API_URL = os.getenv("MINERU_API_URL", "").strip()
-
 # Embedding settings
 EMBEDDING_BACKEND = os.getenv("PROJECT_RAG_EMBEDDING_BACKEND", "bge_m3").strip()
 EMBEDDING_MODEL = os.getenv("PROJECT_RAG_EMBEDDING_MODEL", "BAAI/bge-m3")
@@ -74,8 +65,16 @@ EMBEDDING_MAX_LENGTH = int(os.getenv("PROJECT_RAG_EMBEDDING_MAX_LENGTH", "2048")
 RERANKER_ENABLED = os.getenv("PROJECT_RAG_RERANKER_ENABLED", "0").strip().lower() in {
     "1", "true", "yes", "on",
 }
-RERANKER_BACKEND = os.getenv("PROJECT_RAG_RERANKER_BACKEND", "bge_v2_m3").strip()
-RERANKER_MODEL = os.getenv("PROJECT_RAG_RERANKER_MODEL", "BAAI/bge-reranker-v2-m3")
+RERANKER_BACKEND = (
+    os.getenv("PROJECT_RAG_RERANKER_BACKEND", "bge_v2_m3").strip()
+    if RERANKER_ENABLED
+    else "off"
+)
+RERANKER_MODEL = (
+    os.getenv("PROJECT_RAG_RERANKER_MODEL", "BAAI/bge-reranker-v2-m3")
+    if RERANKER_ENABLED
+    else ""
+)
 RERANK_TOP_N = int(os.getenv("PROJECT_RAG_RERANK_TOP_N", "30"))
 
 # Worker settings

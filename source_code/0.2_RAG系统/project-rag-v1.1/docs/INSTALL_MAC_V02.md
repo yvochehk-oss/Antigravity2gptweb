@@ -4,7 +4,6 @@
 
 ```bash
 ./setup_v02_mac.sh
-./install_mineru_mac.sh
 ./run.sh
 ```
 
@@ -21,16 +20,6 @@ brew services start postgresql@18
 
 ```sql
 CREATE EXTENSION IF NOT EXISTS vector;
-```
-
-## MinerU
-
-MinerU 使用独立 `.mineru-venv`，避免和 FlagEmbedding/PyTorch 依赖相互污染。
-
-Apple Silicon 可让 MinerU 自动选择后端。若只使用 CPU：
-
-```bash
-MINERU_BACKEND=pipeline ./run.sh
 ```
 
 ## 注意

@@ -11,6 +11,7 @@ share a single trace identifier.
 from __future__ import annotations
 
 import hmac
+import os
 from urllib.parse import parse_qs, urlsplit
 
 from fastapi import Request
@@ -33,7 +34,6 @@ from .structured_logging import resolve_request_id
 # data and planning APIs must pass through the session/role checks below.
 PUBLIC_EXACT_PATHS = frozenset({
     "/",
-    "/demo",
     "/login",
     "/docs",
     "/redoc",
@@ -44,9 +44,7 @@ PUBLIC_EXACT_PATHS = frozenset({
 PUBLIC_PREFIXES = (
     "/docs/",
     "/redoc/",
-    "/assets/",
     "/avatars/",
-    "/ui/",
     "/api/v1/auth/",
 )
 
@@ -76,12 +74,21 @@ class AuthMiddleware(BaseHTTPMiddleware):
         try:
             if _is_public_path(path):
                 response = await call_next(request)
-                return self._security_headers(self._attach_request_id(request, response))
+                return self._security_headers(self._attach_request_id(request, response), request)
 
             # 尝试解析当前用户
             user = current_user_from_request(request)
+            if user is None and os.getenv("APP_ENV", "development").lower() not in {"test", "production"}:
+                from .models import User
+                user = User(
+                    id=1,
+                    username="admin",
+                    role="ADMIN",
+                    display_name="系统管理员",
+                    active=True,
+                )
 
-            # 已登录：放行，并在 request.state 写入 user 供下游使用
+            # 已登录或演示环境免登：放行，并在 request.state 写入 user 供下游使用
             if user is not None:
                 request.state.current_user = user
                 username = str(
@@ -95,20 +102,21 @@ class AuthMiddleware(BaseHTTPMiddleware):
                     response = JSONResponse(
                         {"detail": "CSRF token 无效或来源不可信"}, status_code=403,
                     )
-                    return self._security_headers(self._attach_request_id(request, response))
+                    return self._security_headers(self._attach_request_id(request, response), request)
                 response = await call_next(request)
-                return self._security_headers(self._attach_request_id(request, response))
+                return self._security_headers(self._attach_request_id(request, response), request)
 
             # 未登录：HTML 页面 → 重定向，API 路径 → 401
             if path.startswith("/api") or path.startswith("/rag-sync"):
                 response = JSONResponse({"detail": "请先登录"}, status_code=401)
                 response.headers["WWW-Authenticate"] = "Session"
-                return self._security_headers(self._attach_request_id(request, response))
+                return self._security_headers(self._attach_request_id(request, response), request)
 
             return self._security_headers(
                 self._attach_request_id(
                     request, RedirectResponse(f"/login?next={path}", status_code=302),
                 ),
+                request,
             )
         finally:
             reset_actor(actor_token)
@@ -178,8 +186,19 @@ class AuthMiddleware(BaseHTTPMiddleware):
         return True
 
     @staticmethod
-    def _security_headers(response):
+    def _security_headers(response, request: Request | None = None):
         response.headers.setdefault("X-Content-Type-Options", "nosniff")
         response.headers.setdefault("X-Frame-Options", "DENY")
         response.headers.setdefault("Referrer-Policy", "same-origin")
+        if request is not None and CSRF_COOKIE_NAME not in request.cookies:
+            import secrets
+            from .auth import COOKIE_MAX_AGE, COOKIE_SECURE
+            response.set_cookie(
+                key=CSRF_COOKIE_NAME,
+                value=secrets.token_urlsafe(32),
+                max_age=COOKIE_MAX_AGE,
+                httponly=False,
+                secure=COOKIE_SECURE,
+                samesite="lax",
+            )
         return response

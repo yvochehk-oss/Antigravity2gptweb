@@ -154,11 +154,18 @@ def build_context(db: Session, pid: int, scope: str) -> dict[str, Any]:
         ledgers: list[dict[str, Any]] = []
         for period in _tax_periods(db, pid):
             rows = rebuild_tax_ledger(db, period)
-            ledgers += _serialize(rows, [
+            serialized = _serialize(rows, [
                 "period", "entity_code", "output_vat", "input_vat",
                 "vat_payable", "revenue", "real_cost",
                 "estimated_profit", "estimated_cit",
             ])
+            # 仅保留存在实际税费发生额的纳税主体，避免无效数据挤占上下文
+            active_rows = [
+                r for r in serialized
+                if r.get("vat_payable") or r.get("revenue") or r.get("real_cost")
+                or r.get("output_vat") or r.get("input_vat") or r.get("estimated_cit")
+            ]
+            ledgers += active_rows
         rules = db.execute(select(TaxRule)).scalars().all()
         base["tax_ledgers"] = ledgers
         base["tax_rule_review_status"] = _serialize(rules, [
