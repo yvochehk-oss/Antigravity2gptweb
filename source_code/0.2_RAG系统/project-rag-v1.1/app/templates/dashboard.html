@@ -235,33 +235,7 @@
       <span class="badge badge-cyan">{{ entity_summary.total }} 家</span>
     </h2>
     <style>
-/* 本地加载 HarmonyOS Sans SC */
-@font-face {
-  font-family: "HarmonyOS Sans SC";
-  src: url("/static/fonts/HarmonyOS_Sans_SC_Regular.woff2") format("woff2");
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: "HarmonyOS Sans SC";
-  src: url("/static/fonts/HarmonyOS_Sans_SC_Medium.woff2") format("woff2");
-  font-weight: 500;
-  font-style: normal;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: "HarmonyOS Sans SC";
-  src: url("/static/fonts/HarmonyOS_Sans_SC_Bold.woff2") format("woff2");
-  font-weight: 700;
-  font-style: normal;
-  font-display: swap;
-}
-
-
-      @keyframes tax-glow-pulse {
+@keyframes tax-glow-pulse {
         0% { box-shadow: 0 0 10px rgba(76, 215, 246, 0.15); opacity: 1; }
         50% { box-shadow: 0 0 20px rgba(76, 215, 246, 0.4); opacity: 0.8; }
         100% { box-shadow: 0 0 10px rgba(76, 215, 246, 0.15); opacity: 1; }
@@ -405,3 +379,14 @@
 </div>
 
 {% endblock %}
+
+/* ===========================================================
+   保持 Windows ClearType 亚像素渲染（系统字体方案下无需 swap）
+   -webkit-font-smoothing: auto  -> Windows 使用 ClearType
+                                -> macOS  使用视网膜灰度平滑
+   =========================================================== */
+*, *::before, *::after, html, body, .antialiased {
+  -webkit-font-smoothing: auto !important;
+  -moz-osx-font-smoothing: auto !important;
+  text-rendering: auto !important;
+}

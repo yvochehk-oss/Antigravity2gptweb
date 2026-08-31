@@ -16,33 +16,8 @@
  * ============================================================================
  */
 
-/* 本地加载 HarmonyOS Sans SC 核心字重 */
-@font-face {
-  font-family: "HarmonyOS Sans SC";
-  src: url("/static/fonts/HarmonyOS_Sans_SC_Regular.woff2") format("woff2");
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: "HarmonyOS Sans SC";
-  src: url("/static/fonts/HarmonyOS_Sans_SC_Medium.woff2") format("woff2");
-  font-weight: 500;
-  font-style: normal;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: "HarmonyOS Sans SC";
-  src: url("/static/fonts/HarmonyOS_Sans_SC_Bold.woff2") format("woff2");
-  font-weight: 700;
-  font-style: normal;
-  font-display: swap;
-}
-
 :root {
-  --font-ui: "HarmonyOS Sans SC", "Microsoft YaHei UI", "Microsoft YaHei", "Segoe UI", Arial, sans-serif;
+  --font-ui: "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "Segoe UI", Arial, sans-serif;
   --font-mono: "Cascadia Code", "Consolas", "Courier New", monospace;
 }
 
@@ -95,7 +70,7 @@
 }
 
 body {
-  font-family: "HarmonyOS Sans SC", "Microsoft YaHei UI", "Microsoft YaHei", "Segoe UI", Arial, sans-serif;
+  font-family: "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "Segoe UI", Arial, sans-serif;
   background-color: var(--bg-primary);
   color: var(--text-primary);
   line-height: 1.5;
