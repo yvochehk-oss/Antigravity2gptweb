@@ -1,6 +1,6 @@
 ---
 name: safari-chatgpt-reasoner
-description: 双层混合 Agent 系统：以 Safari/Chrome ChatGPT 网页端为云端认知控制面（High Intelligence / Zero Privilege），以本地 Agent 为确定性数据面（High Privilege / Low Ambiguity）。v4.1 起强制执行 Tab 精确绑定 + 跨进程事务锁 + 精确 user-message identity + assistant message-id 稳定阶段，证据完整性真正可机验。浏览器通道可选 Safari（AppleScript）或 Chrome（CDP）；所有 P0/P1/P2 契约完全等价。
+description: 双层混合 Agent 系统：以 Safari/Chrome ChatGPT 网页端为云端认知控制面（High Intelligence / Zero Privilege），以本地 Agent 为确定性数据面（High Privilege / Low Ambiguity）。v4.1 起强制执行 Tab 精确绑定 + 跨进程事务锁 + 精确 user-message identity + assistant message-id 稳定阶段，证据完整性真正可机验。含端到端 Orchestrator（scripts/orchestrate.py）：Antigravity 为主 Agent，GPT-5.6 SOL 生成方案和代码，GitHub 留底，每任务闭环可自动修复。
 ---
 
 # Safari / Chrome ChatGPT Reasoner Skill (v4.1 Evidence-Integrity)
@@ -207,3 +207,112 @@ v4.1 **删除** `--new` 参数。新会话的开启由 Execution Plane 在调用
 3. 由本桥以 Hard Binding 接管该会话的全部交互。
 
 这样 Hard Tab Binding 与"主动切换会话 URL" 不再存在结构性冲突。
+
+---
+
+## Orchestrator：端到端任务编排器
+
+`scripts/orchestrate.py` 在 bridge 之上构建了完整的任务闭环。
+
+### 架构
+
+```
+开发者需求
+    │
+    ▼
+orchestrate.py init ────→ GPT-5.6 生成方案（plan）
+    │
+    ▼
+orchestrate.py refine（可选，用户反复核对）
+    │
+    ▼
+orchestrate.py lock ────→ 解析为任务列表，推送到 GitHub
+    │
+    ▼
+orchestrate.py run-task × N ────→ 每个任务的闭环：
+    │
+    ├── GPT 生成代码（task-code）
+    ├── Antigravity 写文件
+    ├── git add + commit + push
+    ├── Antigravity 跑测试
+    ├── GPT 审查测试结果（task-review）
+    └── 裁决：APPROVED / NEEDS_FIX（自动修复） / BLOCKED（暂停等人工）
+    │
+    ▼
+全部任务完成 → 项目交付
+```
+
+### 新增 `--type` 协议
+
+| type | 用途 | GPT 输出要求 |
+|---|---|---|
+| `task-code` | 单任务代码生成 | 每个文件以 `filepath: <path>` 标记；测试命令以 `TEST:` 标记 |
+| `task-review` | 代码 + 测试结果审查 | 只输出 `APPROVED` / `NEEDS_FIX(原因)` / `BLOCKED(原因)` |
+
+### Orchestrator 子命令速查
+
+```bash
+# 初始化项目（生成初始方案）
+python3 scripts/orchestrate.py init \
+  --name my-migration \
+  --requirement "把 Flask 认证迁移到 FastAPI + JWT" \
+  --target-url "https://chatgpt.com/c/xxx" \
+  --repo git@github.com:xxx/yyy.git \
+  --cwd /path/to/repo \
+  --browser safari
+
+# 方案审核与修改（可多次，直到满意）
+python3 scripts/orchestrate.py refine \
+  --name my-migration \
+  --feedback "第3步风险太高，能不能先做兼容性 shim"
+
+# 锁定方案（解析为任务列表，提交到 GitHub）
+python3 scripts/orchestrate.py lock --name my-migration
+
+# 执行单个任务（交互模式：每步等用户）
+python3 scripts/orchestrate.py run-task --name my-migration --task-id 1
+
+# 执行所有 pending 任务（全自动）
+python3 scripts/orchestrate.py run-task --name my-migration --autonomous
+
+# 全自动 + 任务失败也继续下一个
+python3 scripts/orchestrate.py run-task --name my-migration \
+  --autonomous --continue-on-fail
+
+# 查看状态
+python3 scripts/orchestrate.py status --name my-migration
+```
+
+### 状态文件
+
+- `~/.antigravity/orchestrator/<name>.state.json` — 完整项目状态
+- `~/.antigravity/orchestrator/<name>/PLAN.md` — 当前方案（可编辑）
+- `~/.antigravity/orchestrator/<name>/TASKS.json` — 解析后的任务列表
+
+每个任务状态：
+- `pending` → `coding` → `testing` → `approved` / `failed` / `blocked`
+
+### 单任务闭环内部流程
+
+```
+GPT (task-code) ──代码块──→ Antigravity 写文件
+                                 │
+                          git add + commit + push
+                                 │
+                          Antigravity 跑测试命令
+                                 │
+                          GPT (task-review)
+                                 │
+                    ┌─────────────┼─────────────┐
+                 APPROVED     NEEDS_FIX       BLOCKED
+                   (下一任务)   (自动修复 ≤5 轮)  (暂停)
+```
+
+### 关键设计原则
+
+- **单向依赖**：GPT 只能给方案，Antigravity 负责执行。责任边界清晰。
+- **GitHub 为真**：每一次代码变更都 commit + push，GitHub 是最终事实来源。
+- **可恢复**：所有状态持久化到 `~/.antigravity/orchestrator/`，Ctrl+C 后可直接 `resume`。
+- **自动修复**：GPT 裁决 NEEDS_FIX 时，自动把修复提示传回 GPT 重写代码并重新跑测试（最多 5 轮）。
+- **可信证据**：所有 bridge 调用走事件 JSONL，stderr 记录每次 GPT 请求/响应的基线快照。
+

@@ -152,6 +152,108 @@ PR merge → 切回阶段二，跑第二步。循环直到 5 步全做完。
 
 ---
 
+## 全自动模式：Orchestrator 编排器
+
+如果觉得每次手动调用太麻烦，`scripts/orchestrate.py` 提供了**零交互的端到端闭环**。你只需要：
+1. 告诉 Antigravity 要做什么
+2. 看 Antigravity 自动完成剩余所有事
+
+### 原理：Antigravity 是主 Agent
+
+```
+开发者（你）
+  │
+  │  "我要把 Flask 迁移到 FastAPI"
+  ▼
+Antigravity orchestrator
+  │
+  ├── GPT-5.6 生成方案（用户可反复核对）
+  ├── 锁定方案，推送到 GitHub
+  │
+  └── 对每个任务循环执行：
+      │
+      ├── GPT-5.6 生成代码（按 filepath 格式输出）
+      ├── Antigravity 写文件 → git commit + push
+      ├── Antigravity 跑测试（pytest / npm test / ...）
+      ├── GPT-5.6 审查测试结果
+      ├── 裁决：✅ APPROVED → 下一任务
+      │              ❌ NEEDS_FIX → 自动重写 + 重测（最多 5 轮）
+      │              🚫 BLOCKED → 暂停等人工
+      │
+      └── 全部完成 → 项目交付，GitHub 有完整 commit 历史
+```
+
+### 完整命令流
+
+```bash
+# 1. 初始化项目（生成初始方案）
+python3 scripts/orchestrate.py init \
+  --name flask-to-fastapi \
+  --requirement "把 Flask 项目迁移到 FastAPI，要求分 5 步，每步可单独测试" \
+  --target-url "https://chatgpt.com/c/xxx" \
+  --repo git@github.com:xxx/yyy.git \
+  --cwd ./my-project
+
+# 2. 审核方案（可选，重复直到满意）
+python3 scripts/orchestrate.py refine \
+  --name flask-to-fastapi \
+  --feedback "第3步风险太高，能不能先做兼容性 shim"
+
+# 3. 锁定方案（解析为任务列表，push 到 GitHub）
+python3 scripts/orchestrate.py lock --name flask-to-fastapi
+
+# 4a. 单步执行（交互模式：等用户确认后继续下一步）
+python3 scripts/orchestrate.py run-task --name flask-to-fastapi --task-id 1
+
+# 4b. 全自动跑完（不等待，每步自动闭环）
+python3 scripts/orchestrate.py run-task \
+  --name flask-to-fastapi --autonomous
+
+# 4c. 全自动 + 任务失败也继续下一个
+python3 scripts/orchestrate.py run-task \
+  --name flask-to-fastapi --autonomous --continue-on-fail
+
+# 5. 查看状态
+python3 scripts/orchestrate.py status --name flask-to-fastapi
+```
+
+### GPT 代码输出格式（Orchestrator 专用）
+
+要让 Orchestrator 正确解析代码，必须严格按以下格式输出：
+
+```markdown
+```python
+<filepath: src/auth/jwt.py>
+import jwt
+...
+```
+
+```bash
+TEST: pytest tests/auth/test_jwt.py -v
+EXPECTED: all tests pass
+```
+```
+
+> ⚠️ 每个文件必须以 `<filepath: path/to/file>` 开头，新建文件用 `<filepath: NEW: path/to/file>`。禁止在代码块外写任何代码。
+
+### GPT 审查裁决格式
+
+GPT 审查测试结果后，必须严格只输出以下三种之一：
+
+```
+APPROVED
+```
+或
+```
+NEEDS_FIX: session 处理有 bug，requests.headers['Authorization'] 拼写错误
+```
+或
+```
+BLOCKED: 缺少依赖 pydantic-settings，请先 pip install
+```
+
+---
+
 ## 浏览器怎么选？
 
 | 你的环境 | 推荐 | 备注 |
