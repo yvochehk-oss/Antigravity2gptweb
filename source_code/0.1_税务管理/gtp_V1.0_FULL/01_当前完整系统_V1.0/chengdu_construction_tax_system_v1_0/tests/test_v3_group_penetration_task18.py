@@ -9,7 +9,6 @@ import pytest
 from sqlalchemy import create_engine, inspect, select
 from sqlalchemy.orm import Session
 
-from app.calc.basis.cash_basis import CashBasisNotReady
 from app.calc.penetration.group import (
     ACCRUAL_RECURSIVE_SQL,
     GroupCycleDetected,
@@ -156,6 +155,7 @@ def test_tax_penetration_fails_closed_without_official_vat_ledger(seeded_app, po
             tax_snapshot(session, period=date(2099, 12, 1))
 
 
-def test_cash_penetration_fails_closed_before_payment_fact():
-    with pytest.raises(CashBasisNotReady, match="PaymentFact"):
-        require_cash_penetration()
+def test_cash_penetration_contract_is_available_after_task19():
+    result = require_cash_penetration()
+    assert result.basis.value == "CASH"
+    assert result.status.value == "COMPLETE"
