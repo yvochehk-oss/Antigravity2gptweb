@@ -74,7 +74,14 @@ def _ensure_version_column_capacity(connection) -> None:
         ),
         {"table_name": VERSION_TABLE},
     ).scalar_one_or_none()
-    if length is not None and int(length) < VERSION_COLUMN_LENGTH:
+    if length is None:
+        connection.execute(
+            text(
+                "CREATE TABLE IF NOT EXISTS alembic_version_tax "
+                "(version_num VARCHAR(64) NOT NULL PRIMARY KEY)"
+            )
+        )
+    elif int(length) < VERSION_COLUMN_LENGTH:
         connection.execute(
             text(
                 "ALTER TABLE IF EXISTS alembic_version_tax "

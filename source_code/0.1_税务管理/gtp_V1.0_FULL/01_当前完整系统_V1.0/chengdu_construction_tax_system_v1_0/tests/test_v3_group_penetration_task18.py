@@ -26,6 +26,21 @@ from app.v3_party_models import InternalEntity, Party
 
 
 def _parties(session: Session):
+    for code in ["A08", "B01", "C01"]:
+        entity = session.scalar(select(InternalEntity).where(InternalEntity.canonical_code == code))
+        if entity is None:
+            party = Party(code=code, name=f"{code} Company", short_name=code, party_type="internal", active=True)
+            session.add(party)
+            session.flush()
+            entity = InternalEntity(party_id=party.id, canonical_code=code, business_role="company", legal_entity=True, active=True)
+            session.add(entity)
+            session.flush()
+    for ext_code in ["EXT-T18-1", "EXT-T18-2"]:
+        ext = session.scalar(select(Party).where(Party.code == ext_code))
+        if ext is None:
+            ext = Party(code=ext_code, name=f"External {ext_code}", short_name=ext_code, party_type="external", active=True)
+            session.add(ext)
+            session.flush()
     internal = {
         row.canonical_code: int(row.party_id)
         for row in session.scalars(
