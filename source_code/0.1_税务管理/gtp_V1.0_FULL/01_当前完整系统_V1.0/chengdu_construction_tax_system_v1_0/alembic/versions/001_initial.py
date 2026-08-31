@@ -889,7 +889,7 @@ def upgrade() -> None:
         sa.Column("fields_json", sa.Text(), nullable=False),
         sa.Column("status", sa.String(20), nullable=False),
         sa.Column("confirmed_record_id", sa.Integer(), nullable=True),
-        sa.Column("confirmed_at", sa.String(30), nullable=False),
+        sa.Column("confirmed_at", sa.String(30), nullable=True),  # 待确认时为 NULL，确认后写入时间戳
         sa.Column("confirmed_by", sa.String(80), nullable=False),
         sa.Column("note", sa.String(200), nullable=False),
         sa.ForeignKeyConstraint(["sync_log_id"], ["sync_logs.id"]),

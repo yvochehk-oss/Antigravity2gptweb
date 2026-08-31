@@ -613,7 +613,7 @@ class SyncPending(Base):
     fields_json: Mapped[str] = mapped_column(Text, default="{}")
     status: Mapped[str] = mapped_column(String(20), default="pending", index=True)  # pending/confirmed/rejected
     confirmed_record_id: Mapped[int | None] = mapped_column(Integer, nullable=True)  # 确认后对应的税务记录 ID
-    confirmed_at: Mapped[str] = mapped_column(IsoDateTime, default="")
+    confirmed_at: Mapped[str | None] = mapped_column(IsoDateTime, nullable=True, default=None)  # 待确认时为 None，确认后记录时间戳
     confirmed_by: Mapped[str] = mapped_column(String(80), default="")
     note: Mapped[str] = mapped_column(String(200), default="")
 
