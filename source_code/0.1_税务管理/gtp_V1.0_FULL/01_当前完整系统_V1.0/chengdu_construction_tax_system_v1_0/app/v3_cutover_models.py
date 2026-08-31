@@ -1,4 +1,4 @@
-"""Task21 writer-cutover ORM models.
+"""Task21/22 cutover ORM models.
 
 These rows are control/evidence infrastructure; they never become business truth.
 """
@@ -33,6 +33,11 @@ class WriterCutoverState(Base):
         CheckConstraint("writer_mode IN ('SHADOW','DUAL_WRITE','V3_PRIMARY')", name="ck_writer_cutover_states_mode"),
         CheckConstraint("rag_source IN ('LEGACY','CANONICAL_FACTS')", name="ck_writer_cutover_states_rag_source"),
         CheckConstraint("new_fact_read_mode IN ('OFF','SHADOW','PRIMARY')", name="ck_writer_cutover_states_read_mode"),
+        CheckConstraint(
+            "(new_fact_read_mode='SHADOW' AND rag_source='LEGACY') OR "
+            "(new_fact_read_mode='PRIMARY' AND rag_source='CANONICAL_FACTS')",
+            name="ck_writer_cutover_states_reader_rag_pair",
+        ),
         CheckConstraint(
             "(writer_mode='SHADOW' AND legacy_write_enabled IS TRUE AND new_fact_write_enabled IS FALSE AND rag_source='LEGACY' AND new_fact_read_mode='SHADOW' AND legacy_frozen IS FALSE) OR "
             "(writer_mode='DUAL_WRITE' AND legacy_write_enabled IS TRUE AND new_fact_write_enabled IS TRUE AND rag_source='LEGACY' AND new_fact_read_mode='SHADOW' AND legacy_frozen IS FALSE) OR "
