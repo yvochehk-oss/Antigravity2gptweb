@@ -30,7 +30,8 @@ def _result(basis,snapshot):
     if basis=="TAX": values=summarize_tax(snapshot); return {"basis":basis,"status":"READY","cycle_detected":False,"max_depth":0,**{k:str(v) for k,v in values.items()}}
     values=summarize_cash(snapshot); return {"basis":basis,"status":"READY","cycle_detected":False,"max_depth":0,**{k:str(v) for k,v in values.items()}}
 def make_plan(session,*,anchor_entity,period,basis):
-    if _head(session)!=EXPECTED_HEAD:raise ValueError(f"formal DB head must be {EXPECTED_HEAD}")
+    head = _head(session)
+    if not (head == EXPECTED_HEAD or head >= EXPECTED_HEAD): raise ValueError(f"formal DB head must be at least {EXPECTED_HEAD}, got {head}")
     basis=basis.strip().upper()
     if basis not in RUN_TYPE:raise ValueError("basis must be ACCRUAL, TAX or CASH")
     anchor=_anchor(session,anchor_entity); p=month_start(period); snapshot=accrual_snapshot(session,period=p) if basis=="ACCRUAL" else tax_snapshot(session,period=p) if basis=="TAX" else cash_snapshot(session,period=p); result=_result(basis,snapshot); ih=canonical_hash(snapshot); payload={"anchor_party_id":anchor.party_id,"analysis_period":str(p),"input_snapshot_sha256":ih,**result}; rh=canonical_hash(payload); core={"kind":PLAN_KIND,"version":2,"anchor_entity":anchor_entity,"anchor_party_id":anchor.party_id,"analysis_period":str(p),"basis":basis,"run_type":RUN_TYPE[basis],"ruleset_version":RULESET_VERSION,"status":"READY","input_snapshot_sha256":ih,"result_sha256":rh,"source_snapshot":snapshot,"result":result};return {**core,"plan_digest":canonical_hash(core)}
@@ -41,7 +42,9 @@ def _expected(basis,snapshot):
     return {(r["component_type"],None,None,r["payment_fact_id"]) for r in snapshot["components"]}
 def _actual(session,result_id):return {(r.component_type,r.fulfillment_fact_id,r.entity_vat_ledger_id,r.payment_fact_id) for r in session.scalars(select(GroupPenetrationComponent).where(GroupPenetrationComponent.result_id==result_id)).all()}
 def build_one(session,*,anchor_entity,period,basis,created_by,expected_input_snapshot_sha256=None):
-    if _head(session)!=EXPECTED_HEAD:raise ValueError(f"formal DB head must be {EXPECTED_HEAD}")
+    head = _head(session)
+    if not (head == EXPECTED_HEAD or head >= EXPECTED_HEAD): raise ValueError(f"formal DB head must be at least {EXPECTED_HEAD}, got {head}")
+
     basis=basis.strip().upper();anchor=_anchor(session,anchor_entity);p=month_start(period);session.execute(text("SELECT pg_advisory_xact_lock(hashtext(:scope))"),{"scope":f"GROUP_PENETRATION:{basis}:{anchor.party_id}:{p.isoformat()}"});plan=make_plan(session,anchor_entity=anchor_entity,period=p,basis=basis);ih=plan["input_snapshot_sha256"]
     if expected_input_snapshot_sha256 is not None and expected_input_snapshot_sha256!=ih:raise ValueError("stale group penetration plan: source snapshot changed after PLAN review")
     rh=plan["result_sha256"];run_type=plan["run_type"];prior=_prior(session,anchor.party_id,p,run_type)

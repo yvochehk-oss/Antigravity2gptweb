@@ -49,7 +49,9 @@ def _legacy_snapshot(row):
     return {"id":row.id,"project_id":row.project_id,"entity_code":row.entity_code,"counterparty_code":row.counterparty_code,"direction":row.direction,"amount":str(row.amount),"period":row.period,"transaction_date":row.transaction_date,"bank_reference":row.bank_reference,"source_fingerprint":row.source_fingerprint,"note":row.note}
 
 def make_plan(session: Session, *, legacy_cashflow_id: int) -> dict[str, Any]:
-    if _head(session)!=EXPECTED_HEAD: raise ValueError(f"formal DB head must be {EXPECTED_HEAD}")
+    head = _head(session)
+    if not (head == EXPECTED_HEAD or head >= EXPECTED_HEAD): raise ValueError(f"formal DB head must be at least {EXPECTED_HEAD}, got {head}")
+
     row=session.get(CashFlow,legacy_cashflow_id)
     if row is None: raise ValueError(f"legacy cashflow {legacy_cashflow_id} not found")
     entity,eerr=_resolve_party(session,row.entity_code); counterparty,cerr=_resolve_party(session,row.counterparty_code); transaction_date,derr=_parse_date(row.transaction_date)
@@ -69,7 +71,9 @@ def make_plan(session: Session, *, legacy_cashflow_id: int) -> dict[str, Any]:
     return {**core,"plan_digest":canonical_hash(core)}
 
 def build_one(session: Session, *, legacy_cashflow_id: int, expected_plan_digest: str|None=None) -> dict[str, Any]:
-    if _head(session)!=EXPECTED_HEAD: raise ValueError(f"formal DB head must be {EXPECTED_HEAD}")
+    head = _head(session)
+    if not (head == EXPECTED_HEAD or head >= EXPECTED_HEAD): raise ValueError(f"formal DB head must be at least {EXPECTED_HEAD}, got {head}")
+
     session.execute(text("SELECT pg_advisory_xact_lock(hashtext(:scope))"),{"scope":f"PAYMENT_BACKFILL:{legacy_cashflow_id}"})
     existing=session.get(LegacyCashflowMap,legacy_cashflow_id)
     if existing is not None: return {"status":"NO_CHANGE","legacy_cashflow_id":legacy_cashflow_id,"map_status":existing.status,"payment_fact_id":existing.payment_fact_id}
