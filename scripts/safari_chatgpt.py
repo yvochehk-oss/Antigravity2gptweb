@@ -115,6 +115,7 @@ def emit_event(stage: str, exit_code: int, message: str, **extra) -> None:
         "exit_code": exit_code,
         "exit_name": EXIT_CODE_NAME.get(exit_code, "UNKNOWN"),
         "message": message,
+        "browser": "safari",
     }
     payload.update(extra)
     payload = _sanitize_event_value(payload)

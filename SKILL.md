@@ -24,7 +24,7 @@ description: 双层混合 Agent 系统：以 Safari/Chrome ChatGPT 网页端为�
    - `0`: 正常完成，证据完整
    - `2`: 超时（拿到部分内容，`TIMEOUT_PARTIAL`）
    - `3`: 超时（无内容，`TIMEOUT_EMPTY`）
-   - `4`: 浏览器 / JS 执行异常 (`BROWSER_FAIL`，Safari AppleScript 和 Chrome CDP 共用)
+   - `4`: 浏览器 / JS 执行异常 (Safari: `SAFARI_FAIL`, Chrome: `BROWSER_FAIL`)
    - `5`: 基线采集失败 (`BASELINE_FAIL`)
    - `6`: 用户消息未真正提交 (`SUBMIT_FAIL`)
    - `7`: 助手新回合未产生 (`NO_NEW_TURN`)
@@ -155,10 +155,10 @@ esac
 
 事件流（stderr JSONL）示例：
 ```jsonl
-{"ts": 1725000001.0, "stage": "baseline", "exit_code": 0, "exit_name": "OK", "message": "基线采集成功", "totalCount": 12, "userCount": 6, "assistantCount": 6, "lastUserMessageId": "msg_abc"}
-{"ts": 1725000003.5, "stage": "submit_verify", "exit_code": 0, "exit_name": "OK", "message": "用户消息已提交（exact prompt match）", "newUserCount": 7, "newUserMessageId": "msg_def", "newTextLen": 842}
-{"ts": 1725000045.8, "stage": "new_turn", "exit_code": 0, "exit_name": "OK", "message": "助手新回合已开始", "newAssistantCount": 7, "messageId": "msg_ghi", "firstTextLen": 31}
-{"ts": 1725000060.2, "stage": "done", "exit_code": 0, "exit_name": "OK", "message": "捕获到最终生成内容（字数=1842）", "charCount": 1842, "targetMessageId": "msg_ghi"}
+{"ts": 1725000001.0, "stage": "baseline", "exit_code": 0, "exit_name": "OK", "message": "基线采集成功", "browser": "safari", "totalCount": 12, "userCount": 6, "assistantCount": 6, "lastUserMessageId": "msg_abc"}
+{"ts": 1725000003.5, "stage": "submit_verify", "exit_code": 0, "exit_name": "OK", "message": "用户消息已提交（exact prompt match）", "browser": "safari", "newUserCount": 7, "newUserMessageId": "msg_def", "newTextLen": 842}
+{"ts": 1725000045.8, "stage": "new_turn", "exit_code": 0, "exit_name": "OK", "message": "助手新回合已开始", "browser": "safari", "newAssistantCount": 7, "messageId": "msg_ghi", "firstTextLen": 31}
+{"ts": 1725000060.2, "stage": "done", "exit_code": 0, "exit_name": "OK", "message": "捕获到最终生成内容（字数=1842）", "browser": "safari", "charCount": 1842, "targetMessageId": "msg_ghi"}
 ```
 
 ### 新会话流程
