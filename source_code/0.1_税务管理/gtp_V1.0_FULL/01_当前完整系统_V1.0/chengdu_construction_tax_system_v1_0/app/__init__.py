@@ -18,6 +18,7 @@ from . import v3_project_analysis_models as v3_project_analysis_models  # noqa: 
 from . import v3_group_models as v3_group_models  # noqa: F401
 from . import v3_payment_models as v3_payment_models  # noqa: F401
 from . import v3_transaction_models as v3_transaction_models  # noqa: F401
+from . import v3_cutover_models as v3_cutover_models  # noqa: F401
 
 __all__ = [
     "models",
@@ -34,4 +35,5 @@ __all__ = [
     "v3_group_models",
     "v3_payment_models",
     "v3_transaction_models",
+    "v3_cutover_models",
 ]
