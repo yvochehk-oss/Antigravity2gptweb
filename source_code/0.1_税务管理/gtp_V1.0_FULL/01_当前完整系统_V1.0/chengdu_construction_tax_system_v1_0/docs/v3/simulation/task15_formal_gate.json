@@ -1,0 +1,394 @@
+{
+  "status": "PASS",
+  "failures": [],
+  "evidence": {
+    "database": "projectrag",
+    "alembic_db_heads": [
+      "87_v3_entity_tax_ledgers"
+    ],
+    "alembic_disk_heads": [
+      "87_v3_entity_tax_ledgers"
+    ],
+    "read_only_transaction": true,
+    "database_tables": [
+      "ai_consensus_reports",
+      "ai_model_endpoints",
+      "ai_prompt_templates",
+      "ai_review_batches",
+      "ai_review_jobs",
+      "ai_review_results",
+      "ai_review_runs",
+      "alembic_version_rag",
+      "alembic_version_tax",
+      "audit_logs",
+      "backup_records",
+      "benchmark_questions",
+      "benchmark_runs",
+      "budgets",
+      "business_rule_parameters",
+      "calculation_runs",
+      "cashflows",
+      "chunks",
+      "contract_facts",
+      "contracts",
+      "contracts_v3",
+      "cost_accounts",
+      "document_extractions",
+      "document_path_migrations_012",
+      "document_reviews",
+      "documents",
+      "entities",
+      "entity_bank_accounts",
+      "entity_tax_ledger_components",
+      "entity_tax_ledgers",
+      "entity_tax_management_inputs",
+      "entity_vat_ledger_components",
+      "entity_vat_ledgers",
+      "external_parties",
+      "fact_provenance",
+      "fact_relationships",
+      "facts",
+      "facts_request_logs",
+      "facts_snapshots",
+      "fulfillment",
+      "fulfillment_facts",
+      "idp_documents",
+      "ingest_jobs",
+      "input_vat_claims",
+      "internal_entities",
+      "invoice_facts",
+      "invoice_lines",
+      "invoices",
+      "invoices_v3",
+      "knowledge_conflicts",
+      "legacy_invoice_map",
+      "metric_versions",
+      "mount_configs",
+      "output_vat_events",
+      "parties",
+      "party_identifiers",
+      "party_migration_conflicts",
+      "party_tax_profiles",
+      "planning_allocations",
+      "planning_scenarios",
+      "progress",
+      "project_rag_map",
+      "project_tax_treatments",
+      "projects",
+      "query_feedback",
+      "query_logs",
+      "rag_evidence_packs",
+      "rag_llm_model_endpoints",
+      "rag_service_endpoints",
+      "real_cost_invoice_links",
+      "real_costs",
+      "regulation_articles",
+      "regulation_chunks",
+      "regulations",
+      "remediation_tasks",
+      "risk_events",
+      "risk_thresholds",
+      "source_documents",
+      "sync_logs",
+      "sync_pending",
+      "tax_ledgers",
+      "tax_payment_records",
+      "tax_period_states",
+      "tax_prepayment_facts",
+      "tax_rules",
+      "users",
+      "vat_opening_balance_seeds",
+      "vat_output_period_assertions"
+    ],
+    "schema": {
+      "tables_present": [
+        "entity_tax_ledger_components",
+        "entity_tax_ledgers",
+        "entity_tax_management_inputs"
+      ],
+      "missing_tables": [],
+      "columns": {
+        "entity_tax_ledger_components": [
+          "amount",
+          "component_type",
+          "created_at",
+          "id",
+          "ledger_id",
+          "management_input_id"
+        ],
+        "entity_tax_ledgers": [
+          "calculation_run_id",
+          "created_at",
+          "entity_vat_ledger_id",
+          "estimated_cit",
+          "estimated_profit",
+          "id",
+          "input_snapshot_sha256",
+          "real_cost",
+          "reporting_party_id",
+          "result_sha256",
+          "revenue",
+          "rule_version",
+          "tax_period"
+        ],
+        "entity_tax_management_inputs": [
+          "amount",
+          "created_at",
+          "id",
+          "input_type",
+          "input_version",
+          "note",
+          "reporting_party_id",
+          "reviewed",
+          "reviewed_at",
+          "reviewed_by",
+          "source",
+          "source_document_id",
+          "tax_period"
+        ]
+      },
+      "prohibited_columns": {
+        "entity_tax_ledger_components": [],
+        "entity_tax_ledgers": [],
+        "entity_tax_management_inputs": []
+      },
+      "indexes": {
+        "entity_tax_ledger_components": [
+          "ix_entity_tax_ledger_components_input",
+          "ix_entity_tax_ledger_components_ledger",
+          "uq_entity_tax_ledger_components_input",
+          "uq_entity_tax_ledger_components_type"
+        ],
+        "entity_tax_ledgers": [
+          "entity_tax_ledgers_calculation_run_id_key",
+          "ix_entity_tax_ledgers_scope",
+          "uq_entity_tax_ledgers_scope_run"
+        ],
+        "entity_tax_management_inputs": [
+          "ix_entity_tax_management_inputs_scope",
+          "ix_entity_tax_management_inputs_source_document",
+          "uq_entity_tax_management_inputs_scope_type_version"
+        ]
+      },
+      "missing_indexes": {
+        "entity_tax_ledger_components": [],
+        "entity_tax_ledgers": [],
+        "entity_tax_management_inputs": []
+      },
+      "foreign_keys": {
+        "entity_tax_ledger_components": [
+          [
+            [
+              "ledger_id"
+            ],
+            "entity_tax_ledgers",
+            [
+              "id"
+            ]
+          ],
+          [
+            [
+              "management_input_id"
+            ],
+            "entity_tax_management_inputs",
+            [
+              "id"
+            ]
+          ]
+        ],
+        "entity_tax_ledgers": [
+          [
+            [
+              "calculation_run_id"
+            ],
+            "calculation_runs",
+            [
+              "id"
+            ]
+          ],
+          [
+            [
+              "entity_vat_ledger_id"
+            ],
+            "entity_vat_ledgers",
+            [
+              "id"
+            ]
+          ],
+          [
+            [
+              "reporting_party_id"
+            ],
+            "internal_entities",
+            [
+              "party_id"
+            ]
+          ]
+        ],
+        "entity_tax_management_inputs": [
+          [
+            [
+              "reporting_party_id"
+            ],
+            "internal_entities",
+            [
+              "party_id"
+            ]
+          ],
+          [
+            [
+              "source_document_id"
+            ],
+            "source_documents",
+            [
+              "id"
+            ]
+          ]
+        ]
+      },
+      "missing_foreign_keys": {
+        "entity_tax_ledger_components": [],
+        "entity_tax_ledgers": [],
+        "entity_tax_management_inputs": []
+      },
+      "uniques": {
+        "entity_tax_ledger_components": [
+          [
+            "ledger_id",
+            "component_type"
+          ],
+          [
+            "ledger_id",
+            "management_input_id"
+          ]
+        ],
+        "entity_tax_ledgers": [
+          [
+            "calculation_run_id"
+          ],
+          [
+            "reporting_party_id",
+            "tax_period",
+            "calculation_run_id"
+          ]
+        ],
+        "entity_tax_management_inputs": [
+          [
+            "reporting_party_id",
+            "tax_period",
+            "input_type",
+            "input_version"
+          ]
+        ]
+      },
+      "missing_uniques": {
+        "entity_tax_ledger_components": [],
+        "entity_tax_ledgers": [],
+        "entity_tax_management_inputs": []
+      },
+      "checks": {
+        "entity_tax_ledger_components": [
+          "ck_entity_tax_ledger_components_amount_nonnegative",
+          "ck_entity_tax_ledger_components_type",
+          "ck_entity_tax_ledger_components_typed_source"
+        ],
+        "entity_tax_ledgers": [
+          "ck_entity_tax_ledgers_amounts_nonnegative",
+          "ck_entity_tax_ledgers_cit_nonnegative",
+          "ck_entity_tax_ledgers_input_hash_length",
+          "ck_entity_tax_ledgers_loss_zero_cit",
+          "ck_entity_tax_ledgers_period_month_start",
+          "ck_entity_tax_ledgers_profit_formula",
+          "ck_entity_tax_ledgers_result_hash_length",
+          "ck_entity_tax_ledgers_rule_version_nonblank"
+        ],
+        "entity_tax_management_inputs": [
+          "ck_entity_tax_management_inputs_amount_nonnegative",
+          "ck_entity_tax_management_inputs_period_month_start",
+          "ck_entity_tax_management_inputs_reviewed",
+          "ck_entity_tax_management_inputs_source_nonblank",
+          "ck_entity_tax_management_inputs_type",
+          "ck_entity_tax_management_inputs_version_positive"
+        ]
+      },
+      "missing_checks": {
+        "entity_tax_ledger_components": [],
+        "entity_tax_ledgers": [],
+        "entity_tax_management_inputs": []
+      },
+      "triggers": [
+        {
+          "trigger_name": "trg_v3_guard_entity_tax_ledger_component_immutable",
+          "table_name": "entity_tax_ledger_components",
+          "enabled": "O"
+        },
+        {
+          "trigger_name": "trg_v3_guard_entity_tax_ledger_component_reconciliation",
+          "table_name": "entity_tax_ledger_components",
+          "enabled": "O"
+        },
+        {
+          "trigger_name": "trg_v3_guard_entity_tax_ledger_component_source",
+          "table_name": "entity_tax_ledger_components",
+          "enabled": "O"
+        },
+        {
+          "trigger_name": "trg_v3_guard_entity_tax_ledger_immutable",
+          "table_name": "entity_tax_ledgers",
+          "enabled": "O"
+        },
+        {
+          "trigger_name": "trg_v3_guard_entity_tax_ledger_period_state",
+          "table_name": "entity_tax_ledgers",
+          "enabled": "O"
+        },
+        {
+          "trigger_name": "trg_v3_guard_entity_tax_ledger_reconciliation",
+          "table_name": "entity_tax_ledgers",
+          "enabled": "O"
+        },
+        {
+          "trigger_name": "trg_v3_guard_entity_tax_ledger_scope",
+          "table_name": "entity_tax_ledgers",
+          "enabled": "O"
+        },
+        {
+          "trigger_name": "trg_v3_guard_entity_tax_management_input_mutation",
+          "table_name": "entity_tax_management_inputs",
+          "enabled": "O"
+        }
+      ],
+      "missing_triggers": [],
+      "disabled_triggers": []
+    },
+    "entity_tax_ledger_count": 1,
+    "official_entity_tax_ledger_ids": [
+      1
+    ],
+    "candidate_current_entity_tax_ledger_ids": [
+      1
+    ],
+    "invalid_entity_tax_ledger_ids": [],
+    "tax_rule_matches": {
+      "1": {
+        "code": "CIT_GENERAL",
+        "id": 4,
+        "rate": "0.2500",
+        "reviewed": true,
+        "effective_from": "2019-01-01",
+        "effective_to": null
+      }
+    },
+    "entity_tax_chain_run_ids": {
+      "8:2025-09-01": [
+        2
+      ]
+    },
+    "entity_tax_chain_errors": [],
+    "calculation_run_count": 2,
+    "entity_tax_period_state_count": 1,
+    "management_input_count": 2,
+    "tax_rule_count": 5,
+    "pilot_present": true
+  }
+}
