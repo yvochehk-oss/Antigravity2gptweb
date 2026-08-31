@@ -34,7 +34,7 @@
     <tbody>
       {% for mount in mounts %}
       <tr style="border-bottom: 1px solid var(--border-subtle);">
-        <td style="padding: 12px; font-family: monospace; color: var(--accent-cyan);">{{ mount.path }}</td>
+        <td style="padding: 12px; font-family: "Cascadia Code", "Segoe UI Mono", "Consolas", "Roboto Mono", "PingFang SC", "Microsoft YaHei UI", monospace; font-variant-numeric: tabular-nums; color: var(--accent-cyan);">{{ mount.path }}</td>
         <td style="padding: 12px;">
           {% if mount.active %}<span class="badge badge-cyan">Active</span>
           {% else %}<span class="badge badge-secondary">Disabled</span>{% endif %}

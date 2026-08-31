@@ -9,7 +9,7 @@
     overflow: hidden;
     position: fixed;
     inset: 0;
-    font-family: 'Microsoft YaHei', '微软雅黑', -apple-system, BlinkMacSystemFont, "Segoe UI", 'PingFang SC', Roboto, sans-serif;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Segoe UI Variable Text", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI", "Microsoft YaHei", "WenQuanYi Micro Hei", "Helvetica Neue", Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
@@ -17,7 +17,7 @@
   }
   
   .font-mono-num {
-    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+    font-family: "Cascadia Code", "Segoe UI Mono", "Consolas", "Roboto Mono", "PingFang SC", "Microsoft YaHei UI", monospace;
     font-variant-numeric: tabular-nums;
   }
 }

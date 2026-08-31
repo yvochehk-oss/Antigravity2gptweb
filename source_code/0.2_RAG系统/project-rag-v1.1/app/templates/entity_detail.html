@@ -28,7 +28,7 @@
     <p class="subtitle" style="margin-top: 6px;">
       统一社会信用代码: <span class="font-mono" style="color: var(--text-primary);">{{ entity.tax_id or entity.unified_social_credit_code or '-' }}</span> · 
       法定代表人: <span style="color: var(--text-primary);">{{ entity.legal_representative or '-' }}</span> · 
-      注册资本: <span style="color: var(--text-primary); font-family: monospace;">{{ entity.registered_capital or '-' }}</span> · 
+      注册资本: <span style="color: var(--text-primary); font-family: "Cascadia Code", "Segoe UI Mono", "Consolas", "Roboto Mono", "PingFang SC", "Microsoft YaHei UI", monospace; font-variant-numeric: tabular-nums;">{{ entity.registered_capital or '-' }}</span> · 
       业务说明: <span style="color: var(--text-muted);">{{ entity.note or role_meta.description }}</span>
     </p>
   </div>
@@ -51,15 +51,15 @@
   </div>
   <div class="glass-panel" style="padding: 16px;">
     <div style="font-size: 12px; color: var(--text-muted);">进项增值税 (抵扣)</div>
-    <div style="font-size: 20px; font-weight: 700; color: #10b981; margin-top: 4px; font-family: monospace;">¥ {{ "%.2f"|format(summary.vat_input) }}</div>
+    <div style="font-size: 20px; font-weight: 700; color: #10b981; margin-top: 4px; font-family: "Cascadia Code", "Segoe UI Mono", "Consolas", "Roboto Mono", "PingFang SC", "Microsoft YaHei UI", monospace; font-variant-numeric: tabular-nums;">¥ {{ "%.2f"|format(summary.vat_input) }}</div>
   </div>
   <div class="glass-panel" style="padding: 16px;">
     <div style="font-size: 12px; color: var(--text-muted);">销项增值税</div>
-    <div style="font-size: 20px; font-weight: 700; color: #f59e0b; margin-top: 4px; font-family: monospace;">¥ {{ "%.2f"|format(summary.vat_output) }}</div>
+    <div style="font-size: 20px; font-weight: 700; color: #f59e0b; margin-top: 4px; font-family: "Cascadia Code", "Segoe UI Mono", "Consolas", "Roboto Mono", "PingFang SC", "Microsoft YaHei UI", monospace; font-variant-numeric: tabular-nums;">¥ {{ "%.2f"|format(summary.vat_output) }}</div>
   </div>
   <div class="glass-panel" style="padding: 16px;">
     <div style="font-size: 12px; color: var(--text-muted);">累计税费支出</div>
-    <div style="font-size: 20px; font-weight: 700; color: #a855f7; margin-top: 4px; font-family: monospace;">¥ {{ "%.2f"|format(summary.tax_total) }}</div>
+    <div style="font-size: 20px; font-weight: 700; color: #a855f7; margin-top: 4px; font-family: "Cascadia Code", "Segoe UI Mono", "Consolas", "Roboto Mono", "PingFang SC", "Microsoft YaHei UI", monospace; font-variant-numeric: tabular-nums;">¥ {{ "%.2f"|format(summary.tax_total) }}</div>
   </div>
 </div>
 
@@ -147,7 +147,7 @@
             <span>📄</span>
             <span>{{ doc.filename }}</span>
           </a>
-          <div style="font-size: 10px; color: var(--text-muted); font-family: monospace; margin-top: 2px;">{{ doc.document_code }}</div>
+          <div style="font-size: 10px; color: var(--text-muted); font-family: "Cascadia Code", "Segoe UI Mono", "Consolas", "Roboto Mono", "PingFang SC", "Microsoft YaHei UI", monospace; font-variant-numeric: tabular-nums; margin-top: 2px;">{{ doc.document_code }}</div>
         </td>
         <!-- 类型 -->
         <td style="padding: 12px 16px;">
@@ -176,19 +176,19 @@
           {% endif %}
         </td>
         <!-- 合同/发票号 -->
-        <td style="padding: 12px 16px; font-family: monospace; font-size: 12px; color: var(--text-secondary);">
+        <td style="padding: 12px 16px; font-family: "Cascadia Code", "Segoe UI Mono", "Consolas", "Roboto Mono", "PingFang SC", "Microsoft YaHei UI", monospace; font-variant-numeric: tabular-nums; font-size: 12px; color: var(--text-secondary);">
           {{ doc.invoice_no or doc.contract_no or '-' }}
         </td>
         <!-- 进项税额 -->
-        <td style="padding: 12px 16px; font-family: monospace; color: #10b981; text-align: right;">
+        <td style="padding: 12px 16px; font-family: "Cascadia Code", "Segoe UI Mono", "Consolas", "Roboto Mono", "PingFang SC", "Microsoft YaHei UI", monospace; font-variant-numeric: tabular-nums; color: #10b981; text-align: right;">
           {% if doc.tax_vat_input > 0 %}¥ {{ "%.2f"|format(doc.tax_vat_input) }}{% else %}-{% endif %}
         </td>
         <!-- 销项税额 -->
-        <td style="padding: 12px 16px; font-family: monospace; color: #f59e0b; text-align: right;">
+        <td style="padding: 12px 16px; font-family: "Cascadia Code", "Segoe UI Mono", "Consolas", "Roboto Mono", "PingFang SC", "Microsoft YaHei UI", monospace; font-variant-numeric: tabular-nums; color: #f59e0b; text-align: right;">
           {% if doc.tax_vat_output > 0 %}¥ {{ "%.2f"|format(doc.tax_vat_output) }}{% else %}-{% endif %}
         </td>
         <!-- 期间 -->
-        <td style="padding: 12px 16px; font-family: monospace; color: var(--text-muted); font-size: 12px;">
+        <td style="padding: 12px 16px; font-family: "Cascadia Code", "Segoe UI Mono", "Consolas", "Roboto Mono", "PingFang SC", "Microsoft YaHei UI", monospace; font-variant-numeric: tabular-nums; color: var(--text-muted); font-size: 12px;">
           {{ doc.period or '-' }}
         </td>
         <!-- 状态 -->
