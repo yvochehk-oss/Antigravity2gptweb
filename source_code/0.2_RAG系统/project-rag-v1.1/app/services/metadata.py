@@ -372,6 +372,149 @@ def resolve_entity_reference(
             "match_count": 0,
         }
 
+# Strong evidence must win over the business subject contained in the filename.
+#
+# Example:
+# TAX_CERT_xxx_机械租赁与劳务分包合同印花税完税证明
+#
+# "机械租赁" describes what the tax certificate is about. It does NOT make
+# the file itself an equipment contract.
+STRONG_PREFIX_RULES = (
+    ("TAX_CERT_", "", "tax_payment_record", ""),
+    ("TAX_DECLARATION_", "", "tax_payment_record", ""),
+    ("INVOICE_", "", "tax_invoice", "vat"),
+    ("BANK_SLIP_", "", "bank_slip", ""),
+)
+
+
+STRONG_EVIDENCE_RULES = (
+    (
+        ("完税证明", "完税凭证", "缴税凭证", "税票"),
+        "",
+        "tax_payment_record",
+        "",
+    ),
+    (
+        (
+            "增值税专用发票",
+            "增值税普通发票",
+            "电子发票",
+            "专票",
+        ),
+        "",
+        "tax_invoice",
+        "vat",
+    ),
+    (
+        ("纳税申报", "税务申报", "纳税申报表", "税务申报表"),
+        "",
+        "tax_payment_record",
+        "",
+    ),
+    (
+        (
+            "银行支付回单",
+            "银行回单",
+            "电子回单",
+            "支付回单",
+            "付款回单",
+        ),
+        "",
+        "bank_slip",
+        "",
+    ),
+)
+
+
+TAX_CATEGORY_RULES = (
+    (("印花税",), "stamp_duty"),
+    (("企业所得税", "所得税预缴", "所得税汇算"), "enterprise_income"),
+    (("个人所得税", "代扣代缴", "劳务个税"), "individual_income"),
+    (("土地增值税",), "land_income"),
+    (("环保税", "环境保护税"), "environmental"),
+    (("增值税", "进项税", "销项税"), "vat"),
+    (("附加税", "城建税", "教育费附加", "地方教育附加"), "surtax"),
+)
+
+
+def _infer_tax_category(name: str) -> str:
+    for keywords, category in TAX_CATEGORY_RULES:
+        if any(keyword in name for keyword in keywords):
+            return category
+    return ""
+
+
+def _classify_filename(name: str) -> dict[str, object]:
+    """Classify evidence type before considering its business subject."""
+
+    upper_name = name.upper()
+
+    # 1. Explicit machine-readable prefixes have the strongest authority.
+    for prefix, category, document_type, tax_category in STRONG_PREFIX_RULES:
+        if upper_name.startswith(prefix):
+            resolved_tax_category = tax_category
+
+            if document_type in {
+                "tax_payment_record",
+                "tax_invoice",
+                "tax_document",
+            }:
+                resolved_tax_category = (
+                    _infer_tax_category(name)
+                    or resolved_tax_category
+                )
+
+            return {
+                "document_type": document_type,
+                "business_category": category,
+                "tax_category": resolved_tax_category,
+                "confidence": 0.98,
+                "classification_source": f"prefix:{prefix}",
+            }
+
+    # 2. Evidence nature beats the underlying contract/business topic.
+    for keywords, category, document_type, tax_category in STRONG_EVIDENCE_RULES:
+        if any(keyword in name for keyword in keywords):
+            resolved_tax_category = tax_category
+
+            if document_type in {
+                "tax_payment_record",
+                "tax_invoice",
+                "tax_document",
+            }:
+                resolved_tax_category = (
+                    _infer_tax_category(name)
+                    or resolved_tax_category
+                )
+
+            return {
+                "document_type": document_type,
+                "business_category": category,
+                "tax_category": resolved_tax_category,
+                "confidence": 0.93,
+                "classification_source": "strong_evidence",
+            }
+
+    # 3. Only now apply broad business-topic rules.
+    for keys, category, document_type, tax_category in DOC_RULES:
+        if any(keyword in name for keyword in keys):
+            return {
+                "document_type": document_type,
+                "business_category": category,
+                "tax_category": tax_category,
+                "confidence": 0.70,
+                "classification_source": "doc_rule",
+            }
+
+    return {
+        "document_type": "other",
+        "business_category": "",
+        "tax_category": "",
+        "confidence": 0.25,
+        "classification_source": "unclassified",
+    }
+
+
 # Classification rules: (keywords, business_category, document_type, tax_category)
 DOC_RULES = [
     # Labor documents
@@ -452,17 +595,17 @@ def infer_from_filename(
         "counterparty_tax_id": "",
         "counterparty_resolution_status": "UNRESOLVED",
         "period": "",
-        "confidence": 0.25
+        "confidence": 0.25,
+        "classification_source": "unclassified",
     }
 
-    # Apply classification rules
-    for keys, cat, doc_type, tax_cat in DOC_RULES:
-        if any(k in name for k in keys):
-            result["document_type"] = doc_type
-            result["business_category"] = cat
-            result["tax_category"] = tax_cat
-            result["confidence"] = 0.70
-            break
+    # Apply hierarchical classification rules
+    classification = _classify_filename(name)
+    result["document_type"] = str(classification["document_type"])
+    result["business_category"] = str(classification["business_category"])
+    result["tax_category"] = str(classification["tax_category"])
+    result["confidence"] = float(classification["confidence"])
+    result["classification_source"] = str(classification["classification_source"])
 
     # A/B/C/D are role labels, e.g. ``A类建筑施工``.  A bare single letter
     # never becomes an entity code.

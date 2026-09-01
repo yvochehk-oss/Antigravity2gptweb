@@ -817,7 +817,7 @@ setTimeout(updateFilterCounts, 100);
       <h3 style="color: #fff; font-size: 16px;">📁 批量扫描本机资料目录</h3>
       <button class="modal-close" onclick="document.getElementById('modal-import-folder').classList.remove('active')">&times;</button>
     </div>
-    <form method="post" action="/projects/{{ project.id }}/import-folder">
+    <form id="import-folder-form" onsubmit="submitImportFolder(event)">
       <div style="display: flex; flex-direction: column; gap: 14px;">
         <div>
           <label style="font-size: 12px; color: var(--text-muted); display: block; margin-bottom: 6px;">本机/局域网绝对路径</label>
@@ -830,12 +830,17 @@ setTimeout(updateFilterCounts, 100);
           <input type="checkbox" name="recursive" id="chk-rec" value="true" checked>
           <label for="chk-rec" style="font-size: 13px; color: var(--text-secondary);">递归扫描所有子文件夹</label>
         </div>
-        <div style="font-size: 11px; color: var(--text-muted); background: rgba(11,19,38,0.6); padding: 10px; border-radius: 6px;">
-          ℹ️ 扫描引擎会自动根据 SHA256 哈希进行去重，并将新文件推入后台智能文档解析与 BGE-M3 向量化管道。
+        <div style="font-size: 11px; color: var(--text-muted); background: rgba(11,19,38,0.6); padding: 10px; border-radius: 6px; line-height: 1.6;">
+          ℹ️ <b>SHA256 幂等扫描</b>：已入库文件将直接跳过，不会生成冗余重复记录。<br>
+          扫描前会自动安全清理历史重复记录，并对凭证/发票强类型进行元数据纠偏。
         </div>
-        <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 10px;">
-          <button type="button" class="btn btn-secondary" onclick="document.getElementById('modal-import-folder').classList.remove('active')">取消</button>
-          <button type="submit" class="btn btn-primary">开始扫描并入队</button>
+        <div id="import-folder-result" style="display: none; font-size: 12px; line-height: 1.6; padding: 10px; border-radius: 6px;"></div>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px;">
+          <button type="button" id="btn-repair-documents" class="btn btn-secondary" style="font-size: 12px;" onclick="repairProjectDocuments()">🔧 修复已有重复/分类</button>
+          <div style="display: flex; gap: 10px;">
+            <button type="button" class="btn btn-secondary" onclick="document.getElementById('modal-import-folder').classList.remove('active')">取消</button>
+            <button type="submit" id="btn-import-folder" class="btn btn-primary">开始扫描并入队</button>
+          </div>
         </div>
       </div>
     </form>
@@ -1039,6 +1044,117 @@ function confirmDirSelection() {
   if (currentPickerPath) {
     document.getElementById('import-path-input').value = currentPickerPath;
     document.getElementById('modal-dir-picker').classList.remove('active');
+  }
+}
+
+async function submitImportFolder(e) {
+  if (e) e.preventDefault();
+  const pathInput = document.getElementById('import-path-input');
+  const recInput = document.getElementById('chk-rec');
+  const resDiv = document.getElementById('import-folder-result');
+  const btn = document.getElementById('btn-import-folder');
+  const path = (pathInput.value || '').trim();
+
+  if (!path) {
+    alert('请选择或输入要扫描的目录路径');
+    return;
+  }
+
+  btn.disabled = true;
+  btn.innerText = '正在扫描并自愈...';
+  resDiv.style.display = 'block';
+  resDiv.style.background = 'rgba(76, 215, 246, 0.1)';
+  resDiv.style.border = '1px solid rgba(76, 215, 246, 0.3)';
+  resDiv.style.color = 'var(--text-primary)';
+  resDiv.innerHTML = '⏳ 正在进行 SHA256 幂等扫描并执行自愈清理，请稍候...';
+
+  try {
+    const res = await fetch('/api/v1/documents/import-folder', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        project_id: {{ project.id }},
+        path: path,
+        recursive: recInput.checked,
+        auto_parse: true
+      })
+    });
+
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.detail || '扫描导入失败');
+    }
+
+    const selfHeal = data.self_heal || {};
+    let msg = `✅ <b>扫描完成</b>：共扫描 ${data.scanned || 0} 个文件，新导入 <b>${data.imported || 0}</b> 个，跳过已入库 <b>${data.skipped_duplicates || 0}</b> 个。`;
+    if (selfHeal.historical_duplicates_removed > 0 || selfHeal.metadata_reclassified > 0) {
+      msg += `<br>🧹 <b>自愈成效</b>：安全清理历史重复记录 ${selfHeal.historical_duplicates_removed} 条，纠正元数据分类 ${selfHeal.metadata_reclassified} 条。`;
+    }
+    if (data.failed > 0) {
+      msg += `<br>⚠️ 失败 ${data.failed} 个文件，请查看服务日志。`;
+    }
+
+    resDiv.style.background = 'rgba(16, 185, 129, 0.15)';
+    resDiv.style.border = '1px solid rgba(16, 185, 129, 0.4)';
+    resDiv.style.color = '#34d399';
+    resDiv.innerHTML = msg;
+
+    setTimeout(() => {
+      window.location.reload();
+    }, 2000);
+  } catch (err) {
+    resDiv.style.background = 'rgba(239, 68, 68, 0.15)';
+    resDiv.style.border = '1px solid rgba(239, 68, 68, 0.4)';
+    resDiv.style.color = '#f87171';
+    resDiv.innerHTML = `❌ 错误：${err.message || '操作失败'}`;
+    btn.disabled = false;
+    btn.innerText = '开始扫描并入队';
+  }
+}
+
+async function repairProjectDocuments() {
+  const btn = document.getElementById('btn-repair-documents');
+  const resDiv = document.getElementById('import-folder-result');
+  if (!confirm('确定要对当前项目的文档库执行安全自愈（清理孤立重复记录并纠正凭证/发票强类型分类）吗？')) {
+    return;
+  }
+
+  btn.disabled = true;
+  btn.innerText = '正在执行自愈...';
+  resDiv.style.display = 'block';
+  resDiv.style.background = 'rgba(76, 215, 246, 0.1)';
+  resDiv.style.border = '1px solid rgba(76, 215, 246, 0.3)';
+  resDiv.style.color = 'var(--text-primary)';
+  resDiv.innerHTML = '⏳ 正在清理历史重复记录并纠正元数据分类...';
+
+  try {
+    const res = await fetch('/api/v1/projects/{{ project.id }}/documents/repair', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' }
+    });
+
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.detail || '自愈修复失败');
+    }
+
+    resDiv.style.background = 'rgba(16, 185, 129, 0.15)';
+    resDiv.style.border = '1px solid rgba(16, 185, 129, 0.4)';
+    resDiv.style.color = '#34d399';
+    resDiv.innerHTML = `✅ ${data.message || '自愈完成！'}`;
+
+    setTimeout(() => {
+      window.location.reload();
+    }, 1800);
+  } catch (err) {
+    resDiv.style.background = 'rgba(239, 68, 68, 0.15)';
+    resDiv.style.border = '1px solid rgba(239, 68, 68, 0.4)';
+    resDiv.style.color = '#f87171';
+    resDiv.innerHTML = `❌ 错误：${err.message || '操作失败'}`;
+    btn.disabled = false;
+    btn.innerText = '🔧 修复已有重复/分类';
   }
 }
 </script>

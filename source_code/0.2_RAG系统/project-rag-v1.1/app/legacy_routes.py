@@ -80,7 +80,12 @@ from .schemas import (
     RetrieveRequest,
 )
 from .security import RAGSecurityMiddleware, read_upload_limited, require_same_origin, security_audit
-from .services.documents import register_bytes, scan_folder
+from .services.documents import (
+    purge_redundant_duplicate_documents,
+    register_bytes,
+    repair_filename_classifications,
+    scan_folder,
+)
 from .services.embeddings import embedding_runtime
 from .services.extractor import (
     ExtractionError,
@@ -594,16 +599,24 @@ def api_sync_project(body: ProjectSync):
 
 @app.get("/api/v1/projects/{project_id}")
 def api_project(project_id: int, page: int = Query(1, ge=1), page_size: int = Query(DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE)):
-    """Get project details with paginated documents."""
+    """Get project details with paginated canonical documents."""
     with get_db() as db:
         p = db.get(Project, project_id)
         if not p:
             raise HTTPException(404, "project not found")
-        total = db.scalar(select(func.count(Document.id)).where(Document.project_id == project_id)) or 0
+        total = db.scalar(
+            select(func.count(Document.id)).where(
+                Document.project_id == project_id,
+                Document.duplicate_of_id.is_(None),
+            )
+        ) or 0
         offset = (page - 1) * page_size
         docs = db.execute(
             select(Document)
-            .where(Document.project_id == project_id)
+            .where(
+                Document.project_id == project_id,
+                Document.duplicate_of_id.is_(None),
+            )
             .order_by(Document.id.desc())
             .offset(offset)
             .limit(page_size)
@@ -1280,17 +1293,70 @@ def api_fs_list_dirs(
     }
 
 @app.post("/api/v1/documents/import-folder")
-
 def api_import_folder(body: FolderImportRequest):
-    """Import all supported files from a folder."""
+    """Idempotently import a folder and self-heal historical document drift."""
     with get_db() as db:
         pid = _resolve_project(db, body.project_id, body.project_code)
-        p = db.get(Project, pid)
+        project = db.get(Project, pid)
+        if project is None:
+            raise HTTPException(status_code=404, detail="project not found")
+
+        # Self-heal historical defects before scan
+        duplicate_repair = purge_redundant_duplicate_documents(db, pid)
+        classification_repair = repair_filename_classifications(db, pid)
+
         try:
-            rows = scan_folder(db, p, body.path, body.recursive, body.auto_parse)
-        except ValueError as e:
-            raise HTTPException(400, str(e))
-        return {"project_id": pid, "path": body.path, "files": rows, "count": len(rows), "imported": sum(1 for r in rows if "error" not in r), "failed": sum(1 for r in rows if "error" in r)}
+            rows = scan_folder(db, project, body.path, body.recursive, body.auto_parse)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        skipped_duplicates = sum(1 for row in rows if row.get("skipped_duplicate"))
+        failed = sum(1 for row in rows if "error" in row)
+        imported = sum(1 for row in rows if "error" not in row and not row.get("skipped_duplicate"))
+
+        return {
+            "project_id": pid,
+            "path": body.path,
+            "files": rows,
+            "scanned": len(rows),
+            "count": len(rows),
+            "imported": imported,
+            "skipped_duplicates": skipped_duplicates,
+            "failed": failed,
+            "self_heal": {
+                "historical_duplicates_removed": duplicate_repair["removed"],
+                "historical_duplicates_protected": duplicate_repair["protected"],
+                "duplicate_storage_cleaned": duplicate_repair["storage_cleaned"],
+                "duplicate_storage_cleanup_pending": duplicate_repair["storage_cleanup_pending"],
+                "metadata_reclassified": classification_repair["reclassified"],
+            },
+        }
+
+
+@app.post("/api/v1/projects/{project_id}/documents/repair")
+def api_repair_project_documents(
+    project_id: int,
+    principal: TaxPrincipal = Depends(require_web_or_service_role("admin", "operator")),
+):
+    """Explicitly trigger self-healing to purge redundant duplicates and correct filename classification mistakes."""
+    with get_db() as db:
+        project = db.get(Project, project_id)
+        if project is None:
+            raise HTTPException(status_code=404, detail="project not found")
+
+        duplicate_result = purge_redundant_duplicate_documents(db, project_id)
+        classification_result = repair_filename_classifications(db, project_id)
+
+        return {
+            "success": True,
+            "project_id": project_id,
+            "duplicates": duplicate_result,
+            "classification": classification_result,
+            "message": (
+                f"文档库自愈完成：清理历史重复记录 {duplicate_result['removed']} 条，"
+                f"纠正元数据分类 {classification_result['reclassified']} 条。"
+            ),
+        }
 
 
 @app.get("/api/v1/documents/{document_id}")
@@ -2296,7 +2362,14 @@ def web_project(request: Request, project_ref: str, principal=Depends(require_we
         if not p:
             return HTMLResponse("project not found", 404)
         project_id = p.id
-        docs = db.execute(select(Document).where(Document.project_id == project_id).order_by(Document.id.desc())).scalars().all()
+        docs = db.execute(
+            select(Document)
+            .where(
+                Document.project_id == project_id,
+                Document.duplicate_of_id.is_(None),
+            )
+            .order_by(Document.id.desc())
+        ).scalars().all()
         jobs = db.execute(select(IngestJob).join(Document, IngestJob.document_id == Document.id).where(Document.project_id == project_id).order_by(IngestJob.id.desc()).limit(50)).scalars().all()
         canonical_entities = _canonical_entity_views(db)
         entity_by_code = {x["entity_code"]: x for x in canonical_entities}
