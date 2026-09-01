@@ -1,5 +1,3 @@
-BEGIN;
-
 CREATE TABLE IF NOT EXISTS canonical_facts (
     id BIGSERIAL PRIMARY KEY,
     source_document_id BIGINT NOT NULL REFERENCES documents(id) ON DELETE RESTRICT,
@@ -80,5 +78,3 @@ SELECT
     updated_at
 FROM canonical_facts
 WHERE status = 'needs_review';
-
-COMMIT;
