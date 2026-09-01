@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..config import MAX_UPLOAD_SIZE
-from ..domain.entities import is_canonical_entity_code
+from ..domain.entities import is_canonical_entity_code, map_to_standard_external_code
 from ..logging_config import get_logger
 from ..models import Document, Project
 from ..security import read_file_limited, validate_file_content
@@ -23,6 +23,12 @@ from .storage import (
 )
 
 logger = get_logger(__name__)
+
+
+def _canonical_counterparty_code(metadata: dict, inferred: dict) -> str:
+    """Return the canonical external-party code before Document persistence."""
+    raw_code = metadata.get("counterparty_code") or inferred.get("counterparty_code", "")
+    return map_to_standard_external_code(raw_code) or ""
 
 
 def register_bytes(
@@ -67,6 +73,7 @@ def register_bytes(
         filename,
         canonical_cache=load_canonical_entity_cache(),
     )
+    counterparty_code = _canonical_counterparty_code(metadata, inferred)
 
     # Generate document code
     code = f"DOC-{uuid.uuid4().hex[:12].upper()}"
@@ -78,7 +85,8 @@ def register_bytes(
         logger.error(f"Failed to save file: {e}")
         raise
 
-    # Create document record
+    # Create document record.  External aliases are normalized before this
+    # first commit so an alias can never become a durable document reference.
     d = Document(
         project_id=project.id,
         document_code=code,
@@ -92,7 +100,7 @@ def register_bytes(
         # Metadata with priority: explicit > inferred
         document_type=metadata.get("document_type") or inferred.get("document_type", "other"),
         entity_code=metadata.get("entity_code") or inferred.get("entity_code", ""),
-        counterparty_code=metadata.get("counterparty_code") or inferred.get("counterparty_code", ""),
+        counterparty_code=counterparty_code,
         business_category=metadata.get("business_category") or inferred.get("business_category", ""),
         tax_category=metadata.get("tax_category") or inferred.get("tax_category", ""),
         # 税务金额字段
@@ -144,7 +152,7 @@ def register_bytes(
             kind = "subcontractor"
         elif d.business_category == "labor":
             kind = "labor"
-            
+
         from .ingest import _auto_register_external_party
         _auto_register_external_party(
             db,
@@ -275,6 +283,7 @@ def register_local_path(
         filename,
         canonical_cache=load_canonical_entity_cache(),
     )
+    counterparty_code = _canonical_counterparty_code(metadata, inferred)
     code = f"DOC-{uuid.uuid4().hex[:12].upper()}"
 
     d = Document(
@@ -290,7 +299,7 @@ def register_local_path(
         # Metadata with priority: explicit > inferred
         document_type=metadata.get("document_type") or inferred.get("document_type", "other"),
         entity_code=metadata.get("entity_code") or inferred.get("entity_code", ""),
-        counterparty_code=metadata.get("counterparty_code") or inferred.get("counterparty_code", ""),
+        counterparty_code=counterparty_code,
         business_category=metadata.get("business_category") or inferred.get("business_category", ""),
         tax_category=metadata.get("tax_category") or inferred.get("tax_category", ""),
         tax_vat_rate=metadata.get("tax_vat_rate", 0.0) or 0.0,
