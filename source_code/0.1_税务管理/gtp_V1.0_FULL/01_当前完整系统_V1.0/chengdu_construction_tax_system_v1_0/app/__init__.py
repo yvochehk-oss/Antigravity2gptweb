@@ -1,8 +1,19 @@
-"""Tax application package.
+# Register psycopg string loaders for cross-platform string decoding on Windows
+try:
+    import psycopg
+    from psycopg.adapt import Loader
 
-Import the legacy and V3 model registries once so every consumer of
-``app.db.Base`` (Alembic, schema audit, tests) sees one complete metadata graph.
-"""
+    class _UniversalStrLoader(Loader):
+        def load(self, data):
+            if isinstance(data, (bytes, bytearray, memoryview)):
+                return bytes(data).decode("utf-8", errors="ignore")
+            return str(data)
+
+    for _oid in [19, 25, 705, 1042, 1043, 2275]:
+        psycopg.adapters.register_loader(_oid, _UniversalStrLoader)
+except Exception:
+    pass
+
 
 from . import models as models  # noqa: F401
 from . import v3_party_models as v3_party_models  # noqa: F401
