@@ -3,6 +3,7 @@
 Imports app construction from wiring.py and registers startup helpers from startup.py.
 Kept minimal so that compile-time checks are fast and the entry point is obvious.
 """
+from .services.phase3_retirement import install_phase3_retirement
 from .startup import (
     RequestIdMiddleware,
     _check_ai,
@@ -18,6 +19,7 @@ from .wiring import create_app
 # forcing every existing call site to stop using ISO strings in one release.
 apply_timezone_types()
 app = create_app()
+install_phase3_retirement(app)
 
 
 @app.get("/healthz", tags=["meta"])
