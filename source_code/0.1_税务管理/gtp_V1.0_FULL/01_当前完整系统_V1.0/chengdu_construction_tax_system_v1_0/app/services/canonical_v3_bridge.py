@@ -28,6 +28,10 @@ def _payload(fact: dict[str, Any]) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
+def _fact_id(fact: dict[str, Any]) -> int:
+    return int(fact.get("fact_id") or fact.get("id") or 0)
+
+
 class CanonicalV3Bridge:
     """Preserve V3 read endpoints while removing their second fact source."""
 
@@ -60,7 +64,9 @@ class CanonicalV3Bridge:
             "external_revenue": _d(accounting["boundary"].get("external_revenue")),
             "internal_eliminated": _d(accounting["boundary"].get("internal_eliminated")),
             "accounting_profit": _d(accounting["book_tax"].get("accounting_profit")),
-            "eligible_fact_ids": [item["fact_id"] for item in accounting["lineage"]["fact_versions"]],
+            "eligible_fact_ids": [
+                item["fact_id"] for item in accounting["lineage"]["fact_versions"]
+            ],
             "evidence_quality": {
                 "accepted_current_fact_count": len(accounting["lineage"]["fact_versions"]),
                 "fact_snapshot_hash": accounting["lineage"]["fact_snapshot_hash"],
@@ -79,7 +85,7 @@ class CanonicalV3Bridge:
             payload = _payload(fact)
             fact_type = str(fact.get("fact_type") or "")
             contract_no = str(payload.get("contract_no") or "").strip()
-            fact_id = int(fact.get("id") or 0)
+            fact_id = _fact_id(fact)
             if not contract_no:
                 continue
             if fact_type == "contract":
@@ -167,7 +173,7 @@ class CanonicalV3Bridge:
             "source_of_truth": "canonical_facts",
             "facts": [
                 {
-                    "fact_id": int(fact.get("id") or 0),
+                    "fact_id": _fact_id(fact),
                     "fact_type": str(fact.get("fact_type") or ""),
                     "business_key": str(fact.get("business_key") or ""),
                     "fact_version": int(fact.get("fact_version") or 0),
