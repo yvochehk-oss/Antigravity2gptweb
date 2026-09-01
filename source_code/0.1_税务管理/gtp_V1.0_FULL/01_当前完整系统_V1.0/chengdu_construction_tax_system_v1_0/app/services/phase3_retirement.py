@@ -1,6 +1,6 @@
 """Phase 3 retirement guard for legacy Tax/RAG write channels.
 
-Canonical Facts are the only durable business-fact write boundary.  The old
+Canonical Facts are the only durable business-fact write boundary. The old
 Tax sync routes remain addressable only to return HTTP 410 so stale clients
 fail loudly instead of silently recreating a second source of truth.
 """
@@ -14,6 +14,9 @@ from fastapi import FastAPI, HTTPException, Request
 _RETIRED_POST_PATHS = (
     "/rag-sync/sync",
     "/rag-sync/sync-batch",
+    "/rag-sync/sync-pending",
+    "/sync-pending",
+    "/api/sync-pending",
     "/rag-sync/pending/{pending_id}/confirm",
     "/rag-sync/pending/{pending_id}/confirm-contract-and-create-parties",
     "/rag-sync/pending/{pending_id}/reject",
@@ -27,7 +30,10 @@ def _remove_routes(app: FastAPI, paths: Iterable[str], method: str = "POST") -> 
     removed = 0
     for route in app.router.routes:
         route_path = getattr(route, "path", "")
-        methods = {str(item).upper() for item in (getattr(route, "methods", None) or set())}
+        methods = {
+            str(item).upper()
+            for item in (getattr(route, "methods", None) or set())
+        }
         if route_path in targets and method in methods:
             removed += 1
             continue
