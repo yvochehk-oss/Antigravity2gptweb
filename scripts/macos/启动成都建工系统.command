@@ -239,8 +239,13 @@ for cmd in lsof curl pg_isready node; do
   command -v "$cmd" >/dev/null 2>&1 || { fail_and_wait "缺少必要命令：${cmd}。当前 PATH=${PATH}" 2; exit $?; }
 done
 [[ -f "$START_SCRIPT" && -f "$POSTGRES_START_SCRIPT" ]] || { fail_and_wait "启动调度文件不完整：${PROJECT_DIR}" 2; exit $?; }
-[[ -d "$APP_DIR" ]] || { fail_and_wait "Boss App 目录不存在：${APP_DIR}" 2; exit $?; }
-[[ -x "${APP_DIR}/node_modules/.bin/vite" ]] || { fail_and_wait "Boss App 缺少本地 Vite 依赖。请先在 ${APP_DIR} 执行 npm install。" 2; exit $?; }
+if [[ ! -x "${APP_DIR}/node_modules/.bin/vite" ]]; then
+  print -P "%F{220}📦 Boss App 正在自动安装前端依赖 (npm install)...%f"
+  (cd -- "$APP_DIR" && npm install) || {
+    fail_and_wait "Boss App 自动安装依赖失败。请手动在 ${APP_DIR} 执行 npm install。" 2
+    exit $?
+  }
+fi
 cd -- "$PROJECT_DIR" || { fail_and_wait "无法进入工程目录：${PROJECT_DIR}" 2; exit $?; }
 
 print -P "%F{39}==================================================================%f"
