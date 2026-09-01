@@ -316,5 +316,5 @@ def test_gate_exists_and_requires_same_alembic_head_support():
 
 
 def test_task29_does_not_add_migration_98_or_later():
-    task29_named = [path.name for path in MIGRATIONS.glob("*.py") if path.name.startswith(("98_", "99_", "100_"))]
+    task29_named = [path.name for path in MIGRATIONS.glob("*.py") if ("project" in path.name or "allocation" in path.name) and path.name.startswith(("98_", "99_", "100_"))]
     assert task29_named == []

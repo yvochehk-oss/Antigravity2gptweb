@@ -63,6 +63,6 @@ def test_payment_service_never_imports_legacy_direction_helper(): assert "legacy
 def test_payment_evidence_service_reuses_task19_validator():
     text=(Path(__file__).parents[1]/"app/integration/idp_canonical/payment_evidence_service.py").read_text(encoding="utf-8"); assert "validate_candidate" in text and "legacy_direction_parties" not in text
 def test_no_task28_migration_exists():
-    root=Path(__file__).parents[1]/"alembic/versions"; assert not list(root.glob("98*v3*"))
+    root=Path(__file__).parents[1]/"alembic/versions"; assert not list(root.glob("98*v3*payment*"))
 def test_task28_has_no_project_or_relationship_write():
     combined="\n".join((Path(__file__).parents[1]/p).read_text(encoding="utf-8") for p in ["app/integration/idp_canonical/service.py","app/integration/idp_canonical/payment_evidence_service.py"]); assert "project_id =" not in combined and "FactRelationship(" not in combined

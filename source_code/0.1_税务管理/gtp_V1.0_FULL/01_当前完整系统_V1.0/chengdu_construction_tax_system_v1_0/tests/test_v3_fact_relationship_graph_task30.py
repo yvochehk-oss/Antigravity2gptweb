@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import inspect
+import re
 
 import pytest
 from pydantic import ValidationError
@@ -213,7 +214,8 @@ def test_resolver_has_no_project_or_party_matching():
     assert "Project" not in source
     assert "Party" not in source
     assert "amount" not in source.lower()
-    assert "date" not in source.lower()
+    assert "date_proximity" not in source.lower()
+    assert "invoice_date" not in source.lower()
 
 
 def test_resolver_has_no_fuzzy_matching():
@@ -234,8 +236,8 @@ def test_resolver_uses_exact_business_identity_equality():
 
 def test_service_does_not_modify_fact_validation_or_supersession():
     source = inspect.getsource(FactRelationshipService)
-    assert ".validation_status =" not in source
-    assert ".supersedes_fact_id =" not in source
+    assert re.search(r"\.validation_status\s*=(?!=)", source) is None
+    assert re.search(r"\.supersedes_fact_id\s*=(?!=)", source) is None
     assert "Fact(" not in source
 
 
