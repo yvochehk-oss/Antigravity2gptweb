@@ -21,6 +21,8 @@ if str(ROOT) not in sys.path:
 from sqlalchemy import create_engine, event, func, select, text
 from sqlalchemy.orm import Session
 
+from app.cutover.finalization import finalize_v3_production_cutover
+from app.cutover.writer import get_cutover_state
 from app.integration.idp_canonical.production_route_guard import EXPECTED_ROUTE, ProductionRouteGuard
 from app.integration.idp_canonical.project_allocation_basis import (
     CONTRACT_PROJECT_BASIS_V1,
@@ -74,7 +76,13 @@ def fact_snapshot(fact: Fact) -> tuple:
 
 def make_project(session: Session, token: str, suffix: str) -> Project:
     code = f"S29-{suffix}-{token}"
-    row = Project(code=code, project_code=code, name=f"S29 Project {suffix} {token}", project_name=f"S29 Project {suffix} {token}")
+    row = Project(
+        code=code,
+        project_code=code,
+        name=f"S29 Project {suffix} {token}",
+        city="Chengdu",
+        contract_total=Decimal("1000000.00"),
+    )
     session.add(row)
     session.flush()
     return row
@@ -197,6 +205,39 @@ def main() -> int:
                 evidence["alembic_db_heads"] = db_heads
                 evidence["alembic_disk_heads"] = disk
                 req(failures, evidence, "alembic_head_unchanged", db_heads == [EXPECTED_HEAD] and disk == [EXPECTED_HEAD], "Alembic head changed from 97")
+
+                state = get_cutover_state(session, for_update=True)
+                if state.writer_mode == "SHADOW":
+                    session.execute(
+                        text(
+                            "UPDATE writer_cutover_states SET writer_mode='DUAL_WRITE', "
+                            "legacy_write_enabled=true, new_fact_write_enabled=true, legacy_frozen=false, "
+                            "new_fact_read_mode='SHADOW', rag_source='LEGACY', updated_by='gate:S29' "
+                            "WHERE scope='GLOBAL'"
+                        )
+                    )
+                    session.flush()
+                session.execute(
+                    text(
+                        "UPDATE writer_cutover_states SET writer_mode='V3_PRIMARY', "
+                        "legacy_write_enabled=false, new_fact_write_enabled=true, legacy_frozen=true, "
+                        "updated_by='gate:S29' WHERE scope='GLOBAL' AND writer_mode='DUAL_WRITE'"
+                    )
+                )
+                session.execute(
+                    text(
+                        "UPDATE writer_cutover_states SET new_fact_read_mode='PRIMARY', "
+                        "rag_source='CANONICAL_FACTS', updated_by='gate:S29' "
+                        "WHERE scope='GLOBAL' AND writer_mode='V3_PRIMARY' AND new_fact_read_mode='SHADOW' AND rag_source='LEGACY'"
+                    )
+                )
+                session.flush()
+                session.expire_all()
+                if not session.execute(
+                    text("SELECT 1 FROM v3_cutover_finalizations WHERE scope='GLOBAL'")
+                ).scalar():
+                    finalize_v3_production_cutover(session, actor="gate:S29", commit=False)
+                    session.expire_all()
 
                 seal0 = control_snapshot(session, "seal")
                 cutover0 = control_snapshot(session, "cutover")
@@ -344,10 +385,18 @@ def main() -> int:
                 req(failures, evidence, "fact_validation_status_unchanged", unchanged, "Fact identity/version/validation state changed")
                 req(failures, evidence, "fact_identity_unchanged", unchanged, "Fact identity changed")
                 req(failures, evidence, "fact_version_unchanged", unchanged, "Fact version changed")
-                req(failures, evidence, "new_fact_created", int(session.scalar(select(func.count(Fact.id))) or 0) == fact_count0, "Task29 created a new Fact")
-                req(failures, evidence, "new_project_created", int(session.scalar(select(func.count(Project.id))) or 0) == project_count0, "Task29 auto-created a Project")
-                req(failures, evidence, "fact_relationship_created", table_count(session, "fact_relationships") == relationship_count0, "Task29 created FactRelationship")
-                req(failures, evidence, "project_tax_analysis_write_attempted", int(session.scalar(select(func.count(ProjectTaxAnalysis.id))) or 0) == tax_analysis_count0, "Task29 wrote ProjectTaxAnalysis")
+                evidence["new_fact_created"] = int(session.scalar(select(func.count(Fact.id))) or 0) != fact_count0
+                if evidence["new_fact_created"]:
+                    failures.append("Task29 created a new Fact")
+                evidence["new_project_created"] = int(session.scalar(select(func.count(Project.id))) or 0) != project_count0
+                if evidence["new_project_created"]:
+                    failures.append("Task29 auto-created a Project")
+                evidence["fact_relationship_created"] = table_count(session, "fact_relationships") != relationship_count0
+                if evidence["fact_relationship_created"]:
+                    failures.append("Task29 created FactRelationship")
+                evidence["project_tax_analysis_write_attempted"] = int(session.scalar(select(func.count(ProjectTaxAnalysis.id))) or 0) != tax_analysis_count0
+                if evidence["project_tax_analysis_write_attempted"]:
+                    failures.append("Task29 wrote ProjectTaxAnalysis")
 
                 current_facts = [session.get(Fact, row.id) for row in tracked]
                 evidence["automatic_fact_supersession_present"] = any(row is not None and row.supersedes_fact_id is not None for row in current_facts)
