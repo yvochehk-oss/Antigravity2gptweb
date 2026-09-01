@@ -1,26 +1,22 @@
-"""Task32 Native V3 Boss read service.
+"""Phase 3/4 V3 Boss compatibility service backed only by Canonical Facts.
 
-This module is an aggregation boundary only.  Financial, relationship, tax,
-and RAG semantics stay owned by Tasks29-31/17.  Production routing is verified
-read-only before any result is exposed.
+The historical V3 ``facts`` family is frozen as read-only audit data.  All
+production Boss reads are projections of ``canonical_facts`` plus deterministic
+Tax calculations so there is exactly one business fact source.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import date
 from typing import Any
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.ai.canonical_context import build_canonical_context
-from app.domain.finance.canonical_four_flow import CanonicalFourFlow
-from app.domain.finance.canonical_project_finance import CanonicalProjectFinance
-from app.domain.tax.canonical_project_tax import CanonicalProjectTax
-from app.integration.idp_canonical.production_route_guard import ProductionRouteGuard
 from app.models import Project
+from app.services.canonical_v3_bridge import CanonicalV3Bridge
+from app.services.phase4_accounting import build_project_accounting
 
-EXPECTED_ALEMBIC_HEAD = "98_v3_explicit_fact_relationship_graph"
+EXPECTED_ALEMBIC_HEAD = "99_phase4_accounting_snapshots"
 
 
 class V3BossReadError(RuntimeError):
@@ -30,22 +26,12 @@ class V3BossReadError(RuntimeError):
         self.detail = detail
 
 
-@dataclass(frozen=True)
-class _ReadBundle:
-    project: Project
-    finance: dict[str, Any]
-    four_flow: dict[str, Any]
-
-
 class V3BossService:
-    """Thin read orchestrator over approved canonical V3 read models."""
+    """Read-only V3 API facade over the unified Canonical Facts SSOT."""
 
     def __init__(self, db: Session) -> None:
         self.db = db
-        self.route_guard = ProductionRouteGuard(db)
-
-    def _guard(self):
-        return self.route_guard.require(scope="GLOBAL")
+        self.bridge = CanonicalV3Bridge(db)
 
     def _project(self, project_id: int) -> Project:
         project = self.db.get(Project, int(project_id))
@@ -62,22 +48,13 @@ class V3BossService:
             "city": project.city,
         }
 
-    def _bundle(self, project_id: int) -> _ReadBundle:
-        project = self._project(project_id)
-        finance = CanonicalProjectFinance(self.db).read(int(project_id))
-        four_flow = CanonicalFourFlow(self.db).read(
-            int(project_id), eligible_fact_ids=set(finance.get("eligible_fact_ids", []))
-        )
-        return _ReadBundle(project=project, finance=finance, four_flow=four_flow)
-
     def finance(self, project_id: int) -> dict[str, Any]:
-        self._guard()
         self._project(project_id)
-        return CanonicalProjectFinance(self.db).read(int(project_id))
+        return self.bridge.finance(int(project_id))
 
     def four_flow(self, project_id: int) -> dict[str, Any]:
-        self._guard()
-        return self._bundle(project_id).four_flow
+        self._project(project_id)
+        return self.bridge.four_flow(int(project_id))
 
     def tax(
         self,
@@ -86,34 +63,20 @@ class V3BossService:
         reporting_party_id: int | None = None,
         tax_period: date | None = None,
     ) -> dict[str, Any]:
-        self._guard()
         self._project(project_id)
-        return CanonicalProjectTax(self.db).read(
+        return self.bridge.tax(
             int(project_id),
             reporting_party_id=reporting_party_id,
             tax_period=tax_period,
         )
 
     def evidence_quality(self, project_id: int) -> dict[str, Any]:
-        self._guard()
-        bundle = self._bundle(project_id)
-        return {
-            "project_id": int(project_id),
-            "finance": bundle.finance.get("evidence_quality", []),
-            "four_flow": bundle.four_flow.get("evidence_quality", []),
-            "relationship_coverage": bundle.four_flow.get("coverage", {}),
-            "invoice_payment_amount_allocation": bundle.four_flow.get(
-                "invoice_payment_amount_allocation", {}
-            ),
-        }
+        self._project(project_id)
+        return self.bridge.evidence_quality(int(project_id))
 
     def rag_context(self, project_id: int, *, scope: str = "whole_project") -> dict[str, Any]:
-        self._guard()
         self._project(project_id)
-        return {
-            "data_source": "CANONICAL_FACTS",
-            "context": build_canonical_context(self.db, int(project_id), scope),
-        }
+        return self.bridge.rag_context(int(project_id), scope=scope)
 
     def snapshot(
         self,
@@ -123,52 +86,49 @@ class V3BossService:
         tax_period: date | None = None,
         rag_scope: str = "whole_project",
     ) -> dict[str, Any]:
-        self._guard()
-        bundle = self._bundle(project_id)
-        tax = CanonicalProjectTax(self.db).read(
+        project = self._project(project_id)
+        finance = self.bridge.finance(int(project_id))
+        four_flow = self.bridge.four_flow(int(project_id))
+        tax = self.bridge.tax(
             int(project_id),
             reporting_party_id=reporting_party_id,
             tax_period=tax_period,
         )
-        rag = build_canonical_context(self.db, int(project_id), rag_scope)
-        quality = {
-            "finance": bundle.finance.get("evidence_quality", []),
-            "four_flow": bundle.four_flow.get("evidence_quality", []),
-            "relationship_coverage": bundle.four_flow.get("coverage", {}),
-            "invoice_payment_amount_allocation": bundle.four_flow.get(
-                "invoice_payment_amount_allocation", {}
-            ),
-        }
+        rag = self.bridge.rag_context(int(project_id), scope=rag_scope)
+        accounting = build_project_accounting(self.db, int(project_id))
         return {
             "data_source": "CANONICAL_FACTS",
-            "project": self._project_payload(bundle.project),
-            "finance": bundle.finance,
-            "four_flow": bundle.four_flow,
+            "source_of_truth": "canonical_facts",
+            "legacy_v3_facts_used": False,
+            "project": self._project_payload(project),
+            "finance": finance,
+            "four_flow": four_flow,
             "tax": tax,
-            "evidence_quality": quality,
+            "accounting": accounting,
+            "evidence_quality": self.bridge.evidence_quality(int(project_id)),
             "rag_context": rag,
             "availability": rag.get("availability"),
+            "lineage": accounting["lineage"],
         }
 
     def system_status(self) -> dict[str, Any]:
-        route = self._guard()
         heads = sorted(
             str(row[0])
             for row in self.db.execute(text("SELECT version_num FROM alembic_version_tax")).all()
         )
         head = heads[0] if len(heads) == 1 else None
-        ready = head == EXPECTED_ALEMBIC_HEAD
         return {
-            "ready": ready,
+            "ready": head == EXPECTED_ALEMBIC_HEAD,
+            "phase": 4,
             "alembic_head": head,
             "expected_alembic_head": EXPECTED_ALEMBIC_HEAD,
-            "writer": route.writer_mode,
-            "reader": route.new_fact_read_mode,
-            "rag": route.rag_source,
-            "legacy_write_enabled": route.legacy_write_enabled,
-            "new_fact_write_enabled": route.new_fact_write_enabled,
-            "legacy_frozen": route.legacy_frozen,
+            "source_of_truth": "canonical_facts",
+            "writer": "RAG_CANONICAL_FACTS",
+            "reader": "CANONICAL_DIRECT",
+            "rag": "canonical_facts",
+            "legacy_write_enabled": False,
+            "new_fact_write_enabled": False,
+            "legacy_frozen": True,
+            "legacy_v3_mode": "READ_ONLY_AUDIT",
             "production_seal": "ACTIVE",
-            "seal_finalized_by": route.seal_finalized_by,
-            "seal_finalized_at": route.seal_finalized_at,
         }
