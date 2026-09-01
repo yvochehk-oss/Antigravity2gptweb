@@ -13,6 +13,7 @@ from ..calc import four_flow_evidence_completeness, matching_rows, project_summa
 from ..db import SessionLocal
 from ..dependencies import require_role
 from ..domain.entities import CANONICAL_ENTITY_CODES, is_canonical_entity_code
+from ..services.canonical_ledger import project_counterparties as load_canonical_counterparties
 from ..models import (
     CashFlow,
     Contract,
@@ -306,32 +307,18 @@ def _discover_party_codes(db, pid: int) -> list[str]:
 
 @router.get("/api/projects/{pid}/counterparties")
 def api_project_counterparties(pid: int, _user=_reader_dependency):
-    """Aggregate every unit the project actually references.
-
-    Reads exclusively from the RAG-shared PostgreSQL row sets (contracts,
-    invoices, cashflows, real_costs, fulfillment) and resolves each ``*_code``
-    through ``entities`` (canonical 26-unit master) or ``external_parties``
-    (RAG-confirmed counterparty master).  No fabricated rows, no silent
-    reclassification.
-    """
+    """Compatibility endpoint backed only by accepted/current Canonical Facts."""
     db = SessionLocal()
     try:
         if db.get(Project, pid) is None:
             raise HTTPException(status_code=404, detail="项目不存在")
-        codes = _discover_party_codes(db, pid)
-        parties = [_aggregate_party(db, pid, code) for code in codes]
-        return {
-            "status": "READY" if parties else "EMPTY",
-            "message": "" if parties else "该项目当前没有任何合同/发票/收付款数据。",
-            "items": parties,
-            "total": len(parties),
-        }
+        return load_canonical_counterparties(db, pid)
     except HTTPException:
         db.rollback()
         raise
     except Exception:
         db.rollback()
-        _LOGGER.exception("counterparty aggregation failed: pid=%s", pid)
+        _LOGGER.exception("canonical counterparty aggregation failed: pid=%s", pid)
         raise
     finally:
         db.close()
@@ -365,6 +352,8 @@ def api_delete_project_data(
             "documents",
             "chunks",
             "ingest_jobs",
+            "canonical_facts",
+            "canonical_fact_outbox",
             "document_path_migrations_012",
             "query_logs",
             "query_feedback",

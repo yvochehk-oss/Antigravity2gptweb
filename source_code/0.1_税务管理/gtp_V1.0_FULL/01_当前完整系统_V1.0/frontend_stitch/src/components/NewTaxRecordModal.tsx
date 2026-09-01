@@ -508,11 +508,11 @@ export function NewTaxRecordModal({
                 </div>
                 {confirmPendingId === item.id ? (
                   <div className="mt-3 rounded-lg border border-[#EF4444]/50 bg-[#EF4444]/10 p-3">
-                    <p className="font-semibold text-[#ffb4ab]">确认创建并导入？</p>
-                    <p className="mt-1 text-[#c4c5d5]">系统会使用服务器保存的名称与税号创建缺失的外部交易方，再导入此合同；浏览器填写内容不会参与主数据写入。</p>
+                    <p className="font-semibold text-[#ffb4ab]">旧手工创建入口已停用</p>
+                    <p className="mt-1 text-[#c4c5d5]">该记录只能继续复核或忽略；交易方身份与合同事实统一由 Canonical Facts 自动归一化。</p>
                     <div className="mt-2 flex gap-2">
                       <button type="button" onClick={() => setConfirmPendingId(null)} disabled={busy} className="px-3 py-1.5 rounded-lg bg-[#222a3d] text-[12px] disabled:opacity-40">取消</button>
-                      <button type="button" onClick={() => void handleConfirmPendingContract(item.id)} disabled={busy} className="px-3 py-1.5 rounded-lg bg-[#EF4444] text-white font-bold text-[12px] disabled:opacity-40">{confirmingPendingId === item.id ? '确认处理中…' : '确认创建并导入'}</button>
+                      <span className="px-3 py-1.5 rounded-lg bg-[#334155]/50 text-[#cbd5e1] text-[12px]">已停用</span>
                     </div>
                   </div>
                 ) : confirmRejectPendingId === item.id ? (
@@ -527,7 +527,7 @@ export function NewTaxRecordModal({
                 ) : (
                   <div className="mt-3 flex flex-wrap gap-2">
                     {hasAnyParty && (
-                      <button type="button" onClick={() => { setConfirmPendingId(item.id); setConfirmRejectPendingId(null); }} disabled={busy} className="px-3 py-1.5 rounded-lg bg-[#F59E0B] text-[#231400] font-bold text-[12px] disabled:opacity-40 hover:bg-[#d97706] transition-colors">确认创建交易方并导入合同</button>
+                      <span className="px-3 py-1.5 rounded-lg border border-[#10B981]/30 bg-[#10B981]/10 text-[#b6f4d8] text-[12px]">Canonical Facts 自动直通，无需手工创建交易方</span>
                     )}
                     <button type="button" onClick={() => { setConfirmRejectPendingId(item.id); setConfirmPendingId(null); }} disabled={busy} className={`px-3 py-1.5 rounded-lg text-[12px] disabled:opacity-40 transition-colors ${!hasAnyParty ? 'bg-[#3b82f6] text-white font-bold hover:bg-[#2563eb]' : 'bg-[#222a3d] border border-[#444653]/60 text-[#c4c5d5] hover:text-white'}`}>忽略此记录</button>
                   </div>

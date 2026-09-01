@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from decimal import Decimal, InvalidOperation
 from typing import Any, Callable
 
@@ -77,15 +77,56 @@ def infer_fact_type(document_type: str | None) -> str | None:
     return None
 
 
-def _backfill_party_from_name(fields: dict[str, Any], prefix: str) -> None:
+def _canonical_name_party(value: Any) -> str:
+    preset = get_external_preset(_clean(value))
+    return str(preset["code"]).upper() if preset else ""
+
+
+def _merge_party_identity(
+    fields: dict[str, Any],
+    prefix: str,
+    document_code: Any = "",
+) -> None:
+    """Merge document/code/name identity while recording every contradiction.
+
+    Document metadata is authoritative only when it agrees with any explicit
+    extracted canonical code and any known legal-name alias.  Contradictions
+    are preserved as validation errors so the candidate becomes needs_review.
+    """
     code_key = f"{prefix}_entity_code"
     generic_key = f"{prefix}_code"
-    current = _canonical_party(fields.get(code_key) or fields.get(generic_key))
-    if not current:
-        current = _canonical_party(fields.get(f"{prefix}_name"))
-    if current:
-        fields[code_key] = current
-        fields[generic_key] = current
+    name_key = f"{prefix}_name"
+
+    raw_extracted = _clean(fields.get(code_key) or fields.get(generic_key))
+    extracted_code = _canonical_party(raw_extracted)
+    document_canonical = _canonical_party(document_code)
+    legal_name = _clean(fields.get(name_key))
+    legal_name_code = _canonical_name_party(legal_name)
+
+    conflicts = fields.setdefault("_identity_conflicts", [])
+    if raw_extracted and not extracted_code:
+        conflicts.append(
+            f"{prefix} extracted code {raw_extracted!r} is not a canonical identity"
+        )
+
+    observations = {
+        "document": document_canonical,
+        "extracted": extracted_code,
+        "legal_name": legal_name_code,
+    }
+    distinct = {code for code in observations.values() if code}
+    if len(distinct) > 1:
+        detail = "; ".join(
+            f"{label}={code or '-'}" for label, code in observations.items()
+        )
+        conflicts.append(f"{prefix} identity conflict: {detail}")
+
+    chosen = document_canonical or extracted_code or legal_name_code
+    if chosen:
+        fields[code_key] = chosen
+        fields[generic_key] = chosen
+    if not conflicts:
+        fields.pop("_identity_conflicts", None)
 
 
 def _apply_document_identity(doc: Document, fact_type: str, fields: dict[str, Any]) -> dict[str, Any]:
@@ -96,14 +137,8 @@ def _apply_document_identity(doc: Document, fact_type: str, fields: dict[str, An
     if fact_type == "contract":
         if getattr(doc, "contract_no", ""):
             out.setdefault("contract_no", doc.contract_no)
-        if entity_code:
-            out.setdefault("party_a_entity_code", entity_code)
-            out.setdefault("party_a_code", entity_code)
-        if counterparty_code:
-            out.setdefault("party_b_entity_code", counterparty_code)
-            out.setdefault("party_b_code", counterparty_code)
-        _backfill_party_from_name(out, "party_a")
-        _backfill_party_from_name(out, "party_b")
+        _merge_party_identity(out, "party_a", entity_code)
+        _merge_party_identity(out, "party_b", counterparty_code)
 
     elif fact_type == "invoice":
         direction = _clean(out.get("direction")).lower()
@@ -119,36 +154,26 @@ def _apply_document_identity(doc: Document, fact_type: str, fields: dict[str, An
         if getattr(doc, "invoice_date", ""):
             out.setdefault("invoice_date", doc.invoice_date)
         if direction == "in":
-            if entity_code:
-                out.setdefault("buyer_entity_code", entity_code)
-                out.setdefault("buyer_code", entity_code)
-            if counterparty_code:
-                out.setdefault("seller_entity_code", counterparty_code)
-                out.setdefault("seller_code", counterparty_code)
+            _merge_party_identity(out, "buyer", entity_code)
+            _merge_party_identity(out, "seller", counterparty_code)
         elif direction == "out":
-            if entity_code:
-                out.setdefault("seller_entity_code", entity_code)
-                out.setdefault("seller_code", entity_code)
-            if counterparty_code:
-                out.setdefault("buyer_entity_code", counterparty_code)
-                out.setdefault("buyer_code", counterparty_code)
-        _backfill_party_from_name(out, "seller")
-        _backfill_party_from_name(out, "buyer")
+            _merge_party_identity(out, "seller", entity_code)
+            _merge_party_identity(out, "buyer", counterparty_code)
+        else:
+            _merge_party_identity(out, "seller")
+            _merge_party_identity(out, "buyer")
 
     elif fact_type == "payment":
         direction = _clean(out.get("direction")).lower()
         if direction == "out":
-            if entity_code:
-                out.setdefault("payer_entity_code", entity_code)
-            if counterparty_code:
-                out.setdefault("payee_entity_code", counterparty_code)
+            _merge_party_identity(out, "payer", entity_code)
+            _merge_party_identity(out, "payee", counterparty_code)
         elif direction == "in":
-            if entity_code:
-                out.setdefault("payee_entity_code", entity_code)
-            if counterparty_code:
-                out.setdefault("payer_entity_code", counterparty_code)
-        _backfill_party_from_name(out, "payer")
-        _backfill_party_from_name(out, "payee")
+            _merge_party_identity(out, "payee", entity_code)
+            _merge_party_identity(out, "payer", counterparty_code)
+        else:
+            _merge_party_identity(out, "payer")
+            _merge_party_identity(out, "payee")
         if getattr(doc, "contract_no", ""):
             out.setdefault("contract_no", doc.contract_no)
 
@@ -187,6 +212,8 @@ def _validate(fact_type: str, fields: dict[str, Any]) -> list[str]:
     errors: list[str] = []
     if fields.get("_extraction_error"):
         errors.append(str(fields["_extraction_error"]))
+    for item in fields.get("_identity_conflicts") or []:
+        errors.append(str(item))
 
     if fact_type == "contract":
         if not _clean(fields.get("contract_no")):
@@ -256,7 +283,44 @@ def build_candidate(doc: Document, fact_type: str, fields: dict[str, Any]) -> Ca
     )
 
 
+def _acquire_business_key_lock(db, project_id: int, fact_type: str, business_key: str) -> None:
+    """Serialize one business identity before version/current transitions."""
+    try:
+        bind = db.get_bind()
+    except Exception:
+        bind = getattr(db, "bind", None)
+    dialect = getattr(getattr(bind, "dialect", None), "name", "")
+    if dialect == "postgresql":
+        lock_key = f"canonical_fact|{project_id}|{fact_type}|{business_key}"
+        db.execute(
+            text(
+                "SELECT pg_advisory_xact_lock("
+                "hashtextextended(CAST(:lock_key AS text), 0))"
+            ),
+            {"lock_key": lock_key},
+        )
+
+
+def _stale_replay_candidate(doc: Document, candidate: CanonicalFactCandidate) -> CanonicalFactCandidate:
+    reason = "stale source document replay blocked; current higher version retained"
+    confidence = Decimal(str(getattr(doc, "metadata_confidence", 0) or 0))
+    confidence = min(Decimal("0.99999"), max(Decimal("0"), confidence))
+    return replace(
+        candidate,
+        status="needs_review",
+        validation_errors=list(dict.fromkeys([*candidate.validation_errors, reason])),
+        confidence=confidence,
+    )
+
+
 def _persist_candidate(db, doc: Document, candidate: CanonicalFactCandidate) -> int:
+    _acquire_business_key_lock(
+        db,
+        int(doc.project_id),
+        candidate.fact_type,
+        candidate.business_key,
+    )
+
     existing = db.execute(
         text(
             "SELECT id, fact_version, status, is_current FROM canonical_facts "
@@ -268,6 +332,49 @@ def _persist_candidate(db, doc: Document, candidate: CanonicalFactCandidate) -> 
 
     if existing and existing["status"] == candidate.status:
         return int(existing["id"])
+
+    # A source that has already been superseded is historical evidence.
+    # Exact replay must never reactivate it as current.
+    if existing and existing["status"] == "superseded":
+        return int(existing["id"])
+
+    current = db.execute(
+        text(
+            "SELECT id, fact_version, source_document_id, source_hash FROM canonical_facts "
+            "WHERE project_id=:project_id AND fact_type=:fact_type AND business_key=:business_key "
+            "AND status='accepted' AND is_current=TRUE FOR UPDATE"
+        ),
+        {
+            "project_id": doc.project_id,
+            "fact_type": candidate.fact_type,
+            "business_key": candidate.business_key,
+        },
+    ).mappings().first()
+
+    prior_superseded_version = int(
+        db.execute(
+            text(
+                "SELECT COALESCE(MAX(fact_version), 0) FROM canonical_facts "
+                "WHERE source_document_id=:document_id AND project_id=:project_id "
+                "AND fact_type=:fact_type AND business_key=:business_key "
+                "AND status='superseded'"
+            ),
+            {
+                "document_id": doc.id,
+                "project_id": doc.project_id,
+                "fact_type": candidate.fact_type,
+                "business_key": candidate.business_key,
+            },
+        ).scalar_one()
+    )
+
+    if (
+        candidate.status == "accepted"
+        and current
+        and int(current["source_document_id"]) != int(doc.id)
+        and prior_superseded_version > 0
+    ):
+        candidate = _stale_replay_candidate(doc, candidate)
 
     if existing:
         fact_version = int(existing["fact_version"])

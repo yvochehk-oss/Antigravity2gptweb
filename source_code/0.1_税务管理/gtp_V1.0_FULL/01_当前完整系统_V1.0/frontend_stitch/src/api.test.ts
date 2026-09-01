@@ -732,13 +732,13 @@ test('reviewed RAG contracts are read and confirmed through fixed Tax endpoints 
   }, async () => {
     const pending = await fetchRagPendingContracts(6);
     assert.deepEqual(pending[0].partyB, { name: '供货商', taxId: '91510400EXT' });
-    const result = await confirmRagPendingContractAndCreateParties(41);
-    assert.equal(result.recordId, 91);
-    assert.equal(result.createdExternalParties[0].code, 'EXT-123');
+    await assert.rejects(
+        () => confirmRagPendingContractAndCreateParties(41),
+        error => error instanceof ApiError && error.status === 410,
+      );
   });
   assert.deepEqual(requests, [
     { path: '/rag-sync/pending?project_id=6&sync_type=contract&status=pending', body: undefined },
-    { path: '/rag-sync/pending/41/confirm-contract-and-create-parties', body: { confirm: true } },
   ]);
 });
 

@@ -468,25 +468,11 @@ export async function fetchRagPendingContracts(projectId: number, signal?: Abort
 }
 
 export async function confirmRagPendingContractAndCreateParties(pendingId: number): Promise<RagConfirmPendingContractResult> {
-  if (!positiveInteger(pendingId)) throw new ApiError('待复核记录必须是有效 ID。', 400);
-  const payload = await postJson<unknown>(`/rag-sync/pending/${pendingId}/confirm-contract-and-create-parties`, { confirm: true });
-  const data = asRecord(payload);
-  const resultPendingId = positiveInteger(data?.pending_id);
-  const recordId = positiveInteger(data?.record_id);
-  const partiesRaw = Array.isArray(data?.created_external_parties) ? data.created_external_parties : null;
-  if (data?.ok !== true || resultPendingId !== pendingId || !recordId || !partiesRaw) {
-    throw new ApiError('合同确认接口返回格式不完整。', 502, payload);
-  }
-  const parties = partiesRaw.map(item => {
-    const party = asRecord(item);
-    const id = positiveInteger(party?.id);
-    const code = stringField(party?.code);
-    const name = stringField(party?.name);
-    const taxId = party?.tax_id === null ? null : stringField(party?.tax_id);
-    return id && code && name && (taxId === null || taxId) ? { id, code, name, taxId } : null;
-  });
-  if (parties.some(item => item === null)) throw new ApiError('合同确认接口返回了无效交易方。', 502, payload);
-  return { pendingId: resultPendingId, recordId, createdExternalParties: parties as RagConfirmedExternalParty[] };
+    if (!positiveInteger(pendingId)) throw new ApiError('待复核记录必须是有效 ID。', 400);
+    throw new ApiError(
+        'Phase 2.5 已启用 Canonical Facts 单一事实源；Tax UI 不再允许手动创建外部交易方并导入合同。',
+        410,
+    );
 }
 
 export async function rejectRagPendingContract(pendingId: number, note?: string): Promise<{ ok: boolean; pendingId: number }> {
@@ -983,7 +969,7 @@ export async function fetchProjectCounterparties(
   signal?: AbortSignal,
 ): Promise<ProjectCounterpartiesResponse> {
   if (!positiveInteger(projectId)) throw new ApiError('缺少有效的 Tax 项目 ID。', 400);
-  const payload = await fetchJson<unknown>(`/api/projects/${projectId}/counterparties`, { signal });
+  const payload = await fetchJson<unknown>(`/api/v1/canonical-ssot/projects/${projectId}/counterparties`, { signal });
   const data = asRecord(payload);
   if (!data || !Array.isArray(data.items)) {
     throw new ApiError('对手方接口返回格式不完整。', 502, payload);

@@ -2325,68 +2325,16 @@ def confirm_contract_and_create_parties(
     payload: ConfirmPendingContractRequest,
     request: Request,
 ):
-    """Confirm one reviewed contract and, only then, create its missing counterparties.
-
-    Party identities come exclusively from the immutable Tax-side pending row.
-    This protects the canonical master from browser-tampered names or tax ids,
-    while retaining a clear human approval boundary before the write.
-    """
-    user = admin_only(request)
-    actor = current_actor(request) or str(getattr(user, "username", "") or "admin")
-    db = SessionLocal()
-    try:
-        pending = db.query(SyncPending).filter(SyncPending.id == pending_id).with_for_update().first()
-        if not pending:
-            raise HTTPException(404, "待复核记录不存在")
-        if pending.status != "pending":
-            raise HTTPException(409, f"该记录状态为 {pending.status}，无法确认")
-        if pending.sync_type != "contract":
-            raise HTTPException(409, "仅合同待复核记录允许确认创建外部交易方")
-
-        try:
-            fields = json.loads(pending.fields_json or "{}")
-        except (TypeError, ValueError, json.JSONDecodeError) as exc:
-            raise HTTPException(409, "待复核合同字段已损坏，不能安全确认") from exc
-        if not isinstance(fields, dict):
-            raise HTTPException(409, "待复核合同字段格式无效，不能安全确认")
-
-        # All writes below are one transaction.  Any conflict rolls back both
-        # new master-data rows and the contract import.
-        created = _create_confirmed_external_parties(db, fields)
-        mapped = _map_contract_fields(db, fields, pending.project_id)
-        record = _existing_record_for_pending(db, pending.project_id, pending.sync_type, fields, mapped)
-        if record is None:
-            record = _import_record(
-                db, pending.project_id, pending.sync_type, fields, mapped=mapped,
-            )
-            db.flush()
-
-        pending.status = "confirmed"
-        pending.confirmed_record_id = record.id
-        pending.confirmed_at = _now()
-        pending.confirmed_by = actor
-        db.commit()
-        return {
-            "ok": True,
-            "pending_id": pending.id,
-            "record_id": record.id,
-            "record_type": pending.sync_type,
-            "created_external_parties": [
-                {"id": party.id, "code": party.code, "name": party.name, "tax_id": party.tax_id}
-                for party in created
-            ],
-        }
-    except HTTPException:
-        db.rollback()
-        raise
-    except SyncReviewRequired as exc:
-        db.rollback()
-        raise HTTPException(409, exc.reason) from exc
-    except Exception:
-        db.rollback()
-        raise
-    finally:
-        db.close()
+    """Phase 2.5 hard stop for the obsolete Tax-side master-data write path."""
+    admin_only(request)
+    _ = (pending_id, payload)
+    raise HTTPException(
+        status_code=410,
+        detail=(
+            "Phase 2.5 已启用 Canonical Facts 单一事实源；"
+            "Tax 不再允许手动创建外部交易方并导入合同。"
+        ),
+    )
 
 
 @router.post("/pending/{pending_id}/reject")
