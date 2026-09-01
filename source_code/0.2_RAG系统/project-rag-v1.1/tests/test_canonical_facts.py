@@ -70,3 +70,46 @@ def test_incomplete_fact_is_review_only() -> None:
 
 def test_equipment_contract_is_contract_not_payment() -> None:
     assert infer_fact_type("equipment_contract") == "contract"
+
+
+def test_payment_without_bank_reference_keeps_document_identity() -> None:
+    fields = {
+        "direction": "out",
+        "payer_entity_code": "A08",
+        "payee_entity_code": "ED",
+        "payment_date": "2026-09-01",
+        "amount": 1000,
+    }
+    first = build_candidate(_doc(id=101, document_type="payment"), "payment", fields)
+    second = build_candidate(_doc(id=102, document_type="payment"), "payment", fields)
+    assert first.status == "accepted"
+    assert second.status == "accepted"
+    assert first.business_key == "document:101:payment"
+    assert second.business_key == "document:102:payment"
+
+
+def test_invoice_business_key_is_scoped_by_canonical_seller() -> None:
+    fields = {
+        "direction": "in",
+        "invoice_no": "00012345",
+        "invoice_code": "5100",
+        "net_amount": 1000,
+        "vat_amount": 130,
+        "total_amount": 1130,
+        "validation_status": "VALID",
+    }
+    eb = build_candidate(
+        _doc(document_type="invoice", counterparty_code="EB", invoice_no="00012345", tax_vat_input=130),
+        "invoice",
+        fields,
+    )
+    ea = build_candidate(
+        _doc(document_type="invoice", counterparty_code="EA", invoice_no="00012345", tax_vat_input=130),
+        "invoice",
+        fields,
+    )
+    assert eb.status == "accepted"
+    assert ea.status == "accepted"
+    assert eb.business_key != ea.business_key
+    assert eb.business_key.startswith("invoice:EB:")
+    assert ea.business_key.startswith("invoice:EA:")

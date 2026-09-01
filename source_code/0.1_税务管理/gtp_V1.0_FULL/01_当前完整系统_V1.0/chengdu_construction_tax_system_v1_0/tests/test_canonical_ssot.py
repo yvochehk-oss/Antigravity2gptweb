@@ -27,7 +27,7 @@ def test_internal_chain_is_eliminated_and_external_boundary_counted_once() -> No
     assert result["external_cost"] == Decimal("1000")
     assert result["external_revenue"] == Decimal("1600")
     assert result["internal_eliminated"] == Decimal("2300")
-    assert result["true_profit"] == Decimal("600")
+    assert result["boundary_margin"] == Decimal("600")
 
 
 def test_non_deductible_input_vat_enters_real_cost() -> None:
@@ -36,7 +36,7 @@ def test_non_deductible_input_vat_enters_real_cost() -> None:
         {"A08"},
     )
     assert result["external_cost"] == Decimal("106")
-    assert result["true_profit"] == Decimal("-106")
+    assert result["boundary_margin"] == Decimal("-106")
 
 
 def test_external_to_external_is_outside_system() -> None:

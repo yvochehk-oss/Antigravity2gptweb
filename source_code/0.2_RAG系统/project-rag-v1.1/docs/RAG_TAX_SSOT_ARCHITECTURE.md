@@ -89,7 +89,7 @@ RAG ingest worker 在 `parse_and_index()` 成功、Document 状态变为 `INDEXE
 
 VAT 与利润必须分轨：可抵扣进项 VAT 不进入真实成本；不可抵扣 VAT 才进入成本；payment facts 只用于资金流和已付/应付匹配，不能与 invoice 成本重复计入 P&L。
 
-本阶段 `canonical_ssot.build_consolidated_project_pnl()` 先对 accepted invoice facts 完成 `external_revenue / external_cost / internal_eliminated / true_profit` 边界合并。后续履约、结算、未票成本、税会差异继续叠加在同一 lineage 上，而不是改变事实源。
+本阶段 `canonical_ssot.build_consolidated_project_pnl()` 先对 accepted invoice facts 完成 `external_revenue / external_cost / internal_eliminated / boundary_margin` 边界合并。`boundary_margin` 是发票事实口径的系统边界指标，不等同于最终会计净利润；最终“真实净利润”必须再叠加完工进度/收入确认、已发生未票成本、结算调整、资产化/费用化以及税会差异等确定性层。后续这些计算继续沿用同一 fact lineage，而不是改变事实源。
 
 ## 7. 幂等、版本与审计
 

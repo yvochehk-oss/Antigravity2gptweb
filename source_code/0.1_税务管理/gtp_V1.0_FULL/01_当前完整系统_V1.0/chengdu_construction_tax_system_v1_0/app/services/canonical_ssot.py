@@ -103,7 +103,7 @@ def consolidate_invoice_facts(
         "external_revenue": external_revenue,
         "external_cost": external_cost,
         "internal_eliminated": internal_eliminated,
-        "true_profit": external_revenue - external_cost,
+        "boundary_margin": external_revenue - external_cost,
         "edges": boundary_edges,
     }
 
@@ -121,6 +121,12 @@ def build_consolidated_project_pnl(db, project_id: int) -> dict[str, Any]:
             "project_id": project_id,
             "source": "analytics_canonical_facts_current",
             "fact_count": len(invoice_facts),
+            "basis": "accepted_invoice_facts",
+            "is_final_profit": False,
+            "limitations": [
+                "invoice boundary metric only; completion progress and unbilled accruals are not included",
+                "settlement adjustments and book-tax differences require later deterministic layers",
+            ],
             "calculation_version": "canonical-boundary-pnl-v1",
         }
     )

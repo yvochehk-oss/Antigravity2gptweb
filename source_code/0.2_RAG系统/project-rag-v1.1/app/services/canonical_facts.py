@@ -23,6 +23,8 @@ from .extractor import (
 from .tax_extraction import EXTRACT_DOC_TYPE_FILTERS
 
 _MAX_FACT_TEXT_CHARS = 300_000
+_FACT_SCHEMA_VERSION = "v1"
+_VALIDATION_POLICY_VERSION = "v1"
 
 
 @dataclass(frozen=True)
@@ -157,13 +159,25 @@ def _business_key(doc: Document, fact_type: str, fields: dict[str, Any]) -> str:
     if fact_type == "contract":
         return _clean(fields.get("contract_no")) or f"document:{doc.id}:contract"
     if fact_type == "invoice":
-        return _clean(fields.get("invoice_no")) or f"document:{doc.id}:invoice"
+        invoice_no = _clean(fields.get("invoice_no"))
+        seller = _canonical_party(fields.get("seller_entity_code") or fields.get("seller_code"))
+        invoice_code = _clean(fields.get("invoice_code")) or "-"
+        if invoice_no and seller:
+            return f"invoice:{seller}:{invoice_code}:{invoice_no}"
+        return f"document:{doc.id}:invoice"
+
+    # Two legitimate transfers can have the same date, parties and amount.
+    # Only a bank reference is strong enough for cross-document dedupe; without
+    # one, keep document identity so the SSOT never silently merges cash facts.
+    reference = _clean(fields.get("payer_bank_reference") or fields.get("payee_bank_reference"))
+    if not reference:
+        return f"document:{doc.id}:payment"
     pieces = [
         _clean(fields.get("payment_date")),
         _clean(fields.get("payer_entity_code")),
         _clean(fields.get("payee_entity_code")),
         _clean(fields.get("amount")),
-        _clean(fields.get("payer_bank_reference") or fields.get("payee_bank_reference")),
+        reference,
     ]
     material = "|".join(pieces)
     return "payment:" + hashlib.sha256(material.encode("utf-8")).hexdigest()[:32]
@@ -222,6 +236,8 @@ def build_candidate(doc: Document, fact_type: str, fields: dict[str, Any]) -> Ca
     stable = {
         "document_file_hash": _clean(getattr(doc, "file_hash", "")),
         "fact_type": fact_type,
+        "schema_version": _FACT_SCHEMA_VERSION,
+        "validation_policy_version": _VALIDATION_POLICY_VERSION,
         "payload": payload,
     }
     source_hash = hashlib.sha256(
