@@ -398,8 +398,21 @@ def _clean_identity(value: Any) -> str:
 
 _EXTERNAL_PARTY_SEAL_NAME_TO_CODE = {
     "四川省建筑科学研究院特种技术服务中心": "EA",
+    "省建科院特种技术中心": "EA",
+    "中建西南地勘院": "EA",
     "攀钢集团攀枝花钢铁钒物资销售有限公司": "EB",
+    "攀钢集团攀枝花钢钒物资销售有限公司": "EB",
+    "攀钢集团特种钢材直销部": "EB",
+    "攀钢钢钒物资": "EB",
     "重庆重交大件起重吊装工程有限公司": "ED",
+    "重庆巨力重型起重设备吊装公司": "ED",
+    "重庆巨力吊装": "ED",
+}
+
+_EXTERNAL_PARTY_CANONICAL_KIND = {
+    "EA": "construction",
+    "EB": "trade",
+    "ED": "equipment",
 }
 
 
@@ -642,7 +655,35 @@ def _create_confirmed_external_parties(db, fields: dict[str, Any]) -> list[Exter
         except SyncReviewRequired as exc:
             if "未登记" not in exc.reason:
                 raise
-        # Need to create external party
+        # A reviewed, explicitly-known seal alias owns a canonical E* identity.
+        # If its master row is missing, create that canonical row directly; never
+        # hash the canonical code into a second EXT-* identity.
+        if alias_code:
+            same_code = _external_party_matches(db, "code", alias_code)
+            if len(same_code) > 1:
+                raise SyncReviewRequired(
+                    f"外部交易方 code={alias_code!r} 匹配不唯一"
+                )
+            if same_code:
+                continue
+            same_name = _external_party_matches(db, "name", name)
+            if same_name:
+                raise SyncReviewRequired(
+                    f"外部交易方名称 {name!r} 已登记但 canonical code 不一致"
+                )
+            party = ExternalParty(
+                code=alias_code,
+                name=name,
+                short_name=name[:60],
+                kind=_EXTERNAL_PARTY_CANONICAL_KIND.get(alias_code, "rag_confirmed"),
+                tax_id=raw_tax_id or None,
+                active=True,
+            )
+            db.add(party)
+            db.flush()
+            created.append(party)
+            continue
+        # Need to create an otherwise unknown external party.
         tax_id_for_ext = raw_tax_id or (raw_code if not _is_internal_entity_code(db, raw_code) else "")
         if not tax_id_for_ext or _is_virtual_identity(tax_id_for_ext):
             continue

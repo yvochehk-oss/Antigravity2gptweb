@@ -91,3 +91,31 @@ def test_contract_alias_conflict_fails_closed() -> None:
     }
     with pytest.raises(rag_sync.SyncReviewRequired, match="冲突"):
         rag_sync._normalize_contract_party_identity(fields, "party_b")
+
+
+def test_confirm_missing_known_alias_creates_canonical_code(monkeypatch) -> None:
+    created_rows = []
+
+    class _DB:
+        def add(self, row):
+            created_rows.append(row)
+        def flush(self):
+            pass
+
+    def _missing(db, raw=None, *, name=None, code=None, tax_id=None):
+        raise rag_sync.SyncReviewRequired(f"外部交易方 code={raw!r} 未登记")
+
+    monkeypatch.setattr(rag_sync, "_resolve_party_code", _missing)
+    monkeypatch.setattr(rag_sync, "_external_party_matches", lambda db, label, value: [])
+
+    fields = {
+        "party_b_entity_code": "EB",
+        "party_b_name": "攀钢集团攀枝花钢铁钒物资销售有限公司",
+    }
+    created = rag_sync._create_confirmed_external_parties(_DB(), fields)
+
+    assert len(created) == 1
+    assert created[0].code == "EB"
+    assert created[0].code.startswith("EXT-") is False
+    assert created[0].kind == "trade"
+    assert fields["party_b_code"] == "EB"
