@@ -68,7 +68,7 @@ EXTERNAL_ENTITY_PRESETS: dict[str, dict[str, Any]] = {
         "role_code": "EB",
         "tax_id": "91510400MA61EEEE77",
         "note": "系统外材料供应商（特种高强抗震合金钢直采供货）",
-        "aliases": ("EXT-PG", "EB01", "EB1", "攀钢", "攀钢集团", "合金钢直采"),
+        "aliases": ("EXT-PG", "EB01", "EB1", "攀钢", "攀钢集团", "合金钢直采", "攀钢集团攀枝花钢铁钒物资销售有限公司"),
     },
     "EC": {
         "code": "EC",
@@ -90,7 +90,7 @@ EXTERNAL_ENTITY_PRESETS: dict[str, dict[str, Any]] = {
         "role_code": "ED",
         "tax_id": "91500100MA61GGGG99",
         "note": "系统外工程设备/起重吊装单位",
-        "aliases": ("EXT-CQ", "EXT-CQ-HEAVY-CRANE", "EXT-CRANE", "ED01", "ED1", "重庆巨力", "巨力吊装", "重交大件", "履带吊租赁", "超重型履带吊"),
+        "aliases": ("EXT-CQ", "EXT-CQ-HEAVY-CRANE", "EXT-CRANE", "ED01", "ED1", "重庆巨力", "巨力吊装", "重交大件", "重庆重交大件起重吊装工程有限公司", "履带吊租赁", "超重型履带吊"),
     },
     "E0": {
         "code": "E0",
@@ -107,9 +107,14 @@ EXTERNAL_ENTITY_PRESETS: dict[str, dict[str, Any]] = {
 
 EXTERNAL_ALIAS_TO_CODE: dict[str, str] = {}
 for _k, _meta in EXTERNAL_ENTITY_PRESETS.items():
-    EXTERNAL_ALIAS_TO_CODE[_k] = _k
-    for _al in _meta.get("aliases", ()):
-        EXTERNAL_ALIAS_TO_CODE[_al.upper()] = _k
+    for _identity in (
+        _k,
+        _meta.get("name"),
+        _meta.get("short_name"),
+        *_meta.get("aliases", ()),
+    ):
+        if _identity:
+            EXTERNAL_ALIAS_TO_CODE[str(_identity).strip().upper()] = _k
 
 
 def map_to_standard_external_code(value: str | None) -> str | None:

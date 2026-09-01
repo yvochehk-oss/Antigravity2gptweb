@@ -18,7 +18,7 @@ from app.services.metadata import (
 from app.services.documents import register_bytes
 from app.services.ingest import _auto_register_external_party
 from app.models import ExternalParty, Document, Project
-from app.legacy_routes import app, api_patch_metadata
+from app.legacy_routes import app, api_patch_metadata, _inject_contract_party_codes
 from app.schemas import DocumentMetadataPatch
 
 
@@ -192,3 +192,29 @@ def test_register_bytes_initial_commit_normalizes_to_ed(monkeypatch) -> None:
     assert doc.counterparty_code == "ED"
     assert len(saved_docs) >= 1
     assert saved_docs[0].counterparty_code == "ED"
+
+
+@pytest.mark.parametrize(
+    ("name", "expected"),
+    [
+        ("四川省建筑科学研究院特种技术服务中心", "EA"),
+        ("攀钢集团攀枝花钢铁钒物资销售有限公司", "EB"),
+        ("重庆重交大件起重吊装工程有限公司", "ED"),
+    ],
+)
+def test_seal_legal_names_map_to_canonical_external_code(name, expected) -> None:
+    assert map_to_standard_external_code(name) == expected
+
+
+def test_contract_extract_backfills_both_code_field_names() -> None:
+    class _Doc:
+        entity_code = "A08"
+        counterparty_code = "EXT-CQ"
+
+    fields = {}
+    _inject_contract_party_codes(fields, _Doc())
+
+    assert fields["party_a_entity_code"] == "A08"
+    assert fields["party_a_code"] == "A08"
+    assert fields["party_b_entity_code"] == "ED"
+    assert fields["party_b_code"] == "ED"

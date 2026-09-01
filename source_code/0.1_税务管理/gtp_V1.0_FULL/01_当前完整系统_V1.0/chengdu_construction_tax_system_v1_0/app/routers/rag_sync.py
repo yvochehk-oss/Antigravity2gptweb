@@ -396,6 +396,36 @@ def _clean_identity(value: Any) -> str:
     return " ".join(str(value).strip().split())
 
 
+_EXTERNAL_PARTY_SEAL_NAME_TO_CODE = {
+    "四川省建筑科学研究院特种技术服务中心": "EA",
+    "攀钢集团攀枝花钢铁钒物资销售有限公司": "EB",
+    "重庆重交大件起重吊装工程有限公司": "ED",
+}
+
+
+def _normalize_contract_party_identity(
+    fields: dict[str, Any], side: str,
+) -> tuple[str, str, str, str]:
+    """Return canonical code/tax-id/name plus a matched explicit seal alias code."""
+    code = _clean_identity(
+        fields.get(f"{side}_entity_code") or fields.get(f"{side}_code")
+    )
+    tax_id = _clean_identity(fields.get(f"{side}_tax_id"))
+    name = _clean_identity(fields.get(f"{side}_name"))
+    alias_code = _EXTERNAL_PARTY_SEAL_NAME_TO_CODE.get(name, "")
+    if alias_code:
+        if code and code != alias_code:
+            raise SyncReviewRequired(
+                f"{side} canonical code {code!r} 与公章全称 {name!r} 映射 {alias_code!r} 冲突"
+            )
+        code = alias_code
+        fields[f"{side}_entity_code"] = alias_code
+        fields[f"{side}_code"] = alias_code
+    elif code:
+        fields[f"{side}_code"] = code
+    return code, tax_id, name, alias_code
+
+
 def _is_virtual_identity(value: str | None) -> bool:
     normalized = _clean_identity(value)
     return normalized.upper() in {"A", "B", "C", "D"} or normalized in {
@@ -596,13 +626,18 @@ def _create_confirmed_external_parties(db, fields: dict[str, Any]) -> list[Exter
         raise SyncReviewRequired("外部交易方主数据尚未迁移，无法确认创建")
     created: list[ExternalParty] = []
     for side in ("party_a", "party_b"):
-        raw_code = _clean_identity(fields.get(f"{side}_code"))
-        raw_tax_id = _clean_identity(fields.get(f"{side}_tax_id"))
-        name = _clean_identity(fields.get(f"{side}_name"))
+        raw_code, raw_tax_id, name, alias_code = _normalize_contract_party_identity(
+            fields, side
+        )
         if not raw_tax_id and not raw_code:
             continue
         try:
-            _resolve_party_code(db, raw=raw_code, tax_id=raw_tax_id, name=name)
+            _resolve_party_code(
+                db,
+                raw=raw_code,
+                tax_id=raw_tax_id,
+                name="" if alias_code else name,
+            )
             continue
         except SyncReviewRequired as exc:
             if "未登记" not in exc.reason:
@@ -1019,10 +1054,12 @@ def _validate_invoice_rag_contract(item: dict[str, Any], fields: dict[str, Any])
 
 def _map_contract_fields(db, fields: dict, project_id: int) -> dict[str, Any]:
     """将 RAG 抽取的合同字段映射为税务系统 Contract 模型字段。"""
-    party_a_code = _clean_identity(fields.get("party_a_code"))
-    party_a_tax_id = _clean_identity(fields.get("party_a_tax_id"))
-    party_b_code = _clean_identity(fields.get("party_b_code"))
-    party_b_tax_id = _clean_identity(fields.get("party_b_tax_id"))
+    party_a_code, party_a_tax_id, party_a_name, party_a_alias = (
+        _normalize_contract_party_identity(fields, "party_a")
+    )
+    party_b_code, party_b_tax_id, party_b_name, party_b_alias = (
+        _normalize_contract_party_identity(fields, "party_b")
+    )
     # Some extractors put the tax id into ``*_code``.  Passing that value as
     # both a code and tax id would intentionally fail the identity resolver;
     # keep the one authoritative identifier instead.
@@ -1033,13 +1070,13 @@ def _map_contract_fields(db, fields: dict, project_id: int) -> dict[str, Any]:
     party_a = _resolve_party_code(
         db,
         raw=party_a_code,
-        name=fields.get("party_a_name"),
+        name="" if party_a_alias else party_a_name,
         tax_id=party_a_tax_id,
     )
     party_b = _resolve_party_code(
         db,
         raw=party_b_code,
-        name=fields.get("party_b_name"),
+        name="" if party_b_alias else party_b_name,
         tax_id=party_b_tax_id,
     )
     internal_trade = _is_internal_entity_code(db, party_a) and _is_internal_entity_code(db, party_b)

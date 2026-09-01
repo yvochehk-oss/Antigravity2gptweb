@@ -139,6 +139,20 @@ def _tax_extract_workers() -> int:
         configured = 8
     return max(1, min(configured, 8))
 
+
+def _inject_contract_party_codes(fields: dict, doc) -> dict:
+    """Backfill canonical party codes for both old and new Tax consumers."""
+    if doc.entity_code:
+        fields.setdefault("party_a_entity_code", doc.entity_code)
+        fields.setdefault("party_a_code", doc.entity_code)
+    if doc.counterparty_code:
+        canonical = map_to_standard_external_code(doc.counterparty_code)
+        if canonical:
+            fields.setdefault("party_b_entity_code", canonical)
+            fields.setdefault("party_b_code", canonical)
+    return fields
+
+
 # Import v1.0 legacy modules
 try:
     from ai_review.routes import router as ai_review_router
@@ -2166,10 +2180,7 @@ def api_extract_tax(body: ExtractTaxRequest):
                         fields = extract_contract_fields_from_text(chunk_text)
                         if doc.contract_no and not fields.get("contract_no"):
                             fields["contract_no"] = doc.contract_no
-                        if doc.entity_code and not fields.get("party_a_entity_code"):
-                            fields["party_a_entity_code"] = doc.entity_code
-                        if doc.counterparty_code and not fields.get("party_b_entity_code"):
-                            fields["party_b_entity_code"] = doc.counterparty_code
+                        _inject_contract_party_codes(fields, doc)
                         confidence = 1.0 if (fields.get("party_a_name") and fields.get("party_b_name")) else 0.9
                     elif body.extract_type == "payment":
                         fields = extract_payment_fields_from_text(chunk_text)
