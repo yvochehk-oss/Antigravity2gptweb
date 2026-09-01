@@ -950,7 +950,14 @@ async function submitDeleteProject() {
       return;
     }
 
-    const data = await res.json();
+    let data = {};
+    const text = await res.text();
+    try {
+      data = JSON.parse(text);
+    } catch (_) {
+      data = { detail: text || `服务器异常 (${res.status})` };
+    }
+
     if (!res.ok) {
       let errMsg = '删除失败';
       if (typeof data.detail === 'string') {
@@ -959,6 +966,8 @@ async function submitDeleteProject() {
         errMsg = data.detail.message;
       } else if (data.message) {
         errMsg = data.message;
+      } else if (typeof data === 'string') {
+        errMsg = data;
       }
       throw new Error(errMsg);
     }

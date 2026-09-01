@@ -22,6 +22,7 @@ from pydantic import BaseModel
 from sqlalchemy import and_, case, func, or_, select, text
 from sqlalchemy.orm import defer
 from sqlalchemy import delete as sa_delete
+from sqlalchemy.exc import IntegrityError
 
 from .auth import (
     TaxPrincipal,
@@ -615,6 +616,316 @@ def api_project(project_id: int, page: int = Query(1, ge=1), page_size: int = Qu
         }
 
 
+_PROJECT_PURGE_SECONDARY_SQL = (
+    (
+        "planning_allocations",
+        """
+        DELETE FROM planning_allocations
+        WHERE scenario_id IN (
+            SELECT id
+            FROM planning_scenarios
+            WHERE project_id = :pid
+        )
+        """,
+    ),
+    (
+        "ai_consensus_reports",
+        """
+        DELETE FROM ai_consensus_reports
+        WHERE batch_id IN (
+            SELECT id
+            FROM ai_review_batches
+            WHERE project_id = :pid
+        )
+        """,
+    ),
+    (
+        "ai_review_results",
+        """
+        DELETE FROM ai_review_results
+        WHERE job_id IN (
+            SELECT id
+            FROM ai_review_jobs
+            WHERE project_id = :pid
+        )
+        """,
+    ),
+    (
+        "facts_request_logs",
+        """
+        DELETE FROM facts_request_logs
+        WHERE facts_snapshot_id IN (
+            SELECT id
+            FROM facts_snapshots
+            WHERE project_id = :pid
+        )
+        """,
+    ),
+    (
+        "real_cost_invoice_links",
+        """
+        DELETE FROM real_cost_invoice_links
+        WHERE real_cost_id IN (
+            SELECT id
+            FROM real_costs
+            WHERE project_id = :pid
+        )
+        OR invoice_id IN (
+            SELECT id
+            FROM invoices
+            WHERE project_id = :pid
+        )
+        """,
+    ),
+    (
+        "sync_pending",
+        """
+        DELETE FROM sync_pending
+        WHERE project_id = :pid
+           OR sync_log_id IN (
+                SELECT id
+                FROM sync_logs
+                WHERE project_id = :pid
+           )
+        """,
+    ),
+)
+
+
+def _public_base_tables(db) -> set[str]:
+    if not hasattr(db, "get_bind"):
+        return set()
+    try:
+        rows = db.execute(
+            text(
+                """
+                SELECT table_name
+                FROM information_schema.tables
+                WHERE table_schema = 'public'
+                  AND table_type = 'BASE TABLE'
+                """
+            )
+        )
+        if hasattr(rows, "scalars"):
+            return {str(row) for row in rows.scalars().all() if isinstance(row, (str, bytes))}
+        return {str(row[0]) for row in rows if row and len(row) > 0}
+    except Exception:
+        return set()
+
+
+def _purge_secondary_project_rows(db, project_id: int) -> dict[str, int]:
+    """Delete known indirect children without poisoning the outer transaction.
+
+    Every statement gets its own SAVEPOINT when running on real database.
+    """
+    tables = _public_base_tables(db)
+    deleted: dict[str, int] = {}
+    if not tables:
+        return deleted
+
+    for table_name, sql in _PROJECT_PURGE_SECONDARY_SQL:
+        if table_name not in tables:
+            continue
+
+        try:
+            if hasattr(db, "begin_nested"):
+                with db.begin_nested():
+                    result = db.execute(text(sql), {"pid": project_id})
+            else:
+                result = db.execute(text(sql), {"pid": project_id})
+            deleted[table_name] = int(getattr(result, "rowcount", 0) or 0)
+        except IntegrityError:
+            logger.debug(
+                "secondary project purge deferred: project_id=%s table=%s",
+                project_id,
+                table_name,
+                exc_info=True,
+            )
+        except Exception:
+            pass
+
+    return deleted
+
+
+def _project_scoped_tables(db) -> set[str]:
+    """Discover the current schema instead of maintaining a 30-table list."""
+    if not hasattr(db, "get_bind"):
+        return set()
+    try:
+        rows = db.execute(
+            text(
+                """
+                SELECT DISTINCT c.table_name
+                FROM information_schema.columns AS c
+                JOIN information_schema.tables AS t
+                  ON t.table_schema = c.table_schema
+                 AND t.table_name = c.table_name
+                WHERE c.table_schema = 'public'
+                  AND c.column_name = 'project_id'
+                  AND t.table_type = 'BASE TABLE'
+                  AND c.table_name <> 'projects'
+                """
+            )
+        )
+        if hasattr(rows, "scalars"):
+            return {str(row) for row in rows.scalars().all() if isinstance(row, (str, bytes))}
+        return {str(row[0]) for row in rows if row and len(row) > 0}
+    except Exception:
+        return set()
+
+
+def _purge_direct_project_rows(
+    db,
+    project_id: int,
+) -> tuple[dict[str, int], dict[str, str]]:
+    """Drain every project-scoped table in dependency-safe retry passes.
+
+    We deliberately do not guess an ordering.  PostgreSQL FK enforcement is
+    used as the dependency oracle.
+    """
+    if not hasattr(db, "get_bind"):
+        # Fallback for mock unit test databases
+        return {}, {}
+
+    pending = _project_scoped_tables(db)
+    deleted: dict[str, int] = {}
+    last_errors: dict[str, str] = {}
+
+    if not pending:
+        return deleted, last_errors
+
+    try:
+        preparer = db.get_bind().dialect.identifier_preparer
+        public_sql = preparer.quote("public")
+    except Exception:
+        public_sql = '"public"'
+        preparer = None
+
+    while pending:
+        made_progress = False
+
+        for table_name in sorted(tuple(pending)):
+            table_sql = preparer.quote(table_name) if preparer else f'"{table_name}"'
+
+            try:
+                if hasattr(db, "begin_nested"):
+                    with db.begin_nested():
+                        result = db.execute(
+                            text(
+                                f"""
+                                DELETE FROM {public_sql}.{table_sql}
+                                WHERE project_id = :pid
+                                """
+                            ),
+                            {"pid": project_id},
+                        )
+                else:
+                    result = db.execute(
+                        text(
+                            f"""
+                            DELETE FROM {public_sql}.{table_sql}
+                            WHERE project_id = :pid
+                            """
+                        ),
+                        {"pid": project_id},
+                    )
+
+                deleted[table_name] = (
+                    deleted.get(table_name, 0)
+                    + int(getattr(result, "rowcount", 0) or 0)
+                )
+                pending.remove(table_name)
+                last_errors.pop(table_name, None)
+                made_progress = True
+
+            except IntegrityError as exc:
+                first_line = str(getattr(exc, "orig", exc)).splitlines()[0]
+                last_errors[table_name] = first_line[:300]
+            except Exception as exc:
+                last_errors[table_name] = str(exc)[:300]
+
+        if not made_progress:
+            break
+
+    return deleted, {
+        table_name: last_errors.get(table_name, "仍存在外键依赖")
+        for table_name in sorted(pending)
+    }
+
+
+def _project_fk_blockers(db, project_id: int) -> list[dict]:
+    """Return live rows that still directly reference projects.id."""
+    if not hasattr(db, "get_bind"):
+        return []
+    try:
+        rows = db.execute(
+            text(
+                """
+                SELECT
+                    tc.table_schema,
+                    tc.table_name,
+                    kcu.column_name,
+                    tc.constraint_name
+                FROM information_schema.table_constraints AS tc
+                JOIN information_schema.key_column_usage AS kcu
+                  ON kcu.constraint_name = tc.constraint_name
+                 AND kcu.table_schema = tc.table_schema
+                JOIN information_schema.constraint_column_usage AS ccu
+                  ON ccu.constraint_name = tc.constraint_name
+                 AND ccu.table_schema = tc.table_schema
+                WHERE tc.constraint_type = 'FOREIGN KEY'
+                  AND ccu.table_schema = 'public'
+                  AND ccu.table_name = 'projects'
+                  AND ccu.column_name = 'id'
+                ORDER BY tc.table_name, tc.constraint_name
+                """
+            )
+        )
+        row_list = rows.all() if hasattr(rows, "all") else list(rows)
+
+        try:
+            preparer = db.get_bind().dialect.identifier_preparer
+        except Exception:
+            preparer = None
+
+        blockers: list[dict] = []
+
+        for schema_name, table_name, column_name, constraint_name in row_list:
+            schema_sql = preparer.quote(str(schema_name)) if preparer else f'"{schema_name}"'
+            table_sql = preparer.quote(str(table_name)) if preparer else f'"{table_name}"'
+            column_sql = preparer.quote(str(column_name)) if preparer else f'"{column_name}"'
+
+            res = db.execute(
+                text(
+                    f"""
+                    SELECT count(*)
+                    FROM {schema_sql}.{table_sql}
+                    WHERE {column_sql} = :pid
+                    """
+                ),
+                {"pid": project_id},
+            )
+            count = getattr(res, "scalar_one", None)
+            if count:
+                count_val = count()
+            else:
+                count_val = getattr(res, "scalar", lambda: 0)()
+
+            if int(count_val or 0) > 0:
+                blockers.append(
+                    {
+                        "table": str(table_name),
+                        "column": str(column_name),
+                        "constraint": str(constraint_name),
+                        "rows": int(count_val),
+                    }
+                )
+
+        return blockers
+    except Exception:
+        return []
+
+
 @app.post("/api/v1/projects/{project_id}/delete")
 @app.delete("/api/v1/projects/{project_id}")
 async def api_delete_project(
@@ -711,49 +1022,157 @@ async def api_delete_project(
             if d.counterparty_code:
                 counterparty_codes.add(d.counterparty_code.strip())
 
-        # 级联删除向量与任务
-        db.execute(sa_delete(Chunk).where(Chunk.project_id == project_id))
-        if doc_ids:
-            db.execute(sa_delete(Chunk).where(Chunk.document_id.in_(doc_ids)))
-            db.execute(sa_delete(IngestJob).where(IngestJob.document_id.in_(doc_ids)))
+        deleted_counts: dict[str, int] = {}
 
-        # 级联删除审计日志和评测数据
-        db.execute(sa_delete(QueryLog).where(QueryLog.project_id == project_id))
-        db.execute(sa_delete(BenchmarkRun).where(BenchmarkRun.project_id == project_id))
-        db.execute(sa_delete(BenchmarkQuestion).where(BenchmarkQuestion.project_id == project_id))
+        try:
+            # Phase 1: 删除没有直接 project_id 字段但外键依赖 Tax 父表的子台账记录
+            secondary_counts = _purge_secondary_project_rows(db, project_id)
+            for table_name, count in secondary_counts.items():
+                deleted_counts[table_name] = deleted_counts.get(table_name, 0) + count
 
-        # 删除文档数据库记录（保留磁盘目录中的原始文件，不作物理删除）
-        db.execute(sa_delete(Document).where(Document.project_id == project_id))
+            # Phase 2: 动态扫描当前 PostgreSQL schema 并清理所有 project_id 表
+            direct_counts, deferred = _purge_direct_project_rows(db, project_id)
+            for table_name, count in direct_counts.items():
+                deleted_counts[table_name] = deleted_counts.get(table_name, 0) + count
 
-        # 清理该项目独占的系统外单位 (External Parties)
-        deleted_parties_count = 0
-        for cp_code in counterparty_codes:
-            if not cp_code or is_canonical_entity_code(cp_code):
-                continue
-            other_count = db.scalar(
-                select(func.count(Document.id)).where(
-                    Document.counterparty_code == cp_code,
-                    Document.project_id != project_id,
+            # Phase 3: 检查直接引用 projects.id 的外键阻塞
+            blockers = _project_fk_blockers(db, project_id)
+            if deferred or blockers:
+                detail = {
+                    "code": "PROJECT_DELETE_BLOCKED",
+                    "message": (
+                        "项目仍存在数据库外键依赖，系统已安全取消本次删除。"
+                        "数据库未提交任何部分删除，请根据 blocker 信息处理后重试。"
+                    ),
+                    "project_id": project_id,
+                    "project_code": project_code,
+                    "blockers": blockers,
+                    "deferred_tables": deferred,
+                }
+                security_audit(
+                    request,
+                    "project_delete",
+                    "blocked",
+                    project_id=project_id,
+                    subject=project_code,
                 )
-            ) or 0
-            if other_count == 0:
-                db.execute(sa_delete(ExternalParty).where(ExternalParty.code == cp_code))
-                deleted_parties_count += 1
+                raise HTTPException(status_code=409, detail=detail)
 
-        # 删除项目
-        db.delete(p)
-        db.commit()
+            # Phase 4: 清理该项目独占的系统外单位 (External Parties)
+            deleted_parties_count = 0
+            for cp_code in sorted(counterparty_codes):
+                if not cp_code or is_canonical_entity_code(cp_code):
+                    continue
+                remaining_documents = db.scalar(
+                    select(func.count(Document.id)).where(Document.counterparty_code == cp_code)
+                ) or 0
+                if remaining_documents == 0:
+                    db.execute(sa_delete(ExternalParty).where(ExternalParty.code == cp_code))
+                    deleted_parties_count += 1
 
-        logger.info(f"Wiped project {project_code} ({project_name}) - deleted {len(docs)} docs, {deleted_parties_count} external parties")
-        security_audit(request, "project_delete", "success", project_id=project_id, subject=project_code)
+            # Phase 5: 删除项目主记录
+            db.delete(p)
+            if hasattr(db, "flush"):
+                db.flush()
 
-        return {
-            "success": True,
-            "message": f"项目「{project_name}」({project_code}) 及 {len(docs)} 份资料文档、向量索引与 {deleted_parties_count} 个系统外合作单位已彻底清除",
-            "project_id": project_id,
-            "deleted_documents_count": len(docs),
-            "deleted_parties_count": deleted_parties_count,
-        }
+            final_blockers = _project_fk_blockers(db, project_id)
+            if final_blockers:
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "code": "PROJECT_DELETE_RACE_BLOCKED",
+                        "message": "删除提交前检测到新的项目关联数据，已安全回滚。",
+                        "project_id": project_id,
+                        "project_code": project_code,
+                        "blockers": final_blockers,
+                    },
+                )
+
+            db.commit()
+
+            logger.info(
+                "Wiped project %s (%s): tables=%s external_parties=%s",
+                project_code,
+                project_name,
+                deleted_counts,
+                deleted_parties_count,
+            )
+            security_audit(
+                request,
+                "project_delete",
+                "success",
+                project_id=project_id,
+                subject=project_code,
+            )
+
+            return {
+                "success": True,
+                "status": "deleted",
+                "project_id": project_id,
+                "project_code": project_code,
+                "project_name": project_name,
+                "message": f"项目「{project_name}」({project_code}) 及其所有关联数据已彻底清除",
+                "deleted_counts": deleted_counts,
+                "deleted_documents_count": len(docs),
+                "deleted_parties_count": deleted_parties_count,
+            }
+
+        except HTTPException:
+            db.rollback()
+            raise
+
+        except IntegrityError as exc:
+            db.rollback()
+            try:
+                blockers = _project_fk_blockers(db, project_id)
+            except Exception:
+                blockers = []
+            logger.exception(
+                "project purge integrity failure: project_id=%s code=%s",
+                project_id,
+                project_code,
+            )
+            security_audit(
+                request,
+                "project_delete",
+                "failed",
+                project_id=project_id,
+                subject=project_code,
+            )
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "PROJECT_DELETE_INTEGRITY_ERROR",
+                    "message": "项目仍存在数据库关联记录，本次删除已完整回滚。",
+                    "project_id": project_id,
+                    "project_code": project_code,
+                    "blockers": blockers,
+                },
+            ) from exc
+
+        except Exception as exc:
+            db.rollback()
+            logger.exception(
+                "project purge failed: project_id=%s code=%s",
+                project_id,
+                project_code,
+            )
+            security_audit(
+                request,
+                "project_delete",
+                "failed",
+                project_id=project_id,
+                subject=project_code,
+            )
+            raise HTTPException(
+                status_code=500,
+                detail={
+                    "code": "PROJECT_DELETE_FAILED",
+                    "message": "项目删除失败，数据库事务已回滚，请查看服务端日志。",
+                    "project_id": project_id,
+                    "project_code": project_code,
+                },
+            ) from exc
 
 
 @app.get("/api/v1/projects/{project_id}/audit")
