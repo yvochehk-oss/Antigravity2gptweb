@@ -93,16 +93,16 @@ def analysis_fixture():
 
 
 def test_tax_adapter_reuses_task17_persisted_result():
-    comps,analysis=analysis_fixture(); state=SimpleNamespace(id=1,current_run_id=7,reporting_party_id=10,tax_period=date(2026,1,1),state="OPEN"); run=SimpleNamespace(id=7,run_status="SUCCEEDED",tax_type="PROJECT_TAX",ruleset_version=RULESET_VERSION,reporting_party_id=10,tax_period=date(2026,1,1)); a=SimpleNamespace(is_current=True,status="CONFIRMED",project_id=1)
-    session=SequenceSession([[state],comps],{("CalculationRun",7):run,("FactProjectAllocation",5):a,("FactProjectAllocation",6):a},analysis)
+    comps,analysis=analysis_fixture(); state=SimpleNamespace(id=1,current_run_id=7,reporting_party_id=10,tax_period=date(2026,1,1),state="OPEN"); run=SimpleNamespace(id=7,run_status="SUCCEEDED",tax_type="PROJECT_TAX",ruleset_version=RULESET_VERSION,reporting_party_id=10,tax_period=date(2026,1,1)); a5=SimpleNamespace(id=5,fact_id=105,is_current=True,status="CONFIRMED",project_id=1); a6=SimpleNamespace(id=6,fact_id=106,is_current=True,status="CONFIRMED",project_id=1); valid=SimpleNamespace(is_current=True,validation_status="VALID")
+    session=SequenceSession([[state],comps],{("CalculationRun",7):run,("FactProjectAllocation",5):a5,("FactProjectAllocation",6):a6,("Fact",105):valid,("Fact",106):valid,("Fact",12):valid},analysis)
     result=CanonicalProjectTax(session).read(1)
     assert result["analyses"][0]["result_hash_verified"] is True and result["analyses"][0]["net_vat_after_project_prepayment"]=="8.00"
 
 
 def test_tax_hash_mismatch_fails_closed():
-    comps,analysis=analysis_fixture(); analysis.result_sha256="0"*64; state=SimpleNamespace(id=1,current_run_id=7,reporting_party_id=10,tax_period=date(2026,1,1),state="OPEN"); run=SimpleNamespace(id=7,run_status="SUCCEEDED",tax_type="PROJECT_TAX",ruleset_version=RULESET_VERSION,reporting_party_id=10,tax_period=date(2026,1,1)); a=SimpleNamespace(is_current=True,status="CONFIRMED",project_id=1)
+    comps,analysis=analysis_fixture(); analysis.result_sha256="0"*64; state=SimpleNamespace(id=1,current_run_id=7,reporting_party_id=10,tax_period=date(2026,1,1),state="OPEN"); run=SimpleNamespace(id=7,run_status="SUCCEEDED",tax_type="PROJECT_TAX",ruleset_version=RULESET_VERSION,reporting_party_id=10,tax_period=date(2026,1,1)); a5=SimpleNamespace(id=5,fact_id=105,is_current=True,status="CONFIRMED",project_id=1); a6=SimpleNamespace(id=6,fact_id=106,is_current=True,status="CONFIRMED",project_id=1); valid=SimpleNamespace(is_current=True,validation_status="VALID")
     with pytest.raises(CanonicalProjectTaxReadError,match="hash"):
-        CanonicalProjectTax(SequenceSession([[state],comps],{("CalculationRun",7):run,("FactProjectAllocation",5):a,("FactProjectAllocation",6):a},analysis)).read(1)
+        CanonicalProjectTax(SequenceSession([[state],comps],{("CalculationRun",7):run,("FactProjectAllocation",5):a5,("FactProjectAllocation",6):a6,("Fact",105):valid,("Fact",106):valid,("Fact",12):valid},analysis)).read(1)
 
 
 def test_context_canonical_branch_never_calls_legacy(monkeypatch):
@@ -131,3 +131,8 @@ def test_read_models_are_zero_write_and_no_amount_matching():
 
 def test_task31_adds_no_migration_99():
     assert not list((ROOT/"alembic/versions").glob("99*v3*finance*"))
+
+def test_tax_adapter_rejects_nonvalid_underlying_fact():
+    comps,analysis=analysis_fixture(); state=SimpleNamespace(id=1,current_run_id=7,reporting_party_id=10,tax_period=date(2026,1,1),state="OPEN"); run=SimpleNamespace(id=7,run_status="SUCCEEDED",tax_type="PROJECT_TAX",ruleset_version=RULESET_VERSION,reporting_party_id=10,tax_period=date(2026,1,1)); a5=SimpleNamespace(id=5,fact_id=105,is_current=True,status="CONFIRMED",project_id=1); a6=SimpleNamespace(id=6,fact_id=106,is_current=True,status="CONFIRMED",project_id=1); valid=SimpleNamespace(is_current=True,validation_status="VALID"); review=SimpleNamespace(is_current=True,validation_status="NEEDS_REVIEW")
+    with pytest.raises(CanonicalProjectTaxReadError,match="non-current/non-VALID"):
+        CanonicalProjectTax(SequenceSession([[state],comps],{("CalculationRun",7):run,("FactProjectAllocation",5):a5,("FactProjectAllocation",6):a6,("Fact",105):review,("Fact",106):valid,("Fact",12):valid},analysis)).read(1)

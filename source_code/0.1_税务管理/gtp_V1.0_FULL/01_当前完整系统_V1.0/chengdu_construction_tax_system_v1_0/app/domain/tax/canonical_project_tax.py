@@ -18,6 +18,7 @@ from app.domain.tax.project_tax_analysis import (
     canonical_hash,
     summarize_project_components,
 )
+from app.v3_fact_models import Fact
 from app.v3_period_models import CalculationRun, TaxPeriodState
 from app.v3_project_analysis_models import (
     FactProjectAllocation,
@@ -125,6 +126,17 @@ class CanonicalProjectTax:
                 if allocation.project_id != analysis.project_id:
                     raise CanonicalProjectTaxReadError(
                         f"analysis {analysis.id} component {component.id} leaks from another project"
+                    )
+                source_fact = self.session.get(Fact, allocation.fact_id)
+                if source_fact is None or not source_fact.is_current or source_fact.validation_status != "VALID":
+                    raise CanonicalProjectTaxReadError(
+                        f"analysis {analysis.id} consumes a non-current/non-VALID Fact through allocation {allocation.id}"
+                    )
+            elif component.tax_prepayment_fact_id is not None:
+                prepayment_fact = self.session.get(Fact, component.tax_prepayment_fact_id)
+                if prepayment_fact is None or not prepayment_fact.is_current or prepayment_fact.validation_status != "VALID":
+                    raise CanonicalProjectTaxReadError(
+                        f"analysis {analysis.id} consumes a non-current/non-VALID tax prepayment Fact {component.tax_prepayment_fact_id}"
                     )
             component_payloads.append(
                 {
