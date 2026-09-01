@@ -1377,6 +1377,8 @@ def api_patch_metadata(document_id: int, body: DocumentMetadataPatch):
     """Update document metadata."""
     with get_db() as db:
         d = db.get(Document, document_id)
+        if not d:
+            raise HTTPException(404, "document not found")
         changes = body.model_dump(exclude_none=True)
         if "counterparty_code" in changes:
             changes["counterparty_code"] = (

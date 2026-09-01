@@ -3,6 +3,7 @@
 from pathlib import Path
 from contextlib import contextmanager
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from app.domain.entities import (
@@ -134,6 +135,25 @@ def test_api_patch_metadata_normalizes_alias(monkeypatch) -> None:
     res = api_patch_metadata(99, patch)
     assert res["counterparty_code"] == "ED"
     assert doc.counterparty_code == "ED"
+
+
+def test_api_patch_metadata_missing_document_returns_404(monkeypatch) -> None:
+    class _MockDB:
+        def get(self, model, doc_id):
+            return None
+
+    @contextmanager
+    def _mock_get_db():
+        yield _MockDB()
+
+    monkeypatch.setattr("app.legacy_routes.get_db", _mock_get_db)
+
+    patch = DocumentMetadataPatch(counterparty_code="EXT-CQ")
+    with pytest.raises(HTTPException) as exc_info:
+        api_patch_metadata(404404, patch)
+
+    assert exc_info.value.status_code == 404
+    assert exc_info.value.detail == "document not found"
 
 
 def test_register_bytes_initial_commit_normalizes_to_ed(monkeypatch) -> None:
