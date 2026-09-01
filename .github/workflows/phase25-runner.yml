@@ -1,0 +1,29 @@
+name: Execute Phase 2.5 Patch Runner
+
+on:
+  push:
+    branches: [v3.0-macos]
+    paths: [.github/workflows/phase25-runner.yml]
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: v3.0-macos
+          fetch-depth: 0
+      - name: Apply and validate
+        run: python scripts/phase25_apply.py
+      - name: Commit business changes
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add source_code
+          git diff --cached --check
+          git commit -m "fix(ssot): harden Phase 2.5 ownership replay and identity boundaries"
+          git push origin HEAD:v3.0-macos
