@@ -1377,9 +1377,12 @@ def api_patch_metadata(document_id: int, body: DocumentMetadataPatch):
     """Update document metadata."""
     with get_db() as db:
         d = db.get(Document, document_id)
-        if not d:
-            raise HTTPException(404, "document not found")
-        for k, v in body.model_dump(exclude_none=True).items():
+        changes = body.model_dump(exclude_none=True)
+        if "counterparty_code" in changes:
+            changes["counterparty_code"] = (
+                map_to_standard_external_code(changes["counterparty_code"]) or ""
+            )
+        for k, v in changes.items():
             setattr(d, k, v)
         d.metadata_source = "user"
         d.metadata_confidence = 1.0
@@ -2006,9 +2009,20 @@ def api_external_parties(q: str = ""):
 def api_create_external_party(body: ExternalPartyCreate):
     """Create an external counterparty without polluting the 26-unit internal master."""
     with get_db() as db:
-        if db.scalar(select(ExternalParty).where(ExternalParty.code == body.code)):
+        payload = body.model_dump()
+        requested_code = payload["code"].strip().upper()
+        canonical_code = map_to_standard_external_code(requested_code) or requested_code
+
+        if canonical_code != requested_code:
+            raise HTTPException(
+                409,
+                f"{requested_code} is an alias of canonical external party {canonical_code}; use {canonical_code}",
+            )
+
+        payload["code"] = canonical_code
+        if db.scalar(select(ExternalParty).where(ExternalParty.code == canonical_code)):
             raise HTTPException(409, "external party code already exists")
-        party = ExternalParty(**body.model_dump())
+        party = ExternalParty(**payload)
         db.add(party)
         db.commit()
         db.refresh(party)

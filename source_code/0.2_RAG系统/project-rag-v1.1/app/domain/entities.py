@@ -90,7 +90,7 @@ EXTERNAL_ENTITY_PRESETS: dict[str, dict[str, Any]] = {
         "role_code": "ED",
         "tax_id": "91500100MA61GGGG99",
         "note": "系统外工程设备/起重吊装单位",
-        "aliases": ("EXT-CQ", "EXT-CRANE", "ED01", "ED1", "重庆巨力", "巨力吊装", "重交大件", "履带吊租赁", "超重型履带吊"),
+        "aliases": ("EXT-CQ", "EXT-CQ-HEAVY-CRANE", "EXT-CRANE", "ED01", "ED1", "重庆巨力", "巨力吊装", "重交大件", "履带吊租赁", "超重型履带吊"),
     },
     "E0": {
         "code": "E0",
