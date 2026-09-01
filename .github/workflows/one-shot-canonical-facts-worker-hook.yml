@@ -1,0 +1,58 @@
+name: One-shot canonical facts worker hook
+
+on:
+  push:
+    branches:
+      - v3.0-macos
+    paths:
+      - .github/workflows/one-shot-canonical-facts-worker-hook.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: v3.0-macos
+          fetch-depth: 0
+
+      - name: Hook canonical fact promotion into ingest worker
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import ast
+
+          path = Path('source_code/0.2_RAG系统/project-rag-v1.1/app/services/jobs.py')
+          text = path.read_text(encoding='utf-8')
+
+          old_import = 'from .ingest import parse_and_index\n'
+          new_import = 'from .ingest import parse_and_index\nfrom .canonical_facts import promote_document_to_canonical_facts\n'
+          if new_import not in text:
+              if old_import not in text:
+                  raise SystemExit('jobs import anchor not found')
+              text = text.replace(old_import, new_import, 1)
+
+          old_hook = '''        if doc.parse_status == "INDEXED":\n            job.status = "COMPLETED"\n'''
+          new_hook = '''        if doc.parse_status == "INDEXED":\n            # RAG owns the Structured Truth write boundary.  Promotion is\n            # idempotent and review-only facts never enter Tax current views.\n            promote_document_to_canonical_facts(db, doc)\n            job.status = "COMPLETED"\n'''
+          if new_hook not in text:
+              if old_hook not in text:
+                  raise SystemExit('jobs INDEXED hook anchor not found')
+              text = text.replace(old_hook, new_hook, 1)
+
+          ast.parse(text, filename=str(path))
+          path.write_text(text, encoding='utf-8')
+          PY
+
+      - name: Commit worker hook
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add 'source_code/0.2_RAG系统/project-rag-v1.1/app/services/jobs.py'
+          git commit -m "feat(ssot): auto-promote indexed RAG documents to canonical facts"
+          git pull --rebase origin v3.0-macos
+          git push origin HEAD:v3.0-macos
