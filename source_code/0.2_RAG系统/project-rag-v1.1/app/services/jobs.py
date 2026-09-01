@@ -27,6 +27,7 @@ from ..logging_config import get_logger
 from ..models import Document, IngestJob
 from ..observability import get_request_id, request_scope
 from .ingest import parse_and_index
+from .canonical_facts import promote_document_to_canonical_facts
 
 logger = get_logger(__name__)
 
@@ -248,6 +249,9 @@ def process_job(job_id: int) -> bool:
         parse_and_index(db, doc)
 
         if doc.parse_status == "INDEXED":
+            # RAG owns the Structured Truth write boundary.  Promotion is
+            # idempotent and review-only facts never enter Tax current views.
+            promote_document_to_canonical_facts(db, doc)
             job.status = "COMPLETED"
             job.message = doc.parse_message
             # A successful retry supersedes the prior failure/backoff state.
