@@ -204,7 +204,11 @@ stop_boss_from_pid_file || all_clear=false
 
 print -P "%F{220}⏳ [2/4] 优雅停止 IDP / RAG / Tax / Ling...%f"
 if [[ -f "$STOP_SCRIPT" ]]; then
-  [[ -x "$STOP_SCRIPT" ]] && "$STOP_SCRIPT" || bash "$STOP_SCRIPT" || all_clear=false
+  if [[ -x "$STOP_SCRIPT" ]]; then
+    "$STOP_SCRIPT" || all_clear=false
+  else
+    bash "$STOP_SCRIPT" || all_clear=false
+  fi
 fi
 
 print -P "%F{220}🧹 [3/4] 清理业务端口残留...%f"
