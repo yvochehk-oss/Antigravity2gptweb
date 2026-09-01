@@ -288,14 +288,3 @@ export interface SystemSettings {
   dataRefreshInterval: number;          // 数据自动同步频率 (秒，如 30, 60, 300, 0表示手动)
   aiDeepAnalysisMode: boolean;          // AI智能助手深度穿透核验模式
 }
-
-/* ===========================================================
-   保持 Windows ClearType 亚像素渲染（系统字体方案下无需 swap）
-   -webkit-font-smoothing: auto  -> Windows 使用 ClearType
-                                -> macOS  使用视网膜灰度平滑
-   =========================================================== */
-*, *::before, *::after, html, body, .antialiased {
-  -webkit-font-smoothing: auto !important;
-  -moz-osx-font-smoothing: auto !important;
-  text-rendering: auto !important;
-}

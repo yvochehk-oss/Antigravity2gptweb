@@ -102,14 +102,3 @@ export function activeTaxProjectId(
   if (selected && Number.isInteger(selected) && selected > 0) return selected;
   return fallbackProjectId && Number.isInteger(fallbackProjectId) && fallbackProjectId > 0 ? fallbackProjectId : undefined;
 }
-
-/* ===========================================================
-   保持 Windows ClearType 亚像素渲染（系统字体方案下无需 swap）
-   -webkit-font-smoothing: auto  -> Windows 使用 ClearType
-                                -> macOS  使用视网膜灰度平滑
-   =========================================================== */
-*, *::before, *::after, html, body, .antialiased {
-  -webkit-font-smoothing: auto !important;
-  -moz-osx-font-smoothing: auto !important;
-  text-rendering: auto !important;
-}
