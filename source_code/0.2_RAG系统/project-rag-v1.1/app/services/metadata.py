@@ -203,12 +203,12 @@ def _load_runtime_entity_cache() -> list[dict[str, Any]]:
                 .where(func.lower(Entity.status) == "active")
                 .order_by(Entity.entity_code, Entity.id)
             ).all()
-            
+
             ext_parties = db.scalars(
                 select(ExternalParty)
                 .where(ExternalParty.active == True)
             ).all()
-            
+
             entities = list(entities) + list(ext_parties)
 
             rows: list[dict[str, Any]] = []
@@ -265,7 +265,7 @@ def _extract_external_name_from_filename(code: str, filename: str) -> str:
     match = re.search(r"外部([^_\./]+?)(?:合同|协议|发票|专票|回单|单据|验收|过磅|照片|扫描件|影印本|$)", name)
     if match and len(match.group(1).strip()) >= 2:
         return f"外部{match.group(1).strip()}"
-    
+
     known_names = {
         "EXT-CRANE": "外部超重型起重吊装租赁服务单位",
         "EXT-PG": "外部特种高强合金钢直采供货单位",
@@ -281,6 +281,10 @@ def resolve_entity_reference(
 ) -> dict[str, Any]:
     """Resolve a code/tax id/name against the canonical cache.
 
+    Known external aliases are resolved against the preset map before runtime
+    cache rows.  This ensures an accidentally persisted alias row can never
+    outrank its canonical external-party code.
+
     Returns a structured result with ``status`` in ``RESOLVED``, ``CONFLICT``,
     ``REJECTED`` or ``UNRESOLVED``.  Multiple matches are always surfaced as
     ``CONFLICT``; no arbitrary row is selected.
@@ -291,6 +295,23 @@ def resolve_entity_reference(
     if raw in VIRTUAL_ENTITY_CODES or (len(raw) == 1 and raw.upper() in BUSINESS_ROLE_CODES):
         return {"status": "REJECTED", "entity_code": "", "tax_id": "", "name": "", "input": raw}
 
+    preset = get_external_preset(raw)
+    if preset:
+        return {
+            "status": "RESOLVED",
+            "resolution_status": "RESOLVED",
+            "entity_code": preset["code"],
+            "tax_id": preset.get("tax_id") or "",
+            "name": preset["name"],
+            "short_name": preset.get("short_name") or preset["name"],
+            "business_role": preset["business_role"],
+            "entity_kind": "external",
+            "legal_entity": True,
+            "parent_entity_code": "",
+            "entity_status": "active",
+            "input": raw,
+        }
+
     code = normalize_entity_code(raw)
     rows = load_canonical_entity_cache(canonical_cache)
     matches = _matching_rows(raw, rows)
@@ -299,7 +320,7 @@ def resolve_entity_reference(
         return {
             "status": "RESOLVED",
             "resolution_status": "RESOLVED",
-            "entity_code": row.get("entity_code") or "",
+            "entity_code": map_to_standard_external_code(row.get("entity_code")) or row.get("entity_code") or "",
             "tax_id": row.get("tax_id") or "",
             "name": row.get("name") or row.get("short_name") or "",
             "business_role": row.get("business_role") or "",
@@ -317,22 +338,6 @@ def resolve_entity_reference(
             "name": "",
             "input": raw,
             "match_count": len(matches),
-        }
-    preset = get_external_preset(raw)
-    if preset:
-        return {
-            "status": "RESOLVED",
-            "resolution_status": "RESOLVED",
-            "entity_code": preset["code"],
-            "tax_id": preset.get("tax_id") or "",
-            "name": preset["name"],
-            "short_name": preset.get("short_name") or preset["name"],
-            "business_role": preset["business_role"],
-            "entity_kind": "external",
-            "legal_entity": True,
-            "parent_entity_code": "",
-            "entity_status": "active",
-            "input": raw,
         }
 
     if code and (code.startswith("EXT-") or code.startswith("E") or code in ("EA", "EB", "EC", "ED", "E0")):
@@ -482,9 +487,9 @@ def infer_from_filename(
     code_candidates = {m.group(0).upper() for m in _ENTITY_CODE_RE.finditer(name)}
     if code_candidates:
         result["entity_code_candidate"] = ",".join(sorted(code_candidates))
-    
+
     tax_ids = list(dict.fromkeys(_TAX_ID_RE.findall(name)))
-    
+
     name_matches = {
         candidate_name
         for row in rows
@@ -494,7 +499,7 @@ def infer_from_filename(
         )
         if candidate_name and candidate_name in name
     }
-    
+
     # 统一把所有匹配到的候选合并解析（按在文件名中的出现顺序排序）
     def _pos_in_name(token: str) -> int:
         idx = name.find(token)
@@ -555,10 +560,16 @@ def infer_from_filename(
     elif all_refs:
         result["entity_resolution_status"] = "UNRESOLVED"
 
+    # Counterparty codes are persisted identifiers, so aliases must not leave
+    # metadata inference.  This also ensures category inference sees ED rather
+    # than EXT-CQ.
+    if result["counterparty_code"]:
+        result["counterparty_code"] = map_to_standard_external_code(result["counterparty_code"]) or ""
+
     # Deduce category and refine document_type based on resolved entity/counterparty roles
     cp_code = result["counterparty_code"]
     ent_code = result["entity_code"]
-    
+
     # Check if this is a main contract or site photo with owner E0
     if ("MAIN" in name or "总承包" in name or "主合同" in name or "中标通知" in name) and not cp_code:
         result["counterparty_code"] = "E0"
@@ -616,7 +627,9 @@ def refine_from_content(
     """Refine metadata from document content.
 
     This is a second-pass classifier that only fills in missing fields.
-    It never overwrites explicit user metadata.
+    It never semantically overwrites explicit user metadata.  Normalizing an
+    external alias to its canonical code is treated as identifier hygiene,
+    not as a semantic overwrite.
 
     Args:
         current: Current metadata (may have user-specified values)
@@ -625,16 +638,18 @@ def refine_from_content(
     Returns:
         Updated metadata dict
     """
+    out = dict(current)
+    if out.get("counterparty_code"):
+        out["counterparty_code"] = map_to_standard_external_code(out["counterparty_code"]) or ""
+
     if not text:
-        return current
+        return out
 
     # Use filename inference on a cleaned version of the text.
     # Replace slashes and dots so Path(filename).stem inside infer_from_filename
     # doesn't truncate the preview text.
     sample = text.replace("\n", " ").replace("/", " ").replace(".", " ")[:500]
     probe = infer_from_filename(sample, canonical_cache=canonical_cache)
-
-    out = dict(current)
 
     # Only fill in missing or "other" values
     if (not out.get("document_type") or out.get("document_type") == "other") and probe.get("document_type") != "other":
@@ -664,7 +679,7 @@ def refine_from_content(
         out["business_role"] = probe["business_role"]
 
     if not out.get("counterparty_code") and probe.get("counterparty_code"):
-        out["counterparty_code"] = probe["counterparty_code"]
+        out["counterparty_code"] = map_to_standard_external_code(probe["counterparty_code"]) or ""
     if not out.get("counterparty_name") and probe.get("counterparty_name"):
         out["counterparty_name"] = probe["counterparty_name"]
     if out.get("counterparty_resolution_status", "UNRESOLVED") == "UNRESOLVED" and probe.get("counterparty_resolution_status") != "UNRESOLVED":
