@@ -73,6 +73,12 @@ def fact_snapshot_hash(facts: list[dict[str, Any]]) -> tuple[str, list[dict[str,
     return hashlib.sha256(encoded).hexdigest(), versions
 
 
+def calculation_parameters_hash(cit_rate: Decimal) -> tuple[str, dict[str, str]]:
+    parameters = {"cit_rate": str(cit_rate)}
+    encoded = json.dumps(parameters, sort_keys=True).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest(), parameters
+
+
 def calculate_phase4_model(
     *,
     transaction_price: Decimal,
@@ -238,7 +244,10 @@ def build_project_accounting(
         cit_rate=cit_rate,
     )
     snapshot_hash, versions = fact_snapshot_hash(all_facts)
-    preview_version = f"PREVIEW-{ENGINE_VERSION}-{snapshot_hash[:12]}"
+    params_hash, parameters = calculation_parameters_hash(cit_rate)
+    preview_version = (
+        f"PREVIEW-{ENGINE_VERSION}-{snapshot_hash[:8]}-{params_hash[:8]}"
+    )
     return {
         "project_id": int(project_id),
         "project_code": str(getattr(project, "code", "") or ""),
@@ -252,9 +261,23 @@ def build_project_accounting(
             "fact_snapshot_hash": snapshot_hash,
             "fact_versions": versions,
             "engine_version": ENGINE_VERSION,
+            "calculation_parameters": parameters,
+            "calculation_parameters_hash": params_hash,
             "report_version": preview_version,
         },
     }
+
+
+def _lock_report_sequence(db, project_id: int) -> None:
+    bind = db.get_bind()
+    if getattr(getattr(bind, "dialect", None), "name", "") == "postgresql":
+        db.execute(
+            text(
+                "SELECT pg_advisory_xact_lock("
+                "hashtextextended(CAST(:key AS text), 0))"
+            ),
+            {"key": f"accounting_report_snapshot|{int(project_id)}"},
+        )
 
 
 def snapshot_project_accounting(
@@ -263,18 +286,22 @@ def snapshot_project_accounting(
     *,
     cit_rate: Decimal = DEFAULT_CIT_RATE,
 ) -> dict[str, Any]:
+    _lock_report_sequence(db, project_id)
     result = build_project_accounting(db, project_id, cit_rate=cit_rate)
     lineage = result["lineage"]
     existing = db.execute(
         text(
             "SELECT report_version, result_json FROM accounting_report_snapshots "
             "WHERE project_id=:project_id AND engine_version=:engine_version "
-            "AND fact_snapshot_hash=:fact_hash ORDER BY id DESC LIMIT 1"
+            "AND fact_snapshot_hash=:fact_hash "
+            "AND calculation_parameters_hash=:params_hash "
+            "ORDER BY id DESC LIMIT 1"
         ),
         {
             "project_id": project_id,
             "engine_version": ENGINE_VERSION,
             "fact_hash": lineage["fact_snapshot_hash"],
+            "params_hash": lineage["calculation_parameters_hash"],
         },
     ).mappings().first()
     if existing:
@@ -292,14 +319,17 @@ def snapshot_project_accounting(
     )
     report_version = f"P{project_id}-R{next_version}"
     result["lineage"]["report_version"] = report_version
+    normalized_result = json.loads(json.dumps(result, ensure_ascii=False, default=str))
     db.execute(
         text(
             "INSERT INTO accounting_report_snapshots ("
             "project_id, report_sequence, report_version, engine_version, "
-            "fact_snapshot_hash, fact_versions_json, result_json"
+            "fact_snapshot_hash, calculation_parameters_hash, "
+            "fact_versions_json, calculation_parameters_json, result_json"
             ") VALUES ("
             ":project_id, :sequence, :report_version, :engine_version, :fact_hash, "
-            "CAST(:fact_versions AS jsonb), CAST(:result AS jsonb))"
+            ":params_hash, CAST(:fact_versions AS jsonb), CAST(:parameters AS jsonb), "
+            "CAST(:result AS jsonb))"
         ),
         {
             "project_id": project_id,
@@ -307,21 +337,27 @@ def snapshot_project_accounting(
             "report_version": report_version,
             "engine_version": ENGINE_VERSION,
             "fact_hash": lineage["fact_snapshot_hash"],
+            "params_hash": lineage["calculation_parameters_hash"],
             "fact_versions": json.dumps(
                 lineage["fact_versions"],
                 ensure_ascii=False,
                 default=str,
             ),
-            "result": json.dumps(result, ensure_ascii=False, default=str),
+            "parameters": json.dumps(
+                lineage["calculation_parameters"],
+                ensure_ascii=False,
+            ),
+            "result": json.dumps(normalized_result, ensure_ascii=False),
         },
     )
-    return result
+    return normalized_result
 
 
 def list_accounting_snapshots(db, project_id: int) -> list[dict[str, Any]]:
     rows = db.execute(
         text(
-            "SELECT report_version, engine_version, fact_snapshot_hash, created_at "
+            "SELECT report_version, engine_version, fact_snapshot_hash, "
+            "calculation_parameters_hash, calculation_parameters_json, created_at "
             "FROM accounting_report_snapshots WHERE project_id=:project_id "
             "ORDER BY report_sequence DESC"
         ),
@@ -335,6 +371,7 @@ __all__ = [
     "ENGINE_VERSION",
     "build_project_accounting",
     "calculate_phase4_model",
+    "calculation_parameters_hash",
     "fact_snapshot_hash",
     "list_accounting_snapshots",
     "snapshot_project_accounting",
