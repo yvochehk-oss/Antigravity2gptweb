@@ -27,3 +27,5 @@ jobs:
           git diff --cached --check
           git commit -m "fix(ssot): harden Phase 2.5 ownership replay and identity boundaries"
           git push origin HEAD:v3.0-macos
+
+# trigger: 2026-09-02-phase25
