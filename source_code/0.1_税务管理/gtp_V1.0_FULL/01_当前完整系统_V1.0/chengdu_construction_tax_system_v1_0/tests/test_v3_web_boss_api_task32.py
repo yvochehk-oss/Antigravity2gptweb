@@ -90,12 +90,15 @@ def test_idp_endpoint_invokes_task27_commit_true(monkeypatch):
       "intake": {
         "source_system":"IDP","source_document_id":"D1","source_extraction_id":"E1",
         "document_sha256":"a"*64,"document_type":"invoice","review_status":"approved",
-        "data":{"invoice_no":"I1","seller":{"name":"A","tax_id":"913300000000000001"},"buyer":{"name":"B","tax_id":"913300000000000002"},"amount_excluding_tax":"1","tax_amount":"0","amount_including_tax":"1","currency":"CNY"}
+        "approved_by":"u","extraction_model":"test","extraction_model_version":"1",
+        "data":{"invoice_type":"增值税电子专用发票","invoice_no":"I1","invoice_date":"2026-09-01","seller":{"name":"A","tax_id":"913300000000000001"},"buyer":{"name":"B","tax_id":"913300000000000002"},"amount_excluding_tax":"1.00","tax_amount":"0.00","amount_including_tax":"1.00","tax_rate":"0","currency":"CNY"}
       },
       "invoice_evidence": {
         "source_system":"IDP","source_document_id":"D1","source_extraction_id":"E1","document_sha256":"a"*64,
         "document":{"filename":"a.pdf","mime_type":"application/pdf","validation_status":"VALIDATED","validated_by":"u","validation_reason":"ok"},
-        "invoice_status":"VALID","lines":[{"line_no":1,"item_name":"x","net_amount":"1","vat_amount":"0","tax_rate":"0"}],"tax_rules":{"rule_version":"v","reviewed_by":"u","allowed_tax_rates":["0"]}
+        "invoice_status":"VALID","lines":[{"line_no":1,"item_name":"x","quantity":"1","unit_price":"1","net_amount":"1","vat_amount":"0","tax_rate":"0","confidence":0.99}],
+        "tax_rules":{"rule_version":"v","reviewed_by":"u","allowed_tax_rates":["0"]},
+        "extraction_model":"test","extraction_model_version":"1","confidence":0.99,"page_start":1,"page_end":1
       }
     }
     response = TestClient(app).post("/api/v3/idp/direct", json=body)
