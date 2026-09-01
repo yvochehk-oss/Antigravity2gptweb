@@ -20,7 +20,9 @@ def upgrade() -> None:
         sa.Column("report_version", sa.String(80), nullable=False),
         sa.Column("engine_version", sa.String(80), nullable=False),
         sa.Column("fact_snapshot_hash", sa.String(64), nullable=False),
+        sa.Column("calculation_parameters_hash", sa.String(64), nullable=False),
         sa.Column("fact_versions_json", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
+        sa.Column("calculation_parameters_json", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
         sa.Column("result_json", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
         sa.Column(
             "created_at",
@@ -29,13 +31,18 @@ def upgrade() -> None:
             server_default=sa.text("now()"),
         ),
         sa.ForeignKeyConstraint(["project_id"], ["projects.id"], ondelete="RESTRICT"),
-        sa.UniqueConstraint("project_id", "report_sequence", name="uq_accounting_report_project_sequence"),
+        sa.UniqueConstraint(
+            "project_id",
+            "report_sequence",
+            name="uq_accounting_report_project_sequence",
+        ),
         sa.UniqueConstraint("report_version", name="uq_accounting_report_version"),
         sa.UniqueConstraint(
             "project_id",
             "engine_version",
             "fact_snapshot_hash",
-            name="uq_accounting_report_fact_engine",
+            "calculation_parameters_hash",
+            name="uq_accounting_report_fact_engine_params",
         ),
     )
     op.create_index(
@@ -46,5 +53,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_index("ix_accounting_report_project_created", table_name="accounting_report_snapshots")
+    op.drop_index(
+        "ix_accounting_report_project_created",
+        table_name="accounting_report_snapshots",
+    )
     op.drop_table("accounting_report_snapshots")
