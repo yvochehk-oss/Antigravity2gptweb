@@ -1,4 +1,8 @@
-"""RAG context builder with Task22 Reader/RAG cutover routing."""
+"""RAG context builder with Task22 Reader/RAG cutover routing.
+
+Task31 makes PRIMARY/CANONICAL_FACTS a true native-V3 branch: canonical mode
+never builds a legacy context first and never falls back to legacy on failure.
+"""
 from __future__ import annotations
 
 from decimal import Decimal
@@ -14,6 +18,7 @@ from ..calc.tax import rebuild_tax_ledger
 from ..constants import CATEGORY_SCOPE, SCOPES
 from ..cutover.reader import get_reader_route, load_canonical_project_entities
 from ..models import Budget, CashFlow, Contract, Fulfillment, Invoice, Progress, Project, RealCost, TaxRule
+from .canonical_context import build_canonical_context as build_canonical_context_native
 
 
 def _serialize(rows: list[Any], fields: list[str]) -> list[dict[str, Any]]:
@@ -125,6 +130,7 @@ def _build_legacy_context(db: Session, pid: int, scope: str) -> dict[str, Any]:
 
 
 def _apply_canonical_entities(db: Session, pid: int, scope: str, base: dict[str, Any]) -> dict[str, Any]:
+    """Task22 compatibility helper; Task31 canonical routing no longer calls it."""
     category = CATEGORY_SCOPE.get(scope)
     entities = load_canonical_project_entities(db, pid, category=category)
     for key in ("contracts", "fulfillment", "invoices", "cashflows", "four_stream_matching"):
@@ -148,17 +154,15 @@ def _apply_canonical_entities(db: Session, pid: int, scope: str, base: dict[str,
 
 
 def build_context(db: Session, pid: int, scope: str) -> dict[str, Any]:
-    """Build RAG context from the source selected by the Task22 control plane.
-
-    PRIMARY/CANONICAL_FACTS has no automatic fallback. Any canonical read
-    failure propagates to the caller and requires an explicit operator rollback.
-    """
+    """Build RAG context from the Task22 control plane without implicit fallback."""
     route = get_reader_route(db)
+    if route.is_canonical:
+        base = build_canonical_context_native(db, pid, scope)
+        base["read_control"] = {"new_fact_read_mode": route.mode, "rag_source": route.rag_source}
+        base["data_source"] = "CANONICAL_FACTS"
+        return base
+
     base = _build_legacy_context(db, pid, scope)
     base["read_control"] = {"new_fact_read_mode": route.mode, "rag_source": route.rag_source}
-    if not route.is_canonical:
-        base["data_source"] = "LEGACY"
-        return base
-    base = _apply_canonical_entities(db, pid, scope, base)
-    base["data_source"] = "CANONICAL_FACTS"
+    base["data_source"] = "LEGACY"
     return base

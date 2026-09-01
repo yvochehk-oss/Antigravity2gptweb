@@ -72,15 +72,19 @@ def test_context_legacy_route_marks_source(monkeypatch):
 
 
 def test_context_canonical_route_fails_closed_without_legacy_fallback(monkeypatch):
-    monkeypatch.setattr(context,"get_reader_route",lambda db:reader.ReaderRoute("PRIMARY","CANONICAL_FACTS")); monkeypatch.setattr(context,"_build_legacy_context",lambda db,pid,scope:{"scope":scope,"invoices":[{"legacy":True}]})
-    def fail(*args,**kwargs): raise RuntimeError("canonical read failed")
-    monkeypatch.setattr(context,"load_canonical_project_entities",fail)
+    monkeypatch.setattr(context,"get_reader_route",lambda db:reader.ReaderRoute("PRIMARY","CANONICAL_FACTS"))
+    monkeypatch.setattr(context,"build_canonical_context_native",lambda *args,**kwargs:(_ for _ in ()).throw(RuntimeError("canonical read failed")))
+    called={"legacy":False}
+    monkeypatch.setattr(context,"_build_legacy_context",lambda *args,**kwargs:called.update(legacy=True))
     with pytest.raises(RuntimeError,match="canonical read failed"): context.build_context(FakeDB(),1,"invoice")
+    assert called["legacy"] is False
 
 
-def test_context_canonical_route_replaces_legacy_entity_rows(monkeypatch):
-    monkeypatch.setattr(context,"get_reader_route",lambda db:reader.ReaderRoute("PRIMARY","CANONICAL_FACTS")); monkeypatch.setattr(context,"_build_legacy_context",lambda db,pid,scope:{"scope":scope,"invoices":[{"legacy":True}],"four_stream_matching":[{"legacy":True}]})
-    monkeypatch.setattr(context,"load_canonical_project_entities",lambda db,pid,category=None:{"contracts":[],"fulfillment":[],"invoices":[{"fact_id":22,"invoice_no":"V3-22"}],"cashflows":[],"canonical_facts":[{"fact_id":22}]})
+def test_context_canonical_route_is_native_v3(monkeypatch):
+    monkeypatch.setattr(context,"get_reader_route",lambda db:reader.ReaderRoute("PRIMARY","CANONICAL_FACTS"))
+    monkeypatch.setattr(context,"build_canonical_context_native",lambda db,pid,scope:{"scope":scope,"invoices":[{"fact_id":22,"invoice_no":"V3-22"}]})
+    called={"legacy":False}
+    monkeypatch.setattr(context,"_build_legacy_context",lambda *args,**kwargs:called.update(legacy=True))
     payload=context.build_context(FakeDB(),1,"invoice")
     assert payload["data_source"]=="CANONICAL_FACTS" and payload["invoices"]==[{"fact_id":22,"invoice_no":"V3-22"}]
-    assert "four_stream_matching" not in payload
+    assert called["legacy"] is False
