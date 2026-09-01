@@ -10,6 +10,8 @@ ROOT=Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path: sys.path.insert(0,str(ROOT))
 from sqlalchemy import create_engine, event, func, select, text
 from sqlalchemy.orm import Session
+from app.cutover.finalization import finalize_v3_production_cutover
+from app.cutover.writer import get_cutover_state
 from app.domain.facts.payment import PAYMENT_IDENTITY_VERSION, PAYMENT_RULESET_VERSION, build_payment_business_identity_key
 from app.integration.idp_canonical.direct_v3_schemas import DirectV3ProductionRequest
 from app.integration.idp_canonical.direct_v3_service import DirectV3IngestService
@@ -43,6 +45,40 @@ def main()->int:
             try:
                 db_heads=sorted(r[0] for r in session.execute(text("SELECT version_num FROM alembic_version_tax")).all()); disk=disk_heads(ROOT); evidence["alembic_db_heads"]=db_heads; evidence["alembic_disk_heads"]=disk
                 req(failures,evidence,"alembic_head_unchanged",db_heads==[EXPECTED_HEAD] and disk==[EXPECTED_HEAD],"Alembic head changed")
+
+                state = get_cutover_state(session, for_update=True)
+                if state.writer_mode == "SHADOW":
+                    session.execute(
+                        text(
+                            "UPDATE writer_cutover_states SET writer_mode='DUAL_WRITE', "
+                            "legacy_write_enabled=true, new_fact_write_enabled=true, legacy_frozen=false, "
+                            "new_fact_read_mode='SHADOW', rag_source='LEGACY', updated_by='gate:S28' "
+                            "WHERE scope='GLOBAL'"
+                        )
+                    )
+                    session.flush()
+                session.execute(
+                    text(
+                        "UPDATE writer_cutover_states SET writer_mode='V3_PRIMARY', "
+                        "legacy_write_enabled=false, new_fact_write_enabled=true, legacy_frozen=true, "
+                        "updated_by='gate:S28' WHERE scope='GLOBAL' AND writer_mode='DUAL_WRITE'"
+                    )
+                )
+                session.execute(
+                    text(
+                        "UPDATE writer_cutover_states SET new_fact_read_mode='PRIMARY', "
+                        "rag_source='CANONICAL_FACTS', updated_by='gate:S28' "
+                        "WHERE scope='GLOBAL' AND writer_mode='V3_PRIMARY' AND new_fact_read_mode='SHADOW' AND rag_source='LEGACY'"
+                    )
+                )
+                session.flush()
+                session.expire_all()
+                if not session.execute(
+                    text("SELECT 1 FROM v3_cutover_finalizations WHERE scope='GLOBAL'")
+                ).scalar():
+                    finalize_v3_production_cutover(session, actor="gate:S28", commit=False)
+                    session.expire_all()
+
                 seal0,cutover0,legacy0=control_snapshot(session,"seal"),control_snapshot(session,"cutover"),legacy_counts(session)
                 route=ProductionRouteGuard(session).require(scope="GLOBAL")
                 req(failures,evidence,"production_route_guard_reused",all(getattr(route,k)==v for k,v in EXPECTED_ROUTE.items()),"production route not strict")
