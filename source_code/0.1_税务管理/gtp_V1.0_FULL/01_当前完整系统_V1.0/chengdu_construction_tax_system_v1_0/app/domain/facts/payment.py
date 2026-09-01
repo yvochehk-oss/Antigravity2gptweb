@@ -9,6 +9,8 @@ from typing import Any
 MONEY = Decimal("0.01")
 PAYMENT_NATURES = frozenset({"NORMAL","ADVANCE","DEPOSIT","GUARANTEE","REFUND","TAX","PAYROLL","OTHER"})
 SETTLEMENT_METHODS = frozenset({"BANK_TRANSFER","CASH","BILL","OFFSET","OTHER","UNKNOWN"})
+PAYMENT_IDENTITY_VERSION = "TASK19_SOURCE_ROW_V1"
+PAYMENT_RULESET_VERSION = "V3_PAYMENT_VALIDATION_V1"
 
 class PaymentFactError(ValueError): pass
 
@@ -31,6 +33,26 @@ def money(value: Any) -> Decimal: return Decimal(str(value)).quantize(MONEY, rou
 def canonical_hash(payload: Any) -> str:
     rendered=json.dumps(payload,ensure_ascii=False,sort_keys=True,separators=(",",":"),default=str)
     return hashlib.sha256(rendered.encode("utf-8")).hexdigest()
+
+def build_payment_business_identity_key(*, source_domain: str, source_row_id: Any) -> str:
+    """Build the stable Task19 source-row Payment business identity.
+
+    Task19 legacy CashFlow used PAYMENT|LEGACY_CASHFLOW|ROW|<id>. Task28
+    reuses that exact source-domain/source-row identity shape for IDP documents.
+    No amount/date/account/direction field participates in identity.
+    """
+    domain = str(source_domain).strip().upper()
+    row_id = str(source_row_id).strip()
+    if not domain:
+        raise PaymentFactError("payment source_domain is required")
+    if not row_id:
+        raise PaymentFactError("payment source_row_id is required")
+    if "|" in domain or "|" in row_id:
+        raise PaymentFactError("payment identity components may not contain '|'")
+    key = f"PAYMENT|{domain}|ROW|{row_id}"
+    if len(key) > 240:
+        raise PaymentFactError("payment business_identity_key exceeds 240 characters")
+    return key
 
 def validate_candidate(candidate: PaymentCandidate) -> PaymentCandidate:
     if candidate.payer_party_id == candidate.payee_party_id: raise PaymentFactError("payer and payee must be different parties")
