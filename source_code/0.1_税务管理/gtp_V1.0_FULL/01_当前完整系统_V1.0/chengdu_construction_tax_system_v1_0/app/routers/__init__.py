@@ -3,6 +3,7 @@
 from .ai_review import router as ai_review_router
 from .api import router as api_router
 from .auth import router as auth_router
+from .canonical_ssot import router as canonical_ssot_router
 from .cockpit import router as cockpit_router
 from .collections import router as collections_router
 from .health_check import router as health_check_router
@@ -26,6 +27,7 @@ ALL_ROUTERS = [
     tasks_router,
     prompts_router, models_router, api_router,
     rag_sync_router,
+    canonical_ssot_router,
     v3_canonical_router,
     users_router,
     user_center_router,

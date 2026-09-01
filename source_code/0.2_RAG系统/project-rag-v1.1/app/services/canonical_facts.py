@@ -1,0 +1,359 @@
+"""Canonical structured facts promoted from RAG documents.
+
+RAG owns this write boundary. Tax is a read-only consumer of accepted/current
+facts and must never treat raw OCR/LLM output as accounting truth.
+"""
+from __future__ import annotations
+
+import hashlib
+import json
+from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
+from typing import Any, Callable
+
+from sqlalchemy import select, text
+
+from ..domain.entities import get_external_preset, is_canonical_entity_code
+from ..models import Chunk, Document
+from .extractor import (
+    extract_contract_fields_from_text,
+    extract_invoice_fields_from_text,
+    extract_payment_fields_from_text,
+)
+from .tax_extraction import EXTRACT_DOC_TYPE_FILTERS
+
+_MAX_FACT_TEXT_CHARS = 300_000
+
+
+@dataclass(frozen=True)
+class CanonicalFactCandidate:
+    fact_type: str
+    business_key: str
+    payload: dict[str, Any]
+    evidence: dict[str, Any]
+    validation_errors: list[str]
+    confidence: Decimal
+    status: str
+    source_hash: str
+
+
+def _clean(value: Any) -> str:
+    return " ".join(str(value or "").strip().split())
+
+
+def _money(value: Any) -> Decimal | None:
+    if value is None or value == "":
+        return None
+    try:
+        result = Decimal(str(value).replace(",", "").replace("，", ""))
+    except (InvalidOperation, TypeError, ValueError):
+        return None
+    return result if result.is_finite() else None
+
+
+def _canonical_party(value: Any) -> str:
+    raw = _clean(value).upper()
+    if not raw:
+        return ""
+    if is_canonical_entity_code(raw):
+        return raw
+    preset = get_external_preset(raw)
+    return str(preset["code"]).upper() if preset else ""
+
+
+def _known_party(code: Any) -> bool:
+    raw = _clean(code).upper()
+    return bool(raw and (is_canonical_entity_code(raw) or get_external_preset(raw)))
+
+
+def infer_fact_type(document_type: str | None) -> str | None:
+    """Map a RAG document type to the deterministic fact extractor."""
+    value = _clean(document_type).lower()
+    for fact_type in ("contract", "invoice", "payment"):
+        if value in EXTRACT_DOC_TYPE_FILTERS[fact_type]:
+            return fact_type
+    return None
+
+
+def _backfill_party_from_name(fields: dict[str, Any], prefix: str) -> None:
+    code_key = f"{prefix}_entity_code"
+    generic_key = f"{prefix}_code"
+    current = _canonical_party(fields.get(code_key) or fields.get(generic_key))
+    if not current:
+        current = _canonical_party(fields.get(f"{prefix}_name"))
+    if current:
+        fields[code_key] = current
+        fields[generic_key] = current
+
+
+def _apply_document_identity(doc: Document, fact_type: str, fields: dict[str, Any]) -> dict[str, Any]:
+    out = dict(fields or {})
+    entity_code = _canonical_party(getattr(doc, "entity_code", ""))
+    counterparty_code = _canonical_party(getattr(doc, "counterparty_code", ""))
+
+    if fact_type == "contract":
+        if getattr(doc, "contract_no", ""):
+            out.setdefault("contract_no", doc.contract_no)
+        if entity_code:
+            out.setdefault("party_a_entity_code", entity_code)
+            out.setdefault("party_a_code", entity_code)
+        if counterparty_code:
+            out.setdefault("party_b_entity_code", counterparty_code)
+            out.setdefault("party_b_code", counterparty_code)
+        _backfill_party_from_name(out, "party_a")
+        _backfill_party_from_name(out, "party_b")
+
+    elif fact_type == "invoice":
+        direction = _clean(out.get("direction")).lower()
+        if not direction:
+            if float(getattr(doc, "tax_vat_input", 0) or 0) > 0:
+                direction = "in"
+            elif float(getattr(doc, "tax_vat_output", 0) or 0) > 0:
+                direction = "out"
+            if direction:
+                out["direction"] = direction
+        if getattr(doc, "invoice_no", ""):
+            out.setdefault("invoice_no", doc.invoice_no)
+        if getattr(doc, "invoice_date", ""):
+            out.setdefault("invoice_date", doc.invoice_date)
+        if direction == "in":
+            if entity_code:
+                out.setdefault("buyer_entity_code", entity_code)
+                out.setdefault("buyer_code", entity_code)
+            if counterparty_code:
+                out.setdefault("seller_entity_code", counterparty_code)
+                out.setdefault("seller_code", counterparty_code)
+        elif direction == "out":
+            if entity_code:
+                out.setdefault("seller_entity_code", entity_code)
+                out.setdefault("seller_code", entity_code)
+            if counterparty_code:
+                out.setdefault("buyer_entity_code", counterparty_code)
+                out.setdefault("buyer_code", counterparty_code)
+        _backfill_party_from_name(out, "seller")
+        _backfill_party_from_name(out, "buyer")
+
+    elif fact_type == "payment":
+        direction = _clean(out.get("direction")).lower()
+        if direction == "out":
+            if entity_code:
+                out.setdefault("payer_entity_code", entity_code)
+            if counterparty_code:
+                out.setdefault("payee_entity_code", counterparty_code)
+        elif direction == "in":
+            if entity_code:
+                out.setdefault("payee_entity_code", entity_code)
+            if counterparty_code:
+                out.setdefault("payer_entity_code", counterparty_code)
+        _backfill_party_from_name(out, "payer")
+        _backfill_party_from_name(out, "payee")
+        if getattr(doc, "contract_no", ""):
+            out.setdefault("contract_no", doc.contract_no)
+
+    return out
+
+
+def _business_key(doc: Document, fact_type: str, fields: dict[str, Any]) -> str:
+    if fact_type == "contract":
+        return _clean(fields.get("contract_no")) or f"document:{doc.id}:contract"
+    if fact_type == "invoice":
+        return _clean(fields.get("invoice_no")) or f"document:{doc.id}:invoice"
+    pieces = [
+        _clean(fields.get("payment_date")),
+        _clean(fields.get("payer_entity_code")),
+        _clean(fields.get("payee_entity_code")),
+        _clean(fields.get("amount")),
+        _clean(fields.get("payer_bank_reference") or fields.get("payee_bank_reference")),
+    ]
+    material = "|".join(pieces)
+    return "payment:" + hashlib.sha256(material.encode("utf-8")).hexdigest()[:32]
+
+
+def _validate(fact_type: str, fields: dict[str, Any]) -> list[str]:
+    errors: list[str] = []
+    if fields.get("_extraction_error"):
+        errors.append(str(fields["_extraction_error"]))
+
+    if fact_type == "contract":
+        if not _clean(fields.get("contract_no")):
+            errors.append("contract_no missing")
+        for key in ("party_a_entity_code", "party_b_entity_code"):
+            if not _known_party(fields.get(key) or fields.get(key.replace("_entity", ""))):
+                errors.append(f"{key} unresolved")
+        amount = _money(fields.get("total_amount"))
+        if amount is None or amount <= 0:
+            errors.append("total_amount must be positive")
+
+    elif fact_type == "invoice":
+        if not _clean(fields.get("invoice_no")):
+            errors.append("invoice_no missing")
+        for key in ("seller_entity_code", "buyer_entity_code"):
+            if not _known_party(fields.get(key) or fields.get(key.replace("_entity", ""))):
+                errors.append(f"{key} unresolved")
+        net = _money(fields.get("net_amount"))
+        total = _money(fields.get("total_amount"))
+        if net is None and total is None:
+            errors.append("invoice amount missing")
+        validation_status = _clean(fields.get("validation_status")).upper()
+        if validation_status in {"PENDING_REVIEW", "UNVALIDATED"}:
+            errors.append(f"invoice validation_status={validation_status}")
+        for item in fields.get("validation_errors") or []:
+            errors.append(str(item))
+
+    elif fact_type == "payment":
+        for key in ("payer_entity_code", "payee_entity_code"):
+            if not _known_party(fields.get(key)):
+                errors.append(f"{key} unresolved")
+        amount = _money(fields.get("amount"))
+        if amount is None or amount <= 0:
+            errors.append("payment amount must be positive")
+        if not _clean(fields.get("payment_date")):
+            errors.append("payment_date missing")
+
+    return list(dict.fromkeys(errors))
+
+
+def build_candidate(doc: Document, fact_type: str, fields: dict[str, Any]) -> CanonicalFactCandidate:
+    payload = _apply_document_identity(doc, fact_type, fields)
+    errors = _validate(fact_type, payload)
+    status = "accepted" if not errors else "needs_review"
+    confidence = Decimal("1") if status == "accepted" else Decimal(str(getattr(doc, "metadata_confidence", 0) or 0))
+    confidence = min(Decimal("1"), max(Decimal("0"), confidence))
+    stable = {
+        "document_file_hash": _clean(getattr(doc, "file_hash", "")),
+        "fact_type": fact_type,
+        "payload": payload,
+    }
+    source_hash = hashlib.sha256(
+        json.dumps(stable, ensure_ascii=False, sort_keys=True, default=str, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    evidence = payload.get("evidence") if isinstance(payload.get("evidence"), dict) else {}
+    return CanonicalFactCandidate(
+        fact_type=fact_type,
+        business_key=_business_key(doc, fact_type, payload),
+        payload=payload,
+        evidence=evidence,
+        validation_errors=errors,
+        confidence=confidence,
+        status=status,
+        source_hash=source_hash,
+    )
+
+
+def _persist_candidate(db, doc: Document, candidate: CanonicalFactCandidate) -> int:
+    existing = db.execute(
+        text(
+            "SELECT id, fact_version, status, is_current FROM canonical_facts "
+            "WHERE source_document_id=:document_id AND fact_type=:fact_type AND source_hash=:source_hash "
+            "FOR UPDATE"
+        ),
+        {"document_id": doc.id, "fact_type": candidate.fact_type, "source_hash": candidate.source_hash},
+    ).mappings().first()
+
+    if existing and existing["status"] == candidate.status:
+        return int(existing["id"])
+
+    if existing:
+        fact_version = int(existing["fact_version"])
+    else:
+        fact_version = int(
+            db.execute(
+                text(
+                    "SELECT COALESCE(MAX(fact_version), 0) FROM canonical_facts "
+                    "WHERE project_id=:project_id AND fact_type=:fact_type AND business_key=:business_key"
+                ),
+                {"project_id": doc.project_id, "fact_type": candidate.fact_type, "business_key": candidate.business_key},
+            ).scalar_one()
+        ) + 1
+
+    if candidate.status == "accepted":
+        db.execute(
+            text(
+                "UPDATE canonical_facts SET status='superseded', is_current=FALSE, updated_at=now() "
+                "WHERE project_id=:project_id AND fact_type=:fact_type AND business_key=:business_key "
+                "AND status='accepted' AND is_current=TRUE "
+                "AND NOT (source_document_id=:document_id AND source_hash=:source_hash)"
+            ),
+            {
+                "project_id": doc.project_id,
+                "fact_type": candidate.fact_type,
+                "business_key": candidate.business_key,
+                "document_id": doc.id,
+                "source_hash": candidate.source_hash,
+            },
+        )
+
+    row_id = db.execute(
+        text(
+            "INSERT INTO canonical_facts ("
+            "source_document_id, project_id, fact_type, business_key, schema_version, fact_version, source_hash, "
+            "payload, evidence, validation_errors, confidence, status, is_current, producer, accepted_at"
+            ") VALUES ("
+            ":document_id, :project_id, :fact_type, :business_key, 'v1', :fact_version, :source_hash, "
+            "CAST(:payload AS jsonb), CAST(:evidence AS jsonb), CAST(:errors AS jsonb), :confidence, :status, :is_current, "
+            "'rag_worker:deterministic-v1', CASE WHEN :status='accepted' THEN now() ELSE NULL END"
+            ") ON CONFLICT (source_document_id, fact_type, source_hash) DO UPDATE SET "
+            "payload=EXCLUDED.payload, evidence=EXCLUDED.evidence, validation_errors=EXCLUDED.validation_errors, "
+            "confidence=EXCLUDED.confidence, status=EXCLUDED.status, is_current=EXCLUDED.is_current, "
+            "accepted_at=CASE WHEN EXCLUDED.status='accepted' THEN COALESCE(canonical_facts.accepted_at, now()) ELSE NULL END, "
+            "updated_at=now() RETURNING id"
+        ),
+        {
+            "document_id": doc.id,
+            "project_id": doc.project_id,
+            "fact_type": candidate.fact_type,
+            "business_key": candidate.business_key,
+            "fact_version": fact_version,
+            "source_hash": candidate.source_hash,
+            "payload": json.dumps(candidate.payload, ensure_ascii=False, default=str),
+            "evidence": json.dumps(candidate.evidence, ensure_ascii=False, default=str),
+            "errors": json.dumps(candidate.validation_errors, ensure_ascii=False),
+            "confidence": candidate.confidence,
+            "status": candidate.status,
+            "is_current": candidate.status == "accepted",
+        },
+    ).scalar_one()
+
+    if candidate.status == "accepted":
+        db.execute(
+            text(
+                "INSERT INTO canonical_fact_outbox (fact_id, event_type, payload) "
+                "VALUES (:fact_id, 'canonical_fact.accepted', CAST(:payload AS jsonb)) "
+                "ON CONFLICT (fact_id, event_type) DO NOTHING"
+            ),
+            {
+                "fact_id": row_id,
+                "payload": json.dumps(
+                    {"project_id": doc.project_id, "fact_type": candidate.fact_type, "business_key": candidate.business_key},
+                    ensure_ascii=False,
+                ),
+            },
+        )
+    return int(row_id)
+
+
+def promote_document_to_canonical_facts(db, doc: Document) -> list[int]:
+    """Promote one indexed document into the shared canonical fact layer."""
+    fact_type = infer_fact_type(getattr(doc, "document_type", ""))
+    if not fact_type:
+        return []
+
+    chunks = db.scalars(
+        select(Chunk.content)
+        .where(Chunk.document_id == doc.id)
+        .order_by(Chunk.chunk_index.asc())
+    ).all()
+    content = "\n\n".join(str(item or "") for item in chunks)[:_MAX_FACT_TEXT_CHARS]
+
+    extractors: dict[str, Callable[[str], dict[str, Any]]] = {
+        "contract": extract_contract_fields_from_text,
+        "invoice": extract_invoice_fields_from_text,
+        "payment": extract_payment_fields_from_text,
+    }
+    try:
+        fields = extractors[fact_type](content)
+    except Exception as exc:  # extraction failure becomes review, not silent data loss
+        fields = {"_extraction_error": f"deterministic extraction failed: {exc}"}
+
+    candidate = build_candidate(doc, fact_type, fields)
+    return [_persist_candidate(db, doc, candidate)]
