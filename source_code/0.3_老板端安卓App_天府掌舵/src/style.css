@@ -81,12 +81,12 @@
     margin: 0;
     background: var(--page-bg);
     color: var(--ink);
-    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    font-family: "Segoe UI", "Segoe UI Variable Text", "Microsoft YaHei UI", "Microsoft YaHei", -apple-system, BlinkMacSystemFont, Roboto, "Helvetica Neue", Arial, sans-serif;
     font-size: 15px;
     line-height: 1.5;
     font-weight: 400;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
+    -webkit-font-smoothing: auto;
+    -moz-osx-font-smoothing: auto;
     -webkit-tap-highlight-color: transparent;
     -webkit-touch-callout: none;
     touch-action: manipulation;
@@ -204,7 +204,7 @@
 }
 
 .font-financial {
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "DIN Alternate", "Roboto", "Helvetica Neue", sans-serif;
+  font-family: "Segoe UI", "Segoe UI Variable Text", "Microsoft YaHei UI", "Microsoft YaHei", -apple-system, BlinkMacSystemFont, Roboto, "Helvetica Neue", Arial, sans-serif;
   font-feature-settings: "tnum", "zero";
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.02em;
@@ -889,3 +889,4 @@
 * {
   scrollbar-width: none;
 }
+\n/* FORCE_CLEARTYPE */\n*, *::before, *::after, html, body, .antialiased { -webkit-font-smoothing: auto !important; -moz-osx-font-smoothing: auto !important; }\n

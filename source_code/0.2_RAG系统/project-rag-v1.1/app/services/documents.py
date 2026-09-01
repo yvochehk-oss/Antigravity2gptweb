@@ -8,7 +8,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..config import MAX_UPLOAD_SIZE
-from ..domain.entities import is_canonical_entity_code
+from ..domain.entities import is_canonical_entity_code, map_to_standard_external_code
 from ..logging_config import get_logger
 from ..models import Chunk, Document, IngestJob, Project
 from ..security import read_file_limited, validate_file_content
@@ -32,6 +32,7 @@ from .storage.write import (
 logger = get_logger(__name__)
 
 
+<<<<<<< HEAD
 def _lock_project_file_hash(
     db: Session,
     project_id: int,
@@ -79,6 +80,12 @@ def _find_existing_document(
         .order_by(Document.id.asc())
         .limit(1)
     )
+=======
+def _canonical_counterparty_code(metadata: dict, inferred: dict) -> str:
+    """Return the canonical external-party code before Document persistence."""
+    raw_code = metadata.get("counterparty_code") or inferred.get("counterparty_code", "")
+    return map_to_standard_external_code(raw_code) or ""
+>>>>>>> origin/v3.0-macos
 
 
 def register_bytes(
@@ -127,6 +134,7 @@ def register_bytes(
         filename,
         canonical_cache=load_canonical_entity_cache(),
     )
+    counterparty_code = _canonical_counterparty_code(metadata, inferred)
 
     # Generate document code
     code = f"DOC-{uuid.uuid4().hex[:12].upper()}"
@@ -138,7 +146,8 @@ def register_bytes(
         logger.error(f"Failed to save file: {e}")
         raise
 
-    # Create document record - new imports are always canonical documents
+    # Create document record. External aliases are normalized before this
+    # first commit so an alias can never become a durable document reference.
     d = Document(
         project_id=project.id,
         document_code=code,
@@ -152,7 +161,7 @@ def register_bytes(
         # Metadata with priority: explicit > inferred
         document_type=metadata.get("document_type") or inferred.get("document_type", "other"),
         entity_code=metadata.get("entity_code") or inferred.get("entity_code", ""),
-        counterparty_code=metadata.get("counterparty_code") or inferred.get("counterparty_code", ""),
+        counterparty_code=counterparty_code,
         business_category=metadata.get("business_category") or inferred.get("business_category", ""),
         tax_category=metadata.get("tax_category") or inferred.get("tax_category", ""),
         # 税务金额字段
@@ -201,7 +210,43 @@ def register_bytes(
         except Exception as e:
             logger.error(f"Failed to queue parsing for {d.id}: {e}")
 
+<<<<<<< HEAD
     return d, job_id
+=======
+    # Auto-register external party if counterparty is system-external
+    if d.counterparty_code and not is_canonical_entity_code(d.counterparty_code):
+        kind = "partner"
+        cp_upper = d.counterparty_code.upper()
+        if "CRANE" in cp_upper or d.business_category == "equipment":
+            kind = "equipment"
+        elif "PG" in cp_upper or d.business_category == "material":
+            kind = "supplier"
+        elif "EXP" in cp_upper or d.business_category == "subcontract":
+            kind = "subcontractor"
+        elif d.business_category == "labor":
+            kind = "labor"
+
+        from .ingest import _auto_register_external_party
+        _auto_register_external_party(
+            db,
+            d.counterparty_code,
+            counterparty_name=inferred.get("counterparty_name") or d.counterparty_code,
+            tax_id=inferred.get("counterparty_tax_id") or None,
+            kind=kind,
+        )
+        db.commit()
+
+    # Queue for parsing
+    jid = None
+    if auto_parse and not duplicate:
+        job = enqueue_parse(db, d.id)
+        jid = job.id
+        db.refresh(d)
+
+    # Tax and RAG share PostgreSQL; no cross-database async copy is performed.
+
+    return d, jid
+>>>>>>> origin/v3.0-macos
 
 
 def scan_folder(
@@ -340,6 +385,7 @@ def register_local_path(
         filename,
         canonical_cache=load_canonical_entity_cache(),
     )
+    counterparty_code = _canonical_counterparty_code(metadata, inferred)
     code = f"DOC-{uuid.uuid4().hex[:12].upper()}"
 
     d = Document(
@@ -355,7 +401,7 @@ def register_local_path(
         # Metadata with priority: explicit > inferred
         document_type=metadata.get("document_type") or inferred.get("document_type", "other"),
         entity_code=metadata.get("entity_code") or inferred.get("entity_code", ""),
-        counterparty_code=metadata.get("counterparty_code") or inferred.get("counterparty_code", ""),
+        counterparty_code=counterparty_code,
         business_category=metadata.get("business_category") or inferred.get("business_category", ""),
         tax_category=metadata.get("tax_category") or inferred.get("tax_category", ""),
         tax_vat_rate=metadata.get("tax_vat_rate", 0.0) or 0.0,

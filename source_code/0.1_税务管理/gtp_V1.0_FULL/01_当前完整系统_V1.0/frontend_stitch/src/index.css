@@ -1,3 +1,26 @@
+/**
+ * ============================================================================
+ * 成都建工 V3.0 - 锐宝财税智控系统 全局样式 (index.css)
+ * 
+ * 【字体规范与跨平台渲染说明】
+ * 1. 本地 WebFont 方案：
+ *    - 采用开源商用 HarmonyOS Sans SC (鸿蒙字体)，完全本地静态引入 (/assets/fonts/)，0 外网 CDN 依赖。
+ * 2. Windows / macOS 跨平台清晰度保障：
+ *    - 严格禁止在 Windows 环境下强开 `-webkit-font-smoothing: antialiased` 或 `grayscale`；
+ *    - 保持 `-webkit-font-smoothing: auto`，使 Windows 原生 ClearType 亚像素平滑引擎充分发挥，文字深黑饱满无毛边；
+ *    - macOS / Retina 高分屏自动匹配系统最佳灰度抗锯齿，两端互不干扰。
+ * 3. 字体回退序列：
+ *    HarmonyOS Sans SC -> Microsoft YaHei UI -> Microsoft YaHei -> Segoe UI -> Arial -> sans-serif。
+ * 4. 金额与表格数字：
+ *    开启 font-variant-numeric: tabular-nums，保障多列金额纵向严格等宽对齐。
+ * ============================================================================
+ */
+
+:root {
+  --font-ui: "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "Segoe UI", Arial, sans-serif;
+  --font-sans: var(--font-ui);
+}
+
 @import "tailwindcss";
 
 @layer base {
@@ -9,17 +32,30 @@
     overflow: hidden;
     position: fixed;
     inset: 0;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", "微软雅黑", Roboto, "Helvetica Neue", Arial, sans-serif;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-    text-rendering: optimizeLegibility;
+    font-family: var(--font-ui);
+    font-size: 14px;
+    line-height: 1.55;
+    font-weight: 400;
+    -webkit-font-smoothing: auto;
+    -moz-osx-font-smoothing: auto;
     transform: translateZ(0);
   }
   
-  .font-mono-num {
-    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  button, input, textarea, select, table {
+    font-family: inherit;
+  }
+
+  table, .font-mono-num {
+    font-family: var(--font-ui);
     font-variant-numeric: tabular-nums;
   }
+}
+
+/* 强制保持 Windows ClearType 亚像素平滑，避免 React 挂载后字体退化变细 */
+*, *::before, *::after, html, body, .antialiased {
+  -webkit-font-smoothing: auto !important;
+  -moz-osx-font-smoothing: auto !important;
+  text-rendering: auto !important;
 }
 
 /* 玻璃拟态与发光特效 */

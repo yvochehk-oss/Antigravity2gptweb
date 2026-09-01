@@ -304,7 +304,7 @@ export default function App() {
   };
 
   return (
-    <div className="fixed inset-0 h-screen w-screen bg-[#0b1326] text-[#dae2fd] flex flex-col md:flex-row antialiased overflow-hidden font-sans">
+    <div className="fixed inset-0 h-screen w-screen bg-[#0b1326] text-[#dae2fd] flex flex-col md:flex-row  overflow-hidden font-sans">
       <Sidebar currentTab={currentTab} onSelectTab={handleSelectTab} unresolvedRiskCount={unresolvedRiskCount} aiModelStatus={aiModelStatus} />
 
       {isMobileMenuOpen && (
@@ -423,4 +423,15 @@ export default function App() {
       <ExportReportModal isOpen={isExportModalOpen} onClose={() => setIsExportModalOpen(false)} projects={projects} />
     </div>
   );
+}
+
+/* ===========================================================
+   保持 Windows ClearType 亚像素渲染（系统字体方案下无需 swap）
+   -webkit-font-smoothing: auto  -> Windows 使用 ClearType
+                                -> macOS  使用视网膜灰度平滑
+   =========================================================== */
+*, *::before, *::after, html, body, .antialiased {
+  -webkit-font-smoothing: auto !important;
+  -moz-osx-font-smoothing: auto !important;
+  text-rendering: auto !important;
 }

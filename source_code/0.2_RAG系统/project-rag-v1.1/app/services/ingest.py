@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from ..config import EMBEDDING_DIM, IS_POSTGRES
 from ..logging_config import get_logger
-from ..domain.entities import is_canonical_entity_code
+from ..domain.entities import is_canonical_entity_code, map_to_standard_external_code
 from ..models import Chunk, Document, ExternalParty, IngestJob, Project
 from .chunker import chunks_from_content_list, chunks_from_markdown, chunks_from_plain_text
 from .embeddings import embed_many
@@ -245,19 +245,22 @@ def _auto_register_external_party(
     tax_id: str | None = None,
     kind: str = "partner",
 ) -> None:
-    """Automatically discover and register system-external parties from ingested documents."""
+    """Automatically discover and register canonical system-external parties."""
     raw_code = (counterparty_code or "").strip().upper()
     if not raw_code or is_canonical_entity_code(raw_code):
         return
 
-    from ..domain.entities import get_external_preset, map_to_standard_external_code
+    code = map_to_standard_external_code(raw_code)
+    if not code or is_canonical_entity_code(code):
+        return
 
-    preset = get_external_preset(raw_code)
-    code = preset["code"] if preset else map_to_standard_external_code(raw_code)
+    from ..domain.entities import get_external_preset
+
+    preset = get_external_preset(code)
     name = counterparty_name if (counterparty_name and counterparty_name not in (raw_code, code, "")) else (preset["name"] if preset else code)
     short_name = preset.get("short_name") if preset else name
     tax_id = tax_id or (preset.get("tax_id") if preset else None)
-    
+
     if preset:
         kind = preset.get("kind") or kind
     else:
@@ -409,8 +412,9 @@ def parse_and_index(db: Session, doc: Document) -> Document:
         if not doc.entity_code and refined.get("entity_code"):
             doc.entity_code = refined["entity_code"]
 
-        if not doc.counterparty_code and refined.get("counterparty_code"):
-            doc.counterparty_code = refined["counterparty_code"]
+        raw_counterparty_code = doc.counterparty_code or refined.get("counterparty_code")
+        if raw_counterparty_code:
+            doc.counterparty_code = map_to_standard_external_code(raw_counterparty_code) or ""
 
         if doc.counterparty_code:
             _auto_register_external_party(

@@ -6,10 +6,19 @@
     <title>锐宝财税智控 - 大型工程财务与税务智能风控监管平台</title>
     <meta name="description" content="面向建筑工程投资与建设的智能化财务监管、多实体税务台账、成本穿透与合规风控平台" />
   </head>
-  <body class="bg-[#0b1326] text-[#dae2fd] antialiased selection:bg-[#4cd7f6]/30 selection:text-[#acedff]">
+  <body class="bg-[#0b1326] text-[#dae2fd]  selection:bg-[#4cd7f6]/30 selection:text-[#acedff]">
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
 
-
+/* ===========================================================
+   保持 Windows ClearType 亚像素渲染（系统字体方案下无需 swap）
+   -webkit-font-smoothing: auto  -> Windows 使用 ClearType
+                                -> macOS  使用视网膜灰度平滑
+   =========================================================== */
+*, *::before, *::after, html, body, .antialiased {
+  -webkit-font-smoothing: auto !important;
+  -moz-osx-font-smoothing: auto !important;
+  text-rendering: auto !important;
+}

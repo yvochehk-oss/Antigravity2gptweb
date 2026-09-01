@@ -180,7 +180,11 @@ def main() -> int:
     except Exception as exc:
         failures.append(f"Gate S27 unexpected error: {type(exc).__name__}: {exc}")
     finally:
-        event.remove(engine, "before_cursor_execute", monitor.before_cursor_execute); engine.dispose()
+        try:
+            event.remove(engine, "before_cursor_execute", monitor.before_cursor_execute)
+        except Exception:
+            pass
+        engine.dispose()
 
     evidence.update(monitor.flags)
     if evidence.get("production_seal_write_attempted"): failures.append("Production Seal write attempted")

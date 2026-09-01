@@ -8,9 +8,18 @@
     <script type="module" crossorigin src="/assets/index-RSnfeJq1.js"></script>
     <link rel="stylesheet" crossorigin href="/assets/index-6EZy8a07.css">
   </head>
-  <body class="bg-[#0b1326] text-[#dae2fd] antialiased selection:bg-[#4cd7f6]/30 selection:text-[#acedff]">
+  <body class="bg-[#0b1326] text-[#dae2fd]  selection:bg-[#4cd7f6]/30 selection:text-[#acedff]">
     <div id="root"></div>
   </body>
 </html>
 
-
+/* ===========================================================
+   保持 Windows ClearType 亚像素渲染（系统字体方案下无需 swap）
+   -webkit-font-smoothing: auto  -> Windows 使用 ClearType
+                                -> macOS  使用视网膜灰度平滑
+   =========================================================== */
+*, *::before, *::after, html, body, .antialiased {
+  -webkit-font-smoothing: auto !important;
+  -moz-osx-font-smoothing: auto !important;
+  text-rendering: auto !important;
+}
