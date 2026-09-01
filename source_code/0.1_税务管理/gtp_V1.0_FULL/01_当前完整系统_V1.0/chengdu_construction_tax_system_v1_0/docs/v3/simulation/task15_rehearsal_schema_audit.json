@@ -1,0 +1,138 @@
+{
+  "status": "PASS",
+  "failures": [],
+  "warnings": [],
+  "details": {
+    "metadata_table_count": 78,
+    "tax_metadata_table_count": 61,
+    "rag_metadata_table_count": 22,
+    "shared_tables": [
+      "entities",
+      "external_parties",
+      "facts_snapshots",
+      "projects",
+      "users"
+    ],
+    "db_table_count": 88,
+    "missing_tables": [],
+    "explained_db_only_tables": [
+      "business_rule_parameters",
+      "contracts_v3",
+      "document_extractions",
+      "document_path_migrations_012",
+      "document_reviews",
+      "idp_documents",
+      "invoices_v3",
+      "real_cost_invoice_links"
+    ],
+    "unexplained_db_only_tables": [],
+    "tax_alembic_db_heads": [
+      "87_v3_entity_tax_ledgers"
+    ],
+    "tax_alembic_disk_heads": [
+      "87_v3_entity_tax_ledgers"
+    ],
+    "rag_alembic_db_heads": [
+      "019_timezone_aware_timestamps"
+    ],
+    "rag_alembic_disk_heads": [
+      "019_timezone_aware_timestamps"
+    ],
+    "triggers": [
+      {
+        "table_name": "calculation_runs",
+        "trigger_name": "trg_v3_guard_calculation_run_update"
+      },
+      {
+        "table_name": "entities",
+        "trigger_name": "trg_sync_entity_aliases"
+      },
+      {
+        "table_name": "entity_tax_ledger_components",
+        "trigger_name": "trg_v3_guard_entity_tax_ledger_component_immutable"
+      },
+      {
+        "table_name": "entity_tax_ledger_components",
+        "trigger_name": "trg_v3_guard_entity_tax_ledger_component_reconciliation"
+      },
+      {
+        "table_name": "entity_tax_ledger_components",
+        "trigger_name": "trg_v3_guard_entity_tax_ledger_component_source"
+      },
+      {
+        "table_name": "entity_tax_ledgers",
+        "trigger_name": "trg_v3_guard_entity_tax_ledger_immutable"
+      },
+      {
+        "table_name": "entity_tax_ledgers",
+        "trigger_name": "trg_v3_guard_entity_tax_ledger_period_state"
+      },
+      {
+        "table_name": "entity_tax_ledgers",
+        "trigger_name": "trg_v3_guard_entity_tax_ledger_reconciliation"
+      },
+      {
+        "table_name": "entity_tax_ledgers",
+        "trigger_name": "trg_v3_guard_entity_tax_ledger_scope"
+      },
+      {
+        "table_name": "entity_tax_management_inputs",
+        "trigger_name": "trg_v3_guard_entity_tax_management_input_mutation"
+      },
+      {
+        "table_name": "entity_vat_ledgers",
+        "trigger_name": "trg_v3_guard_entity_vat_ledger_output_completeness"
+      },
+      {
+        "table_name": "projects",
+        "trigger_name": "trg_sync_project_aliases"
+      },
+      {
+        "table_name": "tax_period_states",
+        "trigger_name": "trg_v3_guard_tax_period_state"
+      }
+    ],
+    "functions": [
+      {
+        "function_name": "canonical_management_eac_cost"
+      },
+      {
+        "function_name": "sync_entity_aliases"
+      },
+      {
+        "function_name": "sync_project_aliases"
+      },
+      {
+        "function_name": "v3_guard_calculation_run_update"
+      },
+      {
+        "function_name": "v3_guard_entity_tax_ledger_component_immutable"
+      },
+      {
+        "function_name": "v3_guard_entity_tax_ledger_component_reconciliation"
+      },
+      {
+        "function_name": "v3_guard_entity_tax_ledger_component_source"
+      },
+      {
+        "function_name": "v3_guard_entity_tax_ledger_immutable"
+      },
+      {
+        "function_name": "v3_guard_entity_tax_ledger_period_state"
+      },
+      {
+        "function_name": "v3_guard_entity_tax_ledger_scope"
+      },
+      {
+        "function_name": "v3_guard_entity_tax_management_input_mutation"
+      },
+      {
+        "function_name": "v3_guard_entity_vat_ledger_output_completeness"
+      },
+      {
+        "function_name": "v3_guard_tax_period_state"
+      }
+    ],
+    "table_drift": {}
+  }
+}

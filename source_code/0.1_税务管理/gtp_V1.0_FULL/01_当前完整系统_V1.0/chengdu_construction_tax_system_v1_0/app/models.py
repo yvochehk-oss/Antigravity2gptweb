@@ -157,8 +157,11 @@ class Contract(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"), index=True)
     contract_no: Mapped[str] = mapped_column(String(50), default="")
-    buyer_code: Mapped[str] = mapped_column(String(16), index=True)
-    seller_code: Mapped[str] = mapped_column(String(16), index=True)
+    # V3 v1.2 migration-period hotfix: all legacy party-code references may
+    # need to carry a descriptive external identifier until Party FKs replace
+    # these strings, so buyer/seller are temporarily widened to 64 chars.
+    buyer_code: Mapped[str] = mapped_column(String(64), index=True)
+    seller_code: Mapped[str] = mapped_column(String(64), index=True)
     category: Mapped[str] = mapped_column(String(30), index=True)
     amount: Mapped[Decimal] = mapped_column(Numeric(18, 2))
     internal_trade: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
@@ -171,9 +174,10 @@ class Invoice(Base):
     project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"), index=True)
     invoice_no: Mapped[str] = mapped_column(String(60), default="", index=True)
     period: Mapped[str] = mapped_column(String(7), index=True)
-    entity_code: Mapped[str] = mapped_column(String(16), index=True)
+    # Legacy migration boundary only; canonical entities.code remains 16.
+    entity_code: Mapped[str] = mapped_column(String(64), index=True)
     direction: Mapped[str] = mapped_column(String(10), index=True)  # in/out
-    counterparty_code: Mapped[str] = mapped_column(String(16), index=True)
+    counterparty_code: Mapped[str] = mapped_column(String(64), index=True)
     category: Mapped[str] = mapped_column(String(30), index=True)
     net: Mapped[Decimal] = mapped_column(Numeric(18, 2))
     vat: Mapped[Decimal] = mapped_column(Numeric(18, 2), default=Decimal("0"))
@@ -186,8 +190,9 @@ class CashFlow(Base):
     __tablename__ = "cashflows"
     id: Mapped[int] = mapped_column(primary_key=True)
     project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"), index=True)
-    entity_code: Mapped[str] = mapped_column(String(16), index=True)
-    counterparty_code: Mapped[str] = mapped_column(String(16), index=True)
+    # Legacy migration boundary only; canonical entities.code remains 16.
+    entity_code: Mapped[str] = mapped_column(String(64), index=True)
+    counterparty_code: Mapped[str] = mapped_column(String(64), index=True)
     direction: Mapped[str] = mapped_column(String(10), index=True)  # in/out
     amount: Mapped[Decimal] = mapped_column(Numeric(18, 2))
     period: Mapped[str] = mapped_column(String(7), index=True)
@@ -201,7 +206,7 @@ class Fulfillment(Base):
     __tablename__ = "fulfillment"
     id: Mapped[int] = mapped_column(primary_key=True)
     project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"), index=True)
-    counterparty_code: Mapped[str] = mapped_column(String(16), index=True)
+    counterparty_code: Mapped[str] = mapped_column(String(64), index=True)
     kind: Mapped[str] = mapped_column(String(30), index=True)
     category: Mapped[str] = mapped_column(String(30), default="", index=True)
     quantity: Mapped[Decimal] = mapped_column(Numeric(18, 2), default=Decimal("0"))
@@ -214,8 +219,9 @@ class RealCost(Base):
     __tablename__ = "real_costs"
     id: Mapped[int] = mapped_column(primary_key=True)
     project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"), index=True)
-    entity_code: Mapped[str] = mapped_column(String(16), index=True)
-    counterparty_code: Mapped[str] = mapped_column(String(16), default="", index=True)
+    # Legacy migration boundary only; canonical entities.code remains 16.
+    entity_code: Mapped[str] = mapped_column(String(64), index=True)
+    counterparty_code: Mapped[str] = mapped_column(String(64), default="", index=True)
     category: Mapped[str] = mapped_column(String(30), index=True)
     subcategory: Mapped[str] = mapped_column(String(50), default="", index=True)
     period: Mapped[str] = mapped_column(String(7), default="", index=True)
@@ -714,9 +720,6 @@ class FactsSnapshot(Base):
         metadata = data.get("_snapshot_metadata")
         return metadata if isinstance(metadata, dict) else {}
 
-    # Compatibility read properties for existing Tax routes/services.  They
-    # deliberately derive from canonical facts_data rather than database
-    # columns, preventing metrics/raw response drift.
     @property
     def metrics_json(self) -> str:
         data = self.facts_data if isinstance(self.facts_data, dict) else {}
@@ -842,6 +845,12 @@ class User(Base):
     )
 
 
+from .v3_entity_tax_models import (
+    EntityTaxManagementInput,
+    EntityTaxLedger,
+    EntityTaxLedgerComponent,
+)
+
 __all__ = [
     "Entity", "ExternalParty", "Project", "Contract", "Invoice", "CashFlow",
     "Fulfillment", "RealCost", "Progress", "Budget", "CostAccount",
@@ -853,4 +862,8 @@ __all__ = [
     "FactsSnapshot", "FactsRequestLog",
     "PlanningScenario", "PlanningAllocation",
     "User",
+    "EntityTaxManagementInput",
+    "EntityTaxLedger",
+    "EntityTaxLedgerComponent",
 ]
+

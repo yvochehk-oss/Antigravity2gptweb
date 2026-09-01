@@ -1,0 +1,14 @@
+{
+  "profiles": [
+    {
+      "party_code": "A04",
+      "tax_type": "VAT",
+      "reporting_party_code": "A03",
+      "effective_from": "2026-01-01",
+      "effective_to": null,
+      "rule_version": "manual-20260830",
+      "source": "人工复核表（示例，应用前必须替换为真实证据）",
+      "reviewed": false
+    }
+  ]
+}

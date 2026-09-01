@@ -1,0 +1,19 @@
+{
+  "status": "PASS",
+  "failures": [],
+  "evidence": {
+    "alembic_db_heads": [
+      "77_v3_fact_core_invoice"
+    ],
+    "alembic_disk_heads": [
+      "77_v3_fact_core_invoice"
+    ],
+    "invoice_fact_count": 0,
+    "orphan_invoice_fact_count": 0,
+    "wrong_fact_type_count": 0,
+    "duplicate_invoice_identity_count": 0,
+    "duplicate_current_business_identity_count": 0,
+    "invalid_valid_header_count": 0,
+    "valid_invoice_line_mismatch_count": 0
+  }
+}

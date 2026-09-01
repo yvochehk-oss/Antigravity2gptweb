@@ -1,0 +1,57 @@
+{
+  "actions": [
+    {
+      "action": "INSERT",
+      "existing": null,
+      "expected": {
+        "amount": "11320754.72",
+        "input_type": "REAL_COST",
+        "input_version": 1,
+        "note": "模拟测试资料；法人主体月度显式审核输入，非项目或票据日期推导。",
+        "reporting_party_id": 8,
+        "reviewed": true,
+        "reviewed_at": "2026-08-31T13:26:18+08:00",
+        "reviewed_by": "Codex Task15 formal review",
+        "source": "V3.0/项目存档资料/01_天府国际金融中心二期_CD-TF-001/10_模拟测试资料/TASK15_A08_2025-09_法人月度收入成本审核资料.md",
+        "source_document_id": null,
+        "tax_period": "2025-09-01"
+      },
+      "input_type": "REAL_COST",
+      "input_version": 1
+    },
+    {
+      "action": "INSERT",
+      "existing": null,
+      "expected": {
+        "amount": "0.00",
+        "input_type": "REVENUE",
+        "input_version": 1,
+        "note": "模拟测试资料；法人主体月度显式审核输入，非项目或票据日期推导。",
+        "reporting_party_id": 8,
+        "reviewed": true,
+        "reviewed_at": "2026-08-31T13:26:18+08:00",
+        "reviewed_by": "Codex Task15 formal review",
+        "source": "V3.0/项目存档资料/01_天府国际金融中心二期_CD-TF-001/10_模拟测试资料/TASK15_A08_2025-09_法人月度收入成本审核资料.md",
+        "source_document_id": null,
+        "tax_period": "2025-09-01"
+      },
+      "input_type": "REVENUE",
+      "input_version": 1
+    }
+  ],
+  "alembic_head": "87_v3_entity_tax_ledgers",
+  "canonical_entity": "A08",
+  "database": "projectrag_task15_formal_rehearsal_20260831",
+  "disk_head": "87_v3_entity_tax_ledgers",
+  "inserted_ids": [
+    1,
+    2
+  ],
+  "kind": "V3_TASK15_ENTITY_TAX_MANAGEMENT_INPUT_RESULT",
+  "mode": "APPLY",
+  "plan_digest": "c5a43273d2a676f727aed548c5a0cea9b158caf275abd867724b27f9e27aedb8",
+  "reporting_party_id": 8,
+  "status": "BUILT",
+  "tax_period": "2025-09",
+  "version": 1
+}

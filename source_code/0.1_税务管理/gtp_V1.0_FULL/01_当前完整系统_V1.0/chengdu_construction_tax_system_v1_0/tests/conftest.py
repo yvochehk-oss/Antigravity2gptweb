@@ -1,16 +1,29 @@
-"""PostgreSQL-only pytest safety rails for Tax."""
-from __future__ import annotations
-
 import os
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
+from alembic import command
 from alembic.config import Config
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
 
-from alembic import command
+# Register psycopg string loaders for cross-platform string decoding on Windows
+try:
+    import psycopg
+    from psycopg.adapt import Loader
+
+    class _UniversalStrLoader(Loader):
+        def load(self, data):
+            if isinstance(data, (bytes, bytearray, memoryview)):
+                return bytes(data).decode("utf-8", errors="ignore")
+            return str(data)
+
+    for _oid in [19, 25, 705, 1042, 1043, 2275]:
+        psycopg.adapters.register_loader(_oid, _UniversalStrLoader)
+except Exception:
+    pass
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -21,17 +34,23 @@ os.environ["DATABASE_URL"] = (
     or "postgresql+psycopg://invalid:invalid@127.0.0.1:1/projectrag_invalid_test"
 )
 
-# Keep the browser-login credential in the test process only.  The active
-# tests use the same value for both seeded users; production .env files are
-# never changed by the test harness.
-TEST_LOGIN_PASSWORD = (
-    os.getenv("TEST_LOGIN_PASSWORD", "TestPass12345!").strip() or "TestPass12345!"
-)
+TEST_LOGIN_PASSWORD = "888888"
 os.environ.setdefault("APP_ENV", "test")
 os.environ.setdefault("JWT_SECRET_KEY", "tax-test-secret-at-least-32-characters")
 os.environ.setdefault("RAG_SHARED_API_KEY", "rag-test-secret-at-least-32-characters")
-os.environ.setdefault("INITIAL_ADMIN_PASSWORD", TEST_LOGIN_PASSWORD)
-os.environ.setdefault("INITIAL_OPERATOR_PASSWORD", TEST_LOGIN_PASSWORD)
+_TEMP_DIR = Path(tempfile.gettempdir())
+_USER_CENTER_TEST_DB = _TEMP_DIR / f"chengdu_user_center_test_{os.getpid()}.db"
+os.environ.setdefault("USER_CENTER_DB_URL", f"sqlite:///{_USER_CENTER_TEST_DB.as_posix()}")
+os.environ.pop("INITIAL_ADMIN_PASSWORD", None)
+os.environ.pop("INITIAL_OPERATOR_PASSWORD", None)
+
+
+def pytest_sessionfinish(session, exitstatus):
+    """Remove only the per-process disposable user-center SQLite file."""
+    try:
+        _USER_CENTER_TEST_DB.unlink(missing_ok=True)
+    except OSError:
+        pass
 
 
 def require_test_database() -> str:

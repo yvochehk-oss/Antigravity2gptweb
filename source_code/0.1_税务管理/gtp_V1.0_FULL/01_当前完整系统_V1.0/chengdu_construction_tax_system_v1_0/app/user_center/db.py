@@ -6,20 +6,22 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker, Session
 
-# 统一指向 V3.0 项目根目录下的独立用户数据库 (data/user_center.db)。
-# 环境变量允许测试/部署显式覆盖，默认路径通过项目目录名解析，避免
-def _find_v3_root() -> Path:
-    for parent in Path(__file__).resolve().parents:
-        if (parent / "source_code").is_dir():
-            return parent
-    return Path(__file__).resolve().parents[4]
+_EXPLICIT_DB_URL = os.getenv("USER_CENTER_DB_URL", "").strip()
+if _EXPLICIT_DB_URL:
+    USER_CENTER_DB_URL = _EXPLICIT_DB_URL
+else:
+    def _find_project_root() -> Path:
+        for parent in Path(__file__).resolve().parents:
+            if (parent / ".git").exists() or (parent / "source_code").is_dir():
+                return parent
+        return Path(__file__).resolve().parents[4]
 
-_V3_ROOT = _find_v3_root()
-_ROOT_DATA_DIR = _V3_ROOT / "data"
-_ROOT_DATA_DIR.mkdir(parents=True, exist_ok=True)
-_DEFAULT_DB_FILE = _ROOT_DATA_DIR / "user_center.db"
+    _PROJECT_ROOT = _find_project_root()
+    _ROOT_DATA_DIR = _PROJECT_ROOT / "data"
+    _ROOT_DATA_DIR.mkdir(parents=True, exist_ok=True)
+    _DEFAULT_DB_FILE = _ROOT_DATA_DIR / "user_center.db"
+    USER_CENTER_DB_URL = f"sqlite:///{_DEFAULT_DB_FILE.as_posix()}"
 
-USER_CENTER_DB_URL = os.getenv("USER_CENTER_DB_URL", "").strip() or f"sqlite:///{_DEFAULT_DB_FILE}"
 
 engine = create_engine(
     USER_CENTER_DB_URL,

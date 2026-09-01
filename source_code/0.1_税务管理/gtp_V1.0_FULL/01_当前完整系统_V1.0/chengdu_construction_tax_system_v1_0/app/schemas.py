@@ -9,7 +9,7 @@ Severity = Literal["LOW", "MEDIUM", "HIGH", "CRITICAL"]
 RiskLevel = Literal["LOW", "MEDIUM", "HIGH", "CRITICAL", "UNKNOWN"]
 Priority = Literal["P0", "P1", "P2", "P3"]
 TaskStatus = Literal["open", "in_progress", "done", "rechecked", "verified", "closed"]
-CollectionStatus = Literal["LOADING", "READY", "DEGRADED", "UNAVAILABLE"]
+CollectionStatus = Literal["LOADING", "READY", "DEGRADED", "UNAVAILABLE", "DEPRECATED"]
 
 
 class Finding(BaseModel):
@@ -64,6 +64,9 @@ class CollectionEnvelope(BaseModel):
     page: int = Field(ge=1)
     page_size: int = Field(ge=1)
     has_more: bool = False
+    deprecated: bool | None = None
+    deprecation_message: str = ""
+    recommended_endpoints: dict[str, str] = Field(default_factory=dict)
 
 
 class ProjectCollectionItem(BaseModel):

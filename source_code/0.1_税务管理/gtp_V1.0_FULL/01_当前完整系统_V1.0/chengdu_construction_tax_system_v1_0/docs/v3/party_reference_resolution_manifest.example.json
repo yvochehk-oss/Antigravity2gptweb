@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "decisions": [
+    {
+      "source_code": "EXAMPLE-LEGACY-VENDOR",
+      "action": "MAP_TO_EXISTING",
+      "target_code": "EXT-TF",
+      "reason": "示例：人工核对原始合同、发票与交易方主数据后确认同一主体",
+      "reviewed": true,
+      "reviewed_by": "admin"
+    },
+    {
+      "source_code": "EXT-EXAMPLE-NEW",
+      "action": "ADD_EXTERNAL_MASTER",
+      "reason": "示例：人工核对营业执照/合同主体后确认是新的合法外部交易方",
+      "reviewed": true,
+      "reviewed_by": "admin",
+      "external_party": {
+        "name": "示例外部交易方（请替换）",
+        "short_name": "示例交易方",
+        "kind": "supplier",
+        "tax_id": null
+      }
+    }
+  ]
+}

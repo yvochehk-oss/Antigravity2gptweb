@@ -67,8 +67,21 @@ jobs:
       - name: Ruff
         run: uv run ruff check .
 
-      - name: Pytest
-        run: uv run pytest -q
+      - name: Run PostgreSQL integration tests
+        run: >
+          uv run pytest
+          tests/test_postgresql_schema.py
+          tests/test_tax_ledger_routes.py
+          -v --tb=short
+          2>&1 | tee pytest.log
+
+      - name: Upload test logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tax-test-logs
+          path: pytest.log
+          retention-days: 5
 
   rag:
     name: RAG - lint & test
