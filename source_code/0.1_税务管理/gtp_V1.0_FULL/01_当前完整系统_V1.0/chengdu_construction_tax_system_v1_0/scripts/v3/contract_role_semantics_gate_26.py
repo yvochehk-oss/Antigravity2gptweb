@@ -7,7 +7,12 @@ from hashlib import sha256
 import json
 import os
 from pathlib import Path
+import sys
 from uuid import uuid4
+
+ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from alembic.config import Config
 from alembic.script import ScriptDirectory
@@ -15,6 +20,8 @@ from sqlalchemy import create_engine, func, select, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session
 
+from app.cutover.finalization import finalize_v3_production_cutover
+from app.cutover.writer import get_cutover_state
 from app.integration.idp_canonical.contract_role_resolver import (
     CONTRACT_ROLE_RULESET_V1,
 )
@@ -33,15 +40,19 @@ from app.v3_party_models import Party, PartyIdentifier
 
 
 EXPECTED_HEAD = "97_v3_contract_role_semantics"
-ROOT = Path(__file__).resolve().parents[2]
 
 
 def _database_url() -> str:
     value = os.getenv("DATABASE_URL", "").strip()
     if not value:
         raise SystemExit("DATABASE_URL is required")
-    if make_url(value).get_backend_name() not in {"postgresql", "postgres"}:
+    backend = make_url(value).get_backend_name()
+    if backend not in {"postgresql", "postgres"}:
         raise SystemExit("Gate S26 is PostgreSQL-only")
+    if value.startswith("postgresql://"):
+        return "postgresql+psycopg://" + value[len("postgresql://"):]
+    if value.startswith("postgres://"):
+        return "postgresql+psycopg://" + value[len("postgres://"):]
     return value
 
 
@@ -247,6 +258,39 @@ def main() -> int:
 
             _require(failures, evidence, "role_evidence_table_present", bool(session.execute(text("SELECT to_regclass('public.contract_role_evidence') IS NOT NULL")).scalar_one()), "contract_role_evidence missing")
             _require(failures, evidence, "role_resolution_table_present", bool(session.execute(text("SELECT to_regclass('public.contract_role_resolutions') IS NOT NULL")).scalar_one()), "contract_role_resolutions missing")
+
+            state = get_cutover_state(session, for_update=True)
+            if state.writer_mode == "SHADOW":
+                session.execute(
+                    text(
+                        "UPDATE writer_cutover_states SET writer_mode='DUAL_WRITE', "
+                        "legacy_write_enabled=true, new_fact_write_enabled=true, legacy_frozen=false, "
+                        "new_fact_read_mode='SHADOW', rag_source='LEGACY', updated_by='gate:S26' "
+                        "WHERE scope='GLOBAL'"
+                    )
+                )
+                session.flush()
+            session.execute(
+                text(
+                    "UPDATE writer_cutover_states SET writer_mode='V3_PRIMARY', "
+                    "legacy_write_enabled=false, new_fact_write_enabled=true, legacy_frozen=true, "
+                    "updated_by='gate:S26' WHERE scope='GLOBAL' AND writer_mode='DUAL_WRITE'"
+                )
+            )
+            session.execute(
+                text(
+                    "UPDATE writer_cutover_states SET new_fact_read_mode='PRIMARY', "
+                    "rag_source='CANONICAL_FACTS', updated_by='gate:S26' "
+                    "WHERE scope='GLOBAL' AND writer_mode='V3_PRIMARY' AND new_fact_read_mode='SHADOW' AND rag_source='LEGACY'"
+                )
+            )
+            session.flush()
+            session.expire_all()
+            if not session.execute(
+                text("SELECT 1 FROM v3_cutover_finalizations WHERE scope='GLOBAL'")
+            ).scalar():
+                finalize_v3_production_cutover(session, actor="gate:S26", commit=False)
+                session.expire_all()
 
             seal_before = _seal_snapshot(session)
             cutover_before = _cutover_snapshot(session)
