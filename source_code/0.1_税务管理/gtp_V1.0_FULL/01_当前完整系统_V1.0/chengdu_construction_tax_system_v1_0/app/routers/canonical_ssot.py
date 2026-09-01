@@ -11,6 +11,7 @@ from ..services.canonical_ledger import (
     project_ledger_bundle,
 )
 from ..services.canonical_ssot import build_consolidated_project_pnl, ssot_status
+from ..services.phase4_accounting import ENGINE_VERSION
 
 router = APIRouter(prefix="/api/v1/canonical-ssot", tags=["canonical-ssot"])
 
@@ -36,7 +37,10 @@ def canonical_ssot_status() -> dict:
             return {
                 "mode": "direct-read",
                 "source_of_truth": "RAG canonical_facts",
-                "phase": 2,
+                "phase": 4,
+                "phase3_legacy_writers_retired": True,
+                "legacy_v3_facts_mode": "read_only_audit",
+                "phase4_engine_version": ENGINE_VERSION,
                 "manual_party_creation": False,
                 **ssot_status(db),
             }
