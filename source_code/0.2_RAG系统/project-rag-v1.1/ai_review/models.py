@@ -8,7 +8,16 @@ import json
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import JSON, CheckConstraint, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import (
+    JSON,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 # Register the shared Tax-owned Project table on the same metadata before
@@ -50,7 +59,7 @@ class RAGEvidencePack(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     project_id: Mapped[int] = mapped_column(Integer, ForeignKey("projects.id"), nullable=False, index=True)
     project_code: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
-    query: Mapped[str] = mapped_column(Text, nullable=False)
+    query: Mapped[Text] = mapped_column(Text, nullable=False)
     evidence_data: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     evidence_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     status: Mapped[str] = mapped_column(
@@ -58,8 +67,10 @@ class RAGEvidencePack(Base):
         comment="AVAILABLE/EMPTY/DEGRADED",
     )
     extra_metadata: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
-    created_at: Mapped[str] = mapped_column(
-        String(40), nullable=False, default=lambda: datetime.now(timezone.utc).isoformat()
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        default=lambda: datetime.now(timezone.utc),
     )
     created_by: Mapped[str] = mapped_column(String(80), nullable=False, default="system")
 
@@ -95,8 +106,10 @@ class FactsSnapshot(Base):
     )
 
     # 快照元数据
-    created_at: Mapped[str] = mapped_column(
-        String(40), nullable=False, default=lambda: datetime.now(timezone.utc).isoformat()
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        default=lambda: datetime.now(timezone.utc),
     )
     created_by: Mapped[str] = mapped_column(String(80), nullable=True, comment="创建者（系统/用户）")
 
@@ -128,10 +141,15 @@ class AIReviewRun(Base):
     project_code: Mapped[str] = mapped_column(String(64), index=True)
 
     # 运行时间
-    started_at: Mapped[str] = mapped_column(
-        String(32), nullable=False, default=lambda: datetime.now(timezone.utc).isoformat()
+    started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        default=lambda: datetime.now(timezone.utc),
     )
-    finished_at: Mapped[str] = mapped_column(String(32), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
     duration_ms: Mapped[int] = mapped_column(Integer, nullable=True, comment="运行时长（毫秒）")
 
     # Facts 快照引用

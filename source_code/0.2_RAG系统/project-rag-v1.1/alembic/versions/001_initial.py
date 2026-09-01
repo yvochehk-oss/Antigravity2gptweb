@@ -24,11 +24,43 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
+# These tables are physically owned and migrated by Tax first.
+# RAG baseline must not validate them against its historical 001 schema.
+_TAX_OWNED_SHARED_TABLES = frozenset(
+    {
+        "projects",
+        "entities",
+        "external_parties",
+        "facts_snapshots",
+    }
+)
+
+
 def _type_signature(value: object) -> str:
     """Return a stable, dialect-neutral signature for reflected columns."""
     # SQLAlchemy reflects ``String`` as the dialect-specific ``VARCHAR``;
     # their rendered SQL is the compatibility signal we need here.
     return str(value).upper()
+
+
+def _is_forward_converged_timestamp(
+    bind,
+    column_name: str,
+    declared_type: object,
+    reflected_type: object,
+) -> bool:
+    """Accept the intentional 019 forward migration of legacy *_at strings.
+
+    001 is a historical baseline. PostgreSQL databases may already contain
+    columns converged by Tax 71 / RAG 019 from VARCHAR to TIMESTAMPTZ.
+    Treat that as a newer compatible schema, not drift.
+    """
+    return (
+        bind.dialect.name == "postgresql"
+        and column_name.endswith("_at")
+        and isinstance(declared_type, sa.String)
+        and isinstance(reflected_type, sa.DateTime)
+    )
 
 
 def _sql_signature(value: object) -> str:
@@ -64,12 +96,25 @@ def _assert_existing_table_compatible(table_name: str, declarations: tuple[objec
         )
     for name, column in declared.items():
         reflected = actual[name]
-        if _type_signature(reflected["type"]) != _type_signature(column.type):
+        forward_timestamp = _is_forward_converged_timestamp(
+            bind,
+            name,
+            column.type,
+            reflected["type"],
+        )
+
+        if (
+            _type_signature(reflected["type"]) != _type_signature(column.type)
+            and not forward_timestamp
+        ):
             raise RuntimeError(
                 f"existing table {table_name!r} column {name!r} has incompatible type: "
                 f"actual={reflected['type']!s}, expected={column.type!s}"
             )
-        if bool(reflected.get("nullable", True)) != bool(column.nullable):
+        if (
+            bool(reflected.get("nullable", True)) != bool(column.nullable)
+            and not forward_timestamp
+        ):
             raise RuntimeError(f"existing table {table_name!r} column {name!r} has incompatible nullability")
         if (name in primary_key_columns) != (name in declared_primary_key_columns or bool(column.primary_key)):
             raise RuntimeError(f"existing table {table_name!r} column {name!r} has incompatible primary-key state")
@@ -123,10 +168,10 @@ def _assert_existing_table_compatible(table_name: str, declarations: tuple[objec
 
     if expected_foreign_keys:
         actual_foreign_keys: set[tuple[tuple[str, ...], str, tuple[str, ...]]] = set()
-        for foreign_key in inspector.get_foreign_keys(table_name):
-            local = tuple(str(name) for name in foreign_key.get("constrained_columns") or ())
-            target_table = str(foreign_key.get("referred_table") or "")
-            target_columns = tuple(str(name) for name in foreign_key.get("referred_columns") or ())
+        for fk in inspector.get_foreign_keys(table_name):
+            local = tuple(str(name) for name in fk.get("constrained_columns") or ())
+            target_table = str(fk.get("referred_table") or "")
+            target_columns = tuple(str(name) for name in fk.get("referred_columns") or ())
             actual_foreign_keys.add((local, target_table, target_columns))
         missing = expected_foreign_keys - actual_foreign_keys
         if missing:
@@ -134,18 +179,10 @@ def _assert_existing_table_compatible(table_name: str, declarations: tuple[objec
 
 
 def _assert_existing_index_compatible(index_name: str, table_name: str, columns: list[str], unique: bool) -> bool:
-    """Return whether an existing named index is compatible.
-
-    The inspector can expose a named unique constraint separately from named
-    indexes, so both collections are checked.  Any same-name mismatch is an
-    error; only an exact match is skipped.
-    """
-    bind = op.get_bind()
-    inspector = sa_inspect(bind)
-    candidates = list(inspector.get_indexes(table_name))
-    candidates.extend(inspector.get_unique_constraints(table_name))
-    for existing in candidates:
-        if existing.get("name") != index_name:
+    """Ensure existing indexes match declarations before skipping creation."""
+    inspector = sa_inspect(op.get_bind())
+    for existing in inspector.get_indexes(table_name):
+        if existing["name"] != index_name:
             continue
         actual_columns = list(existing.get("column_names") or [])
         actual_unique = bool(
@@ -172,7 +209,7 @@ def _create_if_compatible(op_func, *args, **kwargs):
     if operation == "create_table":
         table_name = str(args[0])
         inspector = sa_inspect(op.get_bind())
-        if table_name in {"projects", "entities", "external_parties"}:
+        if table_name in _TAX_OWNED_SHARED_TABLES:
             if table_name not in inspector.get_table_names():
                 raise RuntimeError(f"shared table {table_name!r} is Tax-owned; run Tax migrations before RAG")
             return
@@ -184,7 +221,7 @@ def _create_if_compatible(op_func, *args, **kwargs):
         table_name = str(args[1])
         columns = list(args[2]) if len(args) > 2 else list(kwargs.get("columns", ()))
         unique = bool(kwargs.get("unique", False))
-        if table_name in {"projects", "entities", "external_parties"}:
+        if table_name in _TAX_OWNED_SHARED_TABLES:
             inspector = sa_inspect(op.get_bind())
             existing_columns = {c["name"] for c in inspector.get_columns(table_name)}
             if not set(columns) <= existing_columns:

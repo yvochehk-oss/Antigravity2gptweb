@@ -41,11 +41,10 @@ def upgrade() -> None:
 
     if op.get_bind().dialect.name != "postgresql":
         raise RuntimeError("analytics contract views are PostgreSQL-only")
-    # The metadata view did not exist in the 006 baseline.  Dropping only this
-    # optional object makes its CREATE OR REPLACE statement work on both old
-    # and already-converged databases; all analytics views retain their rows
-    # and column shape in place.
-    op.execute(text("DROP VIEW IF EXISTS facts_provider_tables"))
+    # Drop views in reverse dependency order with CASCADE to allow column reordering/renaming
+    for filename in reversed(_VIEW_FILES):
+        view_name = filename.replace(".sql", "")
+        op.execute(text(f"DROP VIEW IF EXISTS {view_name} CASCADE"))
     view_root = _view_root()
     for filename in _VIEW_FILES:
         sql_file = view_root / filename

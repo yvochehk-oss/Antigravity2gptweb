@@ -42,10 +42,10 @@ def upgrade() -> None:
     if op.get_bind().dialect.name != "postgresql":
         raise RuntimeError("entity mapping Facts gate is PostgreSQL-only")
 
-    # This view is recreated last and has no downstream dependencies.  Drop it
-    # first so the migration is safe on both 010 databases and a partially
-    # converged database where the metadata view was absent.
-    op.execute(text("DROP VIEW IF EXISTS facts_provider_tables"))
+    # Drop views in reverse dependency order with CASCADE to allow column reordering/renaming
+    for filename in reversed(_VIEW_FILES):
+        view_name = filename.replace(".sql", "")
+        op.execute(text(f"DROP VIEW IF EXISTS {view_name} CASCADE"))
     view_root = _view_root()
     for filename in _VIEW_FILES:
         sql_file = view_root / filename
