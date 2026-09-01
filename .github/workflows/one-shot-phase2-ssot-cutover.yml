@@ -1,0 +1,305 @@
+name: One-shot Phase 2 SSOT cutover
+
+on:
+  push:
+    branches:
+      - v3.0-macos
+    paths:
+      - .github/workflows/one-shot-phase2-ssot-cutover.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: v3.0-macos
+          fetch-depth: 0
+
+      - name: Cut Tax UI and legacy confirmation over to Canonical Facts
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import ast
+          import json
+          import re
+
+          tax_root = Path('source_code/0.1_税务管理/gtp_V1.0_FULL/01_当前完整系统_V1.0/chengdu_construction_tax_system_v1_0')
+          frontend = Path('source_code/0.1_税务管理/gtp_V1.0_FULL/01_当前完整系统_V1.0/frontend_stitch')
+
+          # 1) Backend: the old master-data mutation endpoint is permanently
+          # closed in Phase 2.  Review/reject remains available elsewhere.
+          rag_sync = tax_root / 'app/routers/rag_sync.py'
+          text = rag_sync.read_text(encoding='utf-8')
+          pattern = re.compile(
+              r'@router\.post\("/pending/\{pending_id\}/confirm-contract-and-create-parties"\)\n'
+              r'def confirm_contract_and_create_parties\(\n'
+              r'    pending_id: int,\n'
+              r'    payload: ConfirmPendingContractRequest,\n'
+              r'    request: Request,\n'
+              r'\):\n.*?(?=\n\n@router\.)',
+              re.S,
+          )
+          replacement = '''@router.post("/pending/{pending_id}/confirm-contract-and-create-parties")
+def confirm_contract_and_create_parties(
+    pending_id: int,
+    payload: ConfirmPendingContractRequest,
+    request: Request,
+):
+    """Phase 2: Canonical Facts owns party identity and ledger ingestion."""
+    raise HTTPException(
+        status_code=410,
+        detail=(
+            "Phase 2 已启用 Canonical Facts 自动事实直通；"
+            "Tax 不再允许手动创建外部交易方并导入合同。"
+        ),
+    )
+'''
+          text, count = pattern.subn(replacement, text, count=1)
+          if count != 1:
+              raise SystemExit(f'legacy confirmation endpoint replacement count={count}')
+          ast.parse(text, filename=str(rag_sync))
+          rag_sync.write_text(text, encoding='utf-8')
+
+          # 2) Browser API: project counterparty display now comes from the
+          # Canonical Facts read model, and the mutation helper cannot issue a POST.
+          api = frontend / 'src/api.ts'
+          text = api.read_text(encoding='utf-8')
+          old_path = '`/api/projects/${projectId}/counterparties`'
+          new_path = '`/api/v1/canonical-ssot/projects/${projectId}/counterparties`'
+          if text.count(old_path) != 1:
+              raise SystemExit(f'legacy counterparty endpoint count={text.count(old_path)}')
+          text = text.replace(old_path, new_path, 1)
+
+          fn_marker = 'export async function confirmRagPendingContractAndCreateParties('
+          start = text.find(fn_marker)
+          if start < 0:
+              raise SystemExit('manual confirm API helper not found')
+          next_export = text.find('\nexport async function ', start + len(fn_marker))
+          if next_export < 0:
+              raise SystemExit('manual confirm API helper end not found')
+          old_fn = text[start:next_export]
+          new_fn = '''export async function confirmRagPendingContractAndCreateParties(
+  pendingId: number,
+): Promise<RagConfirmPendingContractResult> {
+  if (!positiveInteger(pendingId)) throw new ApiError('待复核记录必须是有效 ID。', 400);
+  throw new ApiError(
+    'Phase 2 已启用 Canonical Facts 自动事实直通；Tax UI 不再允许手动创建外部交易方并导入合同。',
+    410,
+  );
+}
+'''
+          text = text[:start] + new_fn + text[next_export:]
+          if '/confirm-contract-and-create-parties' in text:
+              raise SystemExit('browser still contains manual-party mutation endpoint')
+          if new_path not in text:
+              raise SystemExit('canonical counterparty endpoint missing')
+          api.write_text(text, encoding='utf-8')
+
+          # 3) Modal: remove the actionable manual party-creation workflow.
+          modal = frontend / 'src/components/NewTaxRecordModal.tsx'
+          text = modal.read_text(encoding='utf-8')
+          text = text.replace('  confirmRagPendingContractAndCreateParties,\n', '', 1)
+          text = text.replace(
+              "  const [confirmPendingId, setConfirmPendingId] = useState<number | null>(null);\n",
+              '',
+              1,
+          )
+          text = text.replace(
+              "  const [confirmingPendingId, setConfirmingPendingId] = useState<number | null>(null);\n",
+              '',
+              1,
+          )
+          text = text.replace(' || confirmingPendingId !== null', '', 1)
+
+          handler_start = text.find('  const handleConfirmPendingContract = async (pendingId: number) => {')
+          handler_end = text.find('  const handleRejectPendingContract = async (pendingId: number) => {', handler_start)
+          if handler_start < 0 or handler_end < 0:
+              raise SystemExit('manual confirm modal handler boundaries not found')
+          text = text[:handler_start] + text[handler_end:]
+
+          text = text.replace(
+              '<h3 id="rag-sync-title" className="text-[18px] font-bold">RAG 凭证同步</h3>',
+              '<h3 id="rag-sync-title" className="text-[18px] font-bold">Canonical Facts 数据直通</h3>',
+              1,
+          )
+          text = text.replace(
+              '当前展示 Tax 服务返回的确定性税务台账；RAG 凭证同步用于补充原始凭证、证据和待复核信息。',
+              'Tax 合同、发票、收付款与对手方展示已直读 RAG Canonical Facts；此处仅保留兼容同步与异常复核，不再创建交易方主数据。',
+              1,
+          )
+          text = text.replace(
+              '只有管理员二次确认后，系统才会按 Tax 保存的抽取结果创建缺失交易方主数据并导入合同。',
+              'Phase 2 已停用 Tax 侧手动创建交易方与合同导入；正常凭证由 Canonical Facts 自动进入台账，旧待复核记录仅可查看或忽略。',
+              1,
+          )
+
+          render_start = text.find('                {confirmPendingId === item.id ? (')
+          render_end_token = '                )}\n              </div>'
+          render_end = text.find(render_end_token, render_start)
+          if render_start < 0 or render_end < 0:
+              raise SystemExit('manual confirm render block not found')
+          render_end += len('                )}\n')
+          new_render = '''                {confirmRejectPendingId === item.id ? (
+                  <div className="mt-3 rounded-lg border border-[#64748b]/50 bg-[#334155]/20 p-3">
+                    <p className="font-semibold text-[#cbd5e1]">确认忽略此待复核记录？</p>
+                    <p className="mt-1 text-[#94a3b8]">忽略后此记录将标记为 rejected，不进入 Canonical Current Facts，也不会写入 Tax 台账。</p>
+                    <div className="mt-2 flex gap-2">
+                      <button type="button" onClick={() => setConfirmRejectPendingId(null)} disabled={busy} className="px-3 py-1.5 rounded-lg bg-[#222a3d] text-[12px] disabled:opacity-40">取消</button>
+                      <button type="button" onClick={() => void handleRejectPendingContract(item.id)} disabled={busy} className="px-3 py-1.5 rounded-lg bg-[#475569] text-white font-bold text-[12px] disabled:opacity-40">{rejectingPendingId === item.id ? '处理中…' : '确认忽略'}</button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <span className="px-3 py-1.5 rounded-lg border border-[#10B981]/30 bg-[#10B981]/10 text-[#b6f4d8] text-[12px]">Canonical Facts 自动归一化交易方并直通 Tax；禁止在 UI 手动创建外部交易方。</span>
+                    <button type="button" onClick={() => setConfirmRejectPendingId(item.id)} disabled={busy} className={`px-3 py-1.5 rounded-lg text-[12px] disabled:opacity-40 transition-colors ${!hasAnyParty ? 'bg-[#3b82f6] text-white font-bold hover:bg-[#2563eb]' : 'bg-[#222a3d] border border-[#444653]/60 text-[#c4c5d5] hover:text-white'}`}>忽略此旧待复核记录</button>
+                  </div>
+                )}
+'''
+          text = text[:render_start] + new_render + text[render_end:]
+          forbidden = (
+              '确认创建交易方并导入合同',
+              '确认创建并导入',
+              'handleConfirmPendingContract',
+              'setConfirmPendingId',
+              'confirmingPendingId',
+          )
+          for token in forbidden:
+              if token in text:
+                  raise SystemExit(f'manual party UI token still present: {token}')
+          if 'Canonical Facts 自动归一化交易方并直通 Tax' not in text:
+              raise SystemExit('Phase 2 UI notice missing')
+          modal.write_text(text, encoding='utf-8')
+
+          # 4) Project detail makes the authoritative source visible to users.
+          detail = frontend / 'src/components/ProjectDetailView.tsx'
+          text = detail.read_text(encoding='utf-8')
+          old_label = '<span>RAG 知识库检索同步</span>'
+          new_label = '<span>Canonical Facts 数据直通</span>'
+          if text.count(old_label) != 1:
+              raise SystemExit(f'project detail old label count={text.count(old_label)}')
+          detail.write_text(text.replace(old_label, new_label, 1), encoding='utf-8')
+
+          # 5) Frontend Phase 2 regression: path is canonical and the old write
+          # helper fails locally without making an HTTP request.
+          test_file = frontend / 'src/canonicalSsotPhase2.test.ts'
+          test_file.write_text('''import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import test from 'node:test';
+import {
+  ApiError,
+  confirmRagPendingContractAndCreateParties,
+  fetchProjectCounterparties,
+} from './api';
+
+function jsonResponse(payload: unknown, status = 200): Response {
+  return new Response(JSON.stringify(payload), {
+    status,
+    headers: { 'Content-Type': 'application/json' },
+  });
+}
+
+test('Phase 2 project counterparties read the Canonical Facts API', async () => {
+  const originalFetch = globalThis.fetch;
+  const requests: string[] = [];
+  globalThis.fetch = (async input => {
+    requests.push(String(input));
+    return jsonResponse({
+      status: 'READY',
+      source_of_truth: 'analytics_canonical_facts_current',
+      legacy_tables_used: false,
+      manual_party_creation: false,
+      total: 1,
+      items: [{
+        party_code: 'EB',
+        party_name: '攀钢集团特种钢材直销部',
+        kind: 'external',
+        isInternal: false,
+        source: 'external_parties',
+        contract_count: 1,
+        contract_amount: 100,
+        invoice_in_count: 1,
+        invoice_in_net: 100,
+        invoice_in_vat: 13,
+        invoice_out_count: 0,
+        invoice_out_net: 0,
+        invoice_out_vat: 0,
+        cashflow_in_count: 0,
+        cashflow_in_amount: 0,
+        cashflow_out_count: 1,
+        cashflow_out_amount: 50,
+        real_cost_count: 1,
+        real_cost_amount: 100,
+        fulfillment_count: 0,
+        fulfillment_amount: 0,
+      }],
+    });
+  }) as typeof fetch;
+  try {
+    const result = await fetchProjectCounterparties(7);
+    assert.equal(result.items[0].partyCode, 'EB');
+    assert.equal(result.items[0].realCostAmount, 100);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+  assert.deepEqual(requests, ['/api/v1/canonical-ssot/projects/7/counterparties']);
+});
+
+test('Phase 2 manual external-party confirmation is blocked before HTTP', async () => {
+  const originalFetch = globalThis.fetch;
+  let called = false;
+  globalThis.fetch = (async () => {
+    called = true;
+    return jsonResponse({}, 500);
+  }) as typeof fetch;
+  try {
+    await assert.rejects(
+      () => confirmRagPendingContractAndCreateParties(99),
+      error => error instanceof ApiError && error.status === 410,
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+  assert.equal(called, false);
+});
+
+test('Phase 2 UI contains no manual party creation action', () => {
+  const modal = readFileSync(new URL('./components/NewTaxRecordModal.tsx', import.meta.url), 'utf8');
+  const detail = readFileSync(new URL('./components/ProjectDetailView.tsx', import.meta.url), 'utf8');
+  assert.equal(modal.includes('确认创建交易方并导入合同'), false);
+  assert.equal(modal.includes('确认创建并导入'), false);
+  assert.match(modal, /Canonical Facts 自动归一化交易方并直通 Tax/);
+  assert.match(detail, /Canonical Facts 数据直通/);
+});
+''', encoding='utf-8')
+
+          package = frontend / 'package.json'
+          data = json.loads(package.read_text(encoding='utf-8'))
+          data['scripts']['test'] = 'tsx --test src/api.test.ts src/ragMappingUi.test.ts src/canonicalSsotPhase2.test.ts'
+          package.write_text(json.dumps(data, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+
+          if '/api/v1/canonical-ssot/projects/${projectId}/counterparties' not in api.read_text(encoding='utf-8'):
+              raise SystemExit('frontend canonical API cutover verification failed')
+          PY
+
+          git diff --check
+
+      - name: Commit Phase 2 cutover
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            'source_code/0.1_税务管理/gtp_V1.0_FULL/01_当前完整系统_V1.0/chengdu_construction_tax_system_v1_0/app/routers/rag_sync.py' \
+            'source_code/0.1_税务管理/gtp_V1.0_FULL/01_当前完整系统_V1.0/frontend_stitch/src/api.ts' \
+            'source_code/0.1_税务管理/gtp_V1.0_FULL/01_当前完整系统_V1.0/frontend_stitch/src/components/NewTaxRecordModal.tsx' \
+            'source_code/0.1_税务管理/gtp_V1.0_FULL/01_当前完整系统_V1.0/frontend_stitch/src/components/ProjectDetailView.tsx' \
+            'source_code/0.1_税务管理/gtp_V1.0_FULL/01_当前完整系统_V1.0/frontend_stitch/src/canonicalSsotPhase2.test.ts' \
+            'source_code/0.1_税务管理/gtp_V1.0_FULL/01_当前完整系统_V1.0/frontend_stitch/package.json'
+          git commit -m "feat(ssot): cut Tax UI and ledger reads to Canonical Facts"
+          git pull --rebase origin v3.0-macos
+          git push origin HEAD:v3.0-macos
