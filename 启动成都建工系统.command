@@ -151,7 +151,8 @@ wait_http() {
 }
 
 wait_postgres() {
-  local timeout="${1:-45}" deadline=$((SECONDS + timeout))
+  local timeout="${1:-45}"
+  local deadline=$((SECONDS + timeout))
   while (( SECONDS < deadline )); do
     if pg_isready -h 127.0.0.1 -p "$POSTGRES_PORT" >/dev/null 2>&1; then
       print -P "  %F{82}✓ PostgreSQL%f  127.0.0.1:${POSTGRES_PORT}"
@@ -178,7 +179,11 @@ cleanup_partial_start() {
   local port
   stop_boss_from_pid_file || true
   if [[ -f "$STOP_SCRIPT" ]]; then
-    [[ -x "$STOP_SCRIPT" ]] && "$STOP_SCRIPT" >/dev/null 2>&1 || bash "$STOP_SCRIPT" >/dev/null 2>&1 || true
+    if [[ -x "$STOP_SCRIPT" ]]; then
+      "$STOP_SCRIPT" >/dev/null 2>&1 || true
+    else
+      bash "$STOP_SCRIPT" >/dev/null 2>&1 || true
+    fi
   fi
   for port in "$TAX_PORT" "$RAG_PORT" "$IDP_PORT" "$LOCAL_LLM_PORT" "$BOSS_PORT"; do
     release_port "$port" >/dev/null 2>&1 || true
@@ -238,7 +243,11 @@ print -P "%F{39}================================================================
 print -P "%F{220}🛑 [1/6] 优雅停止旧服务并释放业务端口...%f"
 stop_boss_from_pid_file || true
 if [[ -f "$STOP_SCRIPT" ]]; then
-  [[ -x "$STOP_SCRIPT" ]] && "$STOP_SCRIPT" >/dev/null 2>&1 || bash "$STOP_SCRIPT" >/dev/null 2>&1 || true
+  if [[ -x "$STOP_SCRIPT" ]]; then
+    "$STOP_SCRIPT" >/dev/null 2>&1 || true
+  else
+    bash "$STOP_SCRIPT" >/dev/null 2>&1 || true
+  fi
 fi
 for port in "$TAX_PORT" "$RAG_PORT" "$IDP_PORT" "$LOCAL_LLM_PORT" "$BOSS_PORT"; do
   if ! release_port "$port"; then
@@ -251,7 +260,11 @@ print -P "%F{82}✅ 旧业务服务已清理。%f"
 
 print -P "%F{220}🗄️  [2/6] 确认 PostgreSQL ${POSTGRES_PORT}...%f"
 if ! pg_isready -h 127.0.0.1 -p "$POSTGRES_PORT" >/dev/null 2>&1; then
-  [[ -x "$POSTGRES_START_SCRIPT" ]] && "$POSTGRES_START_SCRIPT" || bash "$POSTGRES_START_SCRIPT"
+  if [[ -x "$POSTGRES_START_SCRIPT" ]]; then
+    "$POSTGRES_START_SCRIPT"
+  else
+    bash "$POSTGRES_START_SCRIPT"
+  fi
   pg_exit=$?
   if (( pg_exit != 0 )); then
     fail_and_wait "PostgreSQL 启动脚本失败。" "$pg_exit"
@@ -265,7 +278,11 @@ typeset -a backend_args
 backend_args=(--skip-postgres)
 [[ "${CHENGDU_RUN_MIGRATIONS:-1}" == "1" ]] && backend_args+=(--migrate)
 backend_args+=("$@")
-[[ -x "$START_SCRIPT" ]] && "$START_SCRIPT" "${backend_args[@]}" || bash "$START_SCRIPT" "${backend_args[@]}"
+if [[ -x "$START_SCRIPT" ]]; then
+  "$START_SCRIPT" "${backend_args[@]}"
+else
+  bash "$START_SCRIPT" "${backend_args[@]}"
+fi
 backend_exit=$?
 if (( backend_exit != 0 )); then
   show_failure_logs
