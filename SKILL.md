@@ -1,6 +1,6 @@
 ---
 name: safari-chatgpt-reasoner
-description: 双层混合 Agent 系统：以 Safari/Chrome ChatGPT 网页端为云端认知控制面（High Intelligence / Zero Privilege），以本地 Agent 为确定性数据面（High Privilege / Low Ambiguity）。v4.1 起强制执行 Tab 精确绑定 + 跨进程事务锁 + 精确 user-message identity + assistant message-id 稳定阶段，证据完整性真正可机验。含端到端 Orchestrator（scripts/orchestrate.py）：Antigravity 为主 Agent，GPT-5.6 SOL 生成方案和代码，GitHub 留底，每任务闭环可自动修复。
+description: 双层混合 Agent 系统：以 Safari/Chrome ChatGPT 网页端为云端认知控制面（High Intelligence / Zero Privilege），以任意本地桌面 Agent 为确定性数据面（High Privilege / Low Ambiguity）。v4.1 起强制执行 Tab 精确绑定 + 跨进程事务锁 + 精确 user-message identity + assistant message-id 稳定阶段，证据完整性真正可机验。含端到端 Orchestrator（scripts/orchestrate.py）：支持任意桌面 Agent 作为执行端，GPT-5.6 SOL 生成方案和代码，GitHub 留底，每任务闭环可自动修复。
 ---
 
 # Safari / Chrome ChatGPT Reasoner Skill (v4.1 Evidence-Integrity)
@@ -43,6 +43,11 @@ description: 双层混合 Agent 系统：以 Safari/Chrome ChatGPT 网页端为�
    - 滑动时间戳窗口（默认 1h 内 ≤3 次同签名失败即熔断）。
    - 每次 read-modify-write 自动 prune 过期签名；空 entry 直接删除，state JSON 不会无限增长。
    - `reset_circuit_breaker` 自身持锁，并可通过 `--reset-circuit` 显式调用。
+8. **双层职责绝对隔离与防抢跑铁律 (Strict Division of Labor & Anti-Preemption Constraint) [P0-核心]**：
+   - **GPT 独占方案与代码生成权**：所有架构方案、实施任务分解、业务代码块（必须带 `filepath: <path>` 标记）与测试命令，必须由 ChatGPT 网页端深度推演并完整生成。
+   - **本地 Agent 严禁自主编写业务代码**：本地 Agent 绝对禁止越俎代庖自己编写业务代码或擅自更改方案。本地 Agent 的职责严格受限于：采集上下文/报错堆栈 ➔ 提交给 GPT ➔ 审查并解析 GPT 输出的代码 ➔ 原子落盘写入文件 ➔ 运行测试 ➔ 将测试结果与 exit code 忠实回传给 GPT 审查（`task-review`）。
+   - **绝对防抢跑纪律**：当 ChatGPT 处于深度思考（Reasoning）、工具调用或流式生成时，本地 Agent 必须耐心等待完整输出，绝对不得以“耗时较长”或“为了提速”为借口抢跑自行编写代码。
+   - **最终闭环判据**：每一个任务的闭环必须由 GPT 在 `task-review` 阶段审查测试日志并显式输出 `APPROVED` 裁决，本地 Agent 方可进入下一任务或交付。
 
 ### 标准调用模式
 
@@ -232,9 +237,9 @@ orchestrate.py lock ────→ 解析为任务列表，推送到 GitHub
 orchestrate.py run-task × N ────→ 每个任务的闭环：
     │
     ├── GPT 生成代码（task-code）
-    ├── Antigravity 写文件
+    ├── 本地 Agent 写文件
     ├── git add + commit + push
-    ├── Antigravity 跑测试
+    ├── 本地 Agent 跑测试
     ├── GPT 审查测试结果（task-review）
     └── 裁决：APPROVED / NEEDS_FIX（自动修复） / BLOCKED（暂停等人工）
     │
@@ -292,27 +297,63 @@ python3 scripts/orchestrate.py status --name my-migration
 每个任务状态：
 - `pending` → `coding` → `testing` → `approved` / `failed` / `blocked`
 
-### 单任务闭环内部流程
+### 单任务闭环流程（优化版）
 
 ```
-GPT (task-code) ──代码块──→ Antigravity 写文件
-                                 │
-                          git add + commit + push
-                                 │
-                          Antigravity 跑测试命令
-                                 │
-                          GPT (task-review)
-                                 │
-                    ┌─────────────┼─────────────┐
-                 APPROVED     NEEDS_FIX       BLOCKED
-                   (下一任务)   (自动修复 ≤5 轮)  (暂停)
+┌─────────────────────────────────────────────────────────┐
+│ 1. GPT 写代码                                            │
+│    - 输出代码文件（标注 filepath）                        │
+│    - 给出测试命令（必须，如 npm test / pytest）          │
+│    - 说明预期结果（如 "all tests pass", "exit 0"）      │
+└──────────────┬──────────────────────────────────────────┘
+               │
+               ▼
+┌─────────────────────────────────────────────────────────┐
+│ 2. Agent 写文件 + 自动推送 GitHub                        │
+│    - 解析代码块并写入本地文件                            │
+│    - git add + commit + push                             │
+│    - 记录 commit SHA                                     │
+└──────────────┬──────────────────────────────────────────┘
+               │
+               ▼
+┌─────────────────────────────────────────────────────────┐
+│ 3. Agent 执行测试                                        │
+│    - 运行 GPT 提供的测试命令                             │
+│    - 收集 stdout / stderr / exit code                   │
+└──────────────┬──────────────────────────────────────────┘
+               │
+               ▼
+┌─────────────────────────────────────────────────────────┐
+│ 4. Agent 反馈测试结果给 GPT                              │
+│    - 测试命令 + 实际输出                                 │
+│    - 通过 / 失败状态                                     │
+└──────────────┬──────────────────────────────────────────┘
+               │
+               ▼
+┌─────────────────────────────────────────────────────────┐
+│ 5. GPT 审查并决定下一步                                  │
+│    - APPROVED：测试通过，任务完成 ✅                     │
+│    - NEEDS_FIX：测试失败，给修复建议 → 自动修复循环 🔧  │
+│    - BLOCKED：无法自动解决，需人工介入 🚫                │
+└─────────────────────────────────────────────────────────┘
+
+【自动修复循环】
+NEEDS_FIX → GPT 重写代码 → Agent 推送 + 测试 → GPT 审查
+最多 3 轮（可配置），避免无限循环
 ```
+
+每个任务状态：
+- `pending` → `coding` → `testing` → `approved` / `failed` / `blocked`
+- 修复中：`fixing` → `testing` → 循环或完成
 
 ### 关键设计原则
 
-- **单向依赖**：GPT 只能给方案，Antigravity 负责执行。责任边界清晰。
-- **GitHub 为真**：每一次代码变更都 commit + push，GitHub 是最终事实来源。
+- **测试驱动闭环**：GPT 必须给出测试命令，Agent 跑测试后把真实结果反馈给 GPT，GPT 根据实际测试结果决定通过/修复/阻塞，避免主观判断。
+- **自动推送 GitHub**：每次代码改动（包括修复）都自动 commit + push，GitHub 是最终事实来源，可追溯、可回滚。
+- **强制测试命令**：GPT 写代码时必须提供至少一个测试命令，如果忘记提供会自动要求补充，确保每次改动都可验证。
+- **自动修复机制**：测试失败时，GPT 会根据错误信息自动修复，最多尝试 3 轮。每轮都是完整的"写代码→推送→测试→审查"循环。
+- **单向依赖**：GPT 只能给方案和代码，本地 Agent 负责执行和测试。责任边界清晰：推演出错找 GPT，落地出错找 Agent。
 - **可恢复**：所有状态持久化到 `~/.antigravity/orchestrator/`，Ctrl+C 后可直接 `resume`。
-- **自动修复**：GPT 裁决 NEEDS_FIX 时，自动把修复提示传回 GPT 重写代码并重新跑测试（最多 5 轮）。
+- **长会话平滑交接 (Handoff Protocol)**：当对话历史过长导致 WebKit/页面渲染负载增加时，执行 `旧会话生成交接摘要 ➔ 换新会话 URL 注入继续`，兼顾 100% 上下文继承与极致流畅度。
 - **可信证据**：所有 bridge 调用走事件 JSONL，stderr 记录每次 GPT 请求/响应的基线快照。
 

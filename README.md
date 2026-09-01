@@ -1,310 +1,255 @@
 ---
-name: antigravity-chatgpt-web-bridge
-description: 一句话：让本地 Antigravity（Claude 3.7 Flash）快速出代码、把架构难题丢给 ChatGPT 网页版（GPT-5.6 SOL）做高强度推演、GitHub 留底每一次变更。复杂大任务从此可机验、可回滚、可协作。
+name: agent-chatgpt-web-bridge
+description: 纯自然语言驱动的通用 AI 协作开发桥梁：让任意桌面 AI Agent 直连 ChatGPT 网页版最强大脑，自动规划、自动写代码、自动同步 GitHub，用户无需懂编程与命令行。
 ---
 
-# Antigravity × ChatGPT Web × GitHub —— 大任务开发的"三件套"
+# 🤖 Desktop Agent × ChatGPT 网页版 × GitHub
+### 纯自然语言驱动的通用“双脑”AI 协作开发方案（支持任意桌面 Agent）
 
-> **TL;DR**：你不用离开 IDE，就能让本地 Claude 3.7 Flash 帮你秒级写代码，把"接下来该干啥"的架构决策丢给 ChatGPT 网页版的 GPT-5.6 SOL 做高强度推演，每一步都有 GitHub 给你留证据。出错时 `git revert` 一秒回滚，事件 JSONL 帮你定位是第几步崩的。
-
----
-
-## 这东西解决什么问题？
-
-复杂任务（重构、迁移、新模块、性能调优）一般死在三个地方：
-
-| 死法 | 原因 | 三件套怎么救 |
-|---|---|---|
-| 🪨 **推演跑偏** | 一个人闷头想架构，钻牛角尖 | 把架构问题丢给 ChatGPT 的 **GPT-5.6 SOL**（高强度模型）做规划 |
-| 🐢 **落地慢** | 等 ChatGPT 写完才能动本地 | **Antigravity + Claude 3.7 Flash** 边推边改，秒级反馈 |
-| 💥 **改错了找不到回滚点** | 改 30 个文件，最后崩了无法定位 | **GitHub** + **事件 JSONL** + **退出码** 三重证据，定位精确到 turn |
+> **一句话介绍**：你不需要懂编程、不需要会写 Python 脚本，更不需要在终端敲复杂命令——**只需在聊天框里用平常说话的方式说出你的想法**，你的桌面 AI 助手（无论使用哪种桌面 Agent）就会自动连接你的 ChatGPT 网页版最强大脑，帮你制定方案、编写代码、测试验证并安全备份到 GitHub！
 
 ---
 
-## 三个角色是怎么分工的？
+## 💡 这套方案能帮你做什么？
+
+过去做项目或开发功能时，经常遇到的困扰：
+- 🤯 **思路卡壳 / 架构复杂**：遇到疑难问题不知道怎么拆解，需要顶级的 AI 深度思考模型来指导。
+- 😫 **来回复制太痛苦**：在网页版 ChatGPT 和本地桌面编辑器之间来回“复制、粘贴、运行、报错、再复制”，费时费力。
+- 😨 **改错了无法挽回**：改了几个文件之后项目跑不通了，找不到原来的代码，不知道怎么回滚。
+
+**现在，双 AI 自动协作，全流程自然语言驱动：**
 
 ```
-        ┌─────────────────────────┐
-        │   ChatGPT 网页版         │   ←  架构推演 / 故障归因 / 规划清单
-        │   (GPT-5.6 SOL medium)  │       Zero Privilege：能给你方案
-        └────────────▲────────────┘       不能动你的文件
+           🗣️ 用户（你）：只需自然语言提需求
                      │
-                     │  stdout（纯文本回答）
-                     │  stderr（事件 JSONL）
-                     │
-        ┌────────────┴────────────┐
-        │   本地 Antigravity       │   ←  落地执行 / 改文件 / 跑测试
-        │   (Claude 3.7 Flash)    │       High Privilege：能改你文件
-        └────────────▲────────────┘       但不会自己想架构
-                     │
-                     │  git commit + push
-                     │  Pull Request
-                     │
-        ┌────────────┴────────────┐
-        │   GitHub                │   ←  证据留痕 / PR Review / 一键回滚
-        └─────────────────────────┘
+                     ▼
+       ┌──────────────────────────────┐
+       │   任意桌面 AI 助手 (Agent)   │
+       └──────────────┬───────────────┘
+                      │
+         ┌────────────┴────────────┐
+         ▼                         ▼
+┌───────────────────┐    ┌───────────────────┐
+│  ChatGPT 网页端   │    │  本地项目 & GitHub │
+│  (云端最强大脑)   │    │  (自动落地的双手) │
+├───────────────────┤    ├───────────────────┤
+│ 负责深度推演架构   │    │ 自动修改工程文件  │
+│ 制定最优实施步骤   │    │ 自动运行测试排错  │
+│ 提供精准技术方案   │    │ 自动备份提交记录  │
+└───────────────────┘    └───────────────────┘
 ```
-
-| 角色 | 干啥 | 不能干啥 |
-|---|---|---|
-| **ChatGPT 网页版 (GPT-5.6 SOL)** | 高强度架构推演、故障归因、给你"该做什么"的清单 | 改你的文件 |
-| **Antigravity + Claude 3.7 Flash** | 快速写代码、改文件、跑测试、装依赖 | 想不清楚架构就闷头改 |
-| **GitHub** | 留底每一次变更、做 PR Review、出问题时一键回滚 | — |
-
-> **关键约束**：Antigravity 和 ChatGPT Web 之间是**单向依赖**——ChatGPT 不能"穿越"过来改你文件，只能给方案。Antigravity 必须主动把方案变成代码。这样出问题时责任清晰：**推演出错找 ChatGPT，落地出错找 Antigravity**。
 
 ---
 
-## 5 分钟上手
+## 👥 你的专属“双 AI”团队分工与执行铁律
 
-### 第一步：装 Skill
+| 角色 | 核心职责 | 行为边界（严禁越位） | 带来的好处 |
+|---|---|---|---|
+| 🧠 **ChatGPT 网页版**（云端总架构师） | 负责高强度逻辑推演、方案拆解、**生成全部业务代码**、提供测试命令与审核测试结果 | 零系统读写权限，纯认知控制面，独占方案与代码生成权 | 借助网页端顶级深度思考与推理能力，保证全局架构与业务代码高质量 |
+| ⚡ **本地桌面 AI 助手**（精准落地执行端） | 负责提取环境上下文、**解析并落盘写入 GPT 输出的代码**、运行测试命令、将测试日志回传 GPT 审查 | **严禁自行编写或修改业务代码**，绝不心急抢跑，必须等待 GPT 输出代码后原子落盘 | 严谨可靠的双手，严格执行架构决策，杜绝主观臆断与私自写代码 |
+| 🛡️ **GitHub 仓库**（版本安全管家） | 自动记录每一次变动，保留完整历史 | 任何一步改动都清清楚楚，改错了随时一键撤销 | 随时可回滚，进度透明可追溯 |
 
-```bash
-git clone https://github.com/yvochehk-oss/Antigravity2gptweb.git \
-  ~/.gemini/config/skills/antigravity-chatgpt-web-bridge
-```
-
-### 第二步：开 ChatGPT Tab
-
-打开 Safari 或任何 Chromium 浏览器（Chrome / Edge / Brave 都行），到 https://chatgpt.com 开一个新对话，复制 URL：
-
-```
-https://chatgpt.com/c/6a93f844-99f8-83ea-b4fd-8b544659e4a0
-```
-
-记下来，待会儿用。
-
-### 第三步：让 Antigravity 调用 ChatGPT 推演架构
-
-```bash
-python3 ~/.gemini/config/skills/antigravity-chatgpt-web-bridge/scripts/safari_chatgpt.py \
-  --target-url "https://chatgpt.com/c/6a93f844-99f8-83ea-b4fd-8b544659e4a0" \
-  --type plan \
-  --prompt "我要重构我们项目的用户认证模块，当前用的是 Flask-Login + Session，请给我一个渐进式迁移到 FastAPI + JWT 的方案，分 5 步可独立 PR"
-```
-
-它会：
-1. 把当前 git 状态 / 关键文件作为上下文喂给 ChatGPT
-2. ChatGPT 用 GPT-5.6 SOL 给出 5 步迁移方案
-3. 输出回答到 **stdout**（你直接读）
-4. 把所有事件（基线、注入、提交、稳定阶段）写到 **stderr JSONL**（机读，可审计）
-5. **退出码**告诉你成功 / 超时 / 浏览器挂掉
-
-### 第四步：让 Antigravity + Claude 3.7 Flash 落地执行
-
-ChatGPT 给完方案后，Antigravity 拿到方案，**直接动手**：
-1. 改文件（Claude 3.7 Flash 出活快，每秒能改好几个文件）
-2. 跑测试
-3. 出错了 → 把报错日志喂回 ChatGPT 推演下一步（`--type feedback`）
-4. 再改
-5. 搞定 → `git commit` + `git push` → 开 PR
+> ⚠️ **核心纪律**：本地桌面 Agent 绝对禁止越俎代庖自己编写业务代码；必须严格等待云端 ChatGPT 生成完整代码后进行落盘写入、运行测试并回传审查，直到 ChatGPT 裁决 `APPROVED` 为止。
 
 ---
 
-## 实战案例：30 个文件一夜迁移
+## 🚀 3 步轻松上手（纯自然语言）
 
-> 场景：把老 Flask 项目迁移到 FastAPI。30 个文件、3 天工作量。
-> 用本 skill 后：**Antigravity 一夜搞定，PR 上 ChatGPT 帮你 Review**。
+无需配置任何复杂的开发环境，只需简单三步：
 
-### 阶段一：让 ChatGPT 给你方案（10 分钟）
+### 第 1 步：浏览器打开一个 ChatGPT 对话
+打开你的 Safari 或 Chrome 浏览器，访问 [chatgpt.com](https://chatgpt.com) 开一个新对话，复制地址栏的网址（例如：`https://chatgpt.com/c/xxxx-xxxx`）。
 
-```bash
-# 第一次调用：推演整体方案
-python3 scripts/safari_chatgpt.py \
-  --target-url "$CHATGPT_URL" \
-  --type plan \
-  --prompt "把 Flask 项目迁移到 FastAPI。请给我一个分 5 步落地的计划，每步对应一个可独立测试、可独立 PR 的子任务。重点：会话兼容期怎么过渡。"
-```
+### 第 2 步：在聊天框用普通话告诉 AI 你的需求
+直接向桌面 AI 助手发送指令，像跟同事交流一样自然：
 
-ChatGPT 会给你 5 步，每步对应一个可独立 PR。
+> 💬 **你可以这样对 AI 说：**
+> “请帮我规划并开发一个【新功能描述】。这是我的 ChatGPT 对话链接：`https://chatgpt.com/c/xxxx`，请帮我向它推演完整的实施步骤并一步步执行。”
 
-### 阶段二：Antigravity + 3.7 Flash 动手改（一夜）
-
-```bash
-# 第二次调用：第一步执行反馈（带日志，让 ChatGPT 帮你 debug）
-python3 scripts/safari_chatgpt.py \
-  --target-url "$CHATGPT_URL" \
-  --type feedback \
-  --prompt "第一步：用户模型改造。下面是 alembic 迁移失败的日志，请帮我归因" \
-  --evidence-file /tmp/alembic_error.log \
-  --level L1 \
-  --signature "ALEMBIC_MIGRATION_FAIL"
-```
-
-- `feedback` 类型 = 把本地证据（错误日志）喂给 ChatGPT，让它帮你归因
-- `--evidence-file` = 大日志走文件，避免命令行参数过长
-- `--signature` = 给这次失败打个标签，下次再出同样的错就熔断，不再骚扰 ChatGPT
-
-每改完一文件，git commit 一次。出问题立刻 `git revert` 回滚。
-
-### 阶段三：ChatGPT 帮你 Review PR（10 分钟）
-
-```bash
-python3 scripts/safari_chatgpt.py \
-  --target-url "$CHATGPT_URL" \
-  --type review \
-  --prompt "这是迁移第一步的 PR: https://github.com/xxx/pull/123，请帮我 Review，重点看 JWT 鉴权是否漏了边界条件、过期处理是否正确"
-```
-
-### 阶段四：合并 + 下一轮
-
-PR merge → 切回阶段二，跑第二步。循环直到 5 步全做完。
+### 第 3 步：AI 自动完成并实时汇报
+- 桌面 AI 会自动连通你打开的 ChatGPT 网页，获取最佳架构与实施方案；
+- 方案制定好后，AI 会向你简要汇报并开始自动编写代码与测试；
+- 每完成一个关键步骤，AI 都会自动帮你把代码提交到 GitHub 留底；
+- 如果测试遇到问题，AI 会自动向 ChatGPT 反馈并修正，直到全部完成！
 
 ---
 
-## 全自动模式：Orchestrator 编排器
+## 🎯 典型使用场景示例
 
-如果觉得每次手动调用太麻烦，`scripts/orchestrate.py` 提供了**零交互的端到端闭环**。你只需要：
-1. 告诉 Antigravity 要做什么
-2. 看 Antigravity 自动完成剩余所有事
+你只需要输入自然语言，AI 团队就能替你搞定：
 
-### 原理：Antigravity 是主 Agent
+### 场景 1：全新功能开发或大模块添加
+> 💬 **用户指令**：“我想给当前项目增加一个多语言切换功能（支持中文和英文）。请连接我的 ChatGPT 会话，先梳理出实施清单，再逐步帮我写好代码。”
+
+## 工作流程说明
+
+### 完整的任务执行流程
 
 ```
-开发者（你）
-  │
-  │  "我要把 Flask 迁移到 FastAPI"
-  ▼
-Antigravity orchestrator
-  │
-  ├── GPT-5.6 生成方案（用户可反复核对）
-  ├── 锁定方案，推送到 GitHub
-  │
-  └── 对每个任务循环执行：
-      │
-      ├── GPT-5.6 生成代码（按 filepath 格式输出）
-      ├── Antigravity 写文件 → git commit + push
-      ├── Antigravity 跑测试（pytest / npm test / ...）
-      ├── GPT-5.6 审查测试结果
-      ├── 裁决：✅ APPROVED → 下一任务
-      │              ❌ NEEDS_FIX → 自动重写 + 重测（最多 5 轮）
-      │              🚫 BLOCKED → 暂停等人工
-      │
-      └── 全部完成 → 项目交付，GitHub 有完整 commit 历史
+┌─────────────────────────────────────────────────────────────┐
+│ 1. GPT 写代码                                                │
+│    - 输出代码文件（自动标注 filepath）                        │
+│    - 给出测试命令（必须提供，如 npm test / pytest）         │
+│    - 说明预期结果（如 "all tests pass"）                     │
+└──────────────┬──────────────────────────────────────────────┘
+               │
+               ▼
+┌─────────────────────────────────────────────────────────────┐
+│ 2. 自动推送到 GitHub                                         │
+│    - 本地 Agent 解析代码块，写入文件                         │
+│    - git commit + push 到工作分支                            │
+│    - 记录 commit SHA                                         │
+└──────────────┬──────────────────────────────────────────────┘
+               │
+               ▼
+┌─────────────────────────────────────────────────────────────┐
+│ 3. 本地 Agent 执行测试                                       │
+│    - 运行 GPT 给出的测试命令                                 │
+│    - 收集 stdout / stderr / exit code                       │
+│    - 判断是否通过（exit 0 = pass）                           │
+└──────────────┬──────────────────────────────────────────────┘
+               │
+               ▼
+┌─────────────────────────────────────────────────────────────┐
+│ 4. Agent 把测试结果反馈给 GPT                                │
+│    - 测试命令 + 实际输出                                     │
+│    - 通过 / 失败状态                                         │
+└──────────────┬──────────────────────────────────────────────┘
+               │
+               ▼
+┌─────────────────────────────────────────────────────────────┐
+│ 5. GPT 审查并决定下一步                                      │
+│    - APPROVED：测试通过，任务完成 ✅                         │
+│    - NEEDS_FIX：有问题，给出修复建议 → 进入自动修复循环 🔧  │
+│    - BLOCKED：无法自动解决，需要人工介入 🚫                  │
+└─────────────────────────────────────────────────────────────┘
+
+【自动修复循环】
+如果 GPT 裁决为 NEEDS_FIX，会自动进入修复循环：
+1. GPT 根据测试失败原因重新生成代码
+2. Agent 重新写入文件 + git push
+3. Agent 重新运行测试
+4. Agent 把新测试结果反馈给 GPT
+5. GPT 再次审查 → APPROVED / NEEDS_FIX / BLOCKED
+6. 最多尝试 3 次（可配置），避免无限循环
 ```
 
-### 完整命令流
+### 关键特性
 
-```bash
-# 1. 初始化项目（生成初始方案）
-python3 scripts/orchestrate.py init \
-  --name flask-to-fastapi \
-  --requirement "把 Flask 项目迁移到 FastAPI，要求分 5 步，每步可单独测试" \
-  --target-url "https://chatgpt.com/c/xxx" \
-  --repo git@github.com:xxx/yyy.git \
-  --cwd ./my-project
+- **强制测试命令**：GPT 写代码时必须提供测试命令，确保每次改动都可验证
+- **自动 Git 存档**：每次代码改动都自动 commit + push，可追溯、可回滚
+- **测试驱动闭环**：Agent 跑完测试后，GPT 根据实际结果决定是否通过，避免主观判断
+- **自动修复机制**：测试失败时，GPT 会根据错误信息自动修复，最多尝试 3 次
+- **人工介入保护**：遇到无法自动解决的问题（如环境依赖、需求不明确），会标记 BLOCKED 等待人工处理
 
-# 2. 审核方案（可选，重复直到满意）
-python3 scripts/orchestrate.py refine \
-  --name flask-to-fastapi \
-  --feedback "第3步风险太高，能不能先做兼容性 shim"
+---
 
-# 3. 锁定方案（解析为任务列表，push 到 GitHub）
-python3 scripts/orchestrate.py lock --name flask-to-fastapi
+## 典型场景
 
-# 4a. 单步执行（交互模式：等用户确认后继续下一步）
-python3 scripts/orchestrate.py run-task --name flask-to-fastapi --task-id 1
+### 场景 1：多任务串行执行
+> 💬 **用户指令**："我想做一个 Todo API，有增删改查四个功能。请让 ChatGPT 拆成 4 个任务，每个任务写完自动测试通过后再做下一个。"
 
-# 4b. 全自动跑完（不等待，每步自动闭环）
-python3 scripts/orchestrate.py run-task \
-  --name flask-to-fastapi --autonomous
+**流程**：GPT 写代码 + 给测试命令 → Agent 测试 → GPT 审查通过 ✅ → 自动推送 GitHub → 下一个任务
 
-# 4c. 全自动 + 任务失败也继续下一个
-python3 scripts/orchestrate.py run-task \
-  --name flask-to-fastapi --autonomous --continue-on-fail
+### 场景 2：项目重构
+> 💬 **用户指令**："我想把项目的旧接口改造为更现代的架构。请让 ChatGPT 评估风险并制定 3 步改造计划，每一步确保测试通过后再做下一步。"
 
-# 5. 查看状态
-python3 scripts/orchestrate.py status --name flask-to-fastapi
-```
+**流程**：每一步都是 GPT 写代码 → Agent 测试 → GPT 审查 → 通过后推送 GitHub → 才进入下一步
 
-### GPT 代码输出格式（Orchestrator 专用）
+### 场景 3：自动修复 Bug
+> 💬 **用户指令**："项目在运行到某一步时会报错。请把报错信息提交给 ChatGPT 分析原因，并在本地自动修复。"
 
-要让 Orchestrator 正确解析代码，必须严格按以下格式输出：
+**流程**：GPT 分析错误并修复 → Agent 测试 → 失败则 GPT 看到测试结果再修复 → 循环最多 3 次直到通过 ✅
+
+### 场景 4：中途调整方向
+> 💬 **用户指令**："刚才第 2 步的设计我感觉不太合适，请让 ChatGPT 换一种更轻量的实现方式，然后重新修改本地代码。"
+
+**流程**：用户随时可以调整方案，GPT 重新生成代码 → Agent 测试 → GPT 审查 → 通过后推送
+
+
+---
+
+## ⚡ 保持浏览器极速流畅的秘诀：分阶段与“交接摘要（HANDOFF）”
+
+在进行长周期、多步骤的复杂任务时（如大型重构、复杂业务系统开发），单个网页对话如果聊得过长、堆积了大量代码和表格，会导致浏览器（特别是 Safari / WebKit）渲染内存变大而出现卡顿。
+
+### 💡 核心法则：**旧对话 → 生成交接摘要 → 新对话继续**
+
+当一个阶段完成，或者感到网页响应变慢时，**千万不要在超长对话里硬撑**，只需用自然语言让 AI 执行平滑交接：
+
+1. **一句话生成交接**：
+   > 💬 **对 AI 说**：“当前阶段已完成，请帮我生成一份【项目交接摘要（HANDOFF）】，总结已完成的工作、关键架构决策和下一步待办。”
+2. **重开新对话**：
+   - 彻底关闭当前的 ChatGPT 标签页（完全释放浏览器内存）；
+   - 在浏览器中新开一个 ChatGPT 对话，复制新的网址链接；
+3. **继续无缝推进**：
+   > 💬 **对 AI 说**：“这是新的 ChatGPT 链接：`https://chatgpt.com/c/新链接`，请将刚才的交接摘要注入进去，继续进行下一步。”
+
+这样既能**100% 完整继承项目上下文与决策**，又能让浏览器始终保持秒级极速响应！
+
+---
+
+### 📋 标准项目交接模板（HANDOFF Template）
+
+桌面 AI 会自动按此标准化格式生成摘要，保证上下文零丢失：
 
 ```markdown
-```python
-<filepath: src/auth/jwt.py>
-import jwt
-...
-```
+# 📌 项目交接摘要 (Project Handoff)
 
-```bash
-TEST: pytest tests/auth/test_jwt.py -v
-EXPECTED: all tests pass
-```
-```
+### 1. 项目背景与当前阶段
+- **项目目标**：[简述项目的核心目标]
+- **当前所处阶段**：[例如：第 2/5 阶段，核心数据模型与鉴权已完成]
+- **GitHub 分支/最新提交**：[当前工作分支与关键 Commit 记录]
 
-> ⚠️ 每个文件必须以 `<filepath: path/to/file>` 开头，新建文件用 `<filepath: NEW: path/to/file>`。禁止在代码块外写任何代码。
+### 2. 已锁定的核心架构决策 (Decisions)
+- [决策 1：采用 JWT 无状态鉴权方案]
+- [决策 2：数据迁移采用平滑过渡中间件]
 
-### GPT 审查裁决格式
+### 3. 当前代码现状与已修改文件 (Status)
+- ✅ `src/auth/jwt.py`：JWT 生成与校验逻辑，测试全部通过
+- ✅ `tests/test_auth.py`：单元测试覆盖完毕
 
-GPT 审查测试结果后，必须严格只输出以下三种之一：
+### 4. 下一步待办清单 (Next Steps)
+- 🔲 步骤 1：开发角色权限中间件
+- 🔲 步骤 2：替换旧业务接口的鉴权逻辑
 
-```
-APPROVED
-```
-或
-```
-NEEDS_FIX: session 处理有 bug，requests.headers['Authorization'] 拼写错误
-```
-或
-```
-BLOCKED: 缺少依赖 pydantic-settings，请先 pip install
+### 5. 遗留注意事项与已知边界 (Notes)
+- 注意：保持与老前端的响应头兼容
 ```
 
 ---
 
-## 浏览器怎么选？
+## ❓ 常见问题解答（FAQ）
 
-| 你的环境 | 推荐 | 备注 |
-|---|---|---|
-| **macOS 主力开发** | Safari | AppleScript 直接驱动，零配置 |
-| **Linux / Windows** | Chrome / Edge / Brave | 启动时加 `--remote-debugging-port=9222` |
-| **公司电脑只有特定浏览器** | 任何 Chromium 内核 | Edge / Brave / Arc / Opera 都通用，只换启动命令 |
+### Q1：支持哪些桌面 AI 助手（Agent）？
+**答**：**支持任何具备文件读写与对话能力的桌面 Agent**。
+无论是 Antigravity、Cursor、Windsurf、还是其他本地桌面 AI 工具，都可以搭载本 Skill 与 ChatGPT 网页版无缝协作。
 
-> ⚠️ **不要同时在 9222 端口启两个 Chromium 实例**（比如 Chrome 和 Edge 都开着）。端口冲突会让 `/json/list` 返回错乱 Tab。建议 Edge 用户把端口改成 9223，调用时加 `--chrome-port 9223`。
+### Q2：我完全不会编程 / 不会写 Python，能用吗？
+**答**：**完全可以！** 
+你不需要写一行代码，也不用在终端运行任何 Python 脚本。所有底层桥接、网页交互和文件修改都由桌面 AI 助手全自动在后台处理，你只需要在聊天窗口用自然语言发指令即可。
 
----
+### Q3：为什么对话时间长了浏览器会变卡？怎么解决？
+**答**：
+这不是网络或配置问题，而是因为单个对话积累了太多代码和历史记录，导致浏览器的页面渲染变重。
+**最佳解决方案**：使用上面提到的**【旧对话生成交接摘要 ➔ 换新对话继续】**模式，一键生成摘要后新开对话，瞬间恢复极致流畅且上下文不丢失。
 
-## 退出码速查（看到数字不用慌）
+### Q4：支持哪些浏览器？
+**答**：
+- **Mac 用户**：直接使用系统自带的 **Safari 浏览器**即可，打开网页就能用，零门槛。
+- **其他平台 / 常用 Chrome 的用户**：支持 **Google Chrome**、**Microsoft Edge**、**Brave** 等主流浏览器。
 
-| 退出码 | 含义 | 你该怎么办 |
-|---|---|---|
-| **0** | 完美 | 读 stdout |
-| **2** | 超时但拿到部分内容 | 读 stdout（可能不全） |
-| **3** | 超时无内容 | 换浏览器 / 重连 ChatGPT |
-| **4** | 浏览器或 JS 挂了 | 看 stderr 事件 JSONL 定位阶段 |
-| **6** | 用户消息没真提交 | ChatGPT 在刷新？重试 |
-| **10** | 找不到目标 Tab | 检查 `--target-url` 是不是当前 Tab |
-| **11** | 多个 Tab 匹配 | 关掉其它 ChatGPT Tab |
-| **12** | 熔断器开了 | 同签名 1 小时内失败 3 次。等 1 小时，或 `--reset-circuit` |
+### Q5：如果 AI 改出的代码不符合预期怎么办？
+**答**：完全不用担心。
+1. **随时打断调整**：你可以随时用自然语言说：“停一下，方案里的第 X 步我想改成……”，AI 会重新调整。
+2. **一键安全回滚**：因为每一步都有 GitHub 自动存档，你只需说：“帮我撤回刚才的那次修改”，项目就能立刻恢复到改动前的完好状态。
 
----
-
-## 常见问题
-
-### Q：调用 ChatGPT 会不会很慢？
-A：ChatGPT 网页版回复约 20-60 秒，本地 Antigravity 等就行，闲时可以并行跑别的任务。
-
-### Q：失败重试机制是怎样的？
-A：只对**只读操作**（基线、查询）自动重试；**写操作**（inject / send）fail-fast——宁可让你手动重试，也不要它自作主张重发。
-
-### Q：熔断器是干啥的？
-A：防止死循环。同样的报错 1 小时内出现 3 次，自动开熔断，避免你被 ChatGPT 反复打脸。
-
-### Q：Antigravity 的本地模型能换成别的吗？
-A：可以。本 skill 只规定 Antigravity 怎么"调用 ChatGPT Web"，不约束 Antigravity 自己跑哪个模型。Claude 3.7 Flash 是快，3.7 Sonnet 更准，自己挑。
-
-### Q：能跑在 GitHub Actions / CI 里吗？
-A：可以，但必须用 Chromium 版（带 `--remote-debugging-port`）启动无头浏览器。Safari 版只能在 macOS 跑。
-
-### Q：调用会泄露我的代码 / 密钥给 ChatGPT 吗？
-A：所有事件 JSONL 在序列化前都做**递归脱敏**（GitHub PAT、OpenAI Key、AWS Key、JWT、数据库连接串、`.pem` 私钥等）。日志里看到的是 `***REDACTED***`，原始值绝不出库。
+### Q6：我的密码、密钥等隐私数据会泄露给 ChatGPT 吗？
+**答**：**不会**。
+系统内置了严格的敏感信息自动脱敏机制，在向 ChatGPT 传递上下文时，密码、Token、API Key 等敏感数据会被自动过滤掩码，确保代码安全无忧。
 
 ---
 
-## 下一步
+## 🎉 开始体验
 
-- 想了解每个退出码的精确定义？看 [SKILL.md](SKILL.md)
-- 想看完整调用范例？看 [SKILL.md](SKILL.md) 第 "标准调用模式" 一节
-- 想加自定义浏览器 / 自定义 sanitizer？PR 欢迎！
+现在就打开你的浏览器和 ChatGPT 对话，对你的桌面 AI 助手说出你的第一个想法吧！

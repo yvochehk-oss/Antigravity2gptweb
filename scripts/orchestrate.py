@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """
-Antigravity Orchestrator — 端到端任务编排器
+Desktop Agent Orchestrator — 端到端任务编排器
 ==============================================
-主 Agent = Antigravity（本地），云端 = ChatGPT Web（GPT-5.6 SOL）
+主 Agent = 任意本地桌面 Agent，云端 = ChatGPT Web（GPT-5.6 SOL）
 
 完整工作流：
   init → refine（可选）→ lock → run-task × N → 完成
 
 每个 run-task 内部闭环：
-  GPT 生成代码 → Antigravity 写文件 → git push → Antigravity 跑测试 →
+  GPT 生成代码 → 本地 Agent 写文件 → git push → 本地 Agent 跑测试 →
   GPT 审查测试结果 → 裁决：APPROVED / NEEDS_FIX / BLOCKED
 """
 
@@ -534,10 +534,23 @@ def execute_task(state: ProjectState, task: Task,
         f"【详细描述】\n{task.description or '(见上方任务标题)'}\n\n"
         "【当前项目 Git 状态】\n"
         f"  最新提交: {state.commit_sha_head[:8]}\n"
-        "  分支: {state.branch}\n"
-        "请完成此任务的代码实现。严格按照以下格式输出：\n"
-        "  - 每个文件: ```<language>\n<filepath: path/to/file>\n<code>\n```\n"
-        "  - 测试命令（可选）: ```bash\nTEST: <命令>\nEXPECTED: <预期结果>\n```"
+        f"  分支: {state.branch}\n\n"
+        "请完成此任务的代码实现。严格按照以下格式输出：\n\n"
+        "1. 代码文件（每个文件一个代码块）：\n"
+        "   ```<language>\n"
+        "   <filepath: path/to/file>  # 已存在文件直接写路径\n"
+        "   <filepath: NEW: path/to/file>  # 新建文件前面加 NEW:\n"
+        "   <code>\n"
+        "   ```\n\n"
+        "2. 测试命令（必须提供，至少一个）：\n"
+        "   ```bash\n"
+        "   TEST: <命令>\n"
+        "   EXPECTED: <预期结果描述>\n"
+        "   ```\n\n"
+        "注意：\n"
+        "- 测试命令必须可直接在项目根目录执行\n"
+        "- EXPECTED 描述应简洁明确（如 'all tests pass', 'exit 0', 'no errors'）\n"
+        "- 我会把测试结果反馈给你，你再决定是否通过"
     )
 
     ec, code_output = _bridge_call(
@@ -554,9 +567,7 @@ def execute_task(state: ProjectState, task: Task,
         state.save()
         return False
 
-    task.code_output = code_output
-
-    # 解析代码块
+    # 解析代码块和测试命令
     code_blocks = parse_code_blocks(code_output)
     test_cmds = parse_test_commands(code_output)
 
@@ -567,6 +578,33 @@ def execute_task(state: ProjectState, task: Task,
         task.last_fix_note = "未解析到代码块，可能是 GPT 输出格式不符"
         state.save()
         return False
+
+    if not test_cmds:
+        print(f"[Task {task.id}] ⚠ GPT 未提供测试命令，要求重新生成")
+        # 让 GPT 补充测试命令
+        retry_prompt = (
+            f"【任务 {task.id}】{task.title}\n"
+            f"【你刚才的代码】\n{code_output[:2000]}\n\n"
+            "你忘记提供测试命令了。请补充至少一个测试命令，格式：\n"
+            "```bash\n"
+            "TEST: <命令>\n"
+            "EXPECTED: <预期结果>\n"
+            "```"
+        )
+        ec_retry, retry_output = _bridge_call(
+            "task-code", retry_prompt, state.chatgpt_url,
+            state.bridge_script, state.cwd,
+            signature=f"task-code-retry:{state.name}:{task.id}",
+            timeout=180
+        )
+        if ec_retry == 0:
+            test_cmds = parse_test_commands(retry_output)
+        if not test_cmds:
+            task.status = "failed"
+            task.last_verdict = "BLOCKED"
+            task.last_fix_note = "GPT 未提供有效的测试命令"
+            state.save()
+            return False
 
     # 写文件到本地
     written_files = []
@@ -639,12 +677,19 @@ def execute_task(state: ProjectState, task: Task,
     task.test_results = "\n\n---\n\n".join(all_test_results)
     task.test_passed = all_passed
 
-    # GPT 审查
+    # GPT 审查测试结果并决定下一步
     review_prompt = (
-        f"【任务 {task.id}】{task.title}\n"
-        f"【代码文件】{', '.join(written_files)}\n"
-        f"【代码实现】\n{code_output[:3000]}\n"
-        f"【测试执行结果】\n{task.test_results}"
+        f"【任务 {task.id}】{task.title}\n\n"
+        f"【代码文件】{', '.join(written_files)}\n\n"
+        f"【你的代码实现】\n{code_output[:3000]}\n\n"
+        f"【本地 Agent 测试结果】\n{task.test_results}\n\n"
+        "请根据测试结果决定下一步行动。严格按以下格式输出：\n\n"
+        "1. APPROVED - 测试全部通过，代码符合要求，任务完成\n"
+        "2. NEEDS_FIX: <具体问题> - 测试失败或有 bug，需要修复。请说明：\n"
+        "   - 哪里出错了\n"
+        "   - 如何修复（给出具体代码改动或思路）\n"
+        "3. BLOCKED: <原因> - 遇到无法自动解决的问题（如缺少依赖、环境问题、需求不明确）\n\n"
+        "只输出一行裁决，不要解释，不要多余文字。"
     )
 
     ec2, verdict_text = _bridge_call(
@@ -669,48 +714,82 @@ def execute_task(state: ProjectState, task: Task,
 
     print(f"[Task {task.id}] 🔍 GPT 裁决：{verdict}")
     if detail:
-        print(f"           {detail[:200]}")
+        print(f"           说明：{detail[:300]}")
 
     if verdict == "APPROVED":
         task.status = "approved"
         task.completed_at = datetime.utcnow().isoformat()
         state.save()
+        print(f"[Task {task.id}] ✅ 任务通过审查，已完成！")
         return True
 
     if verdict == "BLOCKED":
         task.status = "blocked"
         state.save()
+        print(f"[Task {task.id}] 🚫 任务被阻塞，需要人工介入")
+        print(f"           原因：{detail}")
         return False
 
-    # NEEDS_FIX：尝试自动修复（最多 max_attempts 轮）
-    fix_note = detail
+    # NEEDS_FIX：进入自动修复循环
+    print(f"[Task {task.id}] 🔧 需要修复，进入自动修复循环...")
+    return _auto_fix_loop(state, task, written_files, code_output, test_cmds, max_attempts)
+
+
+def _auto_fix_loop(state: ProjectState, task: Task,
+                   written_files: List[str],
+                   original_code: str,
+                   test_cmds: List[Tuple[str, str]],
+                   max_attempts: int) -> bool:
+    """
+    自动修复循环：GPT 修复代码 → Agent 测试 → GPT 审查 → 决定下一步
+    """
+    fix_note = task.last_fix_note
+    code_output = original_code
+
     for attempt in range(task.attempts, max_attempts):
         task.attempts = attempt + 1
-        task.status = "coding"
+        task.status = "fixing"
         print(f"\n[Task {task.id}] 🔧 自动修复轮次 {task.attempts}/{max_attempts}")
-        print(f"           修复提示：{fix_note[:150]}")
+        print(f"           修复提示：{fix_note[:200]}")
 
         fix_prompt = (
-            f"【任务 {task.id}】{task.title}\n"
-            f"【已实现的文件】{', '.join(written_files)}\n"
-            f"【上次代码】\n{code_output[:3000]}\n"
-            f"【测试结果】\n{task.test_results}\n"
-            f"【GPT 审查反馈】{fix_note}\n\n"
-            "请根据审查反馈修改代码，严格按之前的 filepath 格式输出修改后的文件。"
+            f"【任务 {task.id}】{task.title}\n\n"
+            f"【已实现的文件】{', '.join(written_files)}\n\n"
+            f"【上次代码】\n{code_output[:3000]}\n\n"
+            f"【测试结果】\n{task.test_results}\n\n"
+            f"【你的审查反馈】{fix_note}\n\n"
+            "请根据你自己的审查反馈修改代码，输出格式与之前相同：\n"
+            "  - 代码块：```<language>\n<filepath: path>\n<code>\n```\n"
+            "  - 测试命令（如需修改）：```bash\nTEST: ...\nEXPECTED: ...\n```"
         )
 
-        ec3, new_code = _bridge_call(
+        ec, new_code = _bridge_call(
             "task-code", fix_prompt, state.chatgpt_url,
             state.bridge_script, state.cwd,
             signature=f"task-fix:{state.name}:{task.id}:{task.attempts}",
             timeout=360
         )
-        if ec3 != 0:
-            print(f"[Task {task.id}] ⚠ 修复调用失败（exit={ec3}）")
-            break
+        if ec != 0:
+            print(f"[Task {task.id}] ⚠ 修复调用失败（exit={ec}）")
+            task.status = "failed"
+            task.last_verdict = "BLOCKED"
+            task.last_fix_note = f"修复调用失败 exit={ec}"
+            state.save()
+            return False
 
-        # 重写文件
+        code_output = new_code
+
+        # 重新解析代码块
         new_blocks = parse_code_blocks(new_code)
+        new_test_cmds = parse_test_commands(new_code)
+        if new_test_cmds:
+            test_cmds = new_test_cmds  # 如果 GPT 更新了测试命令
+
+        if not new_blocks:
+            print(f"[Task {task.id}] ⚠ 修复后未解析到代码块")
+            continue
+
+        # 重写文件到本地
         for filepath, _lang, code in new_blocks:
             if filepath is None:
                 continue
@@ -720,66 +799,110 @@ def execute_task(state: ProjectState, task: Task,
             full = Path(state.cwd) / filepath
             full.parent.mkdir(parents=True, exist_ok=True)
             full.write_text(code, encoding="utf-8")
-        code_output = new_code
-        task.code_output = new_code
+            print(f"[Task {task.id}]   修复: {filepath}")
 
-        # 重新提交
-        _run(["git", "add", "-A"], cwd=state.cwd)
-        r2 = _run(["git", "status", "--porcelain"], cwd=state.cwd)
-        if r2.stdout.strip():
-            _run(["git", "commit", "-m",
-                  f"fix(task-{task.id}): attempt {task.attempts} — {task.title}"],
-                 cwd=state.cwd)
+        # git commit + push 修复
+        _run(["git", "add"] + [str(Path(state.cwd) / f) for f in written_files],
+             cwd=state.cwd)
+        r = _run(["git", "status", "--porcelain"], cwd=state.cwd)
+        if r.stdout.strip():
+            commit_msg = f"fix(task-{task.id}): attempt {task.attempts}\n\n{fix_note[:200]}"
+            _run(["git", "commit", "-m", commit_msg], cwd=state.cwd)
             _run(["git", "push", "origin", state.branch], cwd=state.cwd)
             state.commit_sha_head = _run(["git", "rev-parse", "HEAD"],
-                                          cwd=state.cwd).strip()
+                                         cwd=state.cwd).strip()
+            print(f"[Task {task.id}] ✅ 修复已提交并推送")
 
-        # 重新跑测试
+        # 重新运行测试
         task.status = "testing"
         all_test_results = []
         all_passed = True
+
         for cmd, expected in test_cmds:
-            r = subprocess.run(cmd, shell=True, capture_output=True,
-                               text=True, timeout=120, cwd=state.cwd)
+            print(f"[Task {task.id}] 🔬 重新测试：{cmd}")
+            r = subprocess.run(
+                cmd, shell=True, capture_output=True, text=True,
+                timeout=120, cwd=state.cwd
+            )
             passed = (r.returncode == 0)
             if not passed:
                 all_passed = False
-            all_test_results.append(
-                f"COMMAND: {cmd}\nEXPECTED: {expected}\n"
-                f"EXIT_CODE: {r.returncode}\nSTDOUT:\n{r.stdout[:1000]}\nSTDERR:\n{r.stderr[:1000]}"
+            result = (
+                f"COMMAND: {cmd}\n"
+                f"EXPECTED: {expected}\n"
+                f"EXIT_CODE: {r.returncode}\n"
+                f"STDOUT:\n{r.stdout[:2000]}\n"
+                f"STDERR:\n{r.stderr[:2000]}"
             )
+            all_test_results.append(result)
+            status_icon = "✅" if passed else "❌"
+            print(f"[Task {task.id}] {status_icon} exit={r.returncode}")
+
         task.test_results = "\n\n---\n\n".join(all_test_results)
         task.test_passed = all_passed
 
-        # 再次审查
-        ec4, verdict_text = _bridge_call(
-            "task-review",
-            f"【任务 {task.id}】{task.title}\n"
-            f"【修改后代码】\n{new_code[:3000]}\n"
-            f"【测试结果】\n{task.test_results}",
-            state.chatgpt_url, state.bridge_script, state.cwd,
-            evidence=task.test_results, level="L2",
-            signature=f"task-review:{state.name}:{task.id}:{task.attempts}",
+        # GPT 重新审查
+        review_prompt = (
+            f"【任务 {task.id}】{task.title}\n\n"
+            f"【修复轮次】{task.attempts}/{max_attempts}\n\n"
+            f"【修复后代码】\n{code_output[:3000]}\n\n"
+            f"【本地 Agent 测试结果】\n{task.test_results}\n\n"
+            "请根据测试结果决定下一步：\n"
+            "APPROVED - 通过\n"
+            "NEEDS_FIX: <问题> - 继续修复\n"
+            "BLOCKED: <原因> - 无法自动解决"
+        )
+
+        ec_review, verdict_text = _bridge_call(
+            "task-review", review_prompt, state.chatgpt_url,
+            state.bridge_script, state.cwd,
+            evidence=task.test_results,
+            level="L2",
+            signature=f"task-review:{state.name}:{task.id}:fix{task.attempts}",
             timeout=180
         )
+        if ec_review != 0:
+            print(f"[Task {task.id}] ⚠ 审查调用失败")
+            continue
+
         verdict, detail = parse_verdict(verdict_text)
         task.last_verdict = verdict
         task.last_fix_note = detail
-        print(f"[Task {task.id}] 🔍 第{attempt+1}轮修复后裁决：{verdict}")
+        state.save()
+
+        print(f"[Task {task.id}] 🔍 GPT 裁决：{verdict}")
+        if detail:
+            print(f"           {detail[:200]}")
+
         if verdict == "APPROVED":
             task.status = "approved"
             task.completed_at = datetime.utcnow().isoformat()
             state.save()
+            print(f"[Task {task.id}] ✅ 修复成功，任务完成！")
             return True
+
         if verdict == "BLOCKED":
             task.status = "blocked"
             state.save()
+            print(f"[Task {task.id}] 🚫 任务被阻塞")
             return False
-        fix_note = detail  # 继续修复循环
 
-    # 超过最大尝试次数
+        # NEEDS_FIX：继续下一轮
+        fix_note = detail
+        print(f"[Task {task.id}] 🔄 继续修复...")
+
+    # 达到最大尝试次数
     task.status = "failed"
-    print(f"[Task {task.id}] ❌ 超过最大修复轮次（{max_attempts}），任务失败")
+    task.last_verdict = "BLOCKED"
+    task.last_fix_note = f"达到最大修复次数 {max_attempts}"
+    state.save()
+    print(f"[Task {task.id}] ❌ 修复失败：达到最大尝试次数")
+    return False
+
+
+# =============================================================================
+# 子命令：run-all
+# =============================================================================
     state.save()
     return False
 
@@ -889,7 +1012,7 @@ def cmd_status(args) -> int:
 
 def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        description="Antigravity Orchestrator — 端到端任务编排器",
+        description="Desktop Agent Orchestrator — 端到端任务编排器",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=textwrap.dedent("""\
             工作流示例：
