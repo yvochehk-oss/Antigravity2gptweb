@@ -9,12 +9,16 @@ from __future__ import annotations
 
 from . import legacy_routes as _legacy
 from .routers.health import install_health_routes
+from .routers.phase3_retirement import install_phase3_retirement
+from .routers.phase4_canonical import router as phase4_canonical_router
 from .time_types import apply_timezone_types
 
 # The legacy route surface has imported the full mapped model graph at this
 # point. Upgrade legacy *_at mappings before the application starts serving.
 apply_timezone_types()
 app = _legacy.app
+install_phase3_retirement(app)
+app.include_router(phase4_canonical_router)
 install_health_routes(app)
 
 
