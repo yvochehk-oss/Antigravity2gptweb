@@ -46,6 +46,21 @@ def _read_call(callable_):
         raise HTTPException(409, {"code": "CANONICAL_READ_REJECTED", "detail": str(exc)}) from exc
 
 
+def _coded_domain_http_error(exc: Exception) -> HTTPException | None:
+    """Preserve a Task27 child-domain fail-closed error at the HTTP boundary.
+
+    Task27 deliberately lets Task24/25/26/28 domain errors propagate. Those
+    errors expose ``code``/``detail``. The router does not import or call those
+    child services; it only preserves their rejection contract as HTTP 409.
+    Unknown programming/runtime errors still propagate as 500.
+    """
+    code = getattr(exc, "code", None)
+    detail = getattr(exc, "detail", None)
+    if code is None or detail is None:
+        return None
+    return HTTPException(409, {"code": str(code), "detail": str(detail)})
+
+
 @router.get("/boss/projects/{project_id}/snapshot")
 def boss_snapshot(
     project_id: int,
@@ -106,6 +121,13 @@ def idp_direct(request: DirectV3ProductionRequest, db: Session = Depends(get_v3_
         raise HTTPException(503, {"code": exc.code, "detail": exc.detail}) from exc
     except DirectV3ProductionError as exc:
         raise HTTPException(409, {"code": exc.code, "detail": exc.detail}) from exc
+    except (ValueError, RuntimeError) as exc:
+        # Task24/25/26/28 child errors are intentionally not reimplemented here.
+        # Preserve their fail-closed code/detail at the HTTP boundary.
+        mapped = _coded_domain_http_error(exc)
+        if mapped is None:
+            raise
+        raise mapped from exc
 
 
 @router.get("/system/status")
