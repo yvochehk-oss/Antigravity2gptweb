@@ -3,6 +3,10 @@
 Only numbered A/B/C/D codes identify system-internal units. External
 counterparties live in ``external_parties`` and may participate in project tax
 planning, but they are not part of internal consolidated profit.
+
+External-party aliases are input-boundary identifiers only.  Persistent
+references must always use the canonical code returned by
+``map_to_standard_external_code``.
 """
 from __future__ import annotations
 import re
@@ -79,14 +83,14 @@ EXTERNAL_ENTITY_PRESETS: dict[str, dict[str, Any]] = {
     },
     "ED": {
         "code": "ED",
-        "name": "重庆重交大件起重吊装工程有限公司",
-        "short_name": "重庆重交起重",
+        "name": "重庆巨力重型起重设备吊装公司",
+        "short_name": "重庆巨力吊装",
         "kind": "equipment",
         "business_role": "equipment",
         "role_code": "ED",
         "tax_id": "91500100MA61GGGG99",
-        "note": "系统外设备租赁商（500吨级超重型履带吊租赁与吊装）",
-        "aliases": ("EXT-CRANE", "ED01", "ED1", "重交大件", "履带吊租赁", "超重型履带吊"),
+        "note": "系统外工程设备/起重吊装单位",
+        "aliases": ("EXT-CQ", "EXT-CRANE", "ED01", "ED1", "重庆巨力", "巨力吊装", "重交大件", "履带吊租赁", "超重型履带吊"),
     },
     "E0": {
         "code": "E0",
@@ -109,10 +113,11 @@ for _k, _meta in EXTERNAL_ENTITY_PRESETS.items():
 
 
 def map_to_standard_external_code(value: str | None) -> str | None:
+    """Normalize an external-party code/alias to its persistent canonical code."""
     if not value:
         return None
     val = str(value).strip().upper()
-    return EXTERNAL_ALIAS_TO_CODE.get(val, val)
+    return EXTERNAL_ALIAS_TO_CODE.get(val, val) or None
 
 
 def get_external_preset(code_or_alias: str | None) -> dict[str, Any] | None:
@@ -122,4 +127,3 @@ def get_external_preset(code_or_alias: str | None) -> dict[str, Any] | None:
     if std_code and std_code in EXTERNAL_ENTITY_PRESETS:
         return EXTERNAL_ENTITY_PRESETS[std_code]
     return None
-
