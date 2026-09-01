@@ -259,7 +259,7 @@ class FactRelationship(Base):
 
     __table_args__ = (
         CheckConstraint(
-            "relationship_type IN ('REVERSAL_OF','REPLACES','VOID_RELATION','CORRECTS')",
+            "relationship_type IN ('REVERSAL_OF','REPLACES','VOID_RELATION','CORRECTS','INVOICE_FOR_CONTRACT','PAYMENT_FOR_INVOICE','PAYMENT_FOR_CONTRACT')",
             name="ck_fact_relationships_type",
         ),
         CheckConstraint(
