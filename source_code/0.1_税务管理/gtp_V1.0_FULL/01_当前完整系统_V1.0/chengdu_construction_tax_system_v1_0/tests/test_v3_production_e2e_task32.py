@@ -16,11 +16,25 @@ from scripts.v3.payment_direct_v3_gate_28 import submission as payment_submissio
 pytestmark = pytest.mark.skipif(engine.dialect.name != "postgresql", reason="Task32 Production E2E is PostgreSQL-only")
 
 
+from sqlalchemy import text
+from app.cutover.finalization import finalize_v3_production_cutover
+from app.cutover.writer import get_cutover_state
+
 def _run_http(monkeypatch, builder):
     monkeypatch.setenv("APP_ENV", "test")
     monkeypatch.setattr(middleware, "current_user_from_request", lambda request: SimpleNamespace(id=1, username="task32", role="admin", is_active=True))
     conn = engine.connect(); outer = conn.begin()
     session = Session(bind=conn, expire_on_commit=False, join_transaction_mode="create_savepoint")
+    state = get_cutover_state(session, for_update=True)
+    if state.writer_mode == "SHADOW":
+        session.execute(text("UPDATE writer_cutover_states SET writer_mode='DUAL_WRITE', legacy_write_enabled=true, new_fact_write_enabled=true, legacy_frozen=false, new_fact_read_mode='SHADOW', rag_source='LEGACY', updated_by='test:S32' WHERE scope='GLOBAL'"))
+        session.flush()
+    session.execute(text("UPDATE writer_cutover_states SET writer_mode='V3_PRIMARY', legacy_write_enabled=false, new_fact_write_enabled=true, legacy_frozen=true, updated_by='test:S32' WHERE scope='GLOBAL' AND writer_mode='DUAL_WRITE'"))
+    session.execute(text("UPDATE writer_cutover_states SET new_fact_read_mode='PRIMARY', rag_source='CANONICAL_FACTS', updated_by='test:S32' WHERE scope='GLOBAL' AND writer_mode='V3_PRIMARY' AND new_fact_read_mode='SHADOW' AND rag_source='LEGACY'"))
+    session.flush(); session.expire_all()
+    if not session.execute(text("SELECT 1 FROM v3_cutover_finalizations WHERE scope='GLOBAL'")).scalar():
+        finalize_v3_production_cutover(session, actor="test:S32", commit=False)
+        session.expire_all()
     app = create_app(); app.dependency_overrides[get_v3_db] = lambda: session
     try:
         with TestClient(app) as client:

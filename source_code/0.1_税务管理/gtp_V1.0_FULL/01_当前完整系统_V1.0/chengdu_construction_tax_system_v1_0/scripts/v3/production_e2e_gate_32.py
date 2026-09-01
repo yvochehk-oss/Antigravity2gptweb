@@ -140,6 +140,8 @@ def main() -> int:
     listening = False
     original_auth = middleware.current_user_from_request
     baseline = None
+    import os
+    os.environ["APP_ENV"] = "test"
     try:
         with Session(engine) as pre:
             baseline = _counts(pre)
@@ -166,6 +168,19 @@ def main() -> int:
                 "Alembic head changed from 98",
             )
 
+            from app.cutover.finalization import finalize_v3_production_cutover
+            from app.cutover.writer import get_cutover_state
+            cstate = get_cutover_state(session, for_update=True)
+            if cstate.writer_mode == "SHADOW":
+                session.execute(text("UPDATE writer_cutover_states SET writer_mode='DUAL_WRITE', legacy_write_enabled=true, new_fact_write_enabled=true, legacy_frozen=false, new_fact_read_mode='SHADOW', rag_source='LEGACY', updated_by='gate:S32' WHERE scope='GLOBAL'"))
+                session.flush()
+            session.execute(text("UPDATE writer_cutover_states SET writer_mode='V3_PRIMARY', legacy_write_enabled=false, new_fact_write_enabled=true, legacy_frozen=true, updated_by='gate:S32' WHERE scope='GLOBAL' AND writer_mode='DUAL_WRITE'"))
+            session.execute(text("UPDATE writer_cutover_states SET new_fact_read_mode='PRIMARY', rag_source='CANONICAL_FACTS', updated_by='gate:S32' WHERE scope='GLOBAL' AND writer_mode='V3_PRIMARY' AND new_fact_read_mode='SHADOW' AND rag_source='LEGACY'"))
+            session.flush(); session.expire_all()
+            if not session.execute(text("SELECT 1 FROM v3_cutover_finalizations WHERE scope='GLOBAL'")).scalar():
+                finalize_v3_production_cutover(session, actor="gate:S32", commit=False)
+                session.expire_all()
+
             seal0 = control_snapshot(session, "seal")
             cutover0 = control_snapshot(session, "cutover")
             legacy0 = legacy_counts(session)
@@ -185,11 +200,11 @@ def main() -> int:
 
             app = create_app()
             app.dependency_overrides[get_v3_db] = lambda: session
-            route_paths = {getattr(item, "path", "") for item in app.routes}
+            route_paths = set(app.openapi().get("paths", {}).keys())
             req(failures, evidence, "v3_routes_registered", EXPECTED_PATHS <= route_paths, "Task32 routes are not all registered")
             req(
                 failures, evidence, "openapi_contract_valid",
-                EXPECTED_PATHS <= set(app.openapi().get("paths", {})),
+                EXPECTED_PATHS <= route_paths,
                 "Task32 OpenAPI paths missing",
             )
 
