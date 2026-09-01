@@ -6,13 +6,16 @@ from hashlib import sha256
 import re
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
+from app.domain.tax.project_tax_analysis import canonical_hash
 from app.models import Project
 from app.v3_contract_models import ContractFact
 from app.v3_fact_models import Fact, FactRelationship, InvoiceFact
 from app.v3_fact_relationship_evidence_models import FactRelationshipEvidence
-from app.v3_party_models import Party, SourceDocument
+from app.v3_party_models import InternalEntity, Party, SourceDocument
 from app.v3_payment_models import PaymentFact
-from app.v3_project_analysis_models import FactProjectAllocation
+from app.v3_period_models import CalculationRun, TaxPeriodState
+from app.v3_project_analysis_models import FactProjectAllocation, ProjectTaxAnalysis, ProjectTaxAnalysisComponent
+from app.v3_vat_ledger_models import OutputVatEvent
 
 class ReadOnlyMonitor:
     LEGACY_READ_TABLES={"contracts","invoices","cashflows","fulfillments","real_costs","budgets","progress"}
@@ -69,4 +72,18 @@ def make_fixture(session:Session,token:str):
     session.add(InvoiceFact(fact_id=review.id,seller_party_id=b.id,buyer_party_id=a.id,invoice_identity_key=f"S31-REV-ID-{token}",invoice_identity_version="S31_V1",invoice_number=f"S31-REV-{token}",invoice_date=date(2026,9,1),invoice_status="VALID",gross_amount=Decimal("56.50"),net_amount=Decimal("50.00"),vat_amount=Decimal("6.50"),currency="CNY")); session.flush()
     for args in ((contract,"1000","0","1000","C"),(invoice,"100","13","113","I"),(payment,"80","0","80","P"),(unlinked,"20","0","20","PU"),(review,"50","6.5","56.5","R")): _allocation(session,args[0],project,*args[1:])
     _edge(session,token,invoice,contract,"INVOICE_FOR_CONTRACT","IC"); _edge(session,token,payment,invoice,"PAYMENT_FOR_INVOICE","PI"); _edge(session,token,payment,contract,"PAYMENT_FOR_CONTRACT","PC")
+    int_ent = InternalEntity(party_id=b.id, canonical_code=f"S31-{token[:8]}", business_role="GENERAL_CONTRACTOR", legal_entity=True, active=True)
+    session.add(int_ent); session.flush()
+    out_ev = OutputVatEvent(invoice_fact_id=invoice.id, reporting_party_id=b.id, output_vat_period=date(2026,9,1), vat_amount=Decimal("13.00"), event_type="OUTPUT", event_status="CONFIRMED", evidence_type="MANUAL_REVIEW", confidence="HIGH", reviewed_by="gate:S31", reviewed_at=datetime.now(timezone.utc))
+    session.add(out_ev); session.flush()
+    payload = {"project_id":project.id,"tax_type":"VAT","basis":"TAX","output_taxable_net":"100.00","output_vat":"13.00","claimed_input_vat":"0.00","tax_prepayment":"0.00","net_vat_before_entity_credit":"13.00","net_vat_after_project_prepayment":"13.00","allocation_coverage_status":"FULL"}
+    run_res = canonical_hash(payload)
+    run = CalculationRun(reporting_party_id=b.id, tax_type="PROJECT_TAX", tax_period=date(2026,9,1), run_kind="STANDARD", run_status="SUCCEEDED", ruleset_version="V3_PROJECT_TAX_ANALYSIS_V1", input_snapshot_sha256="a"*64, result_sha256=run_res, created_by="gate:S31", completed_at=datetime.now(timezone.utc))
+    session.add(run); session.flush()
+    st = TaxPeriodState(reporting_party_id=b.id, tax_type="PROJECT_TAX", tax_period=date(2026,9,1), state="OPEN", current_run_id=run.id)
+    session.add(st); session.flush()
+    analysis = ProjectTaxAnalysis(calculation_run_id=run.id, project_id=project.id, reporting_party_id=b.id, tax_period=date(2026,9,1), tax_type="VAT", basis="TAX", output_taxable_net=Decimal("100.00"), output_vat=Decimal("13.00"), claimed_input_vat=Decimal("0.00"), tax_prepayment=Decimal("0.00"), net_vat_before_entity_credit=Decimal("13.00"), net_vat_after_project_prepayment=Decimal("13.00"), allocation_coverage_status="FULL", input_snapshot_sha256="a"*64, result_sha256=run_res)
+    session.add(analysis); session.flush()
+    inv_alloc = session.scalar(select(FactProjectAllocation).where(FactProjectAllocation.fact_id==invoice.id, FactProjectAllocation.project_id==project.id))
+    session.add(ProjectTaxAnalysisComponent(analysis_id=analysis.id, component_type="OUTPUT_VAT", taxable_amount=Decimal("100.00"), tax_amount=Decimal("13.00"), fact_project_allocation_id=inv_alloc.id, output_vat_event_id=out_ev.id))
     session.flush(); return project,contract,invoice,payment,unlinked,review

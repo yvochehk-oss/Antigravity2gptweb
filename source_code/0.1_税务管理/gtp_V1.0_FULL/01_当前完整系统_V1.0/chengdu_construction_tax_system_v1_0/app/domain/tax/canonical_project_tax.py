@@ -166,12 +166,12 @@ class CanonicalProjectTax:
             "project_id": analysis.project_id,
             "tax_type": analysis.tax_type,
             "basis": analysis.basis,
-            "output_taxable_net": str(analysis.output_taxable_net),
-            "output_vat": str(analysis.output_vat),
-            "claimed_input_vat": str(analysis.claimed_input_vat),
-            "tax_prepayment": str(analysis.tax_prepayment),
-            "net_vat_before_entity_credit": str(analysis.net_vat_before_entity_credit),
-            "net_vat_after_project_prepayment": str(analysis.net_vat_after_project_prepayment),
+            "output_taxable_net": str(Decimal(analysis.output_taxable_net).quantize(Decimal("0.01"))),
+            "output_vat": str(Decimal(analysis.output_vat).quantize(Decimal("0.01"))),
+            "claimed_input_vat": str(Decimal(analysis.claimed_input_vat).quantize(Decimal("0.01"))),
+            "tax_prepayment": str(Decimal(analysis.tax_prepayment).quantize(Decimal("0.01"))),
+            "net_vat_before_entity_credit": str(Decimal(analysis.net_vat_before_entity_credit).quantize(Decimal("0.01"))),
+            "net_vat_after_project_prepayment": str(Decimal(analysis.net_vat_after_project_prepayment).quantize(Decimal("0.01"))),
             "allocation_coverage_status": analysis.allocation_coverage_status,
         }
         if canonical_hash(result_payload) != analysis.result_sha256:
