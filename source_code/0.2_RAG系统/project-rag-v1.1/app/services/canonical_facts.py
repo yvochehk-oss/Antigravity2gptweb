@@ -307,7 +307,7 @@ def _persist_candidate(db, doc: Document, candidate: CanonicalFactCandidate) -> 
             ") VALUES ("
             ":document_id, :project_id, :fact_type, :business_key, 'v1', :fact_version, :source_hash, "
             "CAST(:payload AS jsonb), CAST(:evidence AS jsonb), CAST(:errors AS jsonb), :confidence, :status, :is_current, "
-            "'rag_worker:deterministic-v1', CASE WHEN :status='accepted' THEN now() ELSE NULL END"
+            "'rag_worker:deterministic-v1', CASE WHEN CAST(:status AS varchar)='accepted' THEN now() ELSE NULL END"
             ") ON CONFLICT (source_document_id, fact_type, source_hash) DO UPDATE SET "
             "payload=EXCLUDED.payload, evidence=EXCLUDED.evidence, validation_errors=EXCLUDED.validation_errors, "
             "confidence=EXCLUDED.confidence, status=EXCLUDED.status, is_current=EXCLUDED.is_current, "
