@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
 """Backfill Canonical Facts for historical indexed RAG documents."""
+from pathlib import Path
+import sys
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
 from sqlalchemy import select
 
 from app.db import SessionLocal
