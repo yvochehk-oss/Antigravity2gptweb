@@ -39,12 +39,16 @@ def _payload(fact: dict[str, Any]) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
+def _fact_id(fact: dict[str, Any]) -> int:
+    return int(fact.get("fact_id") or fact.get("id") or 0)
+
+
 def _lineage_rows(facts: list[dict[str, Any]]) -> list[dict[str, Any]]:
     rows = []
     for fact in facts:
         rows.append(
             {
-                "fact_id": int(fact.get("id") or 0),
+                "fact_id": _fact_id(fact),
                 "fact_type": str(fact.get("fact_type") or ""),
                 "business_key": str(fact.get("business_key") or ""),
                 "fact_version": int(fact.get("fact_version") or 0),
@@ -52,7 +56,15 @@ def _lineage_rows(facts: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "source_document_id": int(fact.get("source_document_id") or 0),
             }
         )
-    return sorted(rows, key=lambda item: (item["fact_type"], item["business_key"], item["fact_version"], item["fact_id"]))
+    return sorted(
+        rows,
+        key=lambda item: (
+            item["fact_type"],
+            item["business_key"],
+            item["fact_version"],
+            item["fact_id"],
+        ),
+    )
 
 
 def fact_snapshot_hash(facts: list[dict[str, Any]]) -> tuple[str, list[dict[str, Any]]]:
@@ -78,7 +90,10 @@ def calculate_phase4_model(
     capitalized = Decimal("0")
     for fact in accrual_facts:
         item = _payload(fact)
-        amount = max(Decimal("0"), _d(item.get("amount")) - _d(item.get("reversal_amount")))
+        amount = max(
+            Decimal("0"),
+            _d(item.get("amount")) - _d(item.get("reversal_amount")),
+        )
         if bool(item.get("capitalized", False)):
             capitalized += amount
             continue
@@ -93,7 +108,7 @@ def calculate_phase4_model(
         key=lambda fact: (
             str(_payload(fact).get("as_of_date") or ""),
             int(fact.get("fact_version") or 0),
-            int(fact.get("id") or 0),
+            _fact_id(fact),
         ),
     )
     latest_progress = _payload(progress_sorted[-1]) if progress_sorted else {}
@@ -106,7 +121,10 @@ def calculate_phase4_model(
         completion = min(Decimal("1"), max(Decimal("0"), _d(explicit_completion)))
         recognition_basis = "certified_completion_percent"
     elif estimated_total_cost > 0:
-        completion = min(Decimal("1"), max(Decimal("0"), incurred_cost / estimated_total_cost))
+        completion = min(
+            Decimal("1"),
+            max(Decimal("0"), incurred_cost / estimated_total_cost),
+        )
         recognition_basis = "cost_to_cost"
     else:
         completion = Decimal("0")
@@ -183,7 +201,12 @@ def _invoice_tax_addback(invoice_facts: list[dict[str, Any]]) -> Decimal:
     return total
 
 
-def build_project_accounting(db, project_id: int, *, cit_rate: Decimal = DEFAULT_CIT_RATE) -> dict[str, Any]:
+def build_project_accounting(
+    db,
+    project_id: int,
+    *,
+    cit_rate: Decimal = DEFAULT_CIT_RATE,
+) -> dict[str, Any]:
     project = db.get(Project, int(project_id))
     if project is None:
         raise LookupError(f"project not found: {project_id}")
@@ -193,9 +216,17 @@ def build_project_accounting(db, project_id: int, *, cit_rate: Decimal = DEFAULT
     for fact in all_facts:
         by_type.setdefault(str(fact.get("fact_type") or ""), []).append(fact)
 
+    internal_codes = {
+        str(code).strip().upper()
+        for code in db.execute(text("SELECT code FROM entities WHERE active = TRUE")).scalars().all()
+        if code
+    }
     invoice_facts = by_type.get("invoice", [])
-    boundary = consolidate_invoice_facts(invoice_facts)
-    transaction_price = _d(getattr(project, "contract_total", None) or getattr(project, "contract_amount", None))
+    boundary = consolidate_invoice_facts(invoice_facts, internal_codes)
+    transaction_price = _d(
+        getattr(project, "contract_total", None)
+        or getattr(project, "contract_amount", None)
+    )
     model = calculate_phase4_model(
         transaction_price=transaction_price,
         external_revenue_documentary=_d(boundary.get("external_revenue")),
@@ -226,7 +257,12 @@ def build_project_accounting(db, project_id: int, *, cit_rate: Decimal = DEFAULT
     }
 
 
-def snapshot_project_accounting(db, project_id: int, *, cit_rate: Decimal = DEFAULT_CIT_RATE) -> dict[str, Any]:
+def snapshot_project_accounting(
+    db,
+    project_id: int,
+    *,
+    cit_rate: Decimal = DEFAULT_CIT_RATE,
+) -> dict[str, Any]:
     result = build_project_accounting(db, project_id, cit_rate=cit_rate)
     lineage = result["lineage"]
     existing = db.execute(
@@ -259,7 +295,8 @@ def snapshot_project_accounting(db, project_id: int, *, cit_rate: Decimal = DEFA
     db.execute(
         text(
             "INSERT INTO accounting_report_snapshots ("
-            "project_id, report_sequence, report_version, engine_version, fact_snapshot_hash, fact_versions_json, result_json"
+            "project_id, report_sequence, report_version, engine_version, "
+            "fact_snapshot_hash, fact_versions_json, result_json"
             ") VALUES ("
             ":project_id, :sequence, :report_version, :engine_version, :fact_hash, "
             "CAST(:fact_versions AS jsonb), CAST(:result AS jsonb))"
@@ -270,7 +307,11 @@ def snapshot_project_accounting(db, project_id: int, *, cit_rate: Decimal = DEFA
             "report_version": report_version,
             "engine_version": ENGINE_VERSION,
             "fact_hash": lineage["fact_snapshot_hash"],
-            "fact_versions": json.dumps(lineage["fact_versions"], ensure_ascii=False, default=str),
+            "fact_versions": json.dumps(
+                lineage["fact_versions"],
+                ensure_ascii=False,
+                default=str,
+            ),
             "result": json.dumps(result, ensure_ascii=False, default=str),
         },
     )
@@ -281,7 +322,8 @@ def list_accounting_snapshots(db, project_id: int) -> list[dict[str, Any]]:
     rows = db.execute(
         text(
             "SELECT report_version, engine_version, fact_snapshot_hash, created_at "
-            "FROM accounting_report_snapshots WHERE project_id=:project_id ORDER BY report_sequence DESC"
+            "FROM accounting_report_snapshots WHERE project_id=:project_id "
+            "ORDER BY report_sequence DESC"
         ),
         {"project_id": project_id},
     ).mappings().all()
