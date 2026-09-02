@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { DataStatus, EntityTaxLedgerRecord, SystemSettings } from '../types';
 import { DataStatusCard } from './DataStatusCard';
+import { EntityVatLineageDrawer } from './EntityVatLineageDrawer';
 
 type SortField =
   | 'entityName'
@@ -79,6 +80,7 @@ export function TaxLedgerView({
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
   const [rebuildYear, setRebuildYear] = useState(defaultYear);
   const [rebuildMonth, setRebuildMonth] = useState(defaultMonth);
+  const [lineageRecord, setLineageRecord] = useState<EntityTaxLedgerRecord | null>(null);
   const rebuildPeriod = `${rebuildYear}-${rebuildMonth}`;
 
   const handleSort = (field: SortField) => {
@@ -307,12 +309,13 @@ export function TaxLedgerView({
                 {sortableHeader('期末留抵', 'closingInputCredit')}
                 <th className="py-2.5 px-3 text-center">期间状态</th>
                 <th className="py-2.5 px-3 text-center">Run 状态</th>
+                <th className="py-2.5 px-3 text-center">溯源</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-[#444653]/20">
               {sortedRecords.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="py-8 text-center text-[#8e909f]">没有匹配的法人台账记录。</td>
+                  <td colSpan={11} className="py-8 text-center text-[#8e909f]">没有匹配的法人台账记录。</td>
                 </tr>
               ) : sortedRecords.map(record => (
                 <tr key={record.id} className="hover:bg-[#222a3d]/50 transition-colors">
@@ -329,12 +332,27 @@ export function TaxLedgerView({
                   <td className="py-2.5 px-3 text-right font-mono-num text-[#dae2fd]">{formatAmount(record.closingInputCredit)}</td>
                   <td className="py-2.5 px-3 text-center"><span className="inline-flex px-2 py-0.5 rounded-full text-[11px] border border-[#4cd7f6]/30 text-[#4cd7f6]">{record.periodState}</span></td>
                   <td className="py-2.5 px-3 text-center"><span className="inline-flex px-2 py-0.5 rounded-full text-[11px] border border-[#10B981]/30 text-[#10B981]">{record.runStatus}</span></td>
+                  <td className="py-2.5 px-3 text-center">
+                    <button
+                      type="button"
+                      onClick={() => setLineageRecord(record)}
+                      className="whitespace-nowrap text-[12px] font-medium text-[#4cd7f6] hover:underline"
+                    >
+                      血缘溯源
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
       </div>
+
+      <EntityVatLineageDrawer
+        open={lineageRecord !== null}
+        record={lineageRecord}
+        onClose={() => setLineageRecord(null)}
+      />
     </div>
   );
 }
