@@ -7,12 +7,27 @@ from fastapi.testclient import TestClient
 
 
 def _login(client: TestClient) -> None:
+    login_page = client.get("/login")
+    assert login_page.status_code == 200
+    csrf_token = client.cookies.get("tax_csrf")
+    assert csrf_token
+
     response = client.post(
         "/login",
-        data={"username": "admin", "password": "888888"},
+        data={
+            "username": "admin",
+            "password": "888888",
+            "_csrf": csrf_token,
+        },
+        headers={"Origin": "http://testserver"},
         follow_redirects=False,
     )
     assert response.status_code == 302
+    assert client.cookies.get("tax_session")
+    client.headers.update({
+        "Origin": "http://testserver",
+        "X-CSRF-Token": csrf_token,
+    })
 
 
 def _mock_endpoint_id(SessionLocal, AIModelEndpoint) -> int:
