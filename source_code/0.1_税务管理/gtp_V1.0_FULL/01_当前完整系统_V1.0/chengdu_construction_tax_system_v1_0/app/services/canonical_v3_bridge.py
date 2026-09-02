@@ -2,13 +2,17 @@
 
 The historical ``facts`` / ``invoice_facts`` / ``contract_facts`` /
 ``payment_facts`` tables remain available for audit and reconciliation only.
-Every production read generated here starts from ``canonical_facts``.
+Every production business-fact read generated here starts from
+``canonical_facts``. Legal-entity VAT results are read from the deterministic
+V3 calculation ledger, not recomputed from project aggregates.
 """
 from __future__ import annotations
 
 from datetime import date
 from decimal import Decimal
 from typing import Any
+
+from sqlalchemy import text
 
 from ..models import Project
 from .canonical_ledger import project_counterparties, project_ledger_bundle
@@ -33,7 +37,7 @@ def _fact_id(fact: dict[str, Any]) -> int:
 
 
 class CanonicalV3Bridge:
-    """Preserve V3 read endpoints while removing their second fact source."""
+    """Preserve V3 read endpoints while removing their second business fact source."""
 
     def __init__(self, db) -> None:
         self.db = db
@@ -128,6 +132,72 @@ class CanonicalV3Bridge:
             },
         }
 
+    def _official_entity_vat_ledger(
+        self,
+        reporting_party_id: int,
+        tax_period: date | None,
+    ) -> dict[str, Any] | None:
+        """Read the current SUCCEEDED V3 legal-entity VAT ledger."""
+        sql = """
+            SELECT
+                l.id,
+                l.calculation_run_id,
+                l.reporting_party_id,
+                l.tax_period,
+                l.opening_input_credit,
+                l.output_vat,
+                l.input_vat,
+                l.tax_prepayment,
+                l.vat_payable_before_prepayment,
+                l.closing_input_credit,
+                l.vat_payable_after_prepayment,
+                l.unapplied_tax_prepayment,
+                r.run_kind,
+                r.run_status,
+                r.ruleset_version,
+                r.input_snapshot_sha256,
+                r.result_sha256,
+                s.state AS period_state
+            FROM entity_vat_ledgers AS l
+            JOIN calculation_runs AS r
+              ON r.id = l.calculation_run_id
+            JOIN tax_period_states AS s
+              ON s.reporting_party_id = l.reporting_party_id
+             AND s.tax_type = 'VAT'
+             AND s.tax_period = l.tax_period
+             AND s.current_run_id = l.calculation_run_id
+            WHERE l.reporting_party_id = :reporting_party_id
+              AND r.tax_type = 'VAT'
+              AND r.run_status = 'SUCCEEDED'
+        """
+        params: dict[str, Any] = {"reporting_party_id": int(reporting_party_id)}
+        if tax_period is not None:
+            sql += " AND l.tax_period = :tax_period"
+            params["tax_period"] = tax_period
+        sql += " ORDER BY l.tax_period DESC, l.calculation_run_id DESC LIMIT 1"
+
+        row = self.db.execute(text(sql), params).mappings().first()
+        if row is None:
+            return None
+
+        result = dict(row)
+        result["scope"] = "LEGAL_ENTITY"
+        result["is_filing_basis"] = True
+        result["source_of_truth"] = "entity_vat_ledgers"
+        result["legal_entity_vat_identity_ok"] = (
+            _d(result["vat_payable_before_prepayment"]) == max(
+                _d(result["output_vat"])
+                - _d(result["input_vat"])
+                - _d(result["opening_input_credit"]),
+                Decimal("0"),
+            )
+            and not (
+                _d(result["vat_payable_before_prepayment"]) > 0
+                and _d(result["closing_input_credit"]) > 0
+            )
+        )
+        return result
+
     def tax(
         self,
         project_id: int,
@@ -137,6 +207,11 @@ class CanonicalV3Bridge:
     ) -> dict[str, Any]:
         self._project(project_id)
         accounting = build_project_accounting(self.db, int(project_id))
+        official_vat = (
+            self._official_entity_vat_ledger(reporting_party_id, tax_period)
+            if reporting_party_id is not None
+            else None
+        )
         return {
             "project_id": int(project_id),
             "data_source": "CANONICAL_FACTS",
@@ -147,6 +222,14 @@ class CanonicalV3Bridge:
             "recognition": accounting["recognition"],
             "accruals": accounting["accruals"],
             "book_tax": accounting["book_tax"],
+            "entity_vat_ledger": official_vat,
+            "entity_vat_ledger_status": (
+                "READY"
+                if official_vat is not None
+                else "NOT_REQUESTED"
+                if reporting_party_id is None
+                else "NO_CURRENT_SUCCEEDED_LEDGER"
+            ),
             "lineage": accounting["lineage"],
         }
 

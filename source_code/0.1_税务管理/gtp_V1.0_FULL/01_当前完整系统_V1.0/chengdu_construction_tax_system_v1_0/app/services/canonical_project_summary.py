@@ -35,11 +35,7 @@ def resolve_project_transaction_price(
     *,
     contract_facts: Iterable[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    """Resolve project revenue transaction price from Canonical contract facts.
-
-    ``contract_facts`` is an optional deterministic fact view used by accounting
-    period cutoffs. Omitting it preserves the historical project-to-date path.
-    """
+    """Resolve project revenue transaction price from Canonical contract facts."""
     internal_codes = {
         _code(code)
         for code in db.execute(text("SELECT code FROM entities WHERE active = TRUE")).scalars().all()
@@ -167,17 +163,8 @@ def canonical_project_summary(db, project_id: int) -> dict[str, Any]:
     recognized_revenue = _decimal(accounting["recognition"]["recognized_revenue"])
     accounting_profit = _decimal(accounting["book_tax"]["accounting_profit"])
     completion = _decimal(accounting["recognition"]["completion_percent"])
-    vat = Decimal("0")
-    for fact in invoice_facts:
-        payload = _payload(fact.get("payload"))
-        seller = _code(payload.get("seller_entity_code") or payload.get("seller_code"))
-        buyer = _code(payload.get("buyer_entity_code") or payload.get("buyer_code"))
-        amount = _decimal(payload.get("vat_amount"))
-        if seller in internal_codes and buyer not in internal_codes:
-            vat += amount
-        elif seller not in internal_codes and buyer in internal_codes and payload.get("deductible") is True:
-            vat -= amount
-    vat = max(Decimal("0"), vat)
+
+    vat = _decimal(boundary.get("signed_vat_position"))
 
     remaining_budget = max(Decimal("0"), contract_total - external_cash_out) if contract_total > 0 else Decimal("0")
     funding_progress = (external_cash_out / contract_total) if contract_total > 0 else Decimal("0")
@@ -193,6 +180,15 @@ def canonical_project_summary(db, project_id: int) -> dict[str, Any]:
         "profit": accounting_profit,
         "margin": margin,
         "vat": vat,
+        "vat_scope": "PROJECT_BOUNDARY",
+        "vat_is_filing_basis": False,
+        "boundary_output_vat": _decimal(boundary.get("boundary_output_vat")),
+        "boundary_input_vat": _decimal(boundary.get("boundary_input_vat")),
+        "deductible_input_vat": _decimal(boundary.get("deductible_input_vat")),
+        "nondeductible_input_vat": _decimal(boundary.get("nondeductible_input_vat")),
+        "pending_input_vat": _decimal(boundary.get("pending_input_vat")),
+        "internal_eliminated_vat": _decimal(boundary.get("internal_eliminated_vat")),
+        "input_vat_identity_ok": bool(boundary.get("input_vat_identity_ok")),
         "progress": completion,
         "eac": None,
         "eac_profit": None,
