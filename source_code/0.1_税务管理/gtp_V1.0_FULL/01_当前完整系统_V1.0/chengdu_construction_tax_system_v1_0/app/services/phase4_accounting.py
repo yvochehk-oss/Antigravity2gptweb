@@ -334,11 +334,26 @@ def snapshot_project_accounting(db, project_id: int, *, cit_rate: Decimal = DEFA
     return payload
 
 
+def list_accounting_snapshots(db, project_id: int) -> list[dict[str, Any]]:
+    rows = db.execute(
+        text(
+            "SELECT report_version, engine_version, fact_snapshot_hash, "
+            "calculation_parameters_hash, calculation_parameters_json, created_at "
+            "FROM accounting_report_snapshots WHERE project_id=:project_id "
+            "ORDER BY report_sequence DESC"
+        ),
+        {"project_id": project_id},
+    ).mappings().all()
+    return [dict(row) for row in rows]
+
+
 __all__ = [
     "ENGINE_VERSION",
     "DEFAULT_CIT_RATE",
     "build_project_accounting",
     "calculate_phase4_model",
+    "calculation_parameters_hash",
     "fact_snapshot_hash",
+    "list_accounting_snapshots",
     "snapshot_project_accounting",
 ]
