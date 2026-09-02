@@ -466,19 +466,20 @@ export async function syncRagBatch(input: {
   const syncTypes = [...new Set(input.syncTypes)];
   if (syncTypes.length < 2) throw new ApiError('批量同步至少需要选择两类凭证。', 400);
   syncTypes.forEach(assertSyncType);
-  const payload = await postJson<unknown>('/rag-sync/sync-batch', {
+  const payload = await postJson<unknown>('/rag-sync/sync-and-recompute', {
     project_id: input.projectId,
     rag_project_id: input.ragProjectId,
     extract_types: syncTypes,
   }, input.signal);
   const data = asRecord(payload);
   const projectId = positiveInteger(data?.project_id);
-  if (!projectId || !Array.isArray(data?.results)) {
+  const rawResults = Array.isArray(data?.sync_results) ? data.sync_results : (Array.isArray(data?.results) ? data.results : []);
+  if (!projectId || !rawResults.length) {
     throw new ApiError('RAG 批量同步结果格式不完整。', 502, payload);
   }
   return {
     projectId,
-    results: data.results.map(result => parseRagSyncResult(result, { allowBatchFailureSentinel: true })),
+    results: rawResults.map(result => parseRagSyncResult(result, { allowBatchFailureSentinel: true })),
   };
 }
 
