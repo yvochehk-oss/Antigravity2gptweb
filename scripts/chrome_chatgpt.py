@@ -1045,7 +1045,7 @@ def format_evidence_payload(task_type: str, context_text: str,
     elif task_type == "review":
         return f"【CODE_AND_ARCHITECTURE_REVIEW】\n[Local State]: {git_ctx}\n[Browser]: chrome\n[Review Target]:\n{context_text}\n\n请从系统解耦、安全性、边界与性能给出评审意见。"
     elif task_type == "task-code":
-        return f"""【TASK_CODE_IMPLEMENTATION】\n[Local State]: {git_ctx}\n[Browser]: chrome\n[Task to Implement]:\n{context_text}\n\n请完成此任务的代码实现。\n\n【输出格式要求】（严格遵守，否则无法解析）：\n1. 每个代码文件用以下格式开头（紧跟 ``` 后）：\n   `<filepath: 相对于项目根目录的路径>`\n   例如：`filepath: src/auth/jwt.py`\n   新建文件：`filepath: NEW: src/auth/jwt.py`\n2. 禁止在代码块外写任何代码。\n3. 测试命令用以下格式（放在单独的 bash 块中）：\n   `TEST: <实际命令>`\n   `EXPECTED: <预期结果描述>`\n4. 如果任务涉及多文件，请按依赖顺序排列。\n5. 只输出代码和测试命令，不要写说明文字。"""
+        return f"""【TASK_CODE_IMPLEMENTATION】\n[Local State]: {git_ctx}\n[Browser]: chrome\n[Task to Implement]:\n{context_text}\n\n请完成此任务的代码实现并直接推送到 GitHub 目标分支。\n\n【输出格式要求】（严格遵守，否则无法解析）：\n1. 代码直接使用 GitHub 直连工具在远端分支修改并提交。\n2. 禁止在回复中粘贴代码全文。\n3. 测试命令用以下格式（放在单独的 bash 块中）：\n   `TEST: <实际命令>`\n   `EXPECTED: <预期结果描述>`\n4. 如果任务涉及多文件，请按依赖顺序排列。\n5. 只测试命令，不要输出代码，不要写说明文字。"""
     elif task_type == "task-review":
         return f"【TASK_CODE_REVIEW】\n[Local State]: {git_ctx}\n[Browser]: chrome\n[Task Description]:\n{context_text}\n\n[Evidence ({level})]:\n{evidence_snippet}\n\n请基于上述代码和测试结果做出裁决。只输出以下三种格式之一，不得输出其他内容：\n  APPROVED  — 代码符合任务要求，测试全部通过。\n  NEEDS_FIX — 代码有问题，测试失败或不符合要求。请明确说明：\n              (1) 失败原因\n              (2) 需要修改的文件和具体修改方案\n  BLOCKED   — 任务依赖前置条件未满足（如缺少依赖、配置错误等）。请说明阻塞原因。\n\n【注意】请严格只输出 APPROVED / NEEDS_FIX(...)/ BLOCKED(...) 其一，不要写其他文字。"
     return context_text

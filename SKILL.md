@@ -64,6 +64,11 @@ description: 双层混合 Agent 系统：以 Safari/Chrome ChatGPT 网页端 Cus
          - 模块 A：source_code/.../moduleA
          - 模块 B：source_code/.../moduleB
       ```
+11. **【执行计划单步流式推进与闭环核准契约 (Step-by-Step Plan Execution & Approval Contract) - P0】**：
+    - **严禁打包批量推送**：当任务已有详细执行计划（如包含多个原子 Commit / 步骤）时，本地 Agent **绝对严禁**一次性将整个多步计划打包发送给 GPT，必须严格按照计划**一条一条地**单步推进。
+    - **GPT 提交后必附检验命令**：GPT 使用 GitHub 直连工具在远端完成该单步的修改与推送后，必须按规范显式给出本地检验命令（`TEST: <命令>` / `EXPECTED: <预期断言与退出码>`）。
+    - **本地 Agent 严格执行检验并回传日志**：本地 Agent 执行 `git pull` 同步最新代码后，**必须先完整跑完 GPT 给出的检验命令**，收集标准输出、错误日志与退出码，并通过 bridge 将检验结果回传给 GPT 审查。
+    - **GPT 裁决同意后方可推进下一条**：只有当 GPT 审查本地真实测试证据并显式输出 `APPROVED` 确认后，本地 Agent 方可将计划中的**下一条**任务发送给 GPT；未获同意前必须在当前任务内闭环返工，严禁跨步骤抢跑。
 
 ### 标准调用模式
 
