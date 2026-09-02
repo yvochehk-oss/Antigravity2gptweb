@@ -2372,7 +2372,7 @@ def sync_and_recompute(body: SyncAndRecomputeRequest, request: Request):
         try:
             from ..calc.tax import rebuild_tax_ledger
             for period in sorted_periods:
-                rebuild_tax_ledger(db, period)
+                rebuild_tax_ledger(db, period, commit=False)
         except Exception as e:
             _LOGGER.warning("sync_and_recompute_rebuild_ledger_warn: %s", e)
 

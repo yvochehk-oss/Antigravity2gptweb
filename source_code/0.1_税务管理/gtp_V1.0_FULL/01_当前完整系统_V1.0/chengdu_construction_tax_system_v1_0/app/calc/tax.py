@@ -285,7 +285,7 @@ def _lock_tax_ledger_period(db: Session, period: str) -> None:
     )
 
 
-def rebuild_tax_ledger(db: Session, period: str) -> list[TaxLedger]:
+def rebuild_tax_ledger(db: Session, period: str, *, commit: bool = True) -> list[TaxLedger]:
     """重建指定期间的法人月度管理税务台账。
 
     The ledger always contains every active internal legal entity, including
@@ -380,9 +380,13 @@ def rebuild_tax_ledger(db: Session, period: str) -> list[TaxLedger]:
                 generated=True,
             )
             db.add(ledger)
-        db.commit()
+        if commit:
+            db.commit()
+        else:
+            db.flush()
     except Exception:
-        db.rollback()
+        if commit:
+            db.rollback()
         raise
 
     # Cache invalidation is not part of the source-of-truth transaction.  A
