@@ -765,7 +765,7 @@ def project_tax_analysis(
     entity_code: str | None = Query(default=None, min_length=1, max_length=64),
     _user=_reader_dependency,
 ) -> dict[str, Any]:
-    """Project tax analysis is computed only from rows carrying project_id."""
+    """Project analysis exposes explicit scope semantics and is never a filing basis."""
     if project_id is None:
         raise HTTPException(
             status_code=422,
@@ -791,7 +791,6 @@ def project_tax_analysis(
         )
 
         has_data = int(summary["invoice_count"]) > 0
-
         items: list[dict[str, Any]] = []
 
         if has_data:
@@ -803,11 +802,21 @@ def project_tax_analysis(
                     "period": period or "",
                     "entity": wanted_entity,
                     "entity_code": wanted_entity,
+                    "scope": summary["scope"],
+                    "is_filing_basis": bool(summary["is_filing_basis"]),
                     "out_invoice_net": summary["out_invoice_net"],
                     "out_invoice_vat": summary["out_invoice_vat"],
                     "in_invoice_net": summary["in_invoice_net"],
                     "in_invoice_vat": summary["in_invoice_vat"],
                     "deductible_input_vat": summary["deductible_input_vat"],
+                    "nondeductible_input_vat": summary["nondeductible_input_vat"],
+                    "pending_input_vat": summary["pending_input_vat"],
+                    "signed_vat_position": summary["signed_vat_position"],
+                    "internal_eliminated_net": summary["internal_eliminated_net"],
+                    "internal_eliminated_vat": summary["internal_eliminated_vat"],
+                    "input_vat_accounted": summary["input_vat_accounted"],
+                    "input_vat_unaccounted": summary["input_vat_unaccounted"],
+                    "input_vat_identity_ok": bool(summary["input_vat_identity_ok"]),
                     "real_cost": summary["real_cost"],
                     "invoice_count": summary["invoice_count"],
                     "source_of_truth": summary["source_of_truth"],
@@ -828,6 +837,8 @@ def project_tax_analysis(
             ),
             "period": period or "",
             "entity": wanted_entity,
+            "scope": summary["scope"],
+            "is_filing_basis": bool(summary["is_filing_basis"]),
             "items": items,
             "total": len(items),
             "source_of_truth": summary["source_of_truth"],
