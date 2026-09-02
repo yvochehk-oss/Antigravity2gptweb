@@ -1,3 +1,4 @@
+import type { ComponentProps } from 'react';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { EntityTaxLedgerRecord, ProjectItem, RiskEvent } from '../types';
@@ -75,8 +76,8 @@ const risks = [
   },
 ] as RiskEvent[];
 
-function renderDashboard(overrides: Partial<React.ComponentProps<typeof DashboardView>> = {}) {
-  const props: React.ComponentProps<typeof DashboardView> = {
+function renderDashboard(overrides: Partial<ComponentProps<typeof DashboardView>> = {}) {
+  const props: ComponentProps<typeof DashboardView> = {
     projects,
     dataStatus: 'READY',
     dataStatusMessage: '项目已就绪',
