@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { TaxPlanningView } from './TaxPlanningView';
 import type { ProjectItem } from '../types';
@@ -58,7 +59,8 @@ beforeEach(() => {
 
 describe('TaxPlanningView scenario execution contract', () => {
   it('contains no synthetic preset registry or default preset fallback', () => {
-    const source = readFileSync(new URL('./TaxPlanningView.tsx', import.meta.url), 'utf8');
+    const sourcePath = resolve(process.cwd(), 'src/components/TaxPlanningView.tsx');
+    const source = readFileSync(sourcePath, 'utf8');
     expect(source.includes('PROJECT_PACKAGE_PRESETS')).toBe(false);
     expect(source.includes('DEFAULT_PRESETS')).toBe(false);
     expect(source.includes('PackagePreset')).toBe(false);
