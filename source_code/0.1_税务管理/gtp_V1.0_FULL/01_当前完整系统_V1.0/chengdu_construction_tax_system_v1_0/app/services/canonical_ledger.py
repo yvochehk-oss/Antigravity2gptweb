@@ -370,3 +370,130 @@ def project_ledger_bundle(db, project_id: int) -> dict[str, Any]:
         },
         "boundary": boundary,
     }
+
+
+def _canonical_invoice_period(payload: dict[str, Any]) -> str:
+    explicit = _clean(payload.get("period"))
+    if len(explicit) == 7 and explicit[4] == "-":
+        return explicit
+
+    invoice_date = _clean(payload.get("invoice_date"))
+    if len(invoice_date) >= 7 and invoice_date[4] == "-":
+        return invoice_date[:7]
+
+    return ""
+
+
+def project_tax_analysis_summary(
+    db,
+    project_id: int,
+    *,
+    period: str | None = None,
+    entity_code: str | None = None,
+) -> dict[str, Any]:
+    """Project tax projection backed only by accepted/current Canonical Facts."""
+
+    _names, internal_codes, _external_codes = _party_master(db)
+    facts = load_current_facts(db, int(project_id), "invoice")
+
+    wanted_entity = _code(entity_code) if entity_code else ""
+
+    out_invoice_net = Decimal("0")
+    out_invoice_vat = Decimal("0")
+    in_invoice_net = Decimal("0")
+    in_invoice_vat = Decimal("0")
+    deductible_input_vat = Decimal("0")
+    real_cost = Decimal("0")
+
+    invoice_count = 0
+    included_fact_ids: list[int] = []
+    data_gaps: set[str] = set()
+
+    for fact in facts:
+        payload = _payload(fact.get("payload"))
+
+        seller = _code(
+            payload.get("seller_entity_code")
+            or payload.get("seller_code")
+        )
+        buyer = _code(
+            payload.get("buyer_entity_code")
+            or payload.get("buyer_code")
+        )
+
+        # Canonical invoice Facts without both parties cannot safely
+        # participate in a deterministic project tax projection.
+        if not seller or not buyer:
+            data_gaps.add("CANONICAL_INVOICE_PARTY_MISSING")
+            continue
+
+        if wanted_entity and wanted_entity not in {seller, buyer}:
+            continue
+
+        if period:
+            fact_period = _canonical_invoice_period(payload)
+            if not fact_period:
+                data_gaps.add("CANONICAL_INVOICE_PERIOD_MISSING")
+                continue
+            if fact_period != period:
+                continue
+
+        net = _decimal(payload.get("net_amount"))
+        vat = _decimal(payload.get("vat_amount"))
+
+        if net == 0 and payload.get("total_amount") is not None:
+            net = _decimal(payload.get("total_amount")) - vat
+
+        deductible = payload.get("deductible") is True
+
+        seller_in_scope = (
+            seller in internal_codes
+            and (not wanted_entity or seller == wanted_entity)
+        )
+        buyer_in_scope = (
+            buyer in internal_codes
+            and (not wanted_entity or buyer == wanted_entity)
+        )
+
+        # Internal -> internal contributes once to each legal-side
+        # project projection: output for seller and input for buyer.
+        if seller_in_scope:
+            out_invoice_net += net
+            out_invoice_vat += vat
+
+        if buyer_in_scope:
+            in_invoice_net += net
+            in_invoice_vat += vat
+            if deductible:
+                deductible_input_vat += vat
+
+        # Real cost follows the canonical economic boundary rule:
+        # external seller -> internal buyer only.
+        if buyer_in_scope and seller not in internal_codes:
+            real_cost += net
+            if not deductible:
+                real_cost += vat
+
+        if seller_in_scope or buyer_in_scope:
+            invoice_count += 1
+            included_fact_ids.append(int(fact.get("fact_id") or 0))
+
+    return {
+        "status": "DEGRADED" if data_gaps else "READY",
+        "project_id": int(project_id),
+        "period": period or "",
+        "entity_code": wanted_entity or None,
+        "out_invoice_net": _number(out_invoice_net),
+        "out_invoice_vat": _number(out_invoice_vat),
+        "in_invoice_net": _number(in_invoice_net),
+        "in_invoice_vat": _number(in_invoice_vat),
+        "deductible_input_vat": _number(deductible_input_vat),
+        "real_cost": _number(real_cost),
+        "invoice_count": invoice_count,
+        "fact_ids": included_fact_ids,
+        "data_gaps": sorted(data_gaps),
+        "source_of_truth": _CANONICAL_SOURCE,
+        "legacy_tables_used": False,
+        "real_cost_basis": "external_boundary_invoice_cost",
+        "read_only": True,
+    }

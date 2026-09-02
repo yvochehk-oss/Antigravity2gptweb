@@ -1,4 +1,5 @@
 import {
+  DataStatus,
   AiAttemptSummary,
   AiEndpointMetadata,
   AiExecutionMetadata,
@@ -21,6 +22,8 @@ import {
   RagSyncType,
   RiskEvent,
   TaxLedgerRecord,
+  EntityTaxLedgerRecord,
+  ProjectTaxAnalysisRecord,
 } from './types';
 
 export class ApiError extends Error {
@@ -887,24 +890,190 @@ function parseTaxLedgerRecord(value: unknown): TaxLedgerRecord | null {
   };
 }
 
-/** Read the deterministic Tax ledger collection without triggering a rebuild. */
-export async function fetchTaxLedger(
+function parseEntityTaxLedgerRecord(payload: unknown): EntityTaxLedgerRecord | null {
+  const data = asRecord(payload);
+  if (!data) return null;
+  const entityCode = String(data.entity_code ?? data.entityCode ?? '').trim();
+  const period = String(data.period ?? '').trim();
+  if (!entityCode || !period) return null;
+
+  return {
+    id: String(data.id ?? `${entityCode}-${period}`),
+    period,
+    entityCode,
+    entityName: String(data.entity_name ?? data.entityName ?? entityCode),
+    businessRole: String(data.business_role ?? data.businessRole ?? ''),
+    legalEntity: data.legal_entity === true || data.legalEntity === true,
+
+    outputVat: toFiniteNumber(data.output_vat ?? data.outputVat),
+    inputVat: toFiniteNumber(data.input_vat ?? data.inputVat),
+    vatPayable: toFiniteNumber(data.vat_payable ?? data.vatPayable),
+
+    revenue: toFiniteNumber(data.revenue),
+    realCost: toFiniteNumber(data.real_cost ?? data.realCost),
+    estimatedProfit: toFiniteNumber(data.estimated_profit ?? data.estimatedProfit),
+    estimatedCit: toFiniteNumber(data.estimated_cit ?? data.estimatedCit),
+    citNote: String(data.cit_note ?? data.citNote ?? ''),
+
+    generated: data.generated === true,
+    dataStatus: (data.data_status ?? data.dataStatus ?? 'READY') as DataStatus,
+    dataGaps: Array.isArray(data.data_gaps) ? data.data_gaps.map(String) : [],
+    trusted: data.trusted === true,
+    updateTime: String(data.update_time ?? data.updateTime ?? ''),
+  };
+}
+
+function parseProjectTaxAnalysisRecord(payload: unknown): ProjectTaxAnalysisRecord | null {
+  const data = asRecord(payload);
+  if (!data) return null;
+  const projectId = toFiniteNumber(data.project_id ?? data.projectId);
+  if (projectId <= 0) return null;
+
+  return {
+    projectId,
+    projectCode: String(data.project_code ?? data.projectCode ?? ''),
+    projectName: String(data.project_name ?? data.projectName ?? ''),
+    period: String(data.period ?? ''),
+    entityCode: data.entity_code ? String(data.entity_code) : (data.entity ? String(data.entity) : null),
+
+    outInvoiceNet: toFiniteNumber(data.out_invoice_net ?? data.outInvoiceNet),
+    outInvoiceVat: toFiniteNumber(data.out_invoice_vat ?? data.outInvoiceVat),
+    inInvoiceNet: toFiniteNumber(data.in_invoice_net ?? data.inInvoiceNet),
+    inInvoiceVat: toFiniteNumber(data.in_invoice_vat ?? data.inInvoiceVat),
+    deductibleInputVat: toFiniteNumber(data.deductible_input_vat ?? data.deductibleInputVat),
+    realCost: toFiniteNumber(data.real_cost ?? data.realCost),
+    invoiceCount: toFiniteNumber(data.invoice_count ?? data.invoiceCount),
+
+    sourceOfTruth: String(data.source_of_truth ?? data.sourceOfTruth ?? ''),
+    legacyTablesUsed: data.legacy_tables_used === true || data.legacyTablesUsed === true,
+    realCostBasis: String(data.real_cost_basis ?? data.realCostBasis ?? ''),
+    dataGaps: Array.isArray(data.data_gaps) ? data.data_gaps.map(String) : [],
+  };
+}
+
+export async function fetchEntityTaxLedger(
+  signal?: AbortSignal,
+): Promise<{
+  status: DataStatus;
+  message: string;
+  items: EntityTaxLedgerRecord[];
+}> {
+  const allItems: EntityTaxLedgerRecord[] = [];
+  let page = 1;
+  let overallStatus: DataStatus = 'READY';
+  let message = '';
+
+  for (;;) {
+    const query = new URLSearchParams({
+      page: String(page),
+      page_size: '100',
+    });
+
+    const payload = await fetchJson<unknown>(
+      `/api/entity-tax-ledger?${query.toString()}`,
+      { signal },
+    );
+
+    const data = asRecord(payload);
+
+    if (
+      !data ||
+      typeof data.status !== 'string' ||
+      !Array.isArray(data.items)
+    ) {
+      throw new ApiError(
+        '法人税务台账接口返回格式不完整。',
+        502,
+        payload,
+      );
+    }
+
+    if (data.status !== 'READY') {
+      overallStatus = 'DEGRADED';
+    }
+
+    if (!message && typeof data.message === 'string') {
+      message = data.message;
+    }
+
+    for (const raw of data.items) {
+      const item = parseEntityTaxLedgerRecord(raw);
+      if (item) allItems.push(item);
+    }
+
+    if (data.has_more !== true) break;
+
+    page += 1;
+
+    if (page > 1000) {
+      throw new ApiError(
+        '法人税务台账分页异常，已停止继续读取。',
+        502,
+        payload,
+      );
+    }
+  }
+
+  return {
+    status: overallStatus,
+    message,
+    items: allItems,
+  };
+}
+
+export async function fetchProjectTaxAnalysis(
   projectId: number,
   signal?: AbortSignal,
-): Promise<TaxLedgerCollectionResponse> {
-  if (!positiveInteger(projectId)) throw new ApiError('缺少有效的 Tax 项目 ID。', 400);
-  const query = new URLSearchParams({ project_id: String(projectId), page_size: '100' });
-  const payload = await fetchJson<unknown>(`/api/tax-ledger?${query.toString()}`, { signal });
-  const data = asRecord(payload);
-  if (!data || typeof data.status !== 'string' || !Array.isArray(data.items)) {
-    throw new ApiError('Tax 台账接口返回格式不完整。', 502, payload);
+  period?: string,
+): Promise<{
+  status: DataStatus;
+  message: string;
+  item: ProjectTaxAnalysisRecord | null;
+}> {
+  if (!positiveInteger(projectId)) {
+    throw new ApiError('缺少有效的 Tax 项目 ID。', 400);
   }
+
+  const query = new URLSearchParams({
+    project_id: String(projectId),
+  });
+
+  if (period) query.set('period', period);
+
+  const payload = await fetchJson<unknown>(
+    `/api/project-tax-analysis?${query.toString()}`,
+    { signal },
+  );
+
+  const data = asRecord(payload);
+
+  if (
+    !data ||
+    !['READY', 'DEGRADED'].includes(String(data.status)) ||
+    !Array.isArray(data.items)
+  ) {
+    throw new ApiError(
+      '项目税务分析接口返回格式不完整。',
+      502,
+      payload,
+    );
+  }
+
+  if (data.items.length > 1) {
+    throw new ApiError(
+      '项目税务分析返回了非预期的多条汇总结果。',
+      502,
+      payload,
+    );
+  }
+
   return {
-    status: data.status,
+    status: data.status as DataStatus,
     message: typeof data.message === 'string' ? data.message : '',
-    items: data.items.map(parseTaxLedgerRecord).filter((item): item is TaxLedgerRecord => item !== null),
-    total: toFiniteNumber(data.total),
-    hasMore: data.has_more === true,
+    item:
+      data.items.length === 0
+        ? null
+        : parseProjectTaxAnalysisRecord(data.items[0]),
   };
 }
 

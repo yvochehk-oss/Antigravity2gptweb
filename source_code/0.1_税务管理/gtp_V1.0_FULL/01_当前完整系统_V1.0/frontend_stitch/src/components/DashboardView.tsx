@@ -1,6 +1,6 @@
 import { Building2, Download, ExternalLink, ShieldAlert, Wallet } from 'lucide-react';
 import { DataStatusCard } from './DataStatusCard';
-import { ProjectItem, DataStatus, RiskEvent, SystemSettings } from '../types';
+import { ProjectItem, DataStatus, RiskEvent, SystemSettings, EntityTaxLedgerRecord } from '../types';
 
 interface DashboardViewProps {
   projects: ProjectItem[];
@@ -15,6 +15,7 @@ interface DashboardViewProps {
   riskStatusMessage: string;
   taxLedgerStatus: DataStatus;
   taxLedgerStatusMessage: string;
+  taxLedgerRecords?: EntityTaxLedgerRecord[];
   settings?: SystemSettings;
 }
 
@@ -36,12 +37,12 @@ export function DashboardView({
   riskStatusMessage,
   taxLedgerStatus,
   taxLedgerStatusMessage,
+  taxLedgerRecords = [],
 }: DashboardViewProps) {
   const totalContract = projects.reduce((sum, project) => sum + project.totalBudget, 0);
   const totalCost = projects.reduce((sum, project) => sum + project.spentAmount, 0);
   const totalProfitBase = totalContract - totalCost;
-  const taxLedgerRecords = projects.flatMap(project => project.taxRecords);
-  const taxLedgerAmount = taxLedgerRecords.reduce((sum, record) => sum + record.taxAmount, 0);
+  const taxLedgerAmount = taxLedgerRecords.reduce((sum, record) => sum + record.vatPayable, 0);
   const unresolvedRiskCount = riskEvents.filter(risk => risk.status !== '已闭环').length;
   const hasTaxLedgerData = taxLedgerStatus === 'READY' || taxLedgerRecords.length > 0;
   const hasRiskData = riskStatus === 'READY' || riskEvents.length > 0;
@@ -129,11 +130,11 @@ export function DashboardView({
                     <p className="text-[22px] font-bold text-[#dae2fd] mt-1">{hasTaxLedgerData ? taxLedgerRecords.length : '—'}</p>
                   </div>
                   <div>
-                    <p className="text-[11px] text-[#8e909f]">taxAmount 合计</p>
+                    <p className="text-[11px] text-[#8e909f]">法人台账应纳 VAT 合计</p>
                     <p className="text-[17px] font-bold text-[#dae2fd] mt-1 break-all">{hasTaxLedgerData ? formatAmount(taxLedgerAmount) : '—'}</p>
                   </div>
                 </div>
-                <p className="text-[11px] text-[#8e909f] mt-3 leading-relaxed">仅为 /api/tax-ledger 返回值汇总，不等同最终增值税结论。</p>
+                <p className="text-[11px] text-[#8e909f] mt-3 leading-relaxed">按当前已加载法人月度台账记录汇总，不等同项目税负。</p>
                 <p className="text-[11px] text-[#c4c5d5] mt-2 leading-relaxed">{taxLedgerStatusMessage}</p>
                 <span className="inline-block mt-3 text-[10px] font-bold px-2 py-1 rounded border border-[#F59E0B]/30 text-[#F59E0B]">{taxLedgerStatus}</span>
               </div>

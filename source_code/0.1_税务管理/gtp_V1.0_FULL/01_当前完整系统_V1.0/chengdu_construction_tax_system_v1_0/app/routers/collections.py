@@ -6,6 +6,8 @@ the frontend can distinguish an empty result from a dependency failure.
 """
 from __future__ import annotations
 
+from app.services.canonical_ledger import project_tax_analysis_summary
+
 import logging
 import re
 from datetime import datetime, timezone
@@ -781,39 +783,17 @@ def project_tax_analysis(
         if project is None:
             raise HTTPException(status_code=404, detail=f"项目不存在：project_id={project_id}")
 
-        inv_filters = [Invoice.project_id == project_id]
-        rc_filters = [RealCost.project_id == project_id]
-        if period:
-            inv_filters.append(Invoice.period == period)
-            rc_filters.append(RealCost.period == period)
-        if wanted_entity:
-            inv_filters.append(Invoice.entity_code == wanted_entity)
-            rc_filters.append(RealCost.entity_code == wanted_entity)
+        summary = project_tax_analysis_summary(
+            db,
+            project_id,
+            period=period,
+            entity_code=wanted_entity,
+        )
 
-        totals = db.execute(
-            select(
-                func.coalesce(func.sum(case((Invoice.direction == "out", Invoice.net), else_=0)), 0),
-                func.coalesce(func.sum(case((Invoice.direction == "out", Invoice.vat), else_=0)), 0),
-                func.coalesce(func.sum(case((Invoice.direction == "in", Invoice.net), else_=0)), 0),
-                func.coalesce(func.sum(case((Invoice.direction == "in", Invoice.vat), else_=0)), 0),
-                func.coalesce(
-                    func.sum(
-                        case(
-                            ((Invoice.direction == "in") & (Invoice.deductible.is_(True)), Invoice.vat),
-                            else_=0,
-                        )
-                    ),
-                    0,
-                ),
-                func.count(Invoice.id),
-            ).where(*inv_filters)
-        ).one()
-        real_cost = db.scalar(
-            select(func.coalesce(func.sum(RealCost.amount), 0)).where(*rc_filters)
-        ) or 0
+        has_data = int(summary["invoice_count"]) > 0
 
-        has_data = int(totals[5] or 0) > 0 or _number(real_cost) != 0.0
         items: list[dict[str, Any]] = []
+
         if has_data:
             items.append(
                 {
@@ -823,22 +803,36 @@ def project_tax_analysis(
                     "period": period or "",
                     "entity": wanted_entity,
                     "entity_code": wanted_entity,
-                    "out_invoice_net": _number(totals[0]),
-                    "out_invoice_vat": _number(totals[1]),
-                    "in_invoice_net": _number(totals[2]),
-                    "in_invoice_vat": _number(totals[3]),
-                    "deductible_input_vat": _number(totals[4]),
-                    "real_cost": _number(real_cost),
-                    "invoice_count": int(totals[5] or 0),
+                    "out_invoice_net": summary["out_invoice_net"],
+                    "out_invoice_vat": summary["out_invoice_vat"],
+                    "in_invoice_net": summary["in_invoice_net"],
+                    "in_invoice_vat": summary["in_invoice_vat"],
+                    "deductible_input_vat": summary["deductible_input_vat"],
+                    "real_cost": summary["real_cost"],
+                    "invoice_count": summary["invoice_count"],
+                    "source_of_truth": summary["source_of_truth"],
+                    "legacy_tables_used": False,
+                    "real_cost_basis": summary["real_cost_basis"],
+                    "data_gaps": summary["data_gaps"],
                 }
             )
+
         return {
-            "status": "READY",
-            "message": "" if items else "项目在该期间/主体下暂无税务分析数据。",
+            "status": summary["status"],
+            "message": (
+                "项目 Canonical Facts 存在数据缺口，请核查后再作为完整税务分析依据。"
+                if summary["status"] != "READY"
+                else ""
+                if items
+                else "项目在该期间/主体下暂无已验收的税务分析事实。"
+            ),
             "period": period or "",
             "entity": wanted_entity,
             "items": items,
             "total": len(items),
+            "source_of_truth": summary["source_of_truth"],
+            "legacy_tables_used": False,
+            "data_gaps": summary["data_gaps"],
         }
     except HTTPException:
         db.rollback()

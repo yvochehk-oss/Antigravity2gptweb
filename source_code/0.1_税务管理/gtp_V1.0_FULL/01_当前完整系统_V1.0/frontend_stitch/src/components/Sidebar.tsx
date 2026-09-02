@@ -27,7 +27,7 @@ export function Sidebar({ currentTab, onSelectTab, unresolvedRiskCount, aiModelS
   const menuItems = [
     { id: 'dashboard', label: '全局仪表盘', icon: LayoutDashboard },
     { id: 'projects', label: '项目工程库', icon: Building2 },
-    { id: 'tax-ledger', label: '税务台账', icon: ReceiptText },
+    { id: 'tax-ledger', label: '法人税务台账', icon: ReceiptText },
     { id: 'tax-planning', label: 'AI税务筹划', icon: Compass },
     { id: 'risk-center', label: '风控预警中心', icon: AlertTriangle, badge: unresolvedRiskCount },
     { id: 'ai-review', label: 'AI 审查与审单', icon: BrainCircuit },

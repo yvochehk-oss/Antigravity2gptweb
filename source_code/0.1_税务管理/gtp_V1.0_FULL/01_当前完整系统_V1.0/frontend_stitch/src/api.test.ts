@@ -15,7 +15,8 @@ import {
   fetchRagPendingContracts,
   confirmRagPendingContractAndCreateParties,
   fetchRiskEvents,
-  fetchTaxLedger,
+  fetchEntityTaxLedger,
+  fetchProjectTaxAnalysis,
   rebuildTaxLedger,
   mapProjectSummary,
   saveProjectRagMap,
@@ -537,34 +538,118 @@ test('RAG sync parser rejects invalid IDs, statuses, types, and incomplete failu
   });
 });
 
-test('fetchTaxLedger maps only real backend items and keeps four-flow checks fail-closed', async () => {
+test('fetchEntityTaxLedger maps deterministic entity ledger rows with pagination', async () => {
   await withMockFetch(async (input, _init) => {
-    assert.equal(String(input), '/api/tax-ledger?project_id=6&page_size=100');
+    assert.equal(String(input), '/api/entity-tax-ledger?page=1&page_size=100');
     return jsonResponse({
       status: 'READY',
       message: '',
       items: [{
-        id: 17,
+        id: 'A01-2026-08',
         entity_code: 'A01',
         entity_name: '真实主体',
         business_role: '施工',
         revenue: '100.5',
         vat_payable: '2.5',
         period: '2026-08',
-        status: '已生成',
-        riskLevel: '高危',
-        fourFlowsCheck: { contractMatch: true },
+        output_vat: '9.0',
+        input_vat: '6.5',
+        real_cost: '80.0',
+        estimated_profit: '20.5',
+        estimated_cit: '5.125',
+        generated: true,
+        data_status: 'READY',
       }],
       total: 1,
       has_more: false,
     });
   }, async () => {
-    const result = await fetchTaxLedger(6);
-    assert.equal(result.items[0].declareAmount, 100.5);
-    assert.equal(result.items[0].taxAmount, 2.5);
-    assert.equal(result.items[0].fourFlowsCheck.contractMatch, true);
-    assert.equal(result.items[0].fourFlowsCheck.invoiceMatch, false);
+    const result = await fetchEntityTaxLedger();
+    assert.equal(result.items[0].revenue, 100.5);
+    assert.equal(result.items[0].vatPayable, 2.5);
+    assert.equal(result.items[0].outputVat, 9.0);
+    assert.equal(result.items[0].inputVat, 6.5);
+    assert.equal(result.items[0].generated, true);
   });
+});
+
+test('fetchProjectTaxAnalysis maps project tax projection backed by canonical facts', async () => {
+  await withMockFetch(async (input, _init) => {
+    assert.equal(String(input), '/api/project-tax-analysis?project_id=15');
+    return jsonResponse({
+      status: 'READY',
+      message: '',
+      items: [{
+        project_id: 15,
+        project_code: 'PRJ-15',
+        project_name: '测试项目15',
+        out_invoice_net: 1000,
+        out_invoice_vat: 90,
+        in_invoice_net: 600,
+        in_invoice_vat: 54,
+        deductible_input_vat: 54,
+        real_cost: 600,
+        invoice_count: 5,
+        source_of_truth: 'analytics_canonical_facts_current',
+        legacy_tables_used: false,
+      }],
+      total: 1,
+    });
+  }, async () => {
+    const result = await fetchProjectTaxAnalysis(15);
+    assert.equal(result.status, 'READY');
+    assert.equal(result.item?.projectId, 15);
+    assert.equal(result.item?.outInvoiceNet, 1000);
+    assert.equal(result.item?.realCost, 600);
+    assert.equal(result.item?.legacyTablesUsed, false);
+  });
+});
+
+test('v3 frontend never requests deprecated project-mixed tax ledger', () => {
+  const app = readFileSync(
+    new URL('./App.tsx', import.meta.url),
+    'utf8',
+  );
+
+  const api = readFileSync(
+    new URL('./api.ts', import.meta.url),
+    'utf8',
+  );
+
+  assert.equal(
+    app.includes('fetchTaxLedger(project.numericId'),
+    false,
+  );
+
+  assert.equal(
+    api.includes('/api/tax-ledger?project_id='),
+    false,
+  );
+
+  assert.match(api, /\/api\/entity-tax-ledger/);
+  assert.match(api, /\/api\/project-tax-analysis/);
+});
+
+test('entity ledger does not fabricate project or four-flow semantics', () => {
+  const ledgerView = readFileSync(
+    new URL('./components/TaxLedgerView.tsx', import.meta.url),
+    'utf8',
+  );
+
+  assert.equal(
+    ledgerView.includes('所属工程项目'),
+    false,
+  );
+
+  assert.equal(
+    ledgerView.includes('四流合一'),
+    false,
+  );
+
+  assert.match(
+    ledgerView,
+    /法人月度确定性税务台账/,
+  );
 });
 
 test('TaxLedgerView keeps a successful empty ledger actionable and preserves Tax status errors', () => {

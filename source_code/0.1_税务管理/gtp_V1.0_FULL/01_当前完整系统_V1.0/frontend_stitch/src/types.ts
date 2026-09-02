@@ -157,6 +157,54 @@ export type TaxCategory = string;
 export type FilingStatus = string;
 
 // 税务台账单条记录
+
+export interface EntityTaxLedgerRecord {
+  id: string;
+  period: string;
+  entityCode: string;
+  entityName: string;
+  businessRole: string;
+  legalEntity: boolean;
+
+  outputVat: number;
+  inputVat: number;
+  vatPayable: number;
+
+  revenue: number;
+  realCost: number;
+  estimatedProfit: number;
+  estimatedCit: number;
+  citNote: string;
+
+  generated: boolean;
+  dataStatus: DataStatus;
+  dataGaps: string[];
+  trusted: boolean;
+  updateTime: string;
+}
+
+export interface ProjectTaxAnalysisRecord {
+  projectId: number;
+  projectCode: string;
+  projectName: string;
+
+  period: string;
+  entityCode: string | null;
+
+  outInvoiceNet: number;
+  outInvoiceVat: number;
+  inInvoiceNet: number;
+  inInvoiceVat: number;
+  deductibleInputVat: number;
+  realCost: number;
+  invoiceCount: number;
+
+  sourceOfTruth: string;
+  legacyTablesUsed: boolean;
+  realCostBasis: string;
+  dataGaps: string[];
+}
+
 export interface TaxLedgerRecord {
   id: string;
   entityName: string;         // 所属实体/工程标段 (如：甲实体-基础工程)

@@ -21,6 +21,14 @@ def get_v3_db() -> Iterator[Session]:
         db.close()
 
 
+
+
+def _coded_domain_http_error(exc: Exception) -> HTTPException | None:
+    if hasattr(exc, "code") and hasattr(exc, "detail"):
+        status = 404 if getattr(exc, "code") == "PROJECT_NOT_FOUND" else 409
+        return HTTPException(status, {"code": getattr(exc, "code"), "detail": getattr(exc, "detail")})
+    return None
+
 def _read_call(callable_):
     try:
         return callable_()

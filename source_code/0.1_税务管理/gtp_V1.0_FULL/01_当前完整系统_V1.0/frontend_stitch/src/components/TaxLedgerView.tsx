@@ -1,31 +1,23 @@
 import { useState } from 'react';
 import { 
-  ReceiptText, 
   Search, 
-  Filter, 
   Download, 
   Database,
   CheckCircle2, 
-  AlertTriangle, 
-  AlertOctagon, 
-  Building,
-  FileSpreadsheet,
-  Layers,
-  Sparkles,
   ArrowUpDown,
   ArrowUp,
   ArrowDown
 } from 'lucide-react';
-import { DataStatus, ProjectItem, TaxLedgerRecord, SystemSettings } from '../types';
+import { DataStatus, EntityTaxLedgerRecord, SystemSettings } from '../types';
 import { DataStatusCard } from './DataStatusCard';
 
-type SortField = 'projectName' | 'entityName' | 'declareAmount' | 'taxCategory' | 'status' | 'flow' | null;
+type SortField = 'entityName' | 'period' | 'revenue' | 'outputVat' | 'inputVat' | 'vatPayable' | 'realCost' | 'estimatedProfit' | 'estimatedCit' | null;
 type SortOrder = 'asc' | 'desc';
 
 export const TAX_LEDGER_EMPTY_MESSAGE = '接口正常、指定期间暂无已生成台账。请先完成 RAG 凭证同步/结构化入库，再由受控确定性重建生成。';
 
 interface TaxLedgerViewProps {
-  projects: ProjectItem[];
+  records: EntityTaxLedgerRecord[];
   dataStatus: DataStatus;
   dataStatusMessage: string;
   onRetry?: () => void;
@@ -54,7 +46,7 @@ const MONTH_OPTIONS = [
 ];
 
 export function TaxLedgerView({
-  projects,
+  records,
   dataStatus,
   dataStatusMessage,
   onRetry,
@@ -63,15 +55,12 @@ export function TaxLedgerView({
   onAskAiAboutRisk,
   onRebuildTaxLedger,
   isRebuilding,
-  settings
 }: TaxLedgerViewProps) {
   const now = new Date();
   const defaultYear = String(now.getFullYear());
   const defaultMonth = String(now.getMonth() + 1).padStart(2, '0');
 
   const [searchWord, setSearchWord] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState('全部税种');
-  const [selectedRisk, setSelectedRisk] = useState('全部风险');
   const [filterYear, setFilterYear] = useState('全部年份');
   const [filterMonth, setFilterMonth] = useState('全部月份');
   const [sortField, setSortField] = useState<SortField>(null);
@@ -85,57 +74,56 @@ export function TaxLedgerView({
       setSortOrder(prev => (prev === 'asc' ? 'desc' : 'asc'));
     } else {
       setSortField(field);
-      setSortOrder(field === 'declareAmount' ? 'desc' : 'asc');
+      setSortOrder(field === 'entityName' ? 'asc' : 'desc');
     }
   };
 
-  const isAutoFourFlows = settings?.autoFourFlowsMatch ?? true;
+  const hasNoRecords = records.length === 0;
 
-  // 聚合所有项目的税务台账
-  const allRecords: (TaxLedgerRecord & { projectName: string; projectCode: string })[] = projects.flatMap(p => 
-    p.taxRecords.map(r => ({ ...r, projectName: p.name, projectCode: p.projectCode }))
-  );
-  const hasNoRecords = allRecords.length === 0;
-
-  const filteredRecords = allRecords.filter(item => {
+  const filteredRecords = records.filter(item => {
     const matchesSearch = 
       item.entityName.toLowerCase().includes(searchWord.toLowerCase()) ||
-      item.projectName.toLowerCase().includes(searchWord.toLowerCase()) ||
-      (item.invoiceCode && item.invoiceCode.toLowerCase().includes(searchWord.toLowerCase()));
+      item.entityCode.toLowerCase().includes(searchWord.toLowerCase()) ||
+      item.businessRole.toLowerCase().includes(searchWord.toLowerCase());
     
-    const matchesCat = selectedCategory === '全部税种' || item.taxCategory.includes(selectedCategory);
-    const matchesRisk = selectedRisk === '全部风险' || item.riskLevel === selectedRisk;
-    const matchesYear = filterYear === '全部年份' || item.filingPeriod.startsWith(filterYear);
-    const matchesMonth = filterMonth === '全部月份' || item.filingPeriod.endsWith(`-${filterMonth}`);
+    const matchesYear = filterYear === '全部年份' || item.period.startsWith(filterYear);
+    const matchesMonth = filterMonth === '全部月份' || item.period.endsWith(`-${filterMonth}`);
 
-    return matchesSearch && matchesCat && matchesRisk && matchesYear && matchesMonth;
+    return matchesSearch && matchesYear && matchesMonth;
   });
 
   const sortedRecords = [...filteredRecords].sort((a, b) => {
     if (!sortField) return 0;
 
     let res = 0;
-    if (sortField === 'projectName') {
-      res = a.projectName.localeCompare(b.projectName, 'zh-CN');
-    } else if (sortField === 'entityName') {
+    if (sortField === 'entityName') {
       res = a.entityName.localeCompare(b.entityName, 'zh-CN');
-    } else if (sortField === 'declareAmount') {
-      res = a.declareAmount - b.declareAmount;
-    } else if (sortField === 'taxCategory') {
-      res = a.taxCategory.localeCompare(b.taxCategory, 'zh-CN');
-    } else if (sortField === 'status') {
-      res = a.status.localeCompare(b.status, 'zh-CN');
-    } else if (sortField === 'flow') {
-      const aFlow = Object.values(a.fourFlowsCheck).every(Boolean) ? 1 : 0;
-      const bFlow = Object.values(b.fourFlowsCheck).every(Boolean) ? 1 : 0;
-      res = aFlow - bFlow;
+    } else if (sortField === 'period') {
+      res = a.period.localeCompare(b.period);
+    } else if (sortField === 'revenue') {
+      res = a.revenue - b.revenue;
+    } else if (sortField === 'outputVat') {
+      res = a.outputVat - b.outputVat;
+    } else if (sortField === 'inputVat') {
+      res = a.inputVat - b.inputVat;
+    } else if (sortField === 'vatPayable') {
+      res = a.vatPayable - b.vatPayable;
+    } else if (sortField === 'realCost') {
+      res = a.realCost - b.realCost;
+    } else if (sortField === 'estimatedProfit') {
+      res = a.estimatedProfit - b.estimatedProfit;
+    } else if (sortField === 'estimatedCit') {
+      res = a.estimatedCit - b.estimatedCit;
     }
 
     return sortOrder === 'asc' ? res : -res;
   });
 
-  const totalDeclare = filteredRecords.reduce((acc, cur) => acc + cur.declareAmount, 0);
-  const totalTax = filteredRecords.reduce((acc, cur) => acc + cur.taxAmount, 0);
+  const totalRevenue = filteredRecords.reduce((acc, cur) => acc + cur.revenue, 0);
+  const totalOutputVat = filteredRecords.reduce((acc, cur) => acc + cur.outputVat, 0);
+  const totalInputVat = filteredRecords.reduce((acc, cur) => acc + cur.inputVat, 0);
+  const totalVatPayable = filteredRecords.reduce((acc, cur) => acc + cur.vatPayable, 0);
+  const totalRealCost = filteredRecords.reduce((acc, cur) => acc + cur.realCost, 0);
 
   const handleRebuild = () => {
     if (!/^(?:\d{4})-(?:0[1-9]|1[0-2])$/.test(rebuildPeriod) || isRebuilding) return;
@@ -148,8 +136,8 @@ export function TaxLedgerView({
   if (dataStatus !== 'READY') {
     return (
       <div className="space-y-6">
-        <h2 className="text-[28px] font-bold text-[#dae2fd]">工程全周期税务台账</h2>
-        <DataStatusCard status={dataStatus} title="税务台账不可用" message={dataStatusMessage} onRetry={onRetry} />
+        <h2 className="text-[28px] font-bold text-[#dae2fd]">法人月度确定性税务台账</h2>
+        <DataStatusCard status={dataStatus} title="法人税务台账不可用" message={dataStatusMessage} onRetry={onRetry} />
       </div>
     );
   }
@@ -160,10 +148,10 @@ export function TaxLedgerView({
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
         <div>
           <div className="flex items-center gap-2.5">
-            <h2 className="text-[28px] font-bold text-[#dae2fd] tracking-tight">工程全周期税务台账与查账中枢</h2>
+            <h2 className="text-[28px] font-bold text-[#dae2fd] tracking-tight">法人月度确定性税务台账</h2>
           </div>
           <p className="text-[14px] text-[#c4c5d5] mt-1">
-            当前展示 Tax 服务返回的确定性税务台账；RAG 凭证同步用于补充原始凭证、证据和待复核信息。
+            按独立法人及纳税所属期展示确定性税务结果。项目进销项与项目税负分析请进入项目详情查看。
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -193,19 +181,19 @@ export function TaxLedgerView({
         </div>
       )}
 
+      {/* 受控重建操作区 */}
       <div className="glass-panel rounded-xl p-4 flex flex-wrap items-center justify-between gap-4 border border-[#4cd7f6]/20">
         <div>
           <p className="font-semibold text-[#dae2fd]">受控确定性台账生成/重建</p>
           <p className="text-[12px] text-[#c4c5d5] mt-1 leading-relaxed">请先完成 RAG 凭证同步/结构化入库；确认后将原子替换所选期间汇总。</p>
         </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          <label htmlFor="tax-ledger-rebuild-year" className="text-[12px] text-[#8e909f]">所属期间：</label>
+        <div className="flex flex-wrap items-center gap-2.5">
           <select
             id="tax-ledger-rebuild-year"
             value={rebuildYear}
-            onChange={event => setRebuildYear(event.target.value)}
-            className="bg-[#131b2e] border border-[#444653]/40 rounded-lg px-2.5 py-1.5 text-[12px] text-[#dae2fd] focus:border-[#4cd7f6] focus:outline-none cursor-pointer"
+            onChange={e => setRebuildYear(e.target.value)}
             disabled={isRebuilding}
+            className="bg-[#171f33] border border-[#444653]/40 rounded-lg px-2.5 py-1.5 text-[13px] text-[#dae2fd] focus:outline-none focus:border-[#4cd7f6]"
           >
             {YEAR_OPTIONS.map(y => (
               <option key={y} value={y}>{y}年</option>
@@ -214,9 +202,9 @@ export function TaxLedgerView({
           <select
             id="tax-ledger-rebuild-month"
             value={rebuildMonth}
-            onChange={event => setRebuildMonth(event.target.value)}
-            className="bg-[#131b2e] border border-[#444653]/40 rounded-lg px-2.5 py-1.5 text-[12px] text-[#dae2fd] focus:border-[#4cd7f6] focus:outline-none cursor-pointer"
+            onChange={e => setRebuildMonth(e.target.value)}
             disabled={isRebuilding}
+            className="bg-[#171f33] border border-[#444653]/40 rounded-lg px-2.5 py-1.5 text-[13px] text-[#dae2fd] focus:outline-none focus:border-[#4cd7f6]"
           >
             {MONTH_OPTIONS.map(m => (
               <option key={m.value} value={m.value}>{m.label}</option>
@@ -225,337 +213,267 @@ export function TaxLedgerView({
           <button
             type="button"
             onClick={handleRebuild}
-            disabled={isRebuilding || !/^(?:\d{4})-(?:0[1-9]|1[0-2])$/.test(rebuildPeriod)}
-            className="px-3.5 py-2 rounded-lg bg-[#1e40af] hover:bg-[#1e40af]/80 disabled:opacity-50 disabled:cursor-not-allowed text-[#dde1ff] text-[12px] font-semibold border border-[#4cd7f6]/30 transition-all cursor-pointer shadow-md"
+            disabled={isRebuilding}
+            className="px-3.5 py-1.5 rounded-lg bg-[#03b5d3] hover:bg-[#03b5d3]/80 disabled:opacity-50 text-[#0b1326] font-semibold text-[13px] transition-colors"
           >
-            {isRebuilding ? '正在生成…' : '生成/重建台账'}
+            {isRebuilding ? '生成中...' : `生成 ${rebuildPeriod} 台账`}
           </button>
         </div>
       </div>
 
-      {/* 统计指标小卡 */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="glass-panel rounded-xl p-4 glow-cyan">
-          <p className="text-[11px] font-bold text-[#8e909f] uppercase">当前筛选记录数</p>
-          <p className="text-[24px] font-bold font-mono-num text-[#dae2fd] mt-1">{filteredRecords.length} 笔凭证</p>
+      {/* 指标卡片 */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+        <div className="glass-panel p-3.5 rounded-xl border border-[#444653]/20">
+          <div className="text-[11px] text-[#8e909f]">法人台账条数</div>
+          <div className="text-[18px] font-bold text-[#dae2fd] mt-1 font-mono-num">{filteredRecords.length}</div>
         </div>
-        <div className="glass-panel rounded-xl p-4 glow-cyan">
-          <p className="text-[11px] font-bold text-[#8e909f] uppercase">累计计税申报金额</p>
-          <p className="text-[24px] font-bold font-mono-num text-[#b8c4ff] mt-1">¥ {totalDeclare.toLocaleString('zh-CN')} 元</p>
+        <div className="glass-panel p-3.5 rounded-xl border border-[#444653]/20">
+          <div className="text-[11px] text-[#8e909f]">营业/计税收入</div>
+          <div className="text-[18px] font-bold text-[#4cd7f6] mt-1 font-mono-num">¥{totalRevenue.toLocaleString()}</div>
         </div>
-        <div className="glass-panel rounded-xl p-4 glow-cyan">
-          <p className="text-[11px] font-bold text-[#8e909f] uppercase">当期应纳与代扣税额</p>
-          <p className="text-[24px] font-bold font-mono-num text-[#4cd7f6] mt-1">¥ {totalTax.toLocaleString('zh-CN')} 元</p>
+        <div className="glass-panel p-3.5 rounded-xl border border-[#444653]/20">
+          <div className="text-[11px] text-[#8e909f]">销项 VAT 合计</div>
+          <div className="text-[18px] font-bold text-[#dae2fd] mt-1 font-mono-num">¥{totalOutputVat.toLocaleString()}</div>
+        </div>
+        <div className="glass-panel p-3.5 rounded-xl border border-[#444653]/20">
+          <div className="text-[11px] text-[#8e909f]">进项 VAT 合计</div>
+          <div className="text-[18px] font-bold text-[#dae2fd] mt-1 font-mono-num">¥{totalInputVat.toLocaleString()}</div>
+        </div>
+        <div className="glass-panel p-3.5 rounded-xl border border-[#444653]/20">
+          <div className="text-[11px] text-[#8e909f]">法人台账应纳 VAT</div>
+          <div className="text-[18px] font-bold text-[#10B981] mt-1 font-mono-num">¥{totalVatPayable.toLocaleString()}</div>
+          <div className="text-[10px] text-[#8e909f] mt-0.5">按已加载月度汇总</div>
+        </div>
+        <div className="glass-panel p-3.5 rounded-xl border border-[#444653]/20">
+          <div className="text-[11px] text-[#8e909f]">真实成本合计</div>
+          <div className="text-[18px] font-bold text-[#dae2fd] mt-1 font-mono-num">¥{totalRealCost.toLocaleString()}</div>
         </div>
       </div>
 
-      {/* 筛选与搜索工具栏 */}
-      <div className="glass-panel rounded-xl p-4 flex flex-wrap items-center justify-between gap-4">
-        <div className="flex flex-wrap items-center gap-3 flex-1">
-          <div className="relative min-w-[220px]">
-            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[#8e909f]" />
-            <input
-              type="text"
-              value={searchWord}
-              onChange={(e) => setSearchWord(e.target.value)}
-              placeholder="按实体名称、所属项目或发票号检索..."
-              className="w-full bg-[#131b2e] border border-[#444653]/40 rounded-lg pl-9 pr-3 py-1.5 text-[12px] text-[#dae2fd] focus:border-[#4cd7f6] focus:outline-none font-mono-num"
-            />
-          </div>
-
-          <div className="flex items-center gap-2">
-            <span className="text-[12px] text-[#8e909f]">所属年份：</span>
-            <select
-              value={filterYear}
-              onChange={(e) => setFilterYear(e.target.value)}
-              className="bg-[#131b2e] border border-[#444653]/40 rounded-lg px-2.5 py-1.5 text-[12px] text-[#dae2fd] focus:border-[#4cd7f6] focus:outline-none cursor-pointer"
-            >
-              <option value="全部年份">全部年份</option>
-              {YEAR_OPTIONS.map(y => (
-                <option key={y} value={y}>{y}年</option>
-              ))}
-            </select>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <span className="text-[12px] text-[#8e909f]">所属月份：</span>
-            <select
-              value={filterMonth}
-              onChange={(e) => setFilterMonth(e.target.value)}
-              className="bg-[#131b2e] border border-[#444653]/40 rounded-lg px-2.5 py-1.5 text-[12px] text-[#dae2fd] focus:border-[#4cd7f6] focus:outline-none cursor-pointer"
-            >
-              <option value="全部月份">全部月份</option>
-              {MONTH_OPTIONS.map(m => (
-                <option key={m.value} value={m.value}>{m.label}</option>
-              ))}
-            </select>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <span className="text-[12px] text-[#8e909f]">税种：</span>
-            <select
-              value={selectedCategory}
-              onChange={(e) => setSelectedCategory(e.target.value)}
-              className="bg-[#131b2e] border border-[#444653]/40 rounded-lg px-2.5 py-1.5 text-[12px] text-[#dae2fd] focus:border-[#4cd7f6] focus:outline-none cursor-pointer"
-            >
-              <option value="全部税种">全部税种</option>
-              <option value="增值税">增值税</option>
-              <option value="企业所得税">企业所得税</option>
-              <option value="预提所得税">预提所得税</option>
-              <option value="关税">关税及进口税</option>
-              <option value="城市维护建设税">城建税及附加</option>
-            </select>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <span className="text-[12px] text-[#8e909f]">风险等级：</span>
-            <select
-              value={selectedRisk}
-              onChange={(e) => setSelectedRisk(e.target.value)}
-              className="bg-[#131b2e] border border-[#444653]/40 rounded-lg px-2.5 py-1.5 text-[12px] text-[#dae2fd] focus:border-[#4cd7f6] focus:outline-none cursor-pointer"
-            >
-              <option value="全部风险">全部风险</option>
-              <option value="正常">正常</option>
-              <option value="预警">预警</option>
-              <option value="高危">高危稽查</option>
-            </select>
-          </div>
+      {/* 搜索与过滤 */}
+      <div className="glass-panel rounded-xl p-3 flex flex-wrap items-center justify-between gap-3">
+        <div className="relative flex-1 min-w-[200px]">
+          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[#8e909f]" />
+          <input
+            type="text"
+            placeholder="搜索法人主体名称、编码、业务角色..."
+            value={searchWord}
+            onChange={e => setSearchWord(e.target.value)}
+            className="w-full bg-[#171f33]/60 border border-[#444653]/30 rounded-lg pl-9 pr-3 py-1.5 text-[13px] text-[#dae2fd] focus:outline-none focus:border-[#4cd7f6]"
+          />
         </div>
-
+        <div className="flex items-center gap-2">
+          <select
+            value={filterYear}
+            onChange={e => setFilterYear(e.target.value)}
+            className="bg-[#171f33] border border-[#444653]/40 rounded-lg px-2.5 py-1.5 text-[13px] text-[#dae2fd] focus:outline-none focus:border-[#4cd7f6]"
+          >
+            <option value="全部年份">全部年份</option>
+            {YEAR_OPTIONS.map(y => (
+              <option key={y} value={y}>{y}年</option>
+            ))}
+          </select>
+          <select
+            value={filterMonth}
+            onChange={e => setFilterMonth(e.target.value)}
+            className="bg-[#171f33] border border-[#444653]/40 rounded-lg px-2.5 py-1.5 text-[13px] text-[#dae2fd] focus:outline-none focus:border-[#4cd7f6]"
+          >
+            <option value="全部月份">全部月份</option>
+            {MONTH_OPTIONS.map(m => (
+              <option key={m.value} value={m.value}>{m.label}</option>
+            ))}
+          </select>
+        </div>
       </div>
 
-      {/* 台账明细表 */}
-      <div className="glass-panel rounded-xl p-5 overflow-hidden">
+      {/* 台账数据表格 */}
+      <div className="glass-panel rounded-xl overflow-hidden border border-[#444653]/30">
         <div className="overflow-x-auto">
-          <table className="w-full table-fixed text-left border-collapse text-[12.5px] font-mono-num">
-            <colgroup>
-              <col style={{ width: '20%' }} />
-              <col style={{ width: '20%' }} />
-              <col style={{ width: '8%' }} />
-              <col style={{ width: '17%' }} />
-              <col style={{ width: '13%' }} />
-              <col style={{ width: '7%' }} />
-              <col style={{ width: '7%' }} />
-              <col style={{ width: '8%' }} />
-            </colgroup>
-            <thead>
-              <tr className="border-b border-[#444653]/30 text-[12px] font-semibold text-[#8e909f]">
-                <th 
-                  onClick={() => handleSort('projectName')}
-                  className="py-2.5 px-3 cursor-pointer hover:text-[#4cd7f6] select-none transition-colors group"
-                  title="点击按项目名称排序"
-                >
-                  <div className="flex items-center gap-1.5">
-                    <div>
-                      <div className="text-[12px] text-[#8e909f] group-hover:text-[#4cd7f6] truncate">所属工程项目</div>
-                      <div className="text-[10px] text-[#8e909f]/70 font-normal">工程编码</div>
-                    </div>
-                    {sortField === 'projectName' ? (
-                      sortOrder === 'asc' ? <ArrowUp className="w-3.5 h-3.5 text-[#4cd7f6] flex-shrink-0" /> : <ArrowDown className="w-3.5 h-3.5 text-[#4cd7f6] flex-shrink-0" />
-                    ) : (
-                      <ArrowUpDown className="w-3 h-3 text-[#8e909f]/40 group-hover:text-[#4cd7f6]/70 transition-opacity flex-shrink-0" />
-                    )}
-                  </div>
-                </th>
+          <table className="w-full text-left text-[13px]">
+            <thead className="bg-[#171f33]/80 border-b border-[#444653]/40 text-[#8e909f]">
+              <tr>
                 <th 
                   onClick={() => handleSort('entityName')}
-                  className="py-2.5 px-3 cursor-pointer hover:text-[#4cd7f6] select-none transition-colors group"
-                  title="点击按实体名称排序"
+                  className="py-2.5 px-3 cursor-pointer hover:text-[#4cd7f6] select-none transition-colors"
                 >
                   <div className="flex items-center gap-1.5">
-                    <div>
-                      <div className="text-[12px] text-[#8e909f] group-hover:text-[#4cd7f6] truncate">实体名称</div>
-                      <div className="text-[10px] text-[#8e909f]/70 font-normal">标段分类</div>
-                    </div>
+                    <span>法人主体</span>
                     {sortField === 'entityName' ? (
-                      sortOrder === 'asc' ? <ArrowUp className="w-3.5 h-3.5 text-[#4cd7f6] flex-shrink-0" /> : <ArrowDown className="w-3.5 h-3.5 text-[#4cd7f6] flex-shrink-0" />
+                      sortOrder === 'asc' ? <ArrowUp className="w-3 h-3 text-[#4cd7f6]" /> : <ArrowDown className="w-3 h-3 text-[#4cd7f6]" />
                     ) : (
-                      <ArrowUpDown className="w-3 h-3 text-[#8e909f]/40 group-hover:text-[#4cd7f6]/70 transition-opacity flex-shrink-0" />
+                      <ArrowUpDown className="w-3 h-3 text-[#8e909f]/40" />
                     )}
                   </div>
                 </th>
-                <th className="py-2.5 px-2 text-center whitespace-nowrap">
-                  <div>归属属性</div>
-                  <div className="text-[10px] text-[#8e909f]/70 font-normal">内部/外部</div>
+                <th 
+                  onClick={() => handleSort('period')}
+                  className="py-2.5 px-3 cursor-pointer hover:text-[#4cd7f6] select-none transition-colors"
+                >
+                  <div className="flex items-center gap-1.5">
+                    <span>所属期</span>
+                    {sortField === 'period' ? (
+                      sortOrder === 'asc' ? <ArrowUp className="w-3 h-3 text-[#4cd7f6]" /> : <ArrowDown className="w-3 h-3 text-[#4cd7f6]" />
+                    ) : (
+                      <ArrowUpDown className="w-3 h-3 text-[#8e909f]/40" />
+                    )}
+                  </div>
                 </th>
                 <th 
-                  onClick={() => handleSort('declareAmount')}
-                  className="py-2.5 px-3 text-right whitespace-nowrap cursor-pointer hover:text-[#4cd7f6] select-none transition-colors group"
-                  title="点击按金额/税额排序"
+                  onClick={() => handleSort('revenue')}
+                  className="py-2.5 px-3 text-right cursor-pointer hover:text-[#4cd7f6] select-none transition-colors"
                 >
                   <div className="flex items-center justify-end gap-1.5">
-                    <div className="text-right">
-                      <div className="text-[12px] text-[#8e909f] group-hover:text-[#4cd7f6]">申报计税</div>
-                      <div className="text-[10px] text-[#8e909f]/70 font-normal">应纳税额</div>
-                    </div>
-                    {sortField === 'declareAmount' ? (
-                      sortOrder === 'asc' ? <ArrowUp className="w-3.5 h-3.5 text-[#4cd7f6] flex-shrink-0" /> : <ArrowDown className="w-3.5 h-3.5 text-[#4cd7f6] flex-shrink-0" />
+                    <span>营业/计税收入</span>
+                    {sortField === 'revenue' ? (
+                      sortOrder === 'asc' ? <ArrowUp className="w-3 h-3 text-[#4cd7f6]" /> : <ArrowDown className="w-3 h-3 text-[#4cd7f6]" />
                     ) : (
-                      <ArrowUpDown className="w-3 h-3 text-[#8e909f]/40 group-hover:text-[#4cd7f6]/70 transition-opacity flex-shrink-0" />
+                      <ArrowUpDown className="w-3 h-3 text-[#8e909f]/40" />
                     )}
                   </div>
                 </th>
                 <th 
-                  onClick={() => handleSort('taxCategory')}
-                  className="py-2.5 px-3 cursor-pointer hover:text-[#4cd7f6] select-none transition-colors group"
-                  title="点击按税种/所属期排序"
+                  onClick={() => handleSort('outputVat')}
+                  className="py-2.5 px-3 text-right cursor-pointer hover:text-[#4cd7f6] select-none transition-colors"
                 >
-                  <div className="flex items-center gap-1.5">
-                    <div>
-                      <div className="text-[12px] text-[#8e909f] group-hover:text-[#4cd7f6] truncate">税种类别</div>
-                      <div className="text-[10px] text-[#8e909f]/70 font-normal">税款所属期</div>
-                    </div>
-                    {sortField === 'taxCategory' ? (
-                      sortOrder === 'asc' ? <ArrowUp className="w-3.5 h-3.5 text-[#4cd7f6] flex-shrink-0" /> : <ArrowDown className="w-3.5 h-3.5 text-[#4cd7f6] flex-shrink-0" />
+                  <div className="flex items-center justify-end gap-1.5">
+                    <span>销项 VAT</span>
+                    {sortField === 'outputVat' ? (
+                      sortOrder === 'asc' ? <ArrowUp className="w-3 h-3 text-[#4cd7f6]" /> : <ArrowDown className="w-3 h-3 text-[#4cd7f6]" />
                     ) : (
-                      <ArrowUpDown className="w-3 h-3 text-[#8e909f]/40 group-hover:text-[#4cd7f6]/70 transition-opacity flex-shrink-0" />
+                      <ArrowUpDown className="w-3 h-3 text-[#8e909f]/40" />
                     )}
                   </div>
                 </th>
                 <th 
-                  onClick={() => handleSort('status')}
-                  className="py-2.5 px-2 text-center whitespace-nowrap cursor-pointer hover:text-[#4cd7f6] select-none transition-colors group"
-                  title="点击按审核状态排序"
+                  onClick={() => handleSort('inputVat')}
+                  className="py-2.5 px-3 text-right cursor-pointer hover:text-[#4cd7f6] select-none transition-colors"
                 >
-                  <div className="flex items-center justify-center gap-1.5">
-                    <div>
-                      <div className="text-[12px] text-[#8e909f] group-hover:text-[#4cd7f6]">审核状态</div>
-                      <div className="text-[10px] text-[#8e909f]/70 font-normal">入库/复核</div>
-                    </div>
-                    {sortField === 'status' ? (
-                      sortOrder === 'asc' ? <ArrowUp className="w-3.5 h-3.5 text-[#4cd7f6] flex-shrink-0" /> : <ArrowDown className="w-3.5 h-3.5 text-[#4cd7f6] flex-shrink-0" />
+                  <div className="flex items-center justify-end gap-1.5">
+                    <span>进项 VAT</span>
+                    {sortField === 'inputVat' ? (
+                      sortOrder === 'asc' ? <ArrowUp className="w-3 h-3 text-[#4cd7f6]" /> : <ArrowDown className="w-3 h-3 text-[#4cd7f6]" />
                     ) : (
-                      <ArrowUpDown className="w-3 h-3 text-[#8e909f]/40 group-hover:text-[#4cd7f6]/70 transition-opacity flex-shrink-0" />
+                      <ArrowUpDown className="w-3 h-3 text-[#8e909f]/40" />
                     )}
                   </div>
                 </th>
                 <th 
-                  onClick={() => handleSort('flow')}
-                  className="py-2.5 px-2 text-center whitespace-nowrap cursor-pointer hover:text-[#4cd7f6] select-none transition-colors group"
-                  title="点击按四流合一合规性排序"
+                  onClick={() => handleSort('vatPayable')}
+                  className="py-2.5 px-3 text-right cursor-pointer hover:text-[#4cd7f6] select-none transition-colors"
                 >
-                  <div className="flex items-center justify-center gap-1.5">
-                    <div>
-                      <div className="text-[12px] text-[#8e909f] group-hover:text-[#4cd7f6]">四流合一</div>
-                      <div className="text-[10px] text-[#8e909f]/70 font-normal">核验结果</div>
-                    </div>
-                    {sortField === 'flow' ? (
-                      sortOrder === 'asc' ? <ArrowUp className="w-3.5 h-3.5 text-[#4cd7f6] flex-shrink-0" /> : <ArrowDown className="w-3.5 h-3.5 text-[#4cd7f6] flex-shrink-0" />
+                  <div className="flex items-center justify-end gap-1.5">
+                    <span>应纳 VAT</span>
+                    {sortField === 'vatPayable' ? (
+                      sortOrder === 'asc' ? <ArrowUp className="w-3 h-3 text-[#4cd7f6]" /> : <ArrowDown className="w-3 h-3 text-[#4cd7f6]" />
                     ) : (
-                      <ArrowUpDown className="w-3 h-3 text-[#8e909f]/40 group-hover:text-[#4cd7f6]/70 transition-opacity flex-shrink-0" />
+                      <ArrowUpDown className="w-3 h-3 text-[#8e909f]/40" />
                     )}
                   </div>
                 </th>
-                <th className="py-2.5 px-2 text-center whitespace-nowrap">
-                  <div>操作</div>
-                  <div className="text-[10px] text-[#8e909f]/70 font-normal">AI研判</div>
+                <th 
+                  onClick={() => handleSort('realCost')}
+                  className="py-2.5 px-3 text-right cursor-pointer hover:text-[#4cd7f6] select-none transition-colors"
+                >
+                  <div className="flex items-center justify-end gap-1.5">
+                    <span>真实成本</span>
+                    {sortField === 'realCost' ? (
+                      sortOrder === 'asc' ? <ArrowUp className="w-3 h-3 text-[#4cd7f6]" /> : <ArrowDown className="w-3 h-3 text-[#4cd7f6]" />
+                    ) : (
+                      <ArrowUpDown className="w-3 h-3 text-[#8e909f]/40" />
+                    )}
+                  </div>
                 </th>
+                <th 
+                  onClick={() => handleSort('estimatedProfit')}
+                  className="py-2.5 px-3 text-right cursor-pointer hover:text-[#4cd7f6] select-none transition-colors"
+                >
+                  <div className="flex items-center justify-end gap-1.5">
+                    <span>预计利润</span>
+                    {sortField === 'estimatedProfit' ? (
+                      sortOrder === 'asc' ? <ArrowUp className="w-3 h-3 text-[#4cd7f6]" /> : <ArrowDown className="w-3 h-3 text-[#4cd7f6]" />
+                    ) : (
+                      <ArrowUpDown className="w-3 h-3 text-[#8e909f]/40" />
+                    )}
+                  </div>
+                </th>
+                <th 
+                  onClick={() => handleSort('estimatedCit')}
+                  className="py-2.5 px-3 text-right cursor-pointer hover:text-[#4cd7f6] select-none transition-colors"
+                >
+                  <div className="flex items-center justify-end gap-1.5">
+                    <span>预计所得税</span>
+                    {sortField === 'estimatedCit' ? (
+                      sortOrder === 'asc' ? <ArrowUp className="w-3 h-3 text-[#4cd7f6]" /> : <ArrowDown className="w-3 h-3 text-[#4cd7f6]" />
+                    ) : (
+                      <ArrowUpDown className="w-3 h-3 text-[#8e909f]/40" />
+                    )}
+                  </div>
+                </th>
+                <th className="py-2.5 px-3 text-center">状态</th>
+                <th className="py-2.5 px-3 text-center">操作</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-[#444653]/20">
-              {sortedRecords.map((rec) => {
-                const isHighRisk = rec.riskLevel === '高危';
-                const isMedium = rec.riskLevel === '预警';
-                const isFlowOk = Object.values(rec.fourFlowsCheck).every(Boolean);
-
-                return (
-                  <tr 
-                    key={rec.id}
-                    className={`hover:bg-[#222a3d]/50 transition-colors ${
-                      isHighRisk ? 'bg-[#EF4444]/10 border-l-2 border-[#EF4444]' : isMedium ? 'bg-[#F59E0B]/5' : ''
-                    }`}
-                  >
-                    {/* 所属工程项目 */}
-                    <td className="py-2 px-3">
-                      <div className="font-bold text-[#dae2fd] text-[13px] leading-snug break-words whitespace-normal" title={rec.projectName}>
-                        {rec.projectName}
-                      </div>
-                      <div className="text-[11px] text-[#8e909f] font-mono-num mt-0.5">
-                        {rec.projectCode}
+              {sortedRecords.length === 0 ? (
+                <tr>
+                  <td colSpan={11} className="py-8 text-center text-[#8e909f]">
+                    没有匹配的法人台账记录。
+                  </td>
+                </tr>
+              ) : (
+                sortedRecords.map(rec => (
+                  <tr key={rec.id} className="hover:bg-[#222a3d]/50 transition-colors">
+                    <td className="py-2.5 px-3">
+                      <div className="font-semibold text-[#dae2fd]">{rec.entityName}</div>
+                      <div className="text-[11px] text-[#8e909f] font-mono-num">
+                        {rec.entityCode} {rec.businessRole ? `· ${rec.businessRole}` : ''}
                       </div>
                     </td>
-
-                    {/* 实体名称与标段分类 */}
-                    <td className="py-2 px-3">
-                      <div className={`font-semibold text-[13px] leading-snug break-words whitespace-normal ${isHighRisk ? 'text-[#ffb4ab]' : 'text-[#dde1ff]'}`} title={rec.entityName}>
-                        {rec.entityName}
-                      </div>
-                      <div className="text-[11px] text-[#8e909f] break-words whitespace-normal mt-0.5" title={rec.entityCategory}>
-                        {rec.entityCategory}
-                      </div>
+                    <td className="py-2.5 px-3 font-mono-num text-[#c4c5d5] whitespace-nowrap">
+                      {rec.period}
                     </td>
-
-                    {/* 归属属性：系统内 / 系统外 */}
-                    <td className="py-2 px-2 text-center whitespace-nowrap">
-                      {(() => {
-                        const isExt = rec.entityName.includes('EXT-') || rec.entityName.includes('外部') || rec.entityName.includes('系统外') || rec.isInternal === false;
-
-                        return !isExt ? (
-                          <span className="inline-flex items-center gap-1 text-[11px] text-[#10B981] bg-[#10B981]/15 px-2 py-0.5 rounded border border-[#10B981]/30 font-medium">
-                            🏢 内部
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 text-[11px] text-[#a78bfa] bg-[#8b5cf6]/15 px-2 py-0.5 rounded border border-[#8b5cf6]/30 font-medium">
-                            🌐 外部
-                          </span>
-                        );
-                      })()}
+                    <td className="py-2.5 px-3 text-right font-mono-num text-[#4cd7f6]">
+                      ¥{rec.revenue.toLocaleString()}
                     </td>
-
-                    {/* 申报计税金额与应纳/预提税额 */}
-                    <td className="py-2 px-3 text-right whitespace-nowrap">
-                      <div className="font-bold text-[#dae2fd] text-[13px]">
-                        ¥ {rec.declareAmount.toLocaleString('zh-CN')}
-                      </div>
-                      <div className="text-[11.5px] font-semibold text-[#4cd7f6] mt-0.5">
-                        税: ¥ {rec.taxAmount.toLocaleString('zh-CN')}
-                      </div>
+                    <td className="py-2.5 px-3 text-right font-mono-num text-[#dae2fd]">
+                      ¥{rec.outputVat.toLocaleString()}
                     </td>
-
-                    {/* 税种类别与所属期 */}
-                    <td className="py-2 px-3">
-                      <div className="text-[#c4c5d5] text-[12px] font-medium leading-snug break-words whitespace-normal">
-                        {rec.taxCategory}
-                      </div>
-                      <div className="text-[11px] text-[#8e909f] mt-0.5">
-                        {rec.filingPeriod}
-                      </div>
+                    <td className="py-2.5 px-3 text-right font-mono-num text-[#dae2fd]">
+                      ¥{rec.inputVat.toLocaleString()}
                     </td>
-
-                    {/* 审核状态 */}
-                    <td className="py-2 px-2 text-center whitespace-nowrap">
-                      <span className={`text-[11px] font-bold px-2 py-0.5 rounded ${
-                        isHighRisk 
-                          ? 'text-[#EF4444] bg-[#EF4444]/15 border border-[#EF4444]/30' 
-                          : isMedium 
-                          ? 'text-[#F59E0B] bg-[#F59E0B]/15 border border-[#F59E0B]/30' 
-                          : 'text-[#10B981] bg-[#10B981]/15 border border-[#10B981]/30'
+                    <td className="py-2.5 px-3 text-right font-mono-num font-semibold text-[#10B981]">
+                      ¥{rec.vatPayable.toLocaleString()}
+                    </td>
+                    <td className="py-2.5 px-3 text-right font-mono-num text-[#c4c5d5]">
+                      ¥{rec.realCost.toLocaleString()}
+                    </td>
+                    <td className="py-2.5 px-3 text-right font-mono-num text-[#c4c5d5]">
+                      ¥{rec.estimatedProfit.toLocaleString()}
+                    </td>
+                    <td className="py-2.5 px-3 text-right font-mono-num text-[#c4c5d5]">
+                      ¥{rec.estimatedCit.toLocaleString()}
+                    </td>
+                    <td className="py-2.5 px-3 text-center">
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium ${
+                        rec.generated
+                          ? 'bg-[#10B981]/15 text-[#10B981] border border-[#10B981]/30'
+                          : 'bg-[#F59E0B]/15 text-[#F59E0B] border border-[#F59E0B]/30'
                       }`}>
-                        {rec.status}
+                        {rec.generated ? '已生成' : '待生成'}
                       </span>
                     </td>
-
-                    {/* 四流核验 */}
-                    <td className="py-2 px-2 text-center whitespace-nowrap">
-                      <span className={`inline-flex items-center justify-center whitespace-nowrap text-[11px] px-2 py-0.5 rounded border font-medium ${
-                        isFlowOk ? 'bg-[#10B981]/15 text-[#10B981] border-[#10B981]/30' : 'bg-[#EF4444]/20 text-[#EF4444] border-[#EF4444]/40 font-bold animate-pulse'
-                      }`}>
-                        {isFlowOk ? '合规' : '差异'}
-                      </span>
-                    </td>
-
-                    {/* 操作动作 */}
-                    <td className="py-2 px-2 text-center whitespace-nowrap">
+                    <td className="py-2.5 px-3 text-center">
                       <button
+                        type="button"
                         onClick={() => onAskAiAboutRisk(rec.entityName)}
-                        className="px-2.5 py-1 text-[11px] font-semibold bg-[#1e40af]/60 hover:bg-[#1e40af] text-[#dde1ff] rounded border border-[#4cd7f6]/30 cursor-pointer transition-colors"
+                        className="text-[12px] text-[#4cd7f6] hover:underline"
                       >
                         AI研判
                       </button>
                     </td>
                   </tr>
-                );
-              })}
+                ))
+              )}
             </tbody>
           </table>
         </div>
