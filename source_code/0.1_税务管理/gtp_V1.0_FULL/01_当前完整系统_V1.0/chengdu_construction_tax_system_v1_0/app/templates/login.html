@@ -222,10 +222,11 @@ body {
   {% endif %}
 
   <form method="post" action="/login">
+    <input type="hidden" name="_csrf" value="{{ csrf_token }}">
     <div class="form-group">
       <label>系统账号</label>
       <div class="input-wrapper">
-        <input type="text" name="username" class="form-control" placeholder="请输入用户名 (如 admin / operator)" required autofocus>
+        <input type="text" name="username" class="form-control" placeholder="请输入用户名" required autofocus>
       </div>
     </div>
     
@@ -240,20 +241,8 @@ body {
   </form>
 
   <div class="account-tips">
-    <div class="account-tips-title">💡 系统预设账号（密码统一为 888888）：</div>
-    <div class="account-chips" style="display:flex;gap:8px;margin-top:10px;">
-      <div class="account-chip">
-        <span class="role-name">系统管理员</span>
-        <code>admin / 888888</code>
-      </div>
-      <div class="account-chip">
-        <span class="role-name">业务操作员</span>
-        <code>operator / 888888</code>
-      </div>
-      <div class="account-chip">
-        <span class="role-name">集团高管</span>
-        <code>cfo / 888888</code>
-      </div>
+    <div class="account-tips-title">
+      🔐 本系统仅限授权用户访问，请使用管理员分配的账号登录。
     </div>
   </div>
 </div>

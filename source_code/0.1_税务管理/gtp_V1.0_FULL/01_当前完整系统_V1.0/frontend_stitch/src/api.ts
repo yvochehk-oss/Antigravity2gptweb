@@ -37,6 +37,58 @@ export class ApiError extends Error {
 
 type ApiInit = RequestInit & { signal?: AbortSignal };
 
+const SAFE_HTTP_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
+
+function redirectToLoginOnUnauthorized(response: Response): void {
+  if (response.status !== 401) return;
+  if (typeof window === 'undefined') return;
+  if (window.location.pathname === '/login') return;
+
+  window.location.assign('/login');
+}
+
+async function secureFetch(
+  input: RequestInfo | URL,
+  init: ApiInit = {},
+): Promise<Response> {
+  const method = String(init.method ?? 'GET').toUpperCase();
+  let headers = init.headers;
+
+  if (!SAFE_HTTP_METHODS.has(method)) {
+    const csrfToken = readCookie('tax_csrf');
+    if (csrfToken) {
+      if (!headers) {
+        headers = { 'X-CSRF-Token': csrfToken };
+      } else if (headers instanceof Headers) {
+        if (!headers.has('X-CSRF-Token')) headers.set('X-CSRF-Token', csrfToken);
+      } else if (Array.isArray(headers)) {
+        if (!headers.some(([k]) => k.toLowerCase() === 'x-csrf-token')) {
+          headers = [...headers, ['X-CSRF-Token', csrfToken]];
+        }
+      } else if (typeof headers === 'object') {
+        if (!('X-CSRF-Token' in headers || 'x-csrf-token' in headers)) {
+          headers = { ...(headers as Record<string, string>), 'X-CSRF-Token': csrfToken };
+        }
+      }
+    }
+  }
+
+  const finalInit: RequestInit = {
+    credentials: 'same-origin',
+    ...init,
+  };
+  if (headers !== undefined) {
+    finalInit.headers = headers;
+  } else {
+    delete finalInit.headers;
+  }
+
+  const response = await fetch(input, finalInit);
+
+  redirectToLoginOnUnauthorized(response);
+  return response;
+}
+
 async function readPayload(response: Response): Promise<unknown> {
   const text = await response.text();
   if (!text) return undefined;
@@ -67,10 +119,7 @@ function payloadMessage(payload: unknown, fallback: string): string {
 export async function fetchJson<T>(path: string, init: ApiInit = {}): Promise<T> {
   let response: Response;
   try {
-    response = await fetch(path, {
-      credentials: 'same-origin',
-      ...init,
-    });
+    response = await secureFetch(path, init);
   } catch (error) {
     if (error instanceof DOMException && error.name === 'AbortError') throw error;
     throw new ApiError('无法连接 Tax 服务，请确认后端已启动。');
@@ -1152,7 +1201,7 @@ export async function runAiReview(input: {
   const epId = positiveInteger(input.endpointId) ? input.endpointId : 1;
   form.append('endpoint_id', String(epId));
   form.append('user_instruction', input.instruction || '');
-  const response = await fetch('/ai-review/run', {
+  const response = await secureFetch('/ai-review/run', {
     method: 'POST',
     body: form,
     credentials: 'same-origin',
@@ -1181,7 +1230,7 @@ export async function runHealthCheck(input: {
   const validIds = (input.endpointIds ?? []).filter(id => positiveInteger(id));
   validIds.forEach(id => form.append('endpoint_ids', String(id)));
   form.append('user_instruction', input.instruction || '');
-  const response = await fetch('/health-check/run', {
+  const response = await secureFetch('/health-check/run', {
     method: 'POST',
     body: form,
     credentials: 'same-origin',
@@ -1213,7 +1262,7 @@ export async function runHealthCheck(input: {
 export async function askProjectAi(projectId: number, question: string, endpointId?: number, signal?: AbortSignal): Promise<AiAssistantResponse> {
   const form = new URLSearchParams({ question });
   if (positiveInteger(endpointId)) form.set('endpoint_id', String(endpointId));
-  const response = await fetch(`/manager/project/${projectId}/ask`, {
+  const response = await secureFetch(`/manager/project/${projectId}/ask`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: form,

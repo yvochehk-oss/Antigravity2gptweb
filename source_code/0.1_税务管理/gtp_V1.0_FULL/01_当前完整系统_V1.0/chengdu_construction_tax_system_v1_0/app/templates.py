@@ -21,14 +21,14 @@ def _global_user(request: Request):
             "current_role": None,
             "is_manager": False,
             "is_operator": False,
-            "csrf_token": request.cookies.get("tax_csrf", ""),
+            "csrf_token": getattr(request.state, "csrf_token", "") or request.cookies.get("tax_csrf", ""),
         }
     return {
         "current_user": user,
         "current_role": user.role,
         "is_manager": user.role == "manager",
         "is_operator": user.role == "operator",
-        "csrf_token": request.cookies.get("tax_csrf", ""),
+        "csrf_token": getattr(request.state, "csrf_token", "") or request.cookies.get("tax_csrf", ""),
     }
 
 

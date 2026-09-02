@@ -2,11 +2,16 @@
 """
 from __future__ import annotations
 
+import secrets
+
 from fastapi import APIRouter, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel
 
 from ..auth import (
+    COOKIE_MAX_AGE,
+    COOKIE_SECURE,
+    CSRF_COOKIE_NAME,
     clear_session,
     create_session,
     issue_jwt,
@@ -23,11 +28,29 @@ router = APIRouter()
 @router.get("/login", response_class=HTMLResponse)
 def login_page(request: Request) -> HTMLResponse:
     error = request.query_params.get("error", "")
-    return templates.TemplateResponse(
+    csrf_token = secrets.token_urlsafe(32)
+    request.state.csrf_token = csrf_token
+
+    response = templates.TemplateResponse(
         request,
         "login.html",
-        {"request": request, "error": error},
+        {
+            "request": request,
+            "error": error,
+            "csrf_token": csrf_token,
+        },
     )
+
+    response.set_cookie(
+        key=CSRF_COOKIE_NAME,
+        value=csrf_token,
+        max_age=COOKIE_MAX_AGE,
+        httponly=False,
+        secure=COOKIE_SECURE,
+        samesite="lax",
+    )
+
+    return response
 
 
 @router.post("/login")
@@ -35,7 +58,19 @@ def login_submit(
     request: Request,
     username: str = Form(...),
     password: str = Form(...),
+    csrf: str = Form(default="", alias="_csrf"),
 ) -> RedirectResponse:
+    cookie_csrf = request.cookies.get(CSRF_COOKIE_NAME, "")
+
+    if (
+        not cookie_csrf
+        or not csrf
+        or not secrets.compare_digest(cookie_csrf, csrf)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="CSRF 校验失败",
+        )
     user = auth_login(username, password)
     if user is None:
         return RedirectResponse(

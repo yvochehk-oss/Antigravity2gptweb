@@ -1,204 +1,189 @@
-"""认证、CSRF 和安全响应头中间件。
-
-HTML navigation requests still redirect to the login page.  API callers get
-machine-readable 401/403 responses so a fetch client never receives an HTML
-login document by surprise.
-
-The middleware also installs a per-request ``request_id`` (echoed via
-``X-Request-ID``) so log lines, audit entries and outbound Tax→RAG calls
-share a single trace identifier.
-"""
+"""Tax 全局认证与 CSRF 安全门禁。"""
 from __future__ import annotations
 
-import hmac
-import os
-from urllib.parse import parse_qs, urlsplit
+import secrets
+from collections.abc import Callable
+from urllib.parse import urlparse
 
 from fastapi import Request
+from fastapi.responses import JSONResponse, RedirectResponse
 from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.responses import JSONResponse, RedirectResponse
 
-from .auth import CSRF_COOKIE_NAME, current_user_from_request
-from .observability import (
-    REQUEST_ID_HEADER,
-    get_request_id,
-    reset_actor,
-    reset_request_id,
-    set_actor,
-    set_request_id,
+from .auth import (
+    COOKIE_NAME,
+    CSRF_COOKIE_NAME,
+    current_user_from_request,
 )
-from .structured_logging import resolve_request_id
 
-# Only authentication, documentation, health and static-resource routes are
-# public.  In particular, ``/api/projects`` is deliberately absent: project
-# data and planning APIs must pass through the session/role checks below.
-PUBLIC_EXACT_PATHS = frozenset({
-    "/",
-    "/login",
-    "/docs",
-    "/redoc",
-    "/openapi.json",
-    "/healthz",
-    "/favicon.ico",
-})
-PUBLIC_PREFIXES = (
-    "/docs/",
-    "/redoc/",
-    "/avatars/",
-    "/api/v1/auth/",
+_SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+
+# 仅保留真正需要匿名访问的入口。
+#
+# /api/v1/auth/token 与 /refresh 是移动端 JWT 登录引导接口，
+# 必须公开，否则 Boss App / API 客户端永远无法取得令牌。
+PUBLIC_EXACT_PATHS = frozenset(
+    {
+        "/login",
+        "/healthz",
+        "/docs",
+        "/docs/oauth2-redirect",
+        "/redoc",
+        "/openapi.json",
+        "/favicon.ico",
+        "/api/v1/auth/token",
+        "/api/v1/auth/refresh",
+    }
+)
+
+# 登录页当前不依赖 SPA assets；保留 /static 仅用于兼容必要静态资源。
+PUBLIC_PREFIXES = ("/static",)
+
+API_PREFIXES = (
+    "/api",
+    "/rag-sync",
 )
 
 
 def _is_public_path(path: str) -> bool:
-    """Return whether *path* belongs to a public route namespace.
+    if path in PUBLIC_EXACT_PATHS:
+        return True
+    return any(
+        path == prefix or path.startswith(prefix + "/")
+        for prefix in PUBLIC_PREFIXES
+    )
 
-    Exact paths and slash-delimited namespaces avoid the old ``startswith``
-    boundary bug (for example ``/api/projects/1`` must never be public just
-    because it starts with ``/api/projects``).
-    """
-    return path in PUBLIC_EXACT_PATHS or any(path.startswith(prefix) for prefix in PUBLIC_PREFIXES)
+
+def _is_api_path(path: str) -> bool:
+    return any(
+        path == prefix or path.startswith(prefix + "/")
+        for prefix in API_PREFIXES
+    )
+
+
+def _unauthenticated_requires_json(request: Request) -> bool:
+    """匿名 API/AJAX 写请求必须返回 JSON 401，而不是 HTML 重定向。"""
+    if _is_api_path(request.url.path):
+        return True
+
+    # /ai-review/run、/health-check/run、/manager/.../ask 等历史接口
+    # 虽没有 /api 前缀，但属于 AJAX 写接口。
+    return request.method.upper() not in _SAFE_METHODS
+
+
+def _csrf_allowed(request: Request) -> bool:
+    if request.method.upper() in _SAFE_METHODS:
+        return True
+
+    cookie_token = request.cookies.get(CSRF_COOKIE_NAME)
+    request_token = (
+        request.headers.get("X-CSRF-Token")
+        or request.headers.get("X-XSRF-TOKEN")
+    )
+
+    if not cookie_token or not request_token:
+        return False
+
+    try:
+        return secrets.compare_digest(cookie_token, request_token)
+    except (TypeError, ValueError):
+        return False
+
+
+def _same_origin_ok(request: Request) -> bool:
+    if request.method.upper() in _SAFE_METHODS:
+        return True
+
+    origin = request.headers.get("Origin")
+    if not origin:
+        return True
+
+    host = request.headers.get("Host")
+    if not host:
+        return False
+
+    try:
+        parsed = urlparse(origin)
+        if parsed.scheme not in {"http", "https"}:
+            return False
+        return parsed.netloc.lower() == host.lower()
+    except (TypeError, ValueError):
+        return False
+
+
+def _bearer_only_request(request: Request) -> bool:
+    """真正的 Bearer-only API 客户端不使用浏览器 Cookie，因此无需 CSRF。"""
+    auth_header = request.headers.get("Authorization", "").strip()
+
+    return (
+        auth_header.lower().startswith("bearer ")
+        and not request.cookies.get(COOKIE_NAME)
+    )
+
 
 class AuthMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):
-        # 公开路径直接放行
+    """全局 Fail-Closed 身份认证门禁。
+
+    规则：
+    - 匿名 HTML GET -> 303 /login
+    - 匿名 API/AJAX -> 401 JSON
+    - 不存在 development 自动 admin
+    - Session Cookie 写操作 -> Same-Origin + CSRF
+    - Bearer-only API -> JWT 鉴权，不额外要求浏览器 CSRF
+    """
+
+    async def dispatch(
+        self,
+        request: Request,
+        call_next: Callable,
+    ):
         path = request.url.path
-        # RequestIdMiddleware normally runs outside this layer.  Reuse its
-        # resolved value so nested middleware never creates a second trace id;
-        # keep the fallback for tests or alternate app wiring.
-        request_id = getattr(request.state, "request_id", "") or resolve_request_id(
-            request.headers.get(REQUEST_ID_HEADER),
-        )
-        id_token = set_request_id(request_id)
-        actor_token = set_actor("anonymous")
-        request.state.request_id = request_id
-        try:
-            if _is_public_path(path):
-                response = await call_next(request)
-                return self._security_headers(self._attach_request_id(request, response), request)
+        method = request.method.upper()
 
-            # 尝试解析当前用户
-            user = current_user_from_request(request)
-            if user is None and os.getenv("APP_ENV", "development").lower() not in {"test", "production"}:
-                from .models import User
-                user = User(
-                    id=1,
-                    username="admin",
-                    role="ADMIN",
-                    display_name="系统管理员",
-                    active=True,
+        # 登录页本身必须匿名可访问。
+        # POST /login 的 CSRF 双提交校验由登录路由完成；
+        # 这里额外执行 Origin 边界检查。
+        if path == "/login":
+            if method not in _SAFE_METHODS and not _same_origin_ok(request):
+                return JSONResponse(
+                    status_code=403,
+                    content={"detail": "跨站请求被拒绝"},
+                )
+            return await call_next(request)
+
+        # 健康检查、API 文档和 JWT bootstrap 端点。
+        if _is_public_path(path):
+            return await call_next(request)
+
+        # 唯一身份来源：真实 Session Cookie 或真实 Bearer JWT。
+        # 严禁任何 development/admin 自动兜底。
+        user = current_user_from_request(request)
+
+        if user is None:
+            if _unauthenticated_requires_json(request):
+                return JSONResponse(
+                    status_code=401,
+                    content={"detail": "请先登录"},
                 )
 
-            # 已登录或演示环境免登：放行，并在 request.state 写入 user 供下游使用
-            if user is not None:
-                request.state.current_user = user
-                username = str(
-                    getattr(user, "username", None)
-                    or getattr(user, "display_name", None)
-                    or "anonymous",
+            return RedirectResponse(
+                url="/login",
+                status_code=303,
+            )
+
+        request.state.user = user
+
+        # Bearer-only 客户端不依赖浏览器 Cookie，因此不受 CSRF 约束。
+        if not _bearer_only_request(request):
+            if not _same_origin_ok(request):
+                return JSONResponse(
+                    status_code=403,
+                    content={"detail": "跨站请求被拒绝"},
                 )
-                reset_actor(actor_token)
-                actor_token = set_actor(username)
-                if not await self._csrf_allowed(request):
-                    response = JSONResponse(
-                        {"detail": "CSRF token 无效或来源不可信"}, status_code=403,
-                    )
-                    return self._security_headers(self._attach_request_id(request, response), request)
-                response = await call_next(request)
-                return self._security_headers(self._attach_request_id(request, response), request)
 
-            # 未登录：HTML 页面 → 重定向，API 路径 → 401
-            if path.startswith("/api") or path.startswith("/rag-sync"):
-                response = JSONResponse({"detail": "请先登录"}, status_code=401)
-                response.headers["WWW-Authenticate"] = "Session"
-                return self._security_headers(self._attach_request_id(request, response), request)
+            if not _csrf_allowed(request):
+                return JSONResponse(
+                    status_code=403,
+                    content={"detail": "CSRF 校验失败"},
+                )
 
-            return self._security_headers(
-                self._attach_request_id(
-                    request, RedirectResponse(f"/login?next={path}", status_code=302),
-                ),
-                request,
-            )
-        finally:
-            reset_actor(actor_token)
-            reset_request_id(id_token)
-
-    @staticmethod
-    def _attach_request_id(request: Request, response):
-        request_id = getattr(request.state, "request_id", "") or get_request_id()
-        if request_id:
-            response.headers[REQUEST_ID_HEADER] = request_id
-        return response
-
-    @staticmethod
-    def _same_origin(request: Request) -> bool:
-        """Accept same-origin browser requests and non-browser test clients."""
-        origin = request.headers.get("origin")
-        if origin:
-            actual = f"{request.url.scheme}://{request.url.netloc}"
-            return hmac.compare_digest(origin.rstrip("/"), actual.rstrip("/"))
-        referer = request.headers.get("referer")
-        if referer:
-            parsed = urlsplit(referer)
-            actual = f"{request.url.scheme}://{request.url.netloc}"
-            return hmac.compare_digest(
-                f"{parsed.scheme}://{parsed.netloc}".rstrip("/"), actual.rstrip("/"),
-            )
-        # Non-browser API clients generally do not send Origin/Referer.  They
-        # are still authenticated by the session cookie; CSRF attacks rely on
-        # a browser sending a foreign origin, which is rejected above.
-        return True
-
-    @classmethod
-    async def _csrf_allowed(cls, request: Request) -> bool:
-        """Validate CSRF token when supplied, otherwise enforce same-origin."""
-        if request.method.upper() in {"GET", "HEAD", "OPTIONS", "TRACE"}:
-            return True
-        # Login is intentionally public and logout remains compatible with
-        # existing browser links; both are still protected by same-origin.
-        supplied = request.headers.get("X-CSRF-Token", "")
-        if not supplied:
-            supplied = request.headers.get("X-XSRF-TOKEN", "")
-        if not supplied and request.headers.get("content-type", "").startswith(
-            "application/x-www-form-urlencoded",
-        ):
-            # ``body()`` caches and replays the bytes for downstream FastAPI
-            # form parsing; ``form()`` here would consume the receive channel.
-            try:
-                raw = await request.body()
-                values = parse_qs(raw.decode("utf-8", errors="ignore"), keep_blank_values=True)
-                supplied = (values.get("_csrf") or [""])[0]
-            except Exception:
-                supplied = ""
-        # Do not consume request.form() in middleware: BaseHTTPMiddleware may
-        # wrap the receive channel and downstream FastAPI handlers must still
-        # be able to parse their form fields.  Browser requests are protected
-        # by the Origin/Referer same-origin check below; API clients can send
-        # the token in X-CSRF-Token/X-XSRF-TOKEN.
-        # The origin check is intentionally evaluated first.  A valid token
-        # alone must not turn a cross-origin state change into an allowed
-        # request (for example, when a test client or an embedded browser
-        # happens to carry both cookies and headers).
-        if not cls._same_origin(request):
-            return False
-        cookie_token = request.cookies.get(CSRF_COOKIE_NAME, "")
-        if supplied and cookie_token:
-            return hmac.compare_digest(supplied, cookie_token)
-        return True
-
-    @staticmethod
-    def _security_headers(response, request: Request | None = None):
-        response.headers.setdefault("X-Content-Type-Options", "nosniff")
-        response.headers.setdefault("X-Frame-Options", "DENY")
-        response.headers.setdefault("Referrer-Policy", "same-origin")
-        if request is not None and CSRF_COOKIE_NAME not in request.cookies:
-            import secrets
-            from .auth import COOKIE_MAX_AGE, COOKIE_SECURE
-            response.set_cookie(
-                key=CSRF_COOKIE_NAME,
-                value=secrets.token_urlsafe(32),
-                max_age=COOKIE_MAX_AGE,
-                httponly=False,
-                secure=COOKIE_SECURE,
-                samesite="lax",
-            )
-        return response
+        return await call_next(request)
