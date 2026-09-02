@@ -146,12 +146,6 @@ function parseAiModelEndpointHealth(value: unknown): AiModelEndpointHealth | nul
   return { name: data.name.trim(), status };
 }
 
-/**
- * Convert the Tax `/healthz` AI component into a fail-closed UI state.
- *
- * The backend probes the configured model pool itself. The browser only
- * presents that result and never treats a configured endpoint as healthy.
- */
 export function parseAiModelStatus(payload: unknown): AiModelStatus {
   const root = asRecord(payload);
   const components = asRecord(root?.components);
@@ -174,7 +168,6 @@ export function parseAiModelStatus(payload: unknown): AiModelStatus {
   return { state: 'UNAVAILABLE', message: 'AI 模型暂不可用', endpoints };
 }
 
-/** Read the real Tax model-pool health probe; no browser-side model is assumed. */
 export async function fetchAiModelStatus(signal?: AbortSignal): Promise<AiModelStatus> {
   return parseAiModelStatus(await fetchJson<unknown>('/healthz', { signal }));
 }
@@ -216,7 +209,6 @@ function parseRagProjectCandidate(value: unknown): RagProjectCandidate | null {
   return { id, projectCode, name, ...(status ? { status } : {}) };
 }
 
-/** Parse only projects returned by the RAG service; never synthesize candidates. */
 export function extractRagProjectCandidates(payload: unknown): RagProjectCandidate[] {
   const data = asRecord(payload);
   const rawProjects = Array.isArray(payload)
@@ -266,7 +258,6 @@ function parseRagServiceSettings(payload: unknown): RagServiceSettings {
   };
 }
 
-/** Read the persisted RAG URL metadata; no credential is returned. */
 export async function fetchRagSettings(signal?: AbortSignal): Promise<RagServiceSettings> {
   return parseRagServiceSettings(await fetchJson<unknown>('/rag-sync/settings', { signal }));
 }
@@ -281,7 +272,6 @@ function ragSettingsBody(input: { url: string; approvePrivate: boolean }): Recor
   };
 }
 
-/** Test a new RAG URL without persisting it. */
 export async function testRagSettings(input: {
   url: string;
   approvePrivate: boolean;
@@ -295,7 +285,6 @@ export async function testRagSettings(input: {
   return parseRagServiceSettings(payload);
 }
 
-/** Test and persist a new RAG URL using the server-side shared credential. */
 export async function saveRagSettings(input: {
   url: string;
   approvePrivate: boolean;
@@ -309,7 +298,6 @@ export async function saveRagSettings(input: {
   return parseRagServiceSettings(payload);
 }
 
-/** Read the server-configured RAG connection; no browser-side key is accepted. */
 export async function fetchRagStatus(signal?: AbortSignal): Promise<RagStatusResponse> {
   return parseRagStatus(await fetchJson<unknown>('/rag-sync/status', { signal }));
 }
@@ -326,8 +314,6 @@ function parseProjectRagMapping(payload: unknown): ProjectRagMapping {
     projectId,
     ragProjectId,
     ragProjectCode: typeof data.rag_project_code === 'string' ? data.rag_project_code : '',
-    // The backend only returns this boolean. The actual credential never enters
-    // the browser and is intentionally not represented in this type.
     hasApiKey: data.has_api_key === true,
     ...(typeof data.rag_url === 'string' && data.rag_url ? { ragUrl: data.rag_url } : {}),
     ...(typeof data.note === 'string' ? { note: data.note } : {}),
@@ -335,7 +321,6 @@ function parseProjectRagMapping(payload: unknown): ProjectRagMapping {
   };
 }
 
-/** A 404 is the explicit, expected "mapping not configured" state. */
 export async function fetchProjectRagMap(
   projectId: number,
   signal?: AbortSignal,
@@ -365,8 +350,6 @@ export async function saveProjectRagMap(input: {
     rag_project_id: input.ragProjectId,
     rag_project_code: String(input.ragProjectCode ?? '').trim(),
     note: String(input.note ?? '').trim(),
-    // Never send rag_url or rag_api_key from the browser. The server uses its
-    // configured shared connection and rejects project-scoped credentials.
   }, input.signal);
   const data = asRecord(payload);
   const projectId = positiveInteger(data?.project_id);
@@ -383,9 +366,6 @@ function parseRagSyncResult(
 ): RagSyncResult {
   const data = asRecord(payload);
   if (!data) throw new ApiError('RAG 同步接口返回格式不完整。', 502, payload);
-  // The backend serializes this field as an integer.  Keep the distinction
-  // between a missing/malformed ID and the batch-only zero sentinel instead
-  // of coercing either one into a valid-looking ID.
   const syncLogId = typeof data.sync_log_id === 'number' && Number.isInteger(data.sync_log_id)
     ? data.sync_log_id
     : null;
@@ -520,11 +500,11 @@ export async function fetchRagPendingContracts(projectId: number, signal?: Abort
 }
 
 export async function confirmRagPendingContractAndCreateParties(pendingId: number): Promise<RagConfirmPendingContractResult> {
-    if (!positiveInteger(pendingId)) throw new ApiError('待复核记录必须是有效 ID。', 400);
-    throw new ApiError(
-        'Phase 2.5 已启用 Canonical Facts 单一事实源；Tax UI 不再允许手动创建外部交易方并导入合同。',
-        410,
-    );
+  if (!positiveInteger(pendingId)) throw new ApiError('待复核记录必须是有效 ID。', 400);
+  throw new ApiError(
+    'Phase 2.5 已启用 Canonical Facts 单一事实源；Tax UI 不再允许手动创建外部交易方并导入合同。',
+    410,
+  );
 }
 
 export async function rejectRagPendingContract(pendingId: number, note?: string): Promise<{ ok: boolean; pendingId: number }> {
@@ -556,13 +536,6 @@ export function configuredProjectIds(env: Record<string, unknown> = getViteEnv()
     .filter(value => Number.isInteger(value) && value > 0))];
 }
 
-/**
- * Accept only IDs returned by a real project collection response.
- *
- * The current Tax backend has no `/api/projects` collection endpoint, but this
- * parser keeps the frontend ready for that contract without inventing IDs or
- * accepting incomplete project objects as successful data.
- */
 export function extractProjectIds(payload: unknown): number[] {
   const candidates = Array.isArray(payload)
     ? payload
@@ -656,7 +629,6 @@ function parseMatchingCompleteness(
   };
 }
 
-/** Read deterministic four-flow evidence completeness for one real project. */
 export async function fetchProjectMatchingCompleteness(
   projectId: number,
   signal?: AbortSignal,
@@ -666,11 +638,6 @@ export async function fetchProjectMatchingCompleteness(
   return parseMatchingCompleteness(payload, projectId);
 }
 
-/**
- * Aggregate the measured evidence returned for the current project set.
- * Failed or unavailable projects make an otherwise measured result DEGRADED;
- * when nothing is measured, the result remains UNAVAILABLE with no fake 0%.
- */
 export function summarizeMatchingCompleteness(
   responses: ProjectMatchingCompleteness[],
   failedCount = 0,
@@ -741,15 +708,12 @@ export function mapProjectSummary(summary: ProjectSummaryResponse): ProjectItem 
   };
 }
 
-
-
 export interface TaxLedgerRebuildResponse {
   status: string;
   period: string;
   rowCount: number;
 }
 
-/** A single unit (system-internal entity or external party) referenced by a project. */
 export interface ProjectCounterparty {
   partyCode: string;
   partyName: string;
@@ -823,7 +787,6 @@ function parseRiskEvent(value: unknown): RiskEvent | null {
   };
 }
 
-/** Read the real Tax risk collection for one project without inventing events. */
 export async function fetchRiskEvents(
   projectId: number,
   signal?: AbortSignal,
@@ -845,6 +808,70 @@ export async function fetchRiskEvents(
   };
 }
 
+function requiredFiniteNumber(value: unknown, field: string, payload: unknown): number {
+  const parsed = toFiniteNumber(value, Number.NaN);
+  if (!Number.isFinite(parsed)) {
+    throw new ApiError(`税务接口字段 ${field} 缺失或不是有限数值。`, 502, payload);
+  }
+  return parsed;
+}
+
+function requiredBoolean(value: unknown, field: string, payload: unknown): boolean {
+  if (value !== true && value !== false) {
+    throw new ApiError(`税务接口字段 ${field} 缺失或不是布尔值。`, 502, payload);
+  }
+  return value;
+}
+
+function requiredString(value: unknown, field: string, payload: unknown): string {
+  if (typeof value !== 'string' || !value.trim()) {
+    throw new ApiError(`税务接口字段 ${field} 缺失或不是非空字符串。`, 502, payload);
+  }
+  return value.trim();
+}
+
+function nullablePositiveId(value: unknown, field: string, payload: unknown): number | null {
+  if (value === null || value === undefined) return null;
+  const parsed = requiredFiniteNumber(value, field, payload);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw new ApiError(`税务接口字段 ${field} 必须是正整数或 null。`, 502, payload);
+  }
+  return parsed;
+}
+
+function parseEntityLineageComponent(value: unknown, payload: unknown): EntityTaxLedgerRecord['lineageComponents'][number] {
+  const data = asRecord(value);
+  if (!data) throw new ApiError('法人 VAT lineage component 格式不完整。', 502, payload);
+  const componentType = requiredString(data.component_type ?? data.componentType, 'lineage.component_type', payload);
+  const invoiceFactId = nullablePositiveId(
+    data.invoice_fact_id
+      ?? data.invoiceFactId
+      ?? data.output_invoice_fact_id
+      ?? data.input_invoice_fact_id,
+    'lineage.invoice_fact_id',
+    payload,
+  );
+  const sourceDocumentId = nullablePositiveId(
+    data.source_document_id
+      ?? data.sourceDocumentId
+      ?? data.output_source_document_id
+      ?? data.input_source_document_id
+      ?? data.opening_source_document_id,
+    'lineage.source_document_id',
+    payload,
+  );
+  return {
+    componentType,
+    amount: requiredFiniteNumber(data.amount, 'lineage.amount', payload),
+    outputVatEventId: nullablePositiveId(data.output_vat_event_id ?? data.outputVatEventId, 'lineage.output_vat_event_id', payload),
+    inputVatClaimId: nullablePositiveId(data.input_vat_claim_id ?? data.inputVatClaimId, 'lineage.input_vat_claim_id', payload),
+    taxPrepaymentFactId: nullablePositiveId(data.tax_prepayment_fact_id ?? data.taxPrepaymentFactId, 'lineage.tax_prepayment_fact_id', payload),
+    priorLedgerId: nullablePositiveId(data.prior_ledger_id ?? data.priorLedgerId, 'lineage.prior_ledger_id', payload),
+    openingBalanceSeedId: nullablePositiveId(data.opening_balance_seed_id ?? data.openingBalanceSeedId, 'lineage.opening_balance_seed_id', payload),
+    invoiceFactId,
+    sourceDocumentId,
+  };
+}
 
 function parseEntityTaxLedgerRecord(payload: unknown): EntityTaxLedgerRecord | null {
   const data = asRecord(payload);
@@ -853,29 +880,111 @@ function parseEntityTaxLedgerRecord(payload: unknown): EntityTaxLedgerRecord | n
   const period = String(data.period ?? '').trim();
   if (!entityCode || !period) return null;
 
+  const scope = requiredString(data.scope, 'scope', payload);
+  if (scope !== 'LEGAL_ENTITY_STATUTORY') {
+    throw new ApiError(`法人 VAT scope 非法：${scope}`, 502, payload);
+  }
+  const isFilingBasis = requiredBoolean(data.is_filing_basis ?? data.isFilingBasis, 'is_filing_basis', payload);
+  if (!isFilingBasis) {
+    throw new ApiError('法人 VAT 正式台账必须 is_filing_basis=true。', 502, payload);
+  }
+  const sourceOfTruth = requiredString(data.source_of_truth ?? data.sourceOfTruth, 'source_of_truth', payload);
+  if (sourceOfTruth !== 'entity_vat_ledgers') {
+    throw new ApiError(`法人 VAT source_of_truth 非法：${sourceOfTruth}`, 502, payload);
+  }
+
+  const entityId = nullablePositiveId(data.entity_id ?? data.entityId, 'entity_id', payload);
+  const reportingPartyId = nullablePositiveId(data.reporting_party_id ?? data.reportingPartyId, 'reporting_party_id', payload);
+  const calculationRunId = nullablePositiveId(data.calculation_run_id ?? data.calculationRunId, 'calculation_run_id', payload);
+  if (!entityId || !reportingPartyId || !calculationRunId) {
+    throw new ApiError('法人 VAT 台账缺少 entity/reporting-party/calculation-run 标识。', 502, payload);
+  }
+  if (entityId !== reportingPartyId) {
+    throw new ApiError('法人 VAT entity_id 与 reporting_party_id 不一致。', 502, payload);
+  }
+
+  const openingInputCredit = requiredFiniteNumber(data.opening_input_credit ?? data.openingInputCredit, 'opening_input_credit', payload);
+  const outputVat = requiredFiniteNumber(data.output_vat ?? data.outputVat, 'output_vat', payload);
+  const inputVat = requiredFiniteNumber(data.input_vat ?? data.inputVat, 'input_vat', payload);
+  const taxPrepayment = requiredFiniteNumber(data.tax_prepayment ?? data.taxPrepayment, 'tax_prepayment', payload);
+  const vatPayableBeforePrepayment = requiredFiniteNumber(
+    data.vat_payable_before_prepayment ?? data.vatPayableBeforePrepayment,
+    'vat_payable_before_prepayment',
+    payload,
+  );
+  const closingInputCredit = requiredFiniteNumber(data.closing_input_credit ?? data.closingInputCredit, 'closing_input_credit', payload);
+  const vatPayableAfterPrepayment = requiredFiniteNumber(
+    data.vat_payable_after_prepayment ?? data.vatPayableAfterPrepayment,
+    'vat_payable_after_prepayment',
+    payload,
+  );
+  const unappliedTaxPrepayment = requiredFiniteNumber(
+    data.unapplied_tax_prepayment ?? data.unappliedTaxPrepayment,
+    'unapplied_tax_prepayment',
+    payload,
+  );
+
+  const runKind = requiredString(data.run_kind ?? data.runKind, 'run_kind', payload);
+  const runStatus = requiredString(data.run_status ?? data.runStatus, 'run_status', payload);
+  const rulesetVersion = requiredString(data.ruleset_version ?? data.rulesetVersion, 'ruleset_version', payload);
+  const periodState = requiredString(data.period_state ?? data.periodState, 'period_state', payload);
+  const inputSnapshotSha256 = requiredString(data.input_snapshot_sha256 ?? data.inputSnapshotSha256, 'input_snapshot_sha256', payload);
+  const resultSha256 = requiredString(data.result_sha256 ?? data.resultSha256, 'result_sha256', payload);
+  const legalEntityVatIdentityOk = requiredBoolean(
+    data.legal_entity_vat_identity_ok ?? data.legalEntityVatIdentityOk,
+    'legal_entity_vat_identity_ok',
+    payload,
+  );
+  const lineageRaw = data.lineage_components ?? data.lineageComponents;
+  if (!Array.isArray(lineageRaw)) {
+    throw new ApiError('法人 VAT 台账缺少 lineage_components。', 502, payload);
+  }
+
   return {
     id: String(data.id ?? `${entityCode}-${period}`),
     period,
+    entityId,
+    reportingPartyId,
     entityCode,
     entityName: String(data.entity_name ?? data.entityName ?? entityCode),
     businessRole: String(data.business_role ?? data.businessRole ?? ''),
-    legalEntity: data.legal_entity === true || data.legalEntity === true,
+    legalEntity: requiredBoolean(data.legal_entity ?? data.legalEntity, 'legal_entity', payload),
 
-    outputVat: toFiniteNumber(data.output_vat ?? data.outputVat),
-    inputVat: toFiniteNumber(data.input_vat ?? data.inputVat),
-    vatPayable: toFiniteNumber(data.vat_payable ?? data.vatPayable),
+    scope: 'LEGAL_ENTITY_STATUTORY',
+    isFilingBasis: true,
+    sourceOfTruth,
 
-    revenue: toFiniteNumber(data.revenue),
-    realCost: toFiniteNumber(data.real_cost ?? data.realCost),
-    estimatedProfit: toFiniteNumber(data.estimated_profit ?? data.estimatedProfit),
-    estimatedCit: toFiniteNumber(data.estimated_cit ?? data.estimatedCit),
-    citNote: String(data.cit_note ?? data.citNote ?? ''),
+    openingInputCredit,
+    outputVat,
+    inputVat,
+    taxPrepayment,
+    vatPayableBeforePrepayment,
+    closingInputCredit,
+    vatPayableAfterPrepayment,
+    unappliedTaxPrepayment,
 
-    generated: data.generated === true,
+    calculationRunId,
+    runKind,
+    runStatus,
+    rulesetVersion,
+    periodState,
+    inputSnapshotSha256,
+    resultSha256,
+
+    legalEntityVatIdentityOk,
+    lineageComponents: lineageRaw.map(item => parseEntityLineageComponent(item, payload)),
     dataStatus: (data.data_status ?? data.dataStatus ?? 'READY') as DataStatus,
     dataGaps: Array.isArray(data.data_gaps) ? data.data_gaps.map(String) : [],
     trusted: data.trusted === true,
-    updateTime: String(data.update_time ?? data.updateTime ?? ''),
+
+    vatPayable: vatPayableAfterPrepayment,
+    revenue: Number.NaN,
+    realCost: Number.NaN,
+    estimatedProfit: Number.NaN,
+    estimatedCit: Number.NaN,
+    citNote: 'V3 法人正式 VAT 台账不包含收入、成本、利润或 CIT；等待法人经营视图迁移。',
+    generated: runStatus === 'SUCCEEDED',
+    updateTime: '',
   };
 }
 
@@ -885,6 +994,9 @@ function parseProjectTaxAnalysisRecord(payload: unknown): ProjectTaxAnalysisReco
   const projectId = toFiniteNumber(data.project_id ?? data.projectId);
   if (projectId <= 0) return null;
 
+  const scope = requiredString(data.scope, 'scope', payload);
+  const isFilingBasis = requiredBoolean(data.is_filing_basis ?? data.isFilingBasis, 'is_filing_basis', payload);
+
   return {
     projectId,
     projectCode: String(data.project_code ?? data.projectCode ?? ''),
@@ -892,13 +1004,24 @@ function parseProjectTaxAnalysisRecord(payload: unknown): ProjectTaxAnalysisReco
     period: String(data.period ?? ''),
     entityCode: data.entity_code ? String(data.entity_code) : (data.entity ? String(data.entity) : null),
 
-    outInvoiceNet: toFiniteNumber(data.out_invoice_net ?? data.outInvoiceNet),
-    outInvoiceVat: toFiniteNumber(data.out_invoice_vat ?? data.outInvoiceVat),
-    inInvoiceNet: toFiniteNumber(data.in_invoice_net ?? data.inInvoiceNet),
-    inInvoiceVat: toFiniteNumber(data.in_invoice_vat ?? data.inInvoiceVat),
-    deductibleInputVat: toFiniteNumber(data.deductible_input_vat ?? data.deductibleInputVat),
-    realCost: toFiniteNumber(data.real_cost ?? data.realCost),
-    invoiceCount: toFiniteNumber(data.invoice_count ?? data.invoiceCount),
+    scope,
+    isFilingBasis,
+
+    outInvoiceNet: requiredFiniteNumber(data.out_invoice_net ?? data.outInvoiceNet, 'out_invoice_net', payload),
+    outInvoiceVat: requiredFiniteNumber(data.out_invoice_vat ?? data.outInvoiceVat, 'out_invoice_vat', payload),
+    inInvoiceNet: requiredFiniteNumber(data.in_invoice_net ?? data.inInvoiceNet, 'in_invoice_net', payload),
+    inInvoiceVat: requiredFiniteNumber(data.in_invoice_vat ?? data.inInvoiceVat, 'in_invoice_vat', payload),
+    deductibleInputVat: requiredFiniteNumber(data.deductible_input_vat ?? data.deductibleInputVat, 'deductible_input_vat', payload),
+    nondeductibleInputVat: requiredFiniteNumber(data.nondeductible_input_vat ?? data.nondeductibleInputVat, 'nondeductible_input_vat', payload),
+    pendingInputVat: requiredFiniteNumber(data.pending_input_vat ?? data.pendingInputVat, 'pending_input_vat', payload),
+    signedVatPosition: requiredFiniteNumber(data.signed_vat_position ?? data.signedVatPosition, 'signed_vat_position', payload),
+    internalEliminatedNet: requiredFiniteNumber(data.internal_eliminated_net ?? data.internalEliminatedNet, 'internal_eliminated_net', payload),
+    internalEliminatedVat: requiredFiniteNumber(data.internal_eliminated_vat ?? data.internalEliminatedVat, 'internal_eliminated_vat', payload),
+    inputVatAccounted: requiredFiniteNumber(data.input_vat_accounted ?? data.inputVatAccounted, 'input_vat_accounted', payload),
+    inputVatUnaccounted: requiredFiniteNumber(data.input_vat_unaccounted ?? data.inputVatUnaccounted, 'input_vat_unaccounted', payload),
+    inputVatIdentityOk: requiredBoolean(data.input_vat_identity_ok ?? data.inputVatIdentityOk, 'input_vat_identity_ok', payload),
+    realCost: requiredFiniteNumber(data.real_cost ?? data.realCost, 'real_cost', payload),
+    invoiceCount: requiredFiniteNumber(data.invoice_count ?? data.invoiceCount, 'invoice_count', payload),
 
     sourceOfTruth: String(data.source_of_truth ?? data.sourceOfTruth ?? ''),
     legacyTablesUsed: data.legacy_tables_used === true || data.legacyTablesUsed === true,
@@ -1048,7 +1171,6 @@ function parseTaxLedgerRebuildResponse(payload: unknown): TaxLedgerRebuildRespon
   return { status, period, rowCount };
 }
 
-/** Explicitly rebuild one month through the controlled deterministic Tax endpoint. */
 export async function rebuildTaxLedger(
   period: string,
   signal?: AbortSignal,
@@ -1137,7 +1259,6 @@ function parseCounterparty(raw: unknown): ProjectCounterparty | null {
   };
 }
 
-/** Read every party the project actually references from the RAG-shared data sets. */
 export async function fetchProjectCounterparties(
   projectId: number,
   signal?: AbortSignal,
@@ -1267,12 +1388,6 @@ function parseAttemptSummary(value: unknown): AiAttemptSummary | null {
   return { ...(endpoint ? { endpoint } : {}), ...(status ? { status } : {}), ...(error ? { error } : {}) };
 }
 
-/**
- * Preserve backend execution metadata without selecting or inventing an AI
- * endpoint in the browser. Backend versions may call the chosen endpoint
- * selected_endpoint or effective_endpoint, and may expose attempts as an
- * array or inside an execution envelope.
- */
 export function extractAiExecutionMetadata(payload: unknown): AiExecutionMetadata {
   const data = asRecord(payload);
   if (!data) return {};
@@ -1370,7 +1485,6 @@ export async function runHealthCheck(input: {
   if (!match) throw new ApiError('AI 体检接口未返回有效批次编号。', 502);
   const batchId = match[1];
 
-  // 轮询等待后台体检作业池完成（最多等待 90 秒）
   const maxAttempts = 60;
   for (let i = 0; i < maxAttempts; i++) {
     const data = await fetchJson<Record<string, unknown>>(`/api/health-check/${batchId}`, { signal: input.signal });

@@ -156,30 +156,71 @@ export type TaxCategory = string;
 // 申报状态
 export type FilingStatus = string;
 
-// 税务台账单条记录
+export interface EntityVatLineageComponent {
+  componentType: string;
+  amount: number;
+  outputVatEventId: number | null;
+  inputVatClaimId: number | null;
+  taxPrepaymentFactId: number | null;
+  priorLedgerId: number | null;
+  openingBalanceSeedId: number | null;
+  invoiceFactId: number | null;
+  sourceDocumentId: number | null;
+}
 
+// 法人正式 VAT 台账单条记录。LEGAL_ENTITY_STATUTORY 是唯一申报口径。
 export interface EntityTaxLedgerRecord {
   id: string;
   period: string;
+  entityId: number;
+  reportingPartyId: number;
   entityCode: string;
   entityName: string;
   businessRole: string;
   legalEntity: boolean;
 
+  scope: 'LEGAL_ENTITY_STATUTORY';
+  isFilingBasis: true;
+  sourceOfTruth: string;
+
+  openingInputCredit: number;
   outputVat: number;
   inputVat: number;
-  vatPayable: number;
+  taxPrepayment: number;
+  vatPayableBeforePrepayment: number;
+  closingInputCredit: number;
+  vatPayableAfterPrepayment: number;
+  unappliedTaxPrepayment: number;
 
-  revenue: number;
-  realCost: number;
-  estimatedProfit: number;
-  estimatedCit: number;
-  citNote: string;
+  calculationRunId: number;
+  runKind: string;
+  runStatus: string;
+  rulesetVersion: string;
+  periodState: string;
+  inputSnapshotSha256: string;
+  resultSha256: string;
 
-  generated: boolean;
+  legalEntityVatIdentityOk: boolean;
+  lineageComponents: EntityVatLineageComponent[];
   dataStatus: DataStatus;
   dataGaps: string[];
   trusted: boolean;
+
+  /** @deprecated 旧 TaxLedgerView 兼容；等同 vatPayableAfterPrepayment。 */
+  vatPayable: number;
+  /** @deprecated 正式 VAT ledger 不提供法人收入，parser 不得把缺失值伪造成 0。 */
+  revenue: number;
+  /** @deprecated 正式 VAT ledger 不提供法人真实成本，parser 不得把缺失值伪造成 0。 */
+  realCost: number;
+  /** @deprecated 正式 VAT ledger 不提供法人预计利润，parser 不得把缺失值伪造成 0。 */
+  estimatedProfit: number;
+  /** @deprecated 正式 VAT ledger 不提供法人预计 CIT，parser 不得把缺失值伪造成 0。 */
+  estimatedCit: number;
+  /** @deprecated 等待法人经营/CIT 专用视图迁移。 */
+  citNote: string;
+  /** @deprecated 由 runStatus === 'SUCCEEDED' 派生。 */
+  generated: boolean;
+  /** @deprecated V3 VAT ledger 没有旧 updateTime 字段。 */
   updateTime: string;
 }
 
@@ -191,11 +232,22 @@ export interface ProjectTaxAnalysisRecord {
   period: string;
   entityCode: string | null;
 
+  scope: string;
+  isFilingBasis: boolean;
+
   outInvoiceNet: number;
   outInvoiceVat: number;
   inInvoiceNet: number;
   inInvoiceVat: number;
   deductibleInputVat: number;
+  nondeductibleInputVat: number;
+  pendingInputVat: number;
+  signedVatPosition: number;
+  internalEliminatedNet: number;
+  internalEliminatedVat: number;
+  inputVatAccounted: number;
+  inputVatUnaccounted: number;
+  inputVatIdentityOk: boolean;
   realCost: number;
   invoiceCount: number;
 
