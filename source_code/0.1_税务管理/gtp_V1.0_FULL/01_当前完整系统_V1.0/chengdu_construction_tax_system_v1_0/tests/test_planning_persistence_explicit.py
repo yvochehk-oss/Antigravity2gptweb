@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 def _login(client: TestClient) -> None:
     response = client.post(
         "/login",
-        data={"username": "admin", "password": "TestPass12345!"},
+        data={"username": "admin", "password": "888888"},
         follow_redirects=False,
     )
     assert response.status_code == 302
