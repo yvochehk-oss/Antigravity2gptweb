@@ -120,3 +120,12 @@ def idp_direct_retired(_request: Request):
 @router.get("/system/status")
 def v3_system_status(db: Session = Depends(get_v3_db)):
     return _read_call(lambda: V3BossService(db).system_status())
+
+def _coded_domain_http_error(err: Exception) -> HTTPException | None:
+    from app.integration.idp_canonical.service import CanonicalIngestRejected
+    if isinstance(err, CanonicalIngestRejected):
+        return HTTPException(
+            status_code=409,
+            detail={"code": err.code, "detail": str(err)},
+        )
+    return None
