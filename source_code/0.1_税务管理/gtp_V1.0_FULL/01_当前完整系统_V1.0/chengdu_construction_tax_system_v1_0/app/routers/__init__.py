@@ -7,6 +7,7 @@ from .canonical_ssot import router as canonical_ssot_router
 from .cockpit import router as cockpit_router
 from .collections import router as collections_router
 from .health_check import router as health_check_router
+from .legal_entity_operating_projection import router as legal_entity_operating_projection_router
 from .manager import router as manager_router
 from .matching import router as matching_router
 from .models import router as models_router
@@ -25,6 +26,7 @@ ALL_ROUTERS = [
     auth_router,
     cockpit_router,
     collections_router,
+    legal_entity_operating_projection_router,
     matching_router,
     tax_router,
     ai_review_router,
