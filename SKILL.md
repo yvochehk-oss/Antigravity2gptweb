@@ -1,26 +1,29 @@
 ---
 name: safari-chatgpt-reasoner
-description: 双层混合 Agent 系统：以 Safari/Chrome ChatGPT 网页端为云端认知控制面（High Intelligence / Zero Privilege），以任意本地桌面 Agent 为确定性数据面（High Privilege / Low Ambiguity）。v4.1 起强制执行 Tab 精确绑定 + 跨进程事务锁 + 精确 user-message identity + assistant message-id 稳定阶段，证据完整性真正可机验。含端到端 Orchestrator（scripts/orchestrate.py）：支持任意桌面 Agent 作为执行端，GPT-5.6 SOL 生成方案和代码，GitHub 留底，每任务闭环可自动修复。
+description: 双层混合 Agent 系统：以 Safari/Chrome ChatGPT 网页端 Custom GPT 为云端认知与代码修改控制面（配备 GitHub 直连读写工具，直接在 GitHub 仓库执行修改与推送），以任意本地桌面 Agent 为确定性执行与验收数据面（收到推送后 git pull 拉取代码并运行本地测试进行最终闭环验收）。强制执行 Tab 精确绑定 + 跨进程事务锁 + 闭环测试验收，证据完整性真正可机验。
 ---
 
 # Safari / Chrome ChatGPT Reasoner Skill (v4.1 Evidence-Integrity)
 
 ### 架构原则与契约 (Architecture Contracts)
-1. **三权分立与单向依赖**：
-   - **Reasoning Plane（ChatGPT Web）**：高阶架构推演、故障归因与规划（零系统读写权限）。
-   - **Execution Plane（本地 Agent）**：文件原子修改、依赖安装、环境构建（高权限确定性操作）。
-   - **Verification Plane（Evidence Store）**：独立以 exit code、事件 JSONL、git diff 为客观事实准绳。
-2. **URL + Transaction + User + Assistant 四重身份绑定 (P0)**：
+1. **【第一铁律】Custom GPT GitHub 直连修改与本地 Agent 闭环拉取验收 (P0 - Supreme Law)**：
+   - **Custom GPT 云端直连 GitHub 读写与推送**：Safari / Chrome 上的 Custom GPT 配备了 GitHub 直连读写工具，直接指示 ChatGPT 在 GitHub 远程仓库上执行文件修改、分支管理与提交推送（commits / PRs 由 Custom GPT 直接在 GitHub 仓库落地）。
+   - **本地 Agent 职责严格为 `git pull` 与本地测试闭环验收**：本地 Agent 严禁越俎代庖自主编写业务代码；其核心职责是在收到 ChatGPT 的远程修改与推送后，执行 `git pull` 同步拉取最新代码，在本地真实环境中运行测试命令（如 pytest / npm test），收集标准输出、错误日志与退出码，并忠实反馈给 Custom GPT 进行审查（`task-review`），由 Custom GPT 裁决 `APPROVED` 或发起新一轮修复推送，完成全流程闭环验收。
+2. **三权分立与单向闭环**：
+   - **Reasoning & Modification Plane（Custom GPT Web）**：高阶架构推演、故障归因、直接通过 GitHub 工具操作远程仓库代码。
+   - **Execution & Validation Plane（本地 Agent）**：`git pull` 拉取代码、依赖安装、运行本地测试验证（高权限确定性操作）。
+   - **Verification Plane（Evidence Store）**：独立以 exit code、测试日志、事件 JSONL、git commit SHA 为客观事实准绳。
+3. **URL + Transaction + User + Assistant 四重身份绑定 (P0)**：
    - 调用方必须通过 `--target-url` 显式指定 ChatGPT 会话 URL（仅接受 `https://chatgpt.com` / `https://www.chatgpt.com`）。
    - 同一 `target_url` 在任意时刻只允许一个 RPC（`TargetTabLock`，`fcntl.flock(LOCK_EX|LOCK_NB)`）。
    - 提交验证不再用"消息数量 +2"启发式；改在 JS 端规范化比对 last user message 是否 === expected prompt。
    - 助手稳定阶段只读 `data-message-id` 唯一定位的目标 turn；若节点消失/身份变化即视为证据失效（不再依赖 totalCount）。
-3. **渐进式证据等级 (L0 – L3)**：
+4. **渐进式证据等级 (L0 – L3)**：
    - L0：**不传 Evidence 正文**，仅传调用上下文与 git 状态摘要。
    - L1：折叠中段，保留头 5 行 + 尾 35 行。
    - L2：保留尾部 80 行。
    - L3：全文（建议改用 `--evidence-file`）。
-4. **结构化退出码 (Verification Plane 唯一判据)**：
+5. **结构化退出码 (Verification Plane 唯一判据)**：
    - `0`: 正常完成，证据完整
    - `2`: 超时（拿到部分内容，`TIMEOUT_PARTIAL`）
    - `3`: 超时（无内容，`TIMEOUT_EMPTY`）
@@ -33,21 +36,34 @@ description: 双层混合 Agent 系统：以 Safari/Chrome ChatGPT 网页端为�
    - `12`: 熔断器已开 (`CIRCUIT_OPEN`)
    - `13`: 目标 Tab 正在被另一 bridge 占用 (`TARGET_BUSY`)
    - 所有阶段事件走 stderr JSON（递归脱敏凭据），stdout 保持纯文本回答。
-5. **时效与 deadline (P0-4)**：
+6. **时效与 deadline (P0-4)**：
    - `--timeout` 是 monotonic 绝对 deadline，覆盖 baseline → 注入 → 提交 → 新回合 → 稳定 全过程。
    - 任何阶段用 `min(phase_budget, remaining_deadline)` 切片；超时即返回当前最新事实。
-6. **写操作 fail-fast (P1-4)**：
+7. **写操作 fail-fast (P1-4)**：
    - 本版本**不再**自动重试 Safari 写操作（`inject` / `send` 非幂等）。
    - 失败立即抛错并退出，宁可让调用方显式重试，也不要猜测。
-7. **熔断器 (P1-1 / P1-2 / P1-3)**：
+8. **熔断器 (P1-1 / P1-2 / P1-3)**：
    - 滑动时间戳窗口（默认 1h 内 ≤3 次同签名失败即熔断）。
    - 每次 read-modify-write 自动 prune 过期签名；空 entry 直接删除，state JSON 不会无限增长。
    - `reset_circuit_breaker` 自身持锁，并可通过 `--reset-circuit` 显式调用。
-8. **双层职责绝对隔离与防抢跑铁律 (Strict Division of Labor & Anti-Preemption Constraint) [P0-核心]**：
-   - **GPT 独占方案与代码生成权**：所有架构方案、实施任务分解、业务代码块（必须带 `filepath: <path>` 标记）与测试命令，必须由 ChatGPT 网页端深度推演并完整生成。
-   - **本地 Agent 严禁自主编写业务代码**：本地 Agent 绝对禁止越俎代庖自己编写业务代码或擅自更改方案。本地 Agent 的职责严格受限于：采集上下文/报错堆栈 ➔ 提交给 GPT ➔ 审查并解析 GPT 输出的代码 ➔ 原子落盘写入文件 ➔ 运行测试 ➔ 将测试结果与 exit code 忠实回传给 GPT 审查（`task-review`）。
-   - **绝对防抢跑纪律**：当 ChatGPT 处于深度思考（Reasoning）、工具调用或流式生成时，本地 Agent 必须耐心等待完整输出，绝对不得以“耗时较长”或“为了提速”为借口抢跑自行编写代码。
-   - **最终闭环判据**：每一个任务的闭环必须由 GPT 在 `task-review` 阶段审查测试日志并显式输出 `APPROVED` 裁决，本地 Agent 方可进入下一任务或交付。
+9. **双层职责绝对隔离与防抢跑纪律 (Strict Division of Labor & Anti-Preemption Constraint)**：
+   - **GPT 独占方案与代码修改推送权**：所有架构方案、实施任务分解、代码修改提交与测试命令指定，由配备 GitHub 工具的 Custom GPT 深度推演并在远端仓库执行。
+   - **本地 Agent 严禁自主编写业务代码**：本地 Agent 绝对禁止越俎代庖自己编写业务代码或擅自更改方案。
+   - **绝对防抢跑纪律**：当 Custom GPT 处于深度思考（Reasoning）、工具调用（调用 GitHub Action 提交代码）或流式生成时，本地 Agent 必须耐心等待完整推送与响应完成，绝对不得以“耗时较长”为由抢跑编写代码。
+   - **最终闭环判据**：每一个任务的闭环必须由 GPT 在 `task-review` 阶段审查本地实际测试日志并显式输出 `APPROVED` 裁决，方可进入下一任务或交付。
+10. **【强制元数据基线声明契约 (Mandatory Metadata Baseline Contract)】**：
+    - **Prompt 顶部强制注入三要素基线**：在与 Safari / Chrome ChatGPT 交互的每一个 Prompt 最顶部，必须显式注入结构化元数据块（目标 GitHub 仓库全称、目标实施分支、最新的 Commit Hash / Parent Commit、核心子模块的实际物理相对路径）。
+    - **消除检索漂移**：严禁省略或让 ChatGPT 猜测默认分支与路径，彻底杜绝多子系统（如 `source_code/0.1_税务管理/...`）及非默认私有分支（如 `v3.0-macos`）的检索盲区与路径错配。
+    - **标准注入范例**：
+      ```markdown
+      【@GitHub 协同基线强制对齐】
+      1. 目标仓库：<owner>/<repo>
+      2. 目标分支：<branch_name>
+      3. 最新提交基线（Parent Commit）：<commit_sha>
+      4. 核心子系统物理路径：
+         - 模块 A：source_code/.../moduleA
+         - 模块 B：source_code/.../moduleB
+      ```
 
 ### 标准调用模式
 
@@ -247,12 +263,21 @@ orchestrate.py run-task × N ────→ 每个任务的闭环：
 全部任务完成 → 项目交付
 ```
 
-### 新增 `--type` 协议
+### 新增 `--type` 协议与输出规范
 
 | type | 用途 | GPT 输出要求 |
 |---|---|---|
-| `task-code` | 单任务代码生成 | 每个文件以 `filepath: <path>` 标记；测试命令以 `TEST:` 标记 |
+| `task-code` | 单任务代码生成与提交 | 代码由 Custom GPT 直接通过 GitHub 直连工具在远端完成提交与推送。在对话回复中：**5. 只测试命令，不要输出代码，不要写说明文字。** 测试命令以 `TEST:` 标记，预期结果以 `EXPECTED:` 标记。 |
 | `task-review` | 代码 + 测试结果审查 | 只输出 `APPROVED` / `NEEDS_FIX(原因)` / `BLOCKED(原因)` |
+
+【输出格式要求】（严格遵守）：
+1. 代码直接使用 GitHub 直连工具提交至目标远程分支。
+2. 禁止在对话回复中粘贴大段代码，避免冗余和格式截断。
+3. 测试命令用以下格式（放在单独的 bash 块中）：
+   `TEST: <实际命令>`
+   `EXPECTED: <预期结果描述>`
+4. 如果任务涉及多文件，请按依赖顺序排列。
+5. 只测试命令，不要输出代码，不要写说明文字。
 
 ### Orchestrator 子命令速查
 
@@ -297,63 +322,62 @@ python3 scripts/orchestrate.py status --name my-migration
 每个任务状态：
 - `pending` → `coding` → `testing` → `approved` / `failed` / `blocked`
 
-### 单任务闭环流程（优化版）
+### 单任务闭环流程（GitHub 直连工具与本地验收）
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│ 1. GPT 写代码                                            │
-│    - 输出代码文件（标注 filepath）                        │
-│    - 给出测试命令（必须，如 npm test / pytest）          │
-│    - 说明预期结果（如 "all tests pass", "exit 0"）      │
+│ 1. Safari Custom GPT (配 GitHub 工具) 远端修改与推送    │
+│    - 直接调用 GitHub 工具对远程仓库执行修改与 commit/push │
+│    - 给出本地测试命令（如 pytest / npm test）             │
+│    - 说明预期测试结果（如 "all tests pass", "exit 0"）    │
 └──────────────┬──────────────────────────────────────────┘
                │
                ▼
 ┌─────────────────────────────────────────────────────────┐
-│ 2. Agent 写文件 + 自动推送 GitHub                        │
-│    - 解析代码块并写入本地文件                            │
-│    - git add + commit + push                             │
-│    - 记录 commit SHA                                     │
+│ 2. 本地 Agent 执行 git pull 拉取代码                     │
+│    - 检测或收到推送后执行 git pull 获得最新代码          │
+│    - 确认分支与 commit SHA 处于一致状态                  │
 └──────────────┬──────────────────────────────────────────┘
                │
                ▼
 ┌─────────────────────────────────────────────────────────┐
-│ 3. Agent 执行测试                                        │
-│    - 运行 GPT 提供的测试命令                             │
-│    - 收集 stdout / stderr / exit code                   │
+│ 3. 本地 Agent 执行本地测试                               │
+│    - 运行 Custom GPT 提供的测试验证命令                  │
+│    - 捕获 stdout / stderr / exit code                   │
 └──────────────┬──────────────────────────────────────────┘
                │
                ▼
 ┌─────────────────────────────────────────────────────────┐
-│ 4. Agent 反馈测试结果给 GPT                              │
-│    - 测试命令 + 实际输出                                 │
-│    - 通过 / 失败状态                                     │
+│ 4. 本地 Agent 反馈测试结果给 Custom GPT                  │
+│    - 测试命令 + 实际运行日志与错误堆栈                   │
+│    - 通过 / 失败状态（exit code）                        │
 └──────────────┬──────────────────────────────────────────┘
                │
                ▼
 ┌─────────────────────────────────────────────────────────┐
-│ 5. GPT 审查并决定下一步                                  │
+│ 5. Custom GPT 审查并决定下一步                           │
 │    - APPROVED：测试通过，任务完成 ✅                     │
-│    - NEEDS_FIX：测试失败，给修复建议 → 自动修复循环 🔧  │
-│    - BLOCKED：无法自动解决，需人工介入 🚫                │
+│    - NEEDS_FIX：测试失败，Custom GPT 再次远程推送修复 🔧 │
+│    - BLOCKED：环境/依赖受阻，需人工介入 🚫               │
 └─────────────────────────────────────────────────────────┘
 
 【自动修复循环】
-NEEDS_FIX → GPT 重写代码 → Agent 推送 + 测试 → GPT 审查
+NEEDS_FIX → Custom GPT 重新修改并 push → Agent git pull + 测试 → GPT 审查
 最多 3 轮（可配置），避免无限循环
 ```
 
 每个任务状态：
-- `pending` → `coding` → `testing` → `approved` / `failed` / `blocked`
-- 修复中：`fixing` → `testing` → 循环或完成
+- `pending` → `pulling` → `testing` → `approved` / `failed` / `blocked`
+- 修复中：`fixing` → `pulling` → `testing` → 循环或完成
 
 ### 关键设计原则
 
-- **测试驱动闭环**：GPT 必须给出测试命令，Agent 跑测试后把真实结果反馈给 GPT，GPT 根据实际测试结果决定通过/修复/阻塞，避免主观判断。
-- **自动推送 GitHub**：每次代码改动（包括修复）都自动 commit + push，GitHub 是最终事实来源，可追溯、可回滚。
-- **强制测试命令**：GPT 写代码时必须提供至少一个测试命令，如果忘记提供会自动要求补充，确保每次改动都可验证。
-- **自动修复机制**：测试失败时，GPT 会根据错误信息自动修复，最多尝试 3 轮。每轮都是完整的"写代码→推送→测试→审查"循环。
-- **单向依赖**：GPT 只能给方案和代码，本地 Agent 负责执行和测试。责任边界清晰：推演出错找 GPT，落地出错找 Agent。
-- **可恢复**：所有状态持久化到 `~/.antigravity/orchestrator/`，Ctrl+C 后可直接 `resume`。
+- **第一铁律（GitHub 直连修改 + 本地 pull 验收）**：Safari 上的 Custom GPT 配备 GitHub 直连读写工具直接在远程仓库修改并推送；本地 Agent 执行 `git pull` 同步最新代码并在真实环境运行测试，完成闭环验收。
+- **测试驱动闭环**：Custom GPT 必须给出测试验证命令，Agent 跑测试后把真实结果反馈给 GPT，由 GPT 根据实际测试日志决定通过/修复/阻塞，避免主观判断。
+- **强制测试命令**：Custom GPT 交付改动时必须提供至少一个测试命令，确保每次提交都可被本地物理验证。
+- **自动修复机制**：测试失败时，Custom GPT 会根据真实报错信息直接远程修复并重新推送，最多尝试 3 轮。每轮都是完整的“远程修改推送 ➔ 本地 git pull ➔ 本地测试 ➔ 审查裁决”闭环。
+- **职责边界清晰**：Custom GPT 负责高阶认知、方案与远程代码改动，本地 Agent 负责拉取、本地执行与环境验证。推演出错找 GPT，落地与环境出错找 Agent。
+- **可恢复**：所有状态持久化到 `~/.antigravity/orchestrator/`，中断后可随时恢复。
 - **长会话平滑交接 (Handoff Protocol)**：当对话历史过长导致 WebKit/页面渲染负载增加时，执行 `旧会话生成交接摘要 ➔ 换新会话 URL 注入继续`，兼顾 100% 上下文继承与极致流畅度。
 - **可信证据**：所有 bridge 调用走事件 JSONL，stderr 记录每次 GPT 请求/响应的基线快照。
 
