@@ -75,6 +75,20 @@ def boss_tax(
     )
 
 
+@router.get("/boss/projects/{project_id}/accounting-rollforward")
+def boss_accounting_rollforward(
+    project_id: int,
+    period: str = Query(..., description="Natural accounting period: YYYY-MM or YYYY-Q1..Q4"),
+    db: Session = Depends(get_v3_db),
+):
+    return _read_call(
+        lambda: V3BossService(db).accounting_rollforward(
+            project_id,
+            period=period,
+        )
+    )
+
+
 @router.get("/boss/projects/{project_id}/evidence-quality")
 def boss_evidence_quality(project_id: int, db: Session = Depends(get_v3_db)):
     return _read_call(lambda: V3BossService(db).evidence_quality(project_id))

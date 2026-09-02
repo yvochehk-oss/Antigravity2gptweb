@@ -1,13 +1,13 @@
 """Canonical project summary read model.
 
 All dynamic financial values exposed to project/dashboard consumers are derived
-from accepted/current Canonical Facts and deterministic Tax engines.  Project
+from accepted/current Canonical Facts and deterministic Tax engines. Project
 ORM is used only for static master metadata.
 """
 from __future__ import annotations
 
 from decimal import Decimal
-from typing import Any
+from typing import Any, Iterable
 
 from sqlalchemy import text
 
@@ -29,19 +29,27 @@ def _code(value: Any) -> str:
     return _clean(value).upper()
 
 
-def resolve_project_transaction_price(db, project_id: int) -> dict[str, Any]:
-    """Resolve the project-revenue transaction price from Canonical contract facts.
+def resolve_project_transaction_price(
+    db,
+    project_id: int,
+    *,
+    contract_facts: Iterable[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Resolve project revenue transaction price from Canonical contract facts.
 
-    Only registered historical main-contract identifiers are treated as equivalent
-    aliases when they carry the same accepted/current amount. All other candidate
-    sources must resolve to exactly one contract and fail closed when ambiguous.
+    ``contract_facts`` is an optional deterministic fact view used by accounting
+    period cutoffs. Omitting it preserves the historical project-to-date path.
     """
     internal_codes = {
         _code(code)
         for code in db.execute(text("SELECT code FROM entities WHERE active = TRUE")).scalars().all()
         if code
     }
-    facts = load_current_facts(db, int(project_id), "contract")
+    facts = (
+        list(contract_facts)
+        if contract_facts is not None
+        else load_current_facts(db, int(project_id), "contract")
+    )
     candidates: list[dict[str, Any]] = []
     for fact in facts:
         payload = _payload(fact.get("payload"))

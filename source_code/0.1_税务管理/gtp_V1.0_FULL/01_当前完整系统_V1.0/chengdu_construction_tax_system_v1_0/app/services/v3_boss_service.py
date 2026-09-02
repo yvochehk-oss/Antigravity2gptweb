@@ -1,6 +1,6 @@
 """Phase 3/4 V3 Boss compatibility service backed only by Canonical Facts.
 
-The historical V3 ``facts`` family is frozen as read-only audit data.  All
+The historical V3 ``facts`` family is frozen as read-only audit data. All
 production Boss reads are projections of ``canonical_facts`` plus deterministic
 Tax calculations so there is exactly one business fact source.
 """
@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.models import Project
 from app.services.canonical_v3_bridge import CanonicalV3Bridge
+from app.services.period_rollforward import build_period_rollforward
 from app.services.phase4_accounting import build_project_accounting
 
 EXPECTED_ALEMBIC_HEAD = "99_phase4_accounting_snapshots"
@@ -77,6 +78,10 @@ class V3BossService:
     def rag_context(self, project_id: int, *, scope: str = "whole_project") -> dict[str, Any]:
         self._project(project_id)
         return self.bridge.rag_context(int(project_id), scope=scope)
+
+    def accounting_rollforward(self, project_id: int, *, period: str) -> dict[str, Any]:
+        self._project(project_id)
+        return build_period_rollforward(self.db, int(project_id), period)
 
     def snapshot(
         self,
