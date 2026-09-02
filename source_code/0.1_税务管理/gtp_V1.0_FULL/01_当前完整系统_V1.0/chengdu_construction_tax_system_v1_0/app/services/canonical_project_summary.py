@@ -30,12 +30,11 @@ def _code(value: Any) -> str:
 
 
 def resolve_project_transaction_price(db, project_id: int) -> dict[str, Any]:
-    """Resolve the single project-revenue contract from Canonical contract facts.
+    """Resolve the project-revenue transaction price from Canonical contract facts.
 
-    Known historical main-contract identifiers are preferred.  When no known
-    identifier is present, a single external-customer contract is accepted.
-    Ambiguous multiple candidates fail closed instead of summing pass-through
-    contracts.
+    Known historical main-contract identifiers are treated as equivalent aliases
+    when they carry the same accepted/current amount. Conflicting amounts still
+    fail closed instead of summing pass-through contracts.
     """
     internal_codes = {
         _code(code)
@@ -79,11 +78,11 @@ def resolve_project_transaction_price(db, project_id: int) -> dict[str, Any]:
             "fact_version": None,
             "contract_no": "",
         }
-    if len(pool) > 1:
-        unique_amounts = {row["amount"] for row in pool}
-        unique_contracts = {row["contract_no"] for row in pool}
-        if len(unique_amounts) != 1 or len(unique_contracts) != 1:
-            raise ValueError("ambiguous canonical project transaction price")
+
+    unique_amounts = {row["amount"] for row in pool}
+    if len(unique_amounts) != 1:
+        raise ValueError("ambiguous canonical project transaction price")
+
     selected = sorted(pool, key=lambda row: (row["fact_version"], row["fact_id"]), reverse=True)[0]
     return {
         "amount": selected["amount"],
@@ -140,7 +139,6 @@ def canonical_project_summary(db, project_id: int) -> dict[str, Any]:
     boundary = consolidate_invoice_facts(invoice_facts, internal_codes)
     cash = payment_boundary(db, int(project_id))
 
-    # Import locally to avoid a module cycle; Phase 4 consumes the same resolver.
     from .phase4_accounting import build_project_accounting
 
     accounting = build_project_accounting(db, int(project_id))
