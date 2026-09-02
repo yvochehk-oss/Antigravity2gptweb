@@ -47,7 +47,7 @@ export function Sidebar({ currentTab, onSelectTab, unresolvedRiskCount, aiModelS
     {
       label: '法人主体',
       items: [
-        { id: 'entity-profile', label: '法人经营画像', icon: Landmark, badge: '待接入', disabled: true },
+        { id: 'entity-profile', label: '法人经营画像', icon: Landmark },
         { id: 'tax-ledger', label: '法人法定税务', icon: ReceiptText },
       ],
     },

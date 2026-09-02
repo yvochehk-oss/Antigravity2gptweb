@@ -4,6 +4,7 @@ import { Header } from './components/Header';
 import { DashboardView } from './components/DashboardView';
 import { ProjectRepositoryView } from './components/ProjectRepositoryView';
 import { ProjectDetailView } from './components/ProjectDetailView';
+import { EntityCorporateView } from './components/EntityCorporateView';
 import { TaxLedgerView } from './components/TaxLedgerView';
 import { AiDecisionCenterView } from './components/AiDecisionCenterView';
 import { RiskCenterView } from './components/RiskCenterView';
@@ -451,6 +452,8 @@ export default function App() {
               {currentTab === 'projects' && projectSubView === 'detail' && !currentProject && (
                 <DataStatusCard status={projectStatus} title="项目详情不可用" message={projectStatusMessage} onRetry={() => void loadProjectDomain()} />
               )}
+
+              {currentTab === 'entity-profile' && <EntityCorporateView />}
 
               {currentTab === 'tax-ledger' && (
                 <TaxLedgerView records={entityTaxLedgerRecords} dataStatus={taxLedgerStatus} dataStatusMessage={taxLedgerStatusMessage} onRetry={() => void loadEntityVatDomain()} onOpenNewRecordModal={() => setIsNewRecordModalOpen(true)} onOpenExportModal={() => setIsExportModalOpen(true)} onAskAiAboutRisk={handleAskAiAboutRisk} onRebuildTaxLedger={handleRebuildTaxLedger} isRebuilding={isLedgerRebuilding} settings={systemSettings} />
