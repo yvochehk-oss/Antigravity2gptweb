@@ -55,7 +55,12 @@ function StatutoryKpi({ label, value }: { label: string; value: number | undefin
   );
 }
 
-function ContributionRow({ item }: { item: LegalEntityProjectionContribution }) {
+interface ContributionRowProps {
+  key?: string;
+  item: LegalEntityProjectionContribution;
+}
+
+function ContributionRow({ item }: ContributionRowProps) {
   return (
     <tr className="border-t border-[#444653]/20">
       <td className="px-3 py-2.5">
