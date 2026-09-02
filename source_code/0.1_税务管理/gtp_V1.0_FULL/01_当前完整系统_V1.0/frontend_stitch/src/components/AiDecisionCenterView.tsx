@@ -8,6 +8,7 @@ interface AiDecisionCenterViewProps {
   dataStatus: DataStatus;
   selectedProjectId?: string;
   onSelectProject?: (id: string) => void;
+  onAskAiAboutRisk?: (entityName: string) => void;
   reviewResult?: Record<string, unknown> | null;
 }
 
@@ -33,6 +34,7 @@ export function AiDecisionCenterView({
   dataStatus,
   selectedProjectId,
   onSelectProject,
+  onAskAiAboutRisk,
   reviewResult,
 }: AiDecisionCenterViewProps) {
   const [activeTab, setActiveTab] = useState<WorkspaceTab>('review');
@@ -96,7 +98,7 @@ export function AiDecisionCenterView({
           </div>
         )}
 
-        <AiReviewView projects={projects} dataStatus={dataStatus} />
+        <AiReviewView projects={projects} dataStatus={dataStatus} onAskAiAboutRisk={onAskAiAboutRisk} />
       </section>
 
       <section
@@ -116,6 +118,7 @@ export function AiDecisionCenterView({
           projects={projects}
           selectedProjectId={selectedProjectId}
           onSelectProject={onSelectProject}
+          onAskAiAboutRisk={onAskAiAboutRisk}
         />
       </section>
     </div>

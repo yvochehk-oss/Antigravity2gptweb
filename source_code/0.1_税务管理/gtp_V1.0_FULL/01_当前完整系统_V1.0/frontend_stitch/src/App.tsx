@@ -5,9 +5,8 @@ import { DashboardView } from './components/DashboardView';
 import { ProjectRepositoryView } from './components/ProjectRepositoryView';
 import { ProjectDetailView } from './components/ProjectDetailView';
 import { TaxLedgerView } from './components/TaxLedgerView';
-import { TaxPlanningView } from './components/TaxPlanningView';
+import { AiDecisionCenterView } from './components/AiDecisionCenterView';
 import { RiskCenterView } from './components/RiskCenterView';
-import { AiReviewView } from './components/AiReviewView';
 import { AuditView } from './components/AuditView';
 import { AiAssistantDrawer } from './components/AiAssistantDrawer';
 import { NewTaxRecordModal } from './components/NewTaxRecordModal';
@@ -429,7 +428,7 @@ export default function App() {
                   onSelectProject={handleSelectProject}
                   onOpenNewRecordModal={() => setIsNewRecordModalOpen(true)}
                   onOpenExportModal={() => setIsExportModalOpen(true)}
-                  onNavigateToAiReview={projectId => { setSelectedProjectId(projectId); setCurrentTab('ai-review'); }}
+                  onNavigateToAiReview={projectId => { setSelectedProjectId(projectId); setCurrentTab('ai-decision'); }}
                   settings={systemSettings}
                 />
               )}
@@ -443,7 +442,7 @@ export default function App() {
                   onOpenNewRecordModal={() => setIsNewRecordModalOpen(true)}
                   onOpenExportModal={() => setIsExportModalOpen(true)}
                   onAskAiAboutRisk={handleAskAiAboutRisk}
-                  onGoToPlanning={() => setCurrentTab('tax-planning')}
+                  onGoToPlanning={() => setCurrentTab('ai-decision')}
                   onProjectDataDeleted={() => void loadProjectDomain()}
                   settings={systemSettings}
                 />
@@ -456,13 +455,18 @@ export default function App() {
               {currentTab === 'tax-ledger' && (
                 <TaxLedgerView records={entityTaxLedgerRecords} dataStatus={taxLedgerStatus} dataStatusMessage={taxLedgerStatusMessage} onRetry={() => void loadEntityVatDomain()} onOpenNewRecordModal={() => setIsNewRecordModalOpen(true)} onOpenExportModal={() => setIsExportModalOpen(true)} onAskAiAboutRisk={handleAskAiAboutRisk} onRebuildTaxLedger={handleRebuildTaxLedger} isRebuilding={isLedgerRebuilding} settings={systemSettings} />
               )}
-              {currentTab === 'tax-planning' && (
-                <TaxPlanningView projects={projects} selectedProjectId={selectedProjectId} onSelectProject={setSelectedProjectId} onAskAiAboutRisk={handleAskAiAboutRisk} />
+              {currentTab === 'ai-decision' && (
+                <AiDecisionCenterView
+                  projects={projects}
+                  selectedProjectId={selectedProjectId}
+                  onSelectProject={setSelectedProjectId}
+                  dataStatus={projectStatus}
+                  onAskAiAboutRisk={handleAskAiAboutRisk}
+                />
               )}
               {currentTab === 'risk-center' && (
                 <RiskCenterView riskEvents={riskEvents} dataStatus={riskStatus} dataStatusMessage={riskStatusMessage} onResolveRisk={handleResolveRisk} onAskAiAboutRisk={handleAskAiAboutRisk} settings={systemSettings} />
               )}
-              {currentTab === 'ai-review' && <AiReviewView projects={projects} dataStatus={projectStatus} onAskAiAboutRisk={handleAskAiAboutRisk} />}
               {currentTab === 'audit' && <AuditView auditLogs={auditLogs} dataStatus={auditStatus} onOpenExportModal={() => setIsExportModalOpen(true)} />}
             </div>
           </main>

@@ -3,7 +3,6 @@ import {
   BrainCircuit,
   Building2,
   ChevronRight,
-  Compass,
   FileCheck2,
   Landmark,
   LayoutDashboard,
@@ -61,8 +60,7 @@ export function Sidebar({ currentTab, onSelectTab, unresolvedRiskCount, aiModelS
     {
       label: '智能决策',
       items: [
-        { id: 'tax-planning', label: 'AI 税务筹划', icon: Compass },
-        { id: 'ai-review', label: 'AI 审查与审单', icon: BrainCircuit },
+        { id: 'ai-decision', label: 'AI 财税决策中心', icon: BrainCircuit },
       ],
     },
     {
@@ -118,7 +116,7 @@ export function Sidebar({ currentTab, onSelectTab, unresolvedRiskCount, aiModelS
               {group.items.map((item) => {
                 const Icon = item.icon;
                 const isActive = !item.disabled && currentTab === item.id;
-                const isTaxPlanning = item.id === 'tax-planning';
+                const isAiDecision = item.id === 'ai-decision';
                 const showBadge = typeof item.badge === 'string' || (typeof item.badge === 'number' && item.badge > 0);
 
                 return (
@@ -131,21 +129,21 @@ export function Sidebar({ currentTab, onSelectTab, unresolvedRiskCount, aiModelS
                       if (!item.disabled) onSelectTab(item.id);
                     }}
                     className={`flex items-center justify-between w-full px-2.5 py-2.5 rounded-lg font-medium transition-all duration-150 group ${
-                      isTaxPlanning ? 'text-[15.5px] font-bold tracking-wide' : 'text-[13px]'
+                      isAiDecision ? 'text-[15px] font-bold tracking-wide' : 'text-[13px]'
                     } ${
                       item.disabled
                         ? 'text-[#6f7280] bg-[#131b2e]/40 cursor-not-allowed opacity-75'
                         : isActive
                           ? 'text-[#4cd7f6] font-semibold bg-[#03b5d3]/15 border-l-2 border-[#4cd7f6] shadow-[0_0_10px_rgba(76,215,246,0.15)] cursor-pointer'
-                          : isTaxPlanning
+                          : isAiDecision
                             ? 'text-[#c4b5fd] hover:text-[#dde1ff] hover:bg-[#8b5cf6]/20 bg-[#8b5cf6]/10 border border-[#8b5cf6]/30 shadow-[0_0_8px_rgba(139,92,246,0.2)] cursor-pointer'
                             : 'text-[#c4c5d5] hover:text-[#dae2fd] hover:bg-[#222a3d]/60 cursor-pointer'
                     }`}
                   >
                     <div className="flex items-center gap-2.5 min-w-0">
                       <Icon className={`flex-shrink-0 transition-transform ${item.disabled ? '' : 'group-hover:scale-110'} ${
-                        isTaxPlanning ? 'w-5 h-5' : 'w-4 h-4'
-                      } ${isActive ? 'text-[#4cd7f6]' : isTaxPlanning ? 'text-[#a78bfa]' : 'text-[#8e909f]'}`} />
+                        isAiDecision ? 'w-5 h-5' : 'w-4 h-4'
+                      } ${isActive ? 'text-[#4cd7f6]' : isAiDecision ? 'text-[#a78bfa]' : 'text-[#8e909f]'}`} />
                       <span className="truncate">{item.label}</span>
                     </div>
                     <div className="flex items-center gap-1 flex-shrink-0">
