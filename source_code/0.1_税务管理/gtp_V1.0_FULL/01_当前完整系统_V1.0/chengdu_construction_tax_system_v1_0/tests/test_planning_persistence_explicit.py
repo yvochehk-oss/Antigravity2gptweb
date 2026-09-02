@@ -6,7 +6,7 @@ from uuid import uuid4
 from fastapi.testclient import TestClient
 
 
-def _login(client: TestClient) -> None:
+def _login(client: TestClient) -> str:
     login_page = client.get("/login")
     assert login_page.status_code == 200
     csrf_token = client.cookies.get("tax_csrf")
@@ -24,10 +24,10 @@ def _login(client: TestClient) -> None:
     )
     assert response.status_code == 302
     assert client.cookies.get("tax_session")
-    client.headers.update({
-        "Origin": "http://testserver",
-        "X-CSRF-Token": csrf_token,
-    })
+
+    post_login_csrf_token = client.cookies.get("tax_csrf")
+    assert post_login_csrf_token
+    return post_login_csrf_token
 
 
 def _mock_endpoint_id(SessionLocal, AIModelEndpoint) -> int:
@@ -88,7 +88,7 @@ def test_planning_api_persists_only_when_explicitly_true(seeded_app, monkeypatch
     monkeypatch.setenv("AI_ALLOW_MOCK_ENDPOINTS", "1")
     endpoint_id = _mock_endpoint_id(SessionLocal, AIModelEndpoint)
     client = TestClient(app)
-    _login(client)
+    csrf_token = _login(client)
 
     cases = (
         ("未传persist", None, False),
@@ -110,6 +110,10 @@ def test_planning_api_persists_only_when_explicitly_true(seeded_app, monkeypatch
         response = client.post(
             "/api/projects/1/allocation-planning/recommend",
             json=body,
+            headers={
+                "Origin": "http://testserver",
+                "X-CSRF-Token": csrf_token,
+            },
         )
         assert response.status_code == 200
         scenario_id = response.json()["planning_scenario_id"]
