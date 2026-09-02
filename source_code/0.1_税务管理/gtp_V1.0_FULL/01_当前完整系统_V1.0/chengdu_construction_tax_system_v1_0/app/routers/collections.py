@@ -7,10 +7,11 @@ the frontend can distinguish an empty result from a dependency failure.
 from __future__ import annotations
 
 from app.services.canonical_ledger import project_tax_analysis_summary
+from app.services.canonical_v3_bridge import CanonicalV3Bridge
 
 import logging
 import re
-from datetime import datetime, timezone
+from datetime import date
 from decimal import Decimal
 from typing import Any, TypeVar
 
@@ -23,7 +24,7 @@ from sqlalchemy.orm import Session
 from ..constants import RISK_CODE_LABELS, SEVERITY_LABELS
 from ..db import SessionLocal
 from ..dependencies import require_role
-from ..domain.entities import CANONICAL_ENTITY_CODES, is_canonical_entity_code
+from ..domain.entities import CANONICAL_ENTITY_CODES
 from ..models import (
     AuditLog,
     Entity,
@@ -31,7 +32,6 @@ from ..models import (
     Project,
     RealCost,
     RiskEvent,
-    TaxLedger,
 )
 from ..schemas import CollectionEnvelope
 
@@ -49,10 +49,6 @@ def _clean_entity_code(value: Any) -> str:
     if value is None:
         return ""
     return " ".join(str(value).strip().split())
-
-
-def _now_label() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
 def _number(value: Any) -> float:
@@ -371,57 +367,6 @@ def _quality_for_project(
     )
 
 
-def _tax_item(
-    row: TaxLedger,
-    entity: Entity | None,
-    *,
-    quality: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    entity_code = str(row.entity_code or "")
-    entity_name = str((entity.name if entity else "") or entity_code)
-    role = str((entity.business_role if entity else "") or (entity.kind if entity else ""))
-    updated = _now_label()
-    quality = quality or {"data_status": "READY", "data_gaps": [], "trusted": True}
-    return {
-        "id": str(row.id),
-        "period": row.period,
-        "entity_code": entity_code,
-        "entity_name": entity_name,
-        "business_role": role,
-        "legal_entity": bool(entity.legal_entity) if entity else True,
-        "output_vat": _number(row.output_vat),
-        "input_vat": _number(row.input_vat),
-        "vat_payable": _number(row.vat_payable),
-        "revenue": _number(row.revenue),
-        "real_cost": _number(row.real_cost),
-        "estimated_profit": _number(row.estimated_profit),
-        "estimated_cit": _number(row.estimated_cit),
-        "cit_note": row.cit_note or "",
-        "generated": bool(row.generated),
-        "entityName": entity_name,
-        "entityCategory": role,
-        "isInternal": is_canonical_entity_code(entity_code),
-        "source": "canonical" if is_canonical_entity_code(entity_code) else "external",
-        "declareAmount": _number(row.revenue),
-        "taxAmount": _number(row.vat_payable),
-        "taxCategory": "增值税",
-        "filingPeriod": row.period,
-        "status": "已生成" if row.generated else "待复核",
-        "data_status": quality["data_status"],
-        "data_gaps": list(quality.get("data_gaps") or []),
-        "trusted": bool(quality.get("trusted")),
-        "riskLevel": "未知",
-        "riskDescription": "",
-        "fourFlowsCheck": {
-            "contractMatch": False,
-            "invoiceMatch": False,
-            "paymentMatch": False,
-            "logisticsMatch": False,
-        },
-        "updateTime": updated,
-    }
-
-
 def _audit_item(
     row: AuditLog,
     *,
@@ -610,43 +555,39 @@ def _build_entity_tax_ledger_envelope(
     page: int,
     page_size: int,
 ) -> dict[str, Any]:
-    projects = db.execute(select(Project).order_by(Project.id)).scalars().all()
-    quality = _project_quality_index(db, projects)
-    gate_status = _project_gate_status(quality)
-    gate_gaps = sorted({gap for state in quality.values() for gap in state["data_gaps"]})
-    item_quality = {
-        "data_status": gate_status,
-        "data_gaps": gate_gaps,
-        "trusted": gate_status == "READY",
-    }
-    query = select(TaxLedger)
-    if period:
-        query = query.where(TaxLedger.period == period)
-    if entity:
-        query = query.where(TaxLedger.entity_code == entity.strip())
-    rows = db.execute(
-        query.order_by(TaxLedger.period.desc(), TaxLedger.entity_code, TaxLedger.id)
-    ).scalars().all()
-    entities = _entity_name_map(db)
-    items = [
-        _tax_item(row, entities.get(row.entity_code), quality=item_quality)
-        for row in rows
-    ]
-    return _paged_envelope(
-        items=items,
+    tax_period = date.fromisoformat(f"{period}-01") if period else None
+    items, total = CanonicalV3Bridge.list_official_entity_vat_ledgers(
+        db,
+        entity_code=entity,
+        tax_period=tax_period,
         page=page,
         page_size=page_size,
-        status_value=gate_status,
-        message=(
-            _project_gate_message(quality)
-            if gate_status != "READY"
-            else "指定期间/法人没有可用的税务台账记录。" if not items else ""
-        ),
     )
+    failed = [item for item in items if not bool(item.get("legal_entity_vat_identity_ok"))]
+    status_value = "DEGRADED" if failed else "READY"
+    data_gaps = ["LEGAL_ENTITY_VAT_IDENTITY_FAILED"] if failed else []
+    return {
+        "status": status_value,
+        "message": (
+            "法人正式 VAT 台账存在恒等式异常，请立即复核当前 SUCCEEDED calculation run。"
+            if failed
+            else "指定期间/法人没有当前 SUCCEEDED VAT 台账记录。" if total == 0 else ""
+        ),
+        "items": items,
+        "data": items,
+        "projects": [],
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "has_more": page * page_size < total,
+        "scope": "LEGAL_ENTITY_STATUTORY",
+        "is_filing_basis": True,
+        "source_of_truth": "entity_vat_ledgers",
+        "data_gaps": data_gaps,
+    }
 
 
 _build_v3_entity_tax_ledger_envelope = _build_entity_tax_ledger_envelope
-
 
 
 @router.get(
@@ -715,8 +656,7 @@ def tax_ledger_collection(
 
 @router.get(
     "/api/entity-tax-ledger",
-    response_model=CollectionEnvelope,
-    summary="法人月度税务台账 JSON 集合（v3 S0-02）",
+    summary="法人法定 VAT 台账 JSON 集合（V3 authoritative）",
 )
 def entity_tax_ledger_collection(
     period: str | None = Query(default=None, min_length=7, max_length=7),
@@ -749,7 +689,7 @@ def entity_tax_ledger_collection(
     except SQLAlchemyError:
         db.rollback()
         _LOGGER.exception("entity tax ledger collection database failure")
-        return _dependency_error("法人税务台账数据源暂时不可用，请稍后重试。")
+        return _dependency_error("法人正式 VAT 台账数据源暂时不可用，请稍后重试。")
     finally:
         db.close()
 

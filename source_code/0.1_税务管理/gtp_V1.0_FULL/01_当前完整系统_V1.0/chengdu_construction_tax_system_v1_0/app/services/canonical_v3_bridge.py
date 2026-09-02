@@ -132,32 +132,43 @@ class CanonicalV3Bridge:
             },
         }
 
-    def _official_entity_vat_ledger(
-        self,
-        reporting_party_id: int,
-        tax_period: date | None,
-    ) -> dict[str, Any] | None:
-        """Read the current SUCCEEDED V3 legal-entity VAT ledger."""
-        sql = """
-            SELECT
-                l.id,
-                l.calculation_run_id,
-                l.reporting_party_id,
-                l.tax_period,
-                l.opening_input_credit,
-                l.output_vat,
-                l.input_vat,
-                l.tax_prepayment,
-                l.vat_payable_before_prepayment,
-                l.closing_input_credit,
-                l.vat_payable_after_prepayment,
-                l.unapplied_tax_prepayment,
-                r.run_kind,
-                r.run_status,
-                r.ruleset_version,
-                r.input_snapshot_sha256,
-                r.result_sha256,
-                s.state AS period_state
+    @staticmethod
+    def list_official_entity_vat_ledgers(
+        db,
+        *,
+        entity_code: str | None = None,
+        tax_period: date | None = None,
+        page: int = 1,
+        page_size: int = 50,
+    ) -> tuple[list[dict[str, Any]], int]:
+        """List current SUCCEEDED statutory VAT ledgers without N+1 ledger reads.
+
+        ``internal_entities.party_id`` is the reporting identity.  The legacy
+        ``entities.id`` value is deliberately never used as a substitute.
+        Lineage is returned from typed ``entity_vat_ledger_components`` rows;
+        source identifiers are exposed only when the database actually stores
+        them.
+        """
+        page = max(int(page), 1)
+        page_size = min(max(int(page_size), 1), 100)
+        where = [
+            "r.tax_type = 'VAT'",
+            "r.run_status = 'SUCCEEDED'",
+            "ie.legal_entity = TRUE",
+            "ie.active = TRUE",
+            "p.party_type = 'internal'",
+            "p.active = TRUE",
+        ]
+        params: dict[str, Any] = {}
+        wanted_code = str(entity_code or "").strip().upper()
+        if wanted_code:
+            where.append("upper(ie.canonical_code) = :entity_code")
+            params["entity_code"] = wanted_code
+        if tax_period is not None:
+            where.append("l.tax_period = :tax_period")
+            params["tax_period"] = tax_period
+        where_sql = " AND ".join(where)
+        base_from = """
             FROM entity_vat_ledgers AS l
             JOIN calculation_runs AS r
               ON r.id = l.calculation_run_id
@@ -166,37 +177,160 @@ class CanonicalV3Bridge:
              AND s.tax_type = 'VAT'
              AND s.tax_period = l.tax_period
              AND s.current_run_id = l.calculation_run_id
-            WHERE l.reporting_party_id = :reporting_party_id
-              AND r.tax_type = 'VAT'
-              AND r.run_status = 'SUCCEEDED'
+            JOIN internal_entities AS ie
+              ON ie.party_id = l.reporting_party_id
+            JOIN parties AS p
+              ON p.id = ie.party_id
         """
-        params: dict[str, Any] = {"reporting_party_id": int(reporting_party_id)}
-        if tax_period is not None:
-            sql += " AND l.tax_period = :tax_period"
-            params["tax_period"] = tax_period
-        sql += " ORDER BY l.tax_period DESC, l.calculation_run_id DESC LIMIT 1"
+        total = int(
+            db.execute(
+                text(f"SELECT count(*) {base_from} WHERE {where_sql}"),
+                params,
+            ).scalar_one()
+        )
+        if total == 0:
+            return [], 0
 
-        row = self.db.execute(text(sql), params).mappings().first()
-        if row is None:
-            return None
+        rows = db.execute(
+            text(
+                f"""
+                SELECT
+                    l.id,
+                    l.calculation_run_id,
+                    l.reporting_party_id,
+                    l.tax_period,
+                    l.opening_input_credit,
+                    l.output_vat,
+                    l.input_vat,
+                    l.tax_prepayment,
+                    l.vat_payable_before_prepayment,
+                    l.closing_input_credit,
+                    l.vat_payable_after_prepayment,
+                    l.unapplied_tax_prepayment,
+                    r.run_kind,
+                    r.run_status,
+                    r.ruleset_version,
+                    r.input_snapshot_sha256,
+                    r.result_sha256,
+                    s.state AS period_state,
+                    ie.party_id AS entity_id,
+                    ie.canonical_code AS entity_code,
+                    ie.business_role,
+                    ie.legal_entity,
+                    p.name AS entity_name
+                {base_from}
+                WHERE {where_sql}
+                ORDER BY l.tax_period DESC, ie.canonical_code, l.calculation_run_id DESC
+                OFFSET :offset_rows LIMIT :limit_rows
+                """
+            ),
+            {
+                **params,
+                "offset_rows": (page - 1) * page_size,
+                "limit_rows": page_size,
+            },
+        ).mappings().all()
 
-        result = dict(row)
-        result["scope"] = "LEGAL_ENTITY"
-        result["is_filing_basis"] = True
-        result["source_of_truth"] = "entity_vat_ledgers"
-        result["legal_entity_vat_identity_ok"] = (
-            _d(result["vat_payable_before_prepayment"]) == max(
+        ledger_ids = [int(row["id"]) for row in rows]
+        lineage_by_ledger: dict[int, list[dict[str, Any]]] = {ledger_id: [] for ledger_id in ledger_ids}
+        if ledger_ids:
+            lineage_rows = db.execute(
+                text(
+                    """
+                    SELECT
+                        c.ledger_id,
+                        c.id AS component_id,
+                        c.component_type,
+                        c.amount,
+                        c.output_vat_event_id,
+                        c.input_vat_claim_id,
+                        c.tax_prepayment_fact_id,
+                        c.prior_ledger_id,
+                        c.opening_balance_seed_id,
+                        ove.invoice_fact_id AS output_invoice_fact_id,
+                        ove.source_document_id AS output_source_document_id,
+                        ivc.invoice_fact_id AS input_invoice_fact_id,
+                        ivc.source_document_id AS input_source_document_id,
+                        seed.source_document_id AS opening_source_document_id
+                    FROM entity_vat_ledger_components AS c
+                    LEFT JOIN output_vat_events AS ove
+                      ON ove.id = c.output_vat_event_id
+                    LEFT JOIN input_vat_claims AS ivc
+                      ON ivc.id = c.input_vat_claim_id
+                    LEFT JOIN vat_opening_balance_seeds AS seed
+                      ON seed.id = c.opening_balance_seed_id
+                    WHERE c.ledger_id = ANY(CAST(:ledger_ids AS INTEGER[]))
+                    ORDER BY c.ledger_id, c.id
+                    """
+                ),
+                {"ledger_ids": ledger_ids},
+            ).mappings().all()
+            for component in lineage_rows:
+                lineage_by_ledger[int(component["ledger_id"])].append(dict(component))
+
+        items: list[dict[str, Any]] = []
+        for row in rows:
+            result = dict(row)
+            payable_before = _d(result["vat_payable_before_prepayment"])
+            expected_payable = max(
                 _d(result["output_vat"])
                 - _d(result["input_vat"])
                 - _d(result["opening_input_credit"]),
                 Decimal("0"),
             )
-            and not (
-                _d(result["vat_payable_before_prepayment"]) > 0
-                and _d(result["closing_input_credit"]) > 0
+            closing_credit = _d(result["closing_input_credit"])
+            identity_ok = (
+                payable_before == expected_payable
+                and not (payable_before > 0 and closing_credit > 0)
             )
+            result.update(
+                {
+                    "id": str(result["id"]),
+                    "period": result["tax_period"].strftime("%Y-%m"),
+                    "scope": "LEGAL_ENTITY_STATUTORY",
+                    "is_filing_basis": True,
+                    "source_of_truth": "entity_vat_ledgers",
+                    "legal_entity_vat_identity_ok": identity_ok,
+                    "data_status": "READY" if identity_ok else "DEGRADED",
+                    "data_gaps": [] if identity_ok else ["LEGAL_ENTITY_VAT_IDENTITY_FAILED"],
+                    "trusted": identity_ok,
+                    "lineage_components": lineage_by_ledger.get(int(row["id"]), []),
+                }
+            )
+            items.append(result)
+        return items, total
+
+    def _official_entity_vat_ledger(
+        self,
+        reporting_party_id: int,
+        tax_period: date | None,
+    ) -> dict[str, Any] | None:
+        """Read the latest current SUCCEEDED statutory VAT ledger for one party."""
+        entity_code = self.db.execute(
+            text(
+                """
+                SELECT ie.canonical_code
+                FROM internal_entities AS ie
+                JOIN parties AS p ON p.id = ie.party_id
+                WHERE ie.party_id = :reporting_party_id
+                  AND ie.legal_entity = TRUE
+                  AND ie.active = TRUE
+                  AND p.party_type = 'internal'
+                  AND p.active = TRUE
+                """
+            ),
+            {"reporting_party_id": int(reporting_party_id)},
+        ).scalar_one_or_none()
+        if entity_code is None:
+            return None
+        items, _ = self.list_official_entity_vat_ledgers(
+            self.db,
+            entity_code=str(entity_code),
+            tax_period=tax_period,
+            page=1,
+            page_size=1,
         )
-        return result
+        return items[0] if items else None
 
     def tax(
         self,
@@ -225,6 +359,8 @@ class CanonicalV3Bridge:
             "entity_vat_ledger": official_vat,
             "entity_vat_ledger_status": (
                 "READY"
+                if official_vat is not None and bool(official_vat.get("legal_entity_vat_identity_ok"))
+                else "DEGRADED"
                 if official_vat is not None
                 else "NOT_REQUESTED"
                 if reporting_party_id is None
