@@ -647,7 +647,7 @@ def recommend_project_allocation(
     ai=_ai_recommend(db,request_payload.get("endpoint_id"),ctx["project"],request_payload,scenario_dicts)
     recommended=next((x for x in scenario_dicts if x["scenario_id"]==ai["recommended_scenario_id"]),scenario_dicts[0])
     persisted_id=None
-    if request_payload.get("persist",True):
+    if request_payload.get("persist",False):
         persisted_id=_persist(
             db, ctx["project"], req, request_payload, recommended, ai, actor,
             idempotency_key=idempotency_key,

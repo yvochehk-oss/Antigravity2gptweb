@@ -116,7 +116,7 @@ class AllocationPlanningBody(BaseModel):
     external_candidates: list[str]=Field(default_factory=list)
     party_overrides: dict[str,PartyOverride]=Field(default_factory=dict)
     endpoint_id: int|None=None
-    persist: bool=True
+    persist: bool=False
 
     @field_validator('objective')
     @classmethod
