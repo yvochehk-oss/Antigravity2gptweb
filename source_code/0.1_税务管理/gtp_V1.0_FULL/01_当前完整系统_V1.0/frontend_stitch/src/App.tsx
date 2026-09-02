@@ -408,6 +408,7 @@ export default function App() {
                   dataStatusMessage={projectStatusMessage}
                   onRetry={() => void loadProjectDomain()}
                   onSelectProject={handleSelectProject}
+                  onOpenEntityCorporate={() => setCurrentTab('entity-profile')}
                   onOpenRiskCenter={() => setCurrentTab('risk-center')}
                   onOpenExportModal={() => setIsExportModalOpen(true)}
                   riskEvents={riskEvents}
