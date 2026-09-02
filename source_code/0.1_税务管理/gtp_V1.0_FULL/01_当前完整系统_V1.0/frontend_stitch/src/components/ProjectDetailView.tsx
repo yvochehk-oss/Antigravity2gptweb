@@ -183,80 +183,10 @@ export function ProjectDetailView({
 
   const stopPayThreshold = settings?.budgetOverrunStopPayThreshold ?? 5;
 
-  const effectiveCostItems = useMemo<CostBreakdownItem[]>(() => {
-    if (project.costItems && project.costItems.length > 0) {
-      return project.costItems;
-    }
-    const totalB = project.totalBudget > 0 ? project.totalBudget : 1450000000;
-    return [
-      {
-        id: "wbs-1",
-        code: "01. 主体结构与材料工程",
-        name: "钢材/商砼/特种物资采购",
-        level: 1,
-        plannedAmount: totalB * 0.38,
-        actualAmount: totalB * 0.35,
-        variancePercent: -7.9,
-        status: "正常推进",
-        manager: "王建国 (主材主管)",
-      },
-      {
-        id: "wbs-2",
-        code: "02. 土建劳务与现场作业",
-        name: "建筑主体施工劳务",
-        level: 1,
-        plannedAmount: totalB * 0.20,
-        actualAmount: totalB * 0.19,
-        variancePercent: -5.0,
-        status: "正常推进",
-        manager: "李德明 (劳务主管)",
-      },
-      {
-        id: "wbs-3",
-        code: "03. 塔吊与特种机械租赁",
-        name: "重型起重/吊装/机械运维",
-        level: 1,
-        plannedAmount: totalB * 0.08,
-        actualAmount: totalB * 0.075,
-        variancePercent: -6.2,
-        status: "节约支出",
-        manager: "张立强 (机械主管)",
-      },
-      {
-        id: "wbs-4",
-        code: "04. 专业分包与机电安装",
-        name: "幕墙/机电/消防安装工程",
-        level: 1,
-        plannedAmount: totalB * 0.22,
-        actualAmount: totalB * 0.21,
-        variancePercent: -4.5,
-        status: "正常推进",
-        manager: "赵志刚 (机电主管)",
-      },
-      {
-        id: "wbs-5",
-        code: "05. 地质勘察与深化设计",
-        name: "地勘专家组/设计咨询",
-        level: 1,
-        plannedAmount: totalB * 0.06,
-        actualAmount: totalB * 0.062,
-        variancePercent: 3.3,
-        status: "正常推进",
-        manager: "陈晓峰 (总工程师)",
-      },
-      {
-        id: "wbs-6",
-        code: "06. 施工安全与综合管理",
-        name: "临建/环保/现场综合管理",
-        level: 1,
-        plannedAmount: totalB * 0.06,
-        actualAmount: totalB * 0.065,
-        variancePercent: 8.3,
-        status: "超支预警",
-        manager: "周洪波 (项目副经理)",
-      },
-    ];
-  }, [project.costItems, project.totalBudget]);
+  const effectiveCostItems = useMemo<CostBreakdownItem[]>(
+    () => project.costItems?.length ? project.costItems : [],
+    [project.costItems],
+  );
 
   return (
     <div className="space-y-6">
@@ -673,70 +603,89 @@ export function ProjectDetailView({
           </div>
         </div>
 
-        <div className="bg-[#131b2e]/90 rounded-xl border border-[#444653]/30 overflow-x-auto">
-          <table className="w-full text-left border-collapse text-[13px] font-mono-num min-w-[760px]">
-            <thead className="bg-[#171f33] text-[12px] font-semibold text-[#8e909f]">
-              <tr>
-                <th className="py-3 px-4 whitespace-nowrap">成本科目 (工作任务分解编码)</th>
-                <th className="py-3 px-4 text-right whitespace-nowrap">计划预算 (计划值)</th>
-                <th className="py-3 px-4 text-right whitespace-nowrap">实际发生成本 (实际值)</th>
-                <th className="py-3 px-4 text-right whitespace-nowrap">
-                  <span>偏差率 </span>
-                  <span className="text-[10px] text-[#ffb59a] font-normal">(止付线: +{stopPayThreshold}%)</span>
-                </th>
-                <th className="py-3 px-4 whitespace-nowrap">责任工程师</th>
-                <th className="py-3 px-4 text-center whitespace-nowrap">状态 / 管控指令</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-[#444653]/20">
-              {effectiveCostItems.map((item) => {
-                const isOverThreshold = item.variancePercent >= stopPayThreshold;
-                const isWarning = item.status === "超支预警" || isOverThreshold;
-                const isSaved = item.status === "节约支出";
+        {effectiveCostItems.length > 0 ? (
+          <div className="bg-[#131b2e]/90 rounded-xl border border-[#444653]/30 overflow-x-auto">
+            <table className="w-full text-left border-collapse text-[13px] font-mono-num min-w-[760px]">
+              <thead className="bg-[#171f33] text-[12px] font-semibold text-[#8e909f]">
+                <tr>
+                  <th className="py-3 px-4 whitespace-nowrap">成本科目 (工作任务分解编码)</th>
+                  <th className="py-3 px-4 text-right whitespace-nowrap">计划预算 (计划值)</th>
+                  <th className="py-3 px-4 text-right whitespace-nowrap">实际发生成本 (实际值)</th>
+                  <th className="py-3 px-4 text-right whitespace-nowrap">
+                    <span>偏差率 </span>
+                    <span className="text-[10px] text-[#ffb59a] font-normal">(止付线: +{stopPayThreshold}%)</span>
+                  </th>
+                  <th className="py-3 px-4 whitespace-nowrap">责任工程师</th>
+                  <th className="py-3 px-4 text-center whitespace-nowrap">状态 / 管控指令</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#444653]/20">
+                {effectiveCostItems.map((item) => {
+                  const isOverThreshold = item.variancePercent >= stopPayThreshold;
+                  const isWarning = item.status === "超支预警" || isOverThreshold;
+                  const isSaved = item.status === "节约支出";
 
-                return (
-                  <tr 
-                    key={item.id}
-                    className={`hover:bg-[#222a3d]/40 transition-colors ${
-                      item.level === 2 ? "bg-[#171f33]/30" : "font-semibold"
-                    } ${isOverThreshold ? "bg-[#EF4444]/5" : ""}`}
-                  >
-                    <td className={`py-3 px-4 whitespace-nowrap ${item.level === 2 ? "pl-8 text-[#dae2fd]" : "text-[#dde1ff]"}`}>
-                      {item.code} {item.level === 1 ? `(${item.name})` : ""}
-                    </td>
-                    <td className="py-3 px-4 text-right text-[#8e909f] whitespace-nowrap">
-                      ¥ {item.plannedAmount.toLocaleString("zh-CN")}
-                    </td>
-                    <td className="py-3 px-4 text-right text-[#dae2fd] whitespace-nowrap">
-                      ¥ {item.actualAmount.toLocaleString("zh-CN")}
-                    </td>
-                    <td className={`py-3 px-4 text-right font-bold whitespace-nowrap ${
-                      isWarning ? "text-[#EF4444]" : isSaved ? "text-[#10B981]" : "text-[#4cd7f6]"
-                    }`}>
-                      {item.variancePercent > 0 ? `+${item.variancePercent}%` : item.variancePercent === 0 ? "持平" : `${item.variancePercent}%`}
-                    </td>
-                    <td className="py-3 px-4 text-[#c4c5d5] whitespace-nowrap">
-                      {item.manager}
-                    </td>
-                    <td className="py-3 px-4 text-center whitespace-nowrap">
-                      <span className={`text-[11px] px-2 py-0.5 rounded border inline-flex items-center gap-1 whitespace-nowrap ${
-                        isOverThreshold
-                          ? "bg-[#EF4444]/20 text-[#ffb4ab] border-[#EF4444]/40 font-bold animate-pulse"
-                          : isWarning 
-                          ? "bg-[#EF4444]/15 text-[#EF4444] border-[#EF4444]/30" 
-                          : isSaved 
-                          ? "bg-[#10B981]/15 text-[#10B981] border-[#10B981]/30" 
-                          : "bg-[#03b5d3]/15 text-[#4cd7f6] border-[#4cd7f6]/30"
+                  return (
+                    <tr 
+                      key={item.id}
+                      className={`hover:bg-[#222a3d]/40 transition-colors ${
+                        item.level === 2 ? "bg-[#171f33]/30" : "font-semibold"
+                      } ${isOverThreshold ? "bg-[#EF4444]/5" : ""}`}
+                    >
+                      <td className={`py-3 px-4 whitespace-nowrap ${item.level === 2 ? "pl-8 text-[#dae2fd]" : "text-[#dde1ff]"}`}>
+                        {item.code} {item.level === 1 ? `(${item.name})` : ""}
+                      </td>
+                      <td className="py-3 px-4 text-right text-[#8e909f] whitespace-nowrap">
+                        ¥ {item.plannedAmount.toLocaleString("zh-CN")}
+                      </td>
+                      <td className="py-3 px-4 text-right text-[#dae2fd] whitespace-nowrap">
+                        ¥ {item.actualAmount.toLocaleString("zh-CN")}
+                      </td>
+                      <td className={`py-3 px-4 text-right font-bold whitespace-nowrap ${
+                        isWarning ? "text-[#EF4444]" : isSaved ? "text-[#10B981]" : "text-[#4cd7f6]"
                       }`}>
-                        {isOverThreshold ? "【已触发止付令】" : item.status}
-                      </span>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+                        {item.variancePercent > 0 ? `+${item.variancePercent}%` : item.variancePercent === 0 ? "持平" : `${item.variancePercent}%`}
+                      </td>
+                      <td className="py-3 px-4 text-[#c4c5d5] whitespace-nowrap">
+                        {item.manager}
+                      </td>
+                      <td className="py-3 px-4 text-center whitespace-nowrap">
+                        <span className={`text-[11px] px-2 py-0.5 rounded border inline-flex items-center gap-1 whitespace-nowrap ${
+                          isOverThreshold
+                            ? "bg-[#EF4444]/20 text-[#ffb4ab] border-[#EF4444]/40 font-bold animate-pulse"
+                            : isWarning 
+                            ? "bg-[#EF4444]/15 text-[#EF4444] border-[#EF4444]/30" 
+                            : isSaved 
+                            ? "bg-[#10B981]/15 text-[#10B981] border-[#10B981]/30" 
+                            : "bg-[#03b5d3]/15 text-[#4cd7f6] border-[#4cd7f6]/30"
+                        }`}>
+                          {isOverThreshold ? "【已触发止付令】" : item.status}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div
+            className="p-6 rounded-lg bg-[#F59E0B]/10 border border-[#F59E0B]/30 text-[13px] text-[#F59E0B] font-sans"
+            data-testid="wbs-degraded-state"
+            role="status"
+            aria-live="polite"
+          >
+            <p className="font-bold flex items-center gap-2 mb-2">
+              <AlertTriangle className="w-4 h-4" />
+              <span>DEGRADED · 实际成本尚未归集入账</span>
+            </p>
+            <p className="text-[#dae2fd]/80 leading-relaxed">
+              暂无可验证成本分解数据。WBS 成本必须来源于系统中已验收的真实业务事实；
+              未来真实 WBS 数据也可能来自确定性业务表或预算系统，不限定必须由 Canonical Facts 录入。
+              系统不会自动生成预算、成本、责任人或偏差率。
+            </p>
+          </div>
+        )}
       </section>
 
       {/* 删除项目数据危险操作确认弹窗 */}
