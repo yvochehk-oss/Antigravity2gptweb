@@ -1,18 +1,19 @@
-import { 
-  LayoutDashboard, 
-  Building2, 
-  ReceiptText, 
-  AlertTriangle, 
-  BrainCircuit, 
-  FileCheck2, 
-  ShieldCheck,
-  Compass,
+import {
+  AlertTriangle,
+  BrainCircuit,
+  Building2,
   ChevronRight,
+  Compass,
+  FileCheck2,
+  Landmark,
+  LayoutDashboard,
   LogOut,
-  X
+  ReceiptText,
+  ShieldCheck,
+  X,
+  type LucideIcon,
 } from 'lucide-react';
 import { AiModelStatus } from '../types';
-
 
 interface SidebarProps {
   currentTab: string;
@@ -23,20 +24,59 @@ interface SidebarProps {
   onCloseMobile?: () => void;
 }
 
+interface NavItem {
+  id: string;
+  label: string;
+  icon: LucideIcon;
+  badge?: number | string;
+  disabled?: boolean;
+}
+
+interface NavGroup {
+  label: string;
+  items: NavItem[];
+}
+
 export function Sidebar({ currentTab, onSelectTab, unresolvedRiskCount, aiModelStatus, isMobile, onCloseMobile }: SidebarProps) {
-  const menuItems = [
-    { id: 'dashboard', label: '全局仪表盘', icon: LayoutDashboard },
-    { id: 'projects', label: '项目工程库', icon: Building2 },
-    { id: 'tax-ledger', label: '法人税务台账', icon: ReceiptText },
-    { id: 'tax-planning', label: 'AI税务筹划', icon: Compass },
-    { id: 'risk-center', label: '风控预警中心', icon: AlertTriangle, badge: unresolvedRiskCount },
-    { id: 'ai-review', label: 'AI 审查与审单', icon: BrainCircuit },
-    { id: 'audit', label: '合规审计追溯', icon: FileCheck2 },
+  const navGroups: NavGroup[] = [
+    {
+      label: '集团',
+      items: [
+        { id: 'dashboard', label: '集团经营总览', icon: LayoutDashboard },
+      ],
+    },
+    {
+      label: '法人主体',
+      items: [
+        { id: 'entity-profile', label: '法人经营画像', icon: Landmark, badge: '待接入', disabled: true },
+        { id: 'tax-ledger', label: '法人法定税务', icon: ReceiptText },
+      ],
+    },
+    {
+      label: '项目工程',
+      items: [
+        { id: 'projects', label: '项目工程库', icon: Building2 },
+      ],
+    },
+    {
+      label: '智能决策',
+      items: [
+        { id: 'tax-planning', label: 'AI 税务筹划', icon: Compass },
+        { id: 'ai-review', label: 'AI 审查与审单', icon: BrainCircuit },
+      ],
+    },
+    {
+      label: '风险与治理',
+      items: [
+        { id: 'risk-center', label: '风控预警中心', icon: AlertTriangle, badge: unresolvedRiskCount },
+        { id: 'audit', label: '合规审计追溯', icon: FileCheck2 },
+      ],
+    },
   ];
 
   const containerClasses = isMobile
-    ? "flex flex-col h-full w-full bg-[#0b1326] text-[#dde1ff]"
-    : "hidden md:flex flex-col h-screen w-48 fixed left-0 top-0 bg-[#0b1326]/95 backdrop-blur-xl border-r border-[#444653]/30 z-40";
+    ? 'flex flex-col h-full w-full bg-[#0b1326] text-[#dde1ff]'
+    : 'hidden md:flex flex-col h-screen w-48 fixed left-0 top-0 bg-[#0b1326]/95 backdrop-blur-xl border-r border-[#444653]/30 z-40';
   const statusStyles = {
     LOADING: { text: '#F59E0B', dot: '#F59E0B' },
     READY: { text: '#10B981', dot: '#10B981' },
@@ -45,8 +85,7 @@ export function Sidebar({ currentTab, onSelectTab, unresolvedRiskCount, aiModelS
   }[aiModelStatus.state];
 
   return (
-    <nav className={containerClasses}>
-      {/* 头部品牌 */}
+    <nav className={containerClasses} aria-label="业务域导航">
       <div className="px-3.5 py-4 border-b border-[#444653]/30 flex items-center justify-between">
         <div className="flex items-center gap-2.5 min-w-0">
           <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#1e40af] to-[#03b5d3]/40 flex-shrink-0 flex items-center justify-center border border-[#4cd7f6]/40 shadow-[0_0_10px_rgba(76,215,246,0.3)]">
@@ -58,7 +97,8 @@ export function Sidebar({ currentTab, onSelectTab, unresolvedRiskCount, aiModelS
           </div>
         </div>
         {isMobile && onCloseMobile && (
-          <button 
+          <button
+            type="button"
             onClick={onCloseMobile}
             className="p-1.5 rounded-lg text-[#8e909f] hover:text-[#dae2fd] hover:bg-[#222a3d] cursor-pointer"
             title="关闭菜单"
@@ -68,48 +108,66 @@ export function Sidebar({ currentTab, onSelectTab, unresolvedRiskCount, aiModelS
         )}
       </div>
 
-      {/* 导航项 */}
-      <div className="flex-1 flex flex-col gap-1 px-2 py-3 overflow-y-auto scrollbar-hide">
-        <div className="px-2 pb-1.5 text-[10px] font-semibold text-[#8e909f] tracking-wider uppercase">业务管控模块</div>
-        {menuItems.map((item) => {
-          const Icon = item.icon;
-          const isActive = currentTab === item.id;
-          const isTaxPlanning = item.id === 'tax-planning';
-          
-          return (
-            <button
-              key={item.id}
-              onClick={() => onSelectTab(item.id)}
-              className={`flex items-center justify-between w-full px-2.5 py-2.5 rounded-lg font-medium transition-all duration-150 group cursor-pointer ${
-                isTaxPlanning ? 'text-[15.5px] font-bold tracking-wide' : 'text-[13px]'
-              } ${
-                isActive
-                  ? 'text-[#4cd7f6] font-semibold bg-[#03b5d3]/15 border-l-2 border-[#4cd7f6] shadow-[0_0_10px_rgba(76,215,246,0.15)]'
-                  : isTaxPlanning
-                  ? 'text-[#c4b5fd] hover:text-[#dde1ff] hover:bg-[#8b5cf6]/20 bg-[#8b5cf6]/10 border border-[#8b5cf6]/30 shadow-[0_0_8px_rgba(139,92,246,0.2)] animate-pulse'
-                  : 'text-[#c4c5d5] hover:text-[#dae2fd] hover:bg-[#222a3d]/60'
-              }`}
-            >
-              <div className="flex items-center gap-2.5 min-w-0">
-                <Icon className={`flex-shrink-0 transition-transform group-hover:scale-110 ${
-                  isTaxPlanning ? 'w-5 h-5' : 'w-4 h-4'
-                } ${isActive ? 'text-[#4cd7f6]' : isTaxPlanning ? 'text-[#a78bfa]' : 'text-[#8e909f]'}`} />
-                <span className="truncate">{item.label}</span>
-              </div>
-              <div className="flex items-center gap-1 flex-shrink-0">
-                {item.badge && item.badge > 0 && (
-                  <span className="px-1.5 py-0.2 text-[9px] font-bold rounded-full bg-[#EF4444] text-white shadow-[0_0_8px_rgba(239,68,68,0.6)] animate-pulse">
-                    {item.badge}
-                  </span>
-                )}
-                {isActive && <ChevronRight className="w-3 h-3 text-[#4cd7f6]" />}
-              </div>
-            </button>
-          );
-        })}
+      <div className="flex-1 flex flex-col px-2 py-3 overflow-y-auto scrollbar-hide">
+        {navGroups.map((group, groupIndex) => (
+          <section key={group.label} className={groupIndex === 0 ? '' : 'mt-3'} aria-labelledby={`nav-group-${groupIndex}`}>
+            <h2 id={`nav-group-${groupIndex}`} className="px-2 pb-1.5 text-[10px] font-semibold text-[#8e909f] tracking-wider uppercase">
+              {group.label}
+            </h2>
+            <div className="flex flex-col gap-1">
+              {group.items.map((item) => {
+                const Icon = item.icon;
+                const isActive = !item.disabled && currentTab === item.id;
+                const isTaxPlanning = item.id === 'tax-planning';
+                const showBadge = typeof item.badge === 'string' || (typeof item.badge === 'number' && item.badge > 0);
+
+                return (
+                  <button
+                    type="button"
+                    key={item.id}
+                    disabled={item.disabled}
+                    aria-current={isActive ? 'page' : undefined}
+                    onClick={() => {
+                      if (!item.disabled) onSelectTab(item.id);
+                    }}
+                    className={`flex items-center justify-between w-full px-2.5 py-2.5 rounded-lg font-medium transition-all duration-150 group ${
+                      isTaxPlanning ? 'text-[15.5px] font-bold tracking-wide' : 'text-[13px]'
+                    } ${
+                      item.disabled
+                        ? 'text-[#6f7280] bg-[#131b2e]/40 cursor-not-allowed opacity-75'
+                        : isActive
+                          ? 'text-[#4cd7f6] font-semibold bg-[#03b5d3]/15 border-l-2 border-[#4cd7f6] shadow-[0_0_10px_rgba(76,215,246,0.15)] cursor-pointer'
+                          : isTaxPlanning
+                            ? 'text-[#c4b5fd] hover:text-[#dde1ff] hover:bg-[#8b5cf6]/20 bg-[#8b5cf6]/10 border border-[#8b5cf6]/30 shadow-[0_0_8px_rgba(139,92,246,0.2)] cursor-pointer'
+                            : 'text-[#c4c5d5] hover:text-[#dae2fd] hover:bg-[#222a3d]/60 cursor-pointer'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <Icon className={`flex-shrink-0 transition-transform ${item.disabled ? '' : 'group-hover:scale-110'} ${
+                        isTaxPlanning ? 'w-5 h-5' : 'w-4 h-4'
+                      } ${isActive ? 'text-[#4cd7f6]' : isTaxPlanning ? 'text-[#a78bfa]' : 'text-[#8e909f]'}`} />
+                      <span className="truncate">{item.label}</span>
+                    </div>
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      {showBadge && (
+                        <span className={`px-1.5 py-0.5 text-[9px] font-bold rounded-full ${
+                          item.disabled
+                            ? 'bg-[#334155] text-[#cbd5e1]'
+                            : 'bg-[#EF4444] text-white shadow-[0_0_8px_rgba(239,68,68,0.6)]'
+                        }`}>
+                          {item.badge}
+                        </span>
+                      )}
+                      {isActive && <ChevronRight className="w-3 h-3 text-[#4cd7f6]" />}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+        ))}
       </div>
 
-      {/* 底部系统状态与退出 */}
       <div className="p-3 border-t border-[#444653]/30 bg-[#060e20]/40">
         <div className="flex items-center justify-between mb-1.5">
           <div className="flex items-center gap-1.5">
@@ -117,12 +175,12 @@ export function Sidebar({ currentTab, onSelectTab, unresolvedRiskCount, aiModelS
               <ShieldCheck className="w-3 h-3 text-[#10B981]" />
             </div>
             <p className="text-[11px] font-semibold flex items-center gap-1 truncate" style={{ color: statusStyles.text }} title={aiModelStatus.message}>
-              <span className="w-1.5 h-1.5 rounded-full inline-block" style={{ backgroundColor: statusStyles.dot }}></span>
+              <span className="w-1.5 h-1.5 rounded-full inline-block" style={{ backgroundColor: statusStyles.dot }} />
               {aiModelStatus.message}
             </p>
           </div>
-          <a 
-            href="/ai-models" 
+          <a
+            href="/ai-models"
             className="text-[10px] px-1.5 py-0.5 rounded bg-[#1e293b] text-[#93c5fd] hover:bg-[#334155] border border-[#3b82f6]/30"
             title="查看与配置 AI 模型端点"
           >

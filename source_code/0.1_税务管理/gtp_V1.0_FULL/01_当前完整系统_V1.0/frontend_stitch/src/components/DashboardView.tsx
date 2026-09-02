@@ -51,7 +51,7 @@ export function DashboardView({
     <div className="space-y-6">
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
         <div>
-          <h2 className="text-[28px] font-bold text-[#dae2fd] tracking-tight">锐宝财税智控全景驾驶舱</h2>
+          <h2 className="text-[28px] font-bold text-[#dae2fd] tracking-tight">集团经营总览</h2>
           <p className="text-[14px] text-[#c4c5d5] mt-1">仅展示 Tax API 已返回的项目经营数据；未接通的数据源不会显示演示金额。</p>
         </div>
         <button
