@@ -322,7 +322,7 @@ export function ProjectDetailView({
         </div>
       </section>
 
-      {/* 模块 2: 项目全周期税务分析 (基于 Canonical Facts SSOT) */}
+      {/* 模块 2: 项目全周期税务分析 (PROJECT_BOUNDARY) */}
       <section className="glass-panel rounded-xl p-5 flex flex-col" data-testid="project-tax-analysis-section">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-[#444653]/30 mb-4">
           <div>
@@ -331,7 +331,7 @@ export function ProjectDetailView({
               <span>项目全周期税务分析 (Canonical Facts)</span>
             </h3>
             <p className="text-[12px] text-[#8e909f] mt-0.5">
-              基于事实层投影（analytics_canonical_facts_current），严禁冒充法人应纳税款。
+              直接展示后端 PROJECT_BOUNDARY 确定性投影，不在前端重算 VAT 管理头寸。
             </p>
           </div>
 
@@ -346,6 +346,11 @@ export function ProjectDetailView({
               </span>
             )}
           </div>
+        </div>
+
+        <div className="rounded-lg border border-[#F59E0B]/30 bg-[#F59E0B]/5 px-3 py-2 mb-4" role="note">
+          <p className="text-[12px] font-bold text-[#F59E0B]">PROJECT_BOUNDARY 项目管理口径 · 非申报依据</p>
+          <p className="text-[11px] text-[#c4c5d5] mt-1">所有 VAT 数值均直接来自后端项目边界投影，仅用于项目管理分析。</p>
         </div>
 
         {taxAnalysisStatus === "loading" && (
@@ -370,7 +375,6 @@ export function ProjectDetailView({
 
         {(taxAnalysisStatus === "ready" || taxAnalysisStatus === "degraded") && taxAnalysis && (
           <div className="space-y-4 font-mono-num">
-            {/* 降级状态数据缺口提示 (Data Gaps) */}
             {taxAnalysisStatus === "degraded" && taxAnalysis.dataGaps.length > 0 && (
               <div className="p-3 rounded-lg bg-[#F59E0B]/10 border border-[#F59E0B]/30 text-[12px] text-[#F59E0B] font-sans">
                 <p className="font-bold flex items-center gap-1.5 mb-1">
@@ -385,9 +389,7 @@ export function ProjectDetailView({
               </div>
             )}
 
-            {/* 核心指标卡片矩阵 */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              {/* 销项金额与税额 */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div className="p-3.5 rounded-lg bg-[#131b2e] border border-[#444653]/30">
                 <div className="text-[11px] text-[#8e909f] font-sans">开具销项 (不含税)</div>
                 <div className="text-[15px] font-bold text-[#dae2fd] mt-1">
@@ -398,7 +400,6 @@ export function ProjectDetailView({
                 </div>
               </div>
 
-              {/* 进项金额与税额 */}
               <div className="p-3.5 rounded-lg bg-[#131b2e] border border-[#444653]/30">
                 <div className="text-[11px] text-[#8e909f] font-sans">取得进项 (不含税)</div>
                 <div className="text-[15px] font-bold text-[#dae2fd] mt-1">
@@ -408,40 +409,85 @@ export function ProjectDetailView({
                   进项 VAT: ¥ {taxAnalysis.inInvoiceVat.toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </div>
               </div>
+            </div>
 
-              {/* 可抵扣进项 VAT */}
-              <div className="p-3.5 rounded-lg bg-[#131b2e] border border-[#444653]/30">
-                <div className="text-[11px] text-[#8e909f] font-sans">可抵扣进项 VAT</div>
-                <div className="text-[15px] font-bold text-[#10B981] mt-1">
-                  ¥ {taxAnalysis.deductibleInputVat.toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </div>
-                <div className="text-[11px] text-[#8e909f] font-sans mt-0.5">
-                  发票事实: {taxAnalysis.invoiceCount} 张
-                </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3" data-testid="input-vat-breakdown">
+              <div className="p-3.5 rounded-lg bg-[#10B981]/5 border border-[#10B981]/30">
+                <div className="text-[11px] text-[#c4c5d5] font-sans">已确认可抵扣进项 VAT</div>
+                <div className="text-[15px] font-bold text-[#10B981] mt-1">¥ {taxAnalysis.deductibleInputVat.toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
               </div>
+              <div className="p-3.5 rounded-lg bg-[#F59E0B]/5 border border-[#F59E0B]/30" data-testid="pending-input-vat">
+                <div className="text-[11px] text-[#c4c5d5] font-sans">待认证/待判定进项 VAT</div>
+                <div className="text-[15px] font-bold text-[#F59E0B] mt-1">¥ {taxAnalysis.pendingInputVat.toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+              </div>
+              <div className="p-3.5 rounded-lg bg-[#EF4444]/5 border border-[#EF4444]/30" data-testid="nondeductible-input-vat">
+                <div className="text-[11px] text-[#c4c5d5] font-sans">不可抵扣进项 VAT</div>
+                <div className="text-[15px] font-bold text-[#ffb4ab] mt-1">¥ {taxAnalysis.nondeductibleInputVat.toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+              </div>
+            </div>
 
-              {/* 项目进销差额 */}
-              <div className="p-3.5 rounded-lg bg-[#131b2e] border border-[#444653]/30">
-                <div className="text-[11px] text-[#8e909f] font-sans">项目增值税差额 (进销差)</div>
-                <div className="text-[15px] font-bold text-[#dae2fd] mt-1">
-                  ¥ {(taxAnalysis.outInvoiceVat - taxAnalysis.deductibleInputVat).toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </div>
-                <div className="text-[10px] text-[#8e909f] font-sans mt-0.5">
-                  * 项目口径进销差额，非法人申报应纳税额
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div className="p-3 rounded-lg bg-[#0b1326]/50 border border-[#444653]/20">
+                <div className="text-[11px] text-[#8e909f] font-sans">已入账进项 VAT</div>
+                <div className="text-[14px] font-bold text-[#dae2fd] mt-1">¥ {taxAnalysis.inputVatAccounted.toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+              </div>
+              <div className="p-3 rounded-lg bg-[#0b1326]/50 border border-[#444653]/20">
+                <div className="text-[11px] text-[#8e909f] font-sans">未入账进项 VAT</div>
+                <div className="text-[14px] font-bold text-[#dae2fd] mt-1">¥ {taxAnalysis.inputVatUnaccounted.toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+              </div>
+              <div className={`p-3 rounded-lg border ${taxAnalysis.inputVatIdentityOk ? "bg-[#10B981]/5 border-[#10B981]/30" : "bg-[#EF4444]/5 border-[#EF4444]/30"}`}>
+                <div className="text-[11px] text-[#8e909f] font-sans">进项一致性核验标识</div>
+                <div className={`text-[13px] font-bold mt-1 font-sans ${taxAnalysis.inputVatIdentityOk ? "text-[#10B981]" : "text-[#ffb4ab]"}`}>
+                  {taxAnalysis.inputVatIdentityOk ? "进项一致性核验：通过" : "进项一致性核验：未通过"}
                 </div>
               </div>
             </div>
 
-            {/* 次级明细条目 */}
+            <div className="p-4 rounded-lg bg-[#03b5d3]/5 border border-[#4cd7f6]/30" data-testid="signed-vat-position">
+              <div className="text-[12px] text-[#c4c5d5] font-sans">
+                {taxAnalysis.signedVatPosition > 0
+                  ? "净销项 VAT 管理头寸"
+                  : taxAnalysis.signedVatPosition < 0
+                    ? "净进项 VAT 管理头寸"
+                    : "VAT 管理头寸平衡"}
+              </div>
+              <div className="text-[20px] font-bold text-[#4cd7f6] mt-1">
+                ¥ {taxAnalysis.signedVatPosition.toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </div>
+              <div className="text-[10px] text-[#8e909f] font-sans mt-1">直接使用后端 signedVatPosition，不进行前端二次计算。</div>
+            </div>
+
+            <div className="p-4 rounded-lg bg-[#131b2e] border border-[#444653]/30" data-testid="internal-elimination-card">
+              <div className="text-[12px] font-bold text-[#dae2fd] font-sans">内部交易抵消</div>
+              {taxAnalysis.internalEliminatedNet === 0 && taxAnalysis.internalEliminatedVat === 0 ? (
+                <div className="text-[12px] text-[#8e909f] mt-2 font-sans">本项目无内部交易抵消</div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-2">
+                  <div>
+                    <div className="text-[11px] text-[#8e909f] font-sans">抵消净额</div>
+                    <div className="text-[14px] font-bold text-[#dae2fd]">¥ {taxAnalysis.internalEliminatedNet.toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                  </div>
+                  <div>
+                    <div className="text-[11px] text-[#8e909f] font-sans">抵消 VAT</div>
+                    <div className="text-[14px] font-bold text-[#dae2fd]">¥ {taxAnalysis.internalEliminatedVat.toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                  </div>
+                </div>
+              )}
+            </div>
+
             <div className="p-3 rounded-lg bg-[#0b1326]/40 border border-[#444653]/20 flex flex-wrap items-center justify-between gap-3 text-[12px]">
-              <div className="flex items-center gap-4 text-[#c4c5d5]">
-                <span>外部真实成本: <b className="text-[#dae2fd]">¥ {taxAnalysis.realCost.toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</b></span>
+              <div className="flex flex-wrap items-center gap-4 text-[#c4c5d5]">
+                {taxAnalysis.realCost > 0 ? (
+                  <span>外部真实成本: <b className="text-[#dae2fd]">¥ {taxAnalysis.realCost.toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</b></span>
+                ) : (
+                  <span className="text-[#F59E0B] font-bold font-sans">DEGRADED · 实际成本尚未归集入账</span>
+                )}
                 <span>发票事实记录: <b className="text-[#4cd7f6]">{taxAnalysis.invoiceCount}</b> 笔</span>
                 <span>数据真实源: <code className="text-[11px] text-[#8e909f]">{taxAnalysis.sourceOfTruth}</code></span>
               </div>
-              <div className="text-[11px] text-[#10B981] flex items-center gap-1 font-medium">
-                <CheckCircle2 className="w-3.5 h-3.5" />
-                <span>无旧混合 ORM 表依赖 (legacy_tables_used: false)</span>
+              <div className={`text-[11px] flex items-center gap-1 font-medium ${taxAnalysis.legacyTablesUsed ? "text-[#F59E0B]" : "text-[#10B981]"}`}>
+                {taxAnalysis.legacyTablesUsed ? <AlertTriangle className="w-3.5 h-3.5" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+                <span>{taxAnalysis.legacyTablesUsed ? "检测到旧表依赖" : "无旧混合 ORM 表依赖 (legacy_tables_used: false)"}</span>
               </div>
             </div>
           </div>
