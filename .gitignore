@@ -48,3 +48,12 @@ windows_scripts/tools/
 
 *.woff
 *.woff2
+项目存档资料/
+source_code/0.2_RAG系统/project-rag-v1.1/data/
+source_code/0.2_RAG系统/project-rag-v1.1/.pytest-data/
+v3_gate_*.json
+v3_*.json
+source_code/0.1_税务管理/gtp_V1.0_FULL/01_当前完整系统_V1.0/chengdu_construction_tax_system_v1_0/test_*.py
+source_code/0.1_税务管理/gtp_V1.0_FULL/01_当前完整系统_V1.0/chengdu_construction_tax_system_v1_0/patch*.py
+source_code/0.1_税务管理/gtp_V1.0_FULL/01_当前完整系统_V1.0/chengdu_construction_tax_system_v1_0/fix*.py
+source_code/0.1_税务管理/gtp_V1.0_FULL/01_当前完整系统_V1.0/chengdu_construction_tax_system_v1_0/alembic.sql
