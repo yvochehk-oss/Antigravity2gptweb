@@ -105,6 +105,16 @@ def test_resolver_fails_closed_when_boundary_contracts_are_ambiguous(monkeypatch
         resolve_project_transaction_price(_fake_db(["A08"]), 15)
 
 
+def test_resolver_fails_closed_when_boundary_contracts_have_same_amount(monkeypatch):
+    facts = [
+        {"fact_id": 1, "fact_version": 1, "business_key": "c1", "payload": {"contract_no": "X-1", "total_amount": "100", "party_a_entity_code": "E0", "party_b_entity_code": "A08"}},
+        {"fact_id": 2, "fact_version": 2, "business_key": "c2", "payload": {"contract_no": "X-2", "total_amount": "100", "party_a_entity_code": "EA", "party_b_entity_code": "A08"}},
+    ]
+    monkeypatch.setattr("app.services.canonical_project_summary.load_current_facts", lambda _db, _pid, _type=None: facts)
+    with pytest.raises(ValueError, match="ambiguous canonical project transaction price"):
+        resolve_project_transaction_price(_fake_db(["A08"]), 15)
+
+
 def test_api_project_source_has_no_legacy_project_summary_call():
     source = Path("app/routers/api.py").read_text(encoding="utf-8")
     api_block = source[source.index('@router.get("/api/projects/{pid}")'):source.index('@router.get("/api/projects/{pid}/matching")')]
