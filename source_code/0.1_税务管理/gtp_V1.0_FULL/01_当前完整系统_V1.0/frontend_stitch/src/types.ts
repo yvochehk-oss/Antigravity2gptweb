@@ -205,23 +205,6 @@ export interface EntityTaxLedgerRecord {
   dataStatus: DataStatus;
   dataGaps: string[];
   trusted: boolean;
-
-  /** @deprecated 旧 TaxLedgerView 兼容；等同 vatPayableAfterPrepayment。 */
-  vatPayable: number;
-  /** @deprecated 正式 VAT ledger 不提供法人收入，parser 不得把缺失值伪造成 0。 */
-  revenue: number;
-  /** @deprecated 正式 VAT ledger 不提供法人真实成本，parser 不得把缺失值伪造成 0。 */
-  realCost: number;
-  /** @deprecated 正式 VAT ledger 不提供法人预计利润，parser 不得把缺失值伪造成 0。 */
-  estimatedProfit: number;
-  /** @deprecated 正式 VAT ledger 不提供法人预计 CIT，parser 不得把缺失值伪造成 0。 */
-  estimatedCit: number;
-  /** @deprecated 等待法人经营/CIT 专用视图迁移。 */
-  citNote: string;
-  /** @deprecated 由 runStatus === 'SUCCEEDED' 派生。 */
-  generated: boolean;
-  /** @deprecated V3 VAT ledger 没有旧 updateTime 字段。 */
-  updateTime: string;
 }
 
 export interface ProjectTaxAnalysisRecord {

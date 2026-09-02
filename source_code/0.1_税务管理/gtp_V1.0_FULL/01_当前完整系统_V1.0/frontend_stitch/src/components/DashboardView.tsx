@@ -42,7 +42,7 @@ export function DashboardView({
   const totalContract = projects.reduce((sum, project) => sum + project.totalBudget, 0);
   const totalCost = projects.reduce((sum, project) => sum + project.spentAmount, 0);
   const totalProfitBase = totalContract - totalCost;
-  const taxLedgerAmount = taxLedgerRecords.reduce((sum, record) => sum + record.vatPayable, 0);
+  const taxLedgerAmount = taxLedgerRecords.reduce((sum, record) => sum + record.vatPayableAfterPrepayment, 0);
   const unresolvedRiskCount = riskEvents.filter(risk => risk.status !== '已闭环').length;
   const hasTaxLedgerData = taxLedgerStatus === 'READY' || taxLedgerRecords.length > 0;
   const hasRiskData = riskStatus === 'READY' || riskEvents.length > 0;

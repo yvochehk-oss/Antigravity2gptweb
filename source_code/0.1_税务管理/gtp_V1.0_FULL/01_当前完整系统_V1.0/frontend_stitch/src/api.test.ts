@@ -444,8 +444,6 @@ test('syncRagBatch preserves backend result states and errors', async () => {
         errors: ['主体需人工复核'],
       },
       {
-        // A batch-level exception occurs before _do_sync creates a SyncLog;
-        // the backend uses zero as that failure-only sentinel.
         sync_log_id: 0,
         sync_type: 'tax_payment',
         status: 'FAILED',
@@ -479,46 +477,13 @@ test('RAG sync parser rejects invalid IDs, statuses, types, and incomplete failu
     });
   };
 
-  await expectInvalidBatchResult({
-    sync_log_id: 0,
-    sync_type: 'payment',
-    status: 'SUCCESS',
-    errors: [],
-  });
-  await expectInvalidBatchResult({
-    sync_log_id: -1,
-    sync_type: 'payment',
-    status: 'SUCCESS',
-    errors: [],
-  });
-  await expectInvalidBatchResult({
-    sync_log_id: 1.5,
-    sync_type: 'payment',
-    status: 'SUCCESS',
-    errors: [],
-  });
-  await expectInvalidBatchResult({
-    sync_log_id: 0,
-    sync_type: 'payment',
-    status: 'FAILED',
-  });
-  await expectInvalidBatchResult({
-    sync_type: 'payment',
-    status: 'FAILED',
-    errors: ['RAG timeout'],
-  });
-  await expectInvalidBatchResult({
-    sync_log_id: 1,
-    sync_type: 'payment',
-    status: 'UNKNOWN',
-    errors: [],
-  });
-  await expectInvalidBatchResult({
-    sync_log_id: 1,
-    sync_type: 'unknown',
-    status: 'SUCCESS',
-    errors: [],
-  });
+  await expectInvalidBatchResult({ sync_log_id: 0, sync_type: 'payment', status: 'SUCCESS', errors: [] });
+  await expectInvalidBatchResult({ sync_log_id: -1, sync_type: 'payment', status: 'SUCCESS', errors: [] });
+  await expectInvalidBatchResult({ sync_log_id: 1.5, sync_type: 'payment', status: 'SUCCESS', errors: [] });
+  await expectInvalidBatchResult({ sync_log_id: 0, sync_type: 'payment', status: 'FAILED' });
+  await expectInvalidBatchResult({ sync_type: 'payment', status: 'FAILED', errors: ['RAG timeout'] });
+  await expectInvalidBatchResult({ sync_log_id: 1, sync_type: 'payment', status: 'UNKNOWN', errors: [] });
+  await expectInvalidBatchResult({ sync_log_id: 1, sync_type: 'unknown', status: 'SUCCESS', errors: [] });
 
   await withMockFetch(async () => jsonResponse({
     sync_log_id: 0,
@@ -526,8 +491,6 @@ test('RAG sync parser rejects invalid IDs, statuses, types, and incomplete failu
     status: 'FAILED',
     errors: ['RAG timeout'],
   }), async () => {
-    // Zero is a batch-only sentinel; a single-type sync still requires a real
-    // positive SyncLog ID.
     await assert.rejects(
       () => syncRagType({ projectId: 6, ragProjectId: 88, syncType: 'invoice' }),
       error => error instanceof Error
@@ -591,6 +554,18 @@ test('fetchEntityTaxLedger maps deterministic entity ledger rows with pagination
     assert.equal(item.sourceOfTruth, 'entity_vat_ledgers');
     assert.equal(item.vatPayableAfterPrepayment, 2.5);
     assert.equal(item.lineageComponents.length, 1);
+    for (const legacyField of [
+      'vatPayable',
+      'revenue',
+      'realCost',
+      'estimatedProfit',
+      'estimatedCit',
+      'citNote',
+      'generated',
+      'updateTime',
+    ]) {
+      assert.equal(Object.prototype.hasOwnProperty.call(item, legacyField), false);
+    }
   });
 });
 
@@ -643,50 +618,26 @@ test('fetchProjectTaxAnalysis maps project tax projection backed by canonical fa
 });
 
 test('v3 frontend never requests deprecated project-mixed tax ledger', () => {
-  const app = readFileSync(
-    new URL('./App.tsx', import.meta.url),
-    'utf8',
-  );
-
-  const api = readFileSync(
-    new URL('./api.ts', import.meta.url),
-    'utf8',
-  );
-
-  assert.equal(
-    app.includes('fetchTaxLedger(project.numericId'),
-    false,
-  );
-
-  assert.equal(
-    api.includes('/api/tax-ledger?project_id='),
-    false,
-  );
-
+  const app = readFileSync(new URL('./App.tsx', import.meta.url), 'utf8');
+  const api = readFileSync(new URL('./api.ts', import.meta.url), 'utf8');
+  assert.equal(app.includes('fetchTaxLedger(project.numericId'), false);
+  assert.equal(api.includes('/api/tax-ledger?project_id='), false);
   assert.match(api, /\/api\/entity-tax-ledger/);
   assert.match(api, /\/api\/project-tax-analysis/);
 });
 
-test('entity ledger does not fabricate project or four-flow semantics', () => {
-  const ledgerView = readFileSync(
-    new URL('./components/TaxLedgerView.tsx', import.meta.url),
-    'utf8',
-  );
-
-  assert.equal(
-    ledgerView.includes('所属工程项目'),
-    false,
-  );
-
-  assert.equal(
-    ledgerView.includes('四流合一'),
-    false,
-  );
-
-  assert.match(
-    ledgerView,
-    /法人月度确定性税务台账/,
-  );
+test('entity ledger does not fabricate project, P&L, or four-flow semantics', () => {
+  const ledgerView = readFileSync(new URL('./components/TaxLedgerView.tsx', import.meta.url), 'utf8');
+  const types = readFileSync(new URL('./types.ts', import.meta.url), 'utf8');
+  const entityType = types.match(/export interface EntityTaxLedgerRecord \{([\s\S]*?)\n\}/)?.[1] ?? '';
+  assert.equal(ledgerView.includes('所属工程项目'), false);
+  assert.equal(ledgerView.includes('四流合一'), false);
+  assert.equal(entityType.includes('revenue:'), false);
+  assert.equal(entityType.includes('realCost:'), false);
+  assert.equal(entityType.includes('estimatedProfit:'), false);
+  assert.equal(entityType.includes('estimatedCit:'), false);
+  assert.equal(entityType.includes('vatPayable:'), false);
+  assert.match(ledgerView, /LEGAL_ENTITY_STATUTORY 法人法定申报口径/);
 });
 
 test('TaxLedgerView keeps a successful empty ledger actionable and preserves Tax status errors', () => {
@@ -855,9 +806,9 @@ test('reviewed RAG contracts are read and confirmed through fixed Tax endpoints 
     const pending = await fetchRagPendingContracts(6);
     assert.deepEqual(pending[0].partyB, { name: '供货商', taxId: '91510400EXT' });
     await assert.rejects(
-        () => confirmRagPendingContractAndCreateParties(41),
-        error => error instanceof ApiError && error.status === 410,
-      );
+      () => confirmRagPendingContractAndCreateParties(41),
+      error => error instanceof ApiError && error.status === 410,
+    );
   });
   assert.deepEqual(requests, [
     { path: '/rag-sync/pending?project_id=6&sync_type=contract&status=pending', body: undefined },
@@ -936,14 +887,10 @@ test('fetchProjectCounterparties validates project id', async () => {
   );
 });
 
-test("project detail consumes canonical project tax analysis instead of legacy taxRecords", () => {
-  const detail = readFileSync(
-    new URL("./components/ProjectDetailView.tsx", import.meta.url),
-    "utf8",
-  );
-
+test('project detail consumes canonical project tax analysis instead of legacy taxRecords', () => {
+  const detail = readFileSync(new URL('./components/ProjectDetailView.tsx', import.meta.url), 'utf8');
   assert.match(detail, /fetchProjectTaxAnalysis/);
-  assert.equal(detail.includes("project.taxRecords"), false);
-  assert.equal(detail.includes("fourFlowsCheck"), false);
+  assert.equal(detail.includes('project.taxRecords'), false);
+  assert.equal(detail.includes('fourFlowsCheck'), false);
   assert.match(detail, /项目全周期税务分析/);
 });

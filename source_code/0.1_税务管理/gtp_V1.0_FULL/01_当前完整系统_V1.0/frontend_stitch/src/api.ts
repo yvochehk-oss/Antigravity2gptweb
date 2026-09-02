@@ -976,15 +976,6 @@ function parseEntityTaxLedgerRecord(payload: unknown): EntityTaxLedgerRecord | n
     dataStatus: (data.data_status ?? data.dataStatus ?? 'READY') as DataStatus,
     dataGaps: Array.isArray(data.data_gaps) ? data.data_gaps.map(String) : [],
     trusted: data.trusted === true,
-
-    vatPayable: vatPayableAfterPrepayment,
-    revenue: Number.NaN,
-    realCost: Number.NaN,
-    estimatedProfit: Number.NaN,
-    estimatedCit: Number.NaN,
-    citNote: 'V3 法人正式 VAT 台账不包含收入、成本、利润或 CIT；等待法人经营视图迁移。',
-    generated: runStatus === 'SUCCEEDED',
-    updateTime: '',
   };
 }
 
