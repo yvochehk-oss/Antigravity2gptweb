@@ -221,8 +221,9 @@ export default function App() {
     return () => auditAbortRef.current?.abort();
   }, [loadAuditDomain]);
 
-  const riskScopeKey = [...new Set(projects.map(project => project.numericId))]
-    .sort((left, right) => left - right)
+  const riskScopeKey = [...new Set<number>(projects.map(project => Number(project.numericId)))]
+    .filter(projectId => Number.isInteger(projectId) && projectId > 0)
+    .sort((left: number, right: number) => left - right)
     .join(',');
 
   useEffect(() => {
