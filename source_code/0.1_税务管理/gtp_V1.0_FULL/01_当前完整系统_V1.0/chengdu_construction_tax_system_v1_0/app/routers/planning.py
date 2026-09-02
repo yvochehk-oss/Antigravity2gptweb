@@ -14,6 +14,8 @@ from ..db import SessionLocal
 from ..dependencies import admin_only
 from ..models import AIModelEndpoint, Project
 from ..planning.service import (
+    PLANNING_FACT_BASIS,
+    PLANNING_SCENARIO_SCOPE,
     planning_candidate_context,
     recommend_project_allocation,
     system_penetration_snapshot,
@@ -38,6 +40,10 @@ def _truth_safe_planning_response(payload: Any) -> Any:
     value is a local what-if margin under known costs, not a whole-project EAC
     forecast. Public JSON therefore never exposes the misleading legacy key
     ``projected_management_profit``.
+
+    The scenario/truth-source markers are protected here as a public-boundary
+    invariant so downstream normalization or caller-provided payloads cannot
+    accidentally make a simulation look like a filing-basis result.
     """
 
     def normalize(value: Any) -> Any:
@@ -64,6 +70,10 @@ def _truth_safe_planning_response(payload: Any) -> Any:
     if not isinstance(normalized, dict):
         return normalized
 
+    normalized["scenario_scope"] = PLANNING_SCENARIO_SCOPE
+    normalized["is_filing_basis"] = False
+    normalized["fact_basis"] = dict(PLANNING_FACT_BASIS)
+
     basis = normalized.get("planning_basis")
     if isinstance(basis, dict):
         basis["profit_scope"] = PLANNING_MARGIN_SCOPE
@@ -71,7 +81,7 @@ def _truth_safe_planning_response(payload: Any) -> Any:
         basis["note"] = (
             "package_amount应为尚未计入real_costs的待规划净额；"
             "方案余量仅用于当前已知成本条件下的情景比较，不是项目最终/EAC利润；"
-            "结果为规划估算，不替代法定申报税额。"
+            "结果为规划估算，不替代法定申报税额；CIT_ESTIMATE_UNAVAILABLE。"
         )
 
     normalized["metric_semantics"] = {
@@ -85,7 +95,8 @@ def _truth_safe_planning_response(payload: Any) -> Any:
     if isinstance(ai, dict):
         boundary = (
             "AI只能把 scenario_known_cost_margin 解释为已知成本口径的情景余量，"
-            "不得表述为项目最终利润或EAC利润。"
+            "不得表述为项目最终利润或EAC利润；法人法定VAT仅以entity_vat_ledgers为权威，"
+            "当前Planning不提供CIT估算。"
         )
         ai["fact_boundary"] = boundary
         summary = ai.get("summary")

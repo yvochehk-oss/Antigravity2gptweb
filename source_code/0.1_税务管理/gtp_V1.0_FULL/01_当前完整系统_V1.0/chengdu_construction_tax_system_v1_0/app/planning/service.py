@@ -24,7 +24,6 @@ from ..models import (
     Progress,
     Project,
     RealCost,
-    TaxLedger,
     TaxPaymentRecord,
 )
 from .engine import D, PartyProfile, PlanningRequest, Scenario, build_scenarios
@@ -42,11 +41,18 @@ CATEGORY_EXTERNAL_KEYWORDS = {
 }
 
 # Planning recommendations are persisted as one scenario plus its allocation
-# rows.  Serialize the small critical section so two browser retries in the
+# rows. Serialize the small critical section so two browser retries in the
 # same process cannot both pass the idempotency lookup before either commits.
 # The database transaction remains the source of truth for atomicity.
 _PERSIST_LOCK = threading.RLock()
 _AUTO_IDEMPOTENCY_WINDOW = timedelta(minutes=5)
+
+PLANNING_SCENARIO_SCOPE = "SIMULATION"
+PLANNING_FACT_BASIS = {
+    "project": "CANONICAL_FACTS",
+    "entity_vat": "entity_vat_ledgers",
+    "cit": "UNAVAILABLE",
+}
 
 
 def _dec(value: Any, default: str = "0") -> Decimal:
@@ -60,10 +66,26 @@ def _bounded(value: Decimal, low: Decimal, high: Decimal) -> Decimal:
 
 
 def _internal_profile(db: Session, code: str, role: str, package_amount: Decimal) -> PartyProfile:
-    out_revenue = _dec(db.scalar(select(func.coalesce(func.sum(Invoice.net), 0)).where(Invoice.entity_code == code, Invoice.direction == "out")))
-    ext_cost = _dec(db.scalar(select(func.coalesce(func.sum(RealCost.amount), 0)).where(RealCost.entity_code == code, RealCost.external_cash.is_(True))))
-    revenue = _dec(db.scalar(select(func.coalesce(func.sum(TaxLedger.revenue), 0)).where(TaxLedger.entity_code == code, TaxLedger.generated.is_(True))))
-    tax_cash = _dec(db.scalar(select(func.coalesce(func.sum(TaxLedger.vat_payable + TaxLedger.estimated_cit), 0)).where(TaxLedger.entity_code == code, TaxLedger.generated.is_(True))))
+    """Build an internal-party profile without crossing statutory truth scopes.
+
+    Operating evidence may come from real invoice and external-cash facts. The
+    planning engine must not derive a legal-entity VAT liability or CIT estimate
+    from the retired mixed-scope TaxLedger. Until a dedicated scenario-safe tax
+    feature is available, tax_cash_rate remains neutral and the data gap is
+    explicit rather than fabricated.
+    """
+    out_revenue = _dec(db.scalar(
+        select(func.coalesce(func.sum(Invoice.net), 0)).where(
+            Invoice.entity_code == code,
+            Invoice.direction == "out",
+        )
+    ))
+    ext_cost = _dec(db.scalar(
+        select(func.coalesce(func.sum(RealCost.amount), 0)).where(
+            RealCost.entity_code == code,
+            RealCost.external_cash.is_(True),
+        )
+    ))
     gaps: list[str] = []
     evidence_parts = 0
     if out_revenue > 0:
@@ -72,21 +94,28 @@ def _internal_profile(db: Session, code: str, role: str, package_amount: Decimal
     else:
         # Neutral: without history, do not fabricate an internal saving.
         cost_ratio = D("1")
-        gaps.append(f"{code}缺少可用于估算穿透成本率的历史对外收入")
-    if revenue > 0:
-        tax_rate = _bounded(tax_cash / revenue, D("-0.20"), D("0.50"))
-        evidence_parts += 1
-    else:
-        tax_rate = D("0")
-        gaps.append(f"{code}缺少可用于估算税务现金率的历史台账")
+        gaps.append(f"{code}缺少可用于估算穿透成本率的真实对外开票收入")
+
+    # Legal-entity VAT belongs exclusively to entity_vat_ledgers. Invoice facts
+    # can describe operating history, but Planning must not turn them into a
+    # filing-looking VAT liability. CIT has no canonical estimator in this step.
+    tax_rate = D("0")
+    gaps.append(f"{code}法人正式VAT仅以entity_vat_ledgers为权威；Planning不从开票事实反推法定税负")
+    gaps.append(f"{code} CIT_ESTIMATE_UNAVAILABLE；不回退旧estimated_cit")
+
     # Historical project sales are a capacity proxy, not a legal/operational guarantee.
-    project_sales = db.execute(select(Invoice.project_id, func.sum(Invoice.net)).where(Invoice.entity_code == code, Invoice.direction == "out").group_by(Invoice.project_id)).all()
+    project_sales = db.execute(
+        select(Invoice.project_id, func.sum(Invoice.net))
+        .where(Invoice.entity_code == code, Invoice.direction == "out")
+        .group_by(Invoice.project_id)
+    ).all()
     max_hist = max((_dec(v) for _, v in project_sales), default=D("0"))
     capacity = max_hist * D("1.25") if max_hist > 0 else None
     if capacity is None:
         gaps.append(f"{code}未配置承载能力；当前不把容量作为硬约束")
     else:
         evidence_parts += 1
+
     # Entity-specific risk evidence is not yet modeled. Keep neutral and surface the gap.
     risk = D("0.50")
     gaps.append(f"{code}尚无主体级履约/税务风险评分，使用中性风险值，仅供方案排序")
@@ -95,7 +124,7 @@ def _internal_profile(db: Session, code: str, role: str, package_amount: Decimal
         code=code, scope="internal", role=role, capacity=capacity,
         external_cost_ratio=cost_ratio, tax_cash_rate=tax_rate,
         risk_score=risk, evidence_quality=min(evidence, D("0.95")),
-        rationale="系统内承接：内部交易在系统合并口径抵销，成本穿透到最终系统外支出。",
+        rationale="系统内承接：内部交易在系统合并口径抵销，成本穿透到最终系统外支出；法人法定VAT不在Planning内重算。",
         data_gaps=tuple(gaps),
     )
 
@@ -157,41 +186,41 @@ def system_penetration_snapshot(db: Session, project_id: int) -> dict[str, Any]:
     from decimal import Decimal as D
 
     from sqlalchemy import func, select
-    
+
     project = db.get(Project, project_id)
     if project is None:
         raise ValueError("project not found")
-        
+
     internal_entities = db.execute(
         select(Entity).where(Entity.active.is_(True), Entity.internal.is_(True))
     ).scalars().all()
     internal_map = {e.code: e.name for e in internal_entities}
     internal_codes = set(internal_map.keys())
-    
+
     external_entities = db.execute(
         select(ExternalParty).where(ExternalParty.active.is_(True))
     ).scalars().all()
     external_map = {x.code: {"name": x.name, "kind": x.kind or '外部单位'} for x in external_entities}
     external_codes = set(external_map.keys())
-    
+
     def _dec(v): return D(str(v)) if v else D("0")
-    
+
     recognized_revenue = _dec(db.scalar(
         select(func.coalesce(func.sum(Progress.recognized_revenue), 0)).where(Progress.project_id == project_id)
     ))
-    
+
     rows = db.execute(select(Invoice).where(Invoice.project_id == project_id)).scalars().all()
-    
+
     internal_trade = D("0")
     external_invoice_revenue = D("0")
     unknown_counterparties: set[str] = set()
-    
+
     # details dictionaries
     # revenue: buyer_code -> {'type', 'name', 'recognized'}
     rev_details = defaultdict(lambda: D("0"))
     # internal: (entity_code, counterparty_code, category) -> amount
     int_details = defaultdict(lambda: D("0"))
-    
+
     for row in rows:
         if row.direction != "out" or row.entity_code not in internal_codes:
             continue
@@ -203,25 +232,25 @@ def system_penetration_snapshot(db: Session, project_id: int) -> dict[str, Any]:
             rev_details[row.counterparty_code] += _dec(row.net)
         elif row.counterparty_code:
             unknown_counterparties.add(row.counterparty_code)
-            
+
     # external details
     ext_cost_rows = db.execute(
         select(RealCost).where(RealCost.project_id == project_id, RealCost.external_cash.is_(True))
     ).scalars().all()
     # Build entity_code → name map for real cost attribution
     entity_name_map = {e.code: e.name for e in db.execute(select(Entity)).scalars().all()}
-    
+
     external_cost = D("0")
     ext_details = defaultdict(lambda: D("0"))
     for r in ext_cost_rows:
         amt = _dec(r.amount)
         external_cost += amt
         ext_details[(r.entity_code, r.counterparty_code, r.category)] += amt
-        
+
     tax_paid = _dec(db.scalar(
         select(func.coalesce(func.sum(TaxPaymentRecord.tax_amount), 0)).where(TaxPaymentRecord.project_id == project_id)
     ))
-    
+
     management_profit_after_tax = recognized_revenue - external_cost - tax_paid
     data_gaps: list[str] = []
     if not external_codes:
@@ -232,7 +261,7 @@ def system_penetration_snapshot(db: Session, project_id: int) -> dict[str, Any]:
         data_gaps.append("存在对外开票但项目确认收入为0，请复核收入确认/进度数据")
     if tax_paid == 0:
         data_gaps.append("当前项目没有项目级实缴税款记录；实际税务现金为0不代表无纳税义务")
-        
+
     # Build frontend friendly lists
     revenueDetails = []
     # get contracts to match
@@ -241,7 +270,7 @@ def system_penetration_snapshot(db: Session, project_id: int) -> dict[str, Any]:
     for c in contracts:
         if c.buyer_code in external_codes:
             contract_map[c.buyer_code] = contract_map.get(c.buyer_code, D("0")) + _dec(c.amount)
-            
+
     if not rev_details and contract_map:
         for bcode, camt in contract_map.items():
             revenueDetails.append({
@@ -261,7 +290,7 @@ def system_penetration_snapshot(db: Session, project_id: int) -> dict[str, Any]:
                 "contract": float(camt) if camt > 0 else None,
                 "recognized": float(amt)
             })
-            
+
     internalDetails = []
     for (ecode, ccode, cat), amt in int_details.items():
         ename = internal_map.get(ecode, ecode)
@@ -272,7 +301,7 @@ def system_penetration_snapshot(db: Session, project_id: int) -> dict[str, Any]:
             "category": cat or '内部流转',
             "amount": float(amt)
         })
-        
+
     externalDetails = []
     if ext_details:
         data_gaps.append("外部真实成本明细没有独立名义金额来源；nominal 保持为空，不按税率反推")
@@ -286,7 +315,7 @@ def system_penetration_snapshot(db: Session, project_id: int) -> dict[str, Any]:
             supplier_name = f"{entity_name_map[ecode]} ({ecode}) · 系统内单位自营支出"
         else:
             supplier_name = "散户 / 未登记零星供应商 (分散支付)"
-            
+
         externalDetails.append({
             "category": cat or '外部支出',
             "entity": ecode,
@@ -294,7 +323,7 @@ def system_penetration_snapshot(db: Session, project_id: int) -> dict[str, Any]:
             "nominal": None,
             "real": float(amt)
         })
-        
+
     return {
         "project_id": project.id,
         "project_code": project.code,
@@ -394,6 +423,7 @@ def _ai_recommend(db: Session, endpoint_id: int | None, project: Project, reques
             "你是建筑企业项目财税筹划顾问。确定性引擎已经生成并校验候选分配方案。"
             "你只能从给定 scenario_id 中推荐一个，不得发明新的金额、比例、税率或主体。"
             "系统内交易最终还会做合并抵销和成本穿透；系统外单位只参与交易链与税务影响，不进入内部利润合并。"
+            "法人法定VAT仅以entity_vat_ledgers为权威，CIT在当前Planning事实基准中不可用；不得自行补算。"
             "请综合真实外部成本、税务现金影响、履约风险、证据质量、集中度提出建议。"
             "返回JSON，必须包含 risk_level, score, summary, findings, recommendations, data_gaps, recommended_scenario_id。"
         )},
@@ -480,7 +510,7 @@ def _find_existing_persisted(
 ) -> PlanningScenario | None:
     """Find a replay without relying on a schema change or a fake actor.
 
-    Explicit ``Idempotency-Key`` values are durable.  Requests without that
+    Explicit ``Idempotency-Key`` values are durable. Requests without that
     header use a short fingerprint window to absorb accidental double-clicks
     while still allowing a later, intentional re-run after the source data has
     changed.
@@ -582,7 +612,7 @@ def _persist(
             db.commit()
             return row.id
         except Exception:
-            # Keep direct service callers safe as well as the HTTP route.  A
+            # Keep direct service callers safe as well as the HTTP route. A
             # failed allocation row must never leave the Session poisoned or
             # a parent scenario visible without its children.
             db.rollback()
@@ -605,6 +635,7 @@ def planning_candidate_context(db: Session, project_id: int, category: str, pack
             "eligible": p.eligible, "rationale": p.rationale, "data_gaps": list(p.data_gaps),
         } for p in ctx["profiles"]],
     }
+
 
 def recommend_project_allocation(
     db: Session,
@@ -653,8 +684,11 @@ def recommend_project_allocation(
             idempotency_key=idempotency_key,
         )
     return {
+        "scenario_scope": PLANNING_SCENARIO_SCOPE,
+        "is_filing_basis": False,
+        "fact_basis": dict(PLANNING_FACT_BASIS),
         "project":{"id":ctx["project"].id,"code":ctx["project"].code,"name":ctx["project"].name,"contract_total":float(ctx["project"].contract_total)},
-        "planning_basis":{"package_amount":float(amount),"category":req.category,"objective":req.objective,"current_external_cost":float(ctx["current_external_cost"]),"current_tax_paid":float(ctx["current_tax_paid"]),"planning_revenue":float(ctx["planning_revenue"]),"note":"package_amount应为尚未计入real_costs的待规划净额；结果为规划估算，不替代法定申报税额。"},
+        "planning_basis":{"package_amount":float(amount),"category":req.category,"objective":req.objective,"current_external_cost":float(ctx["current_external_cost"]),"current_tax_paid":float(ctx["current_tax_paid"]),"planning_revenue":float(ctx["planning_revenue"]),"note":"package_amount应为尚未计入real_costs的待规划净额；结果为规划估算，不替代法定申报税额；CIT_ESTIMATE_UNAVAILABLE。"},
         "candidate_count":{"internal":sum(1 for x in adjusted if x.scope=="internal"),"external":sum(1 for x in adjusted if x.scope=="external")},
         "system_penetration": ctx["penetration"],
         "scenarios":scenario_dicts,"ai_recommendation":ai,"recommended":recommended,"planning_scenario_id":persisted_id,
