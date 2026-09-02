@@ -13,7 +13,7 @@ const apiMocks = vi.hoisted(() => ({
 
 const dashboardRenderSpy = vi.hoisted(() => vi.fn());
 
-vi.mock('../../api', () => {
+vi.mock('../api', () => {
   class ApiError extends Error {
     readonly status: number;
 
@@ -30,9 +30,9 @@ vi.mock('../../api', () => {
   };
 });
 
-vi.mock('../Sidebar', () => ({ Sidebar: () => null }));
-vi.mock('../Header', () => ({ Header: () => null }));
-vi.mock('../DashboardView', () => ({
+vi.mock('./Sidebar', () => ({ Sidebar: () => null }));
+vi.mock('./Header', () => ({ Header: () => null }));
+vi.mock('./DashboardView', () => ({
   DashboardView: (props: any) => {
     dashboardRenderSpy({
       projectStatus: props.dataStatus,
@@ -49,20 +49,20 @@ vi.mock('../DashboardView', () => ({
     );
   },
 }));
-vi.mock('../ProjectRepositoryView', () => ({ ProjectRepositoryView: () => null }));
-vi.mock('../ProjectDetailView', () => ({ ProjectDetailView: () => null }));
-vi.mock('../TaxLedgerView', () => ({ TaxLedgerView: () => null }));
-vi.mock('../TaxPlanningView', () => ({ TaxPlanningView: () => null }));
-vi.mock('../RiskCenterView', () => ({ RiskCenterView: () => null }));
-vi.mock('../AiReviewView', () => ({ AiReviewView: () => null }));
-vi.mock('../AuditView', () => ({ AuditView: () => null }));
-vi.mock('../AiAssistantDrawer', () => ({ AiAssistantDrawer: () => null }));
-vi.mock('../NewTaxRecordModal', () => ({ NewTaxRecordModal: () => null }));
-vi.mock('../ExportReportModal', () => ({ ExportReportModal: () => null }));
-vi.mock('../DataStatusCard', () => ({ DataStatusCard: () => null }));
-vi.mock('../SettingsModal', () => ({ DEFAULT_SETTINGS: {} }));
+vi.mock('./ProjectRepositoryView', () => ({ ProjectRepositoryView: () => null }));
+vi.mock('./ProjectDetailView', () => ({ ProjectDetailView: () => null }));
+vi.mock('./TaxLedgerView', () => ({ TaxLedgerView: () => null }));
+vi.mock('./TaxPlanningView', () => ({ TaxPlanningView: () => null }));
+vi.mock('./RiskCenterView', () => ({ RiskCenterView: () => null }));
+vi.mock('./AiReviewView', () => ({ AiReviewView: () => null }));
+vi.mock('./AuditView', () => ({ AuditView: () => null }));
+vi.mock('./AiAssistantDrawer', () => ({ AiAssistantDrawer: () => null }));
+vi.mock('./NewTaxRecordModal', () => ({ NewTaxRecordModal: () => null }));
+vi.mock('./ExportReportModal', () => ({ ExportReportModal: () => null }));
+vi.mock('./DataStatusCard', () => ({ DataStatusCard: () => null }));
+vi.mock('./SettingsModal', () => ({ DEFAULT_SETTINGS: {} }));
 
-import App from '../../App';
+import App from '../App';
 
 function project(id: number, name = `Project ${id}`, totalBudget = 100) {
   return {
