@@ -656,6 +656,7 @@ def tax_ledger_collection(
 
 @router.get(
     "/api/entity-tax-ledger",
+    response_model=None,
     summary="法人法定 VAT 台账 JSON 集合（V3 authoritative）",
 )
 def entity_tax_ledger_collection(
