@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
 import app.middleware as middleware_module
@@ -251,3 +251,52 @@ def test_cross_origin_login_post_is_rejected():
 
     assert response.status_code == 403
     assert response.json() == {"detail": "跨站请求被拒绝"}
+
+
+def test_authenticated_user_context_compatibility_and_actor(monkeypatch):
+    class FakeUser:
+        id = 1
+        username = "admin_test"
+        role = "admin"
+        display_name = "管理员测试"
+        active = True
+
+    monkeypatch.setattr(
+        middleware_module,
+        "current_user_from_request",
+        lambda request: FakeUser(),
+    )
+
+    app = FastAPI()
+    app.add_middleware(AuthMiddleware)
+
+    captured = {}
+
+    @app.get("/api/test-context")
+    def test_ctx(request: Request):
+        from app.observability import current_actor
+        captured["user"] = getattr(request.state, "user", None)
+        captured["current_user"] = getattr(request.state, "current_user", None)
+        captured["actor"] = current_actor()
+        return {"ok": True}
+
+    client = TestClient(app)
+    resp = client.get("/api/test-context", headers={"Authorization": "Bearer valid"})
+    assert resp.status_code == 200
+    assert captured["user"].username == "admin_test"
+    assert captured["current_user"].username == "admin_test"
+    assert captured["actor"] == "admin_test"
+
+
+def test_security_headers_retention():
+    client = TestClient(_anonymous_gate_app())
+
+    resp1 = client.get("/login")
+    assert resp1.headers.get("x-content-type-options") == "nosniff"
+    assert resp1.headers.get("x-frame-options") == "DENY"
+    assert resp1.headers.get("referrer-policy") == "same-origin"
+
+    resp2 = client.get("/api/projects/15")
+    assert resp2.headers.get("x-content-type-options") == "nosniff"
+    assert resp2.headers.get("x-frame-options") == "DENY"
+    assert resp2.headers.get("referrer-policy") == "same-origin"

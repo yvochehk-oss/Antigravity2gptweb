@@ -9,6 +9,7 @@ from fastapi import Request
 from fastapi.responses import JSONResponse, RedirectResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from .observability import reset_actor, set_actor
 from .auth import (
     COOKIE_NAME,
     CSRF_COOKIE_NAME,
@@ -17,10 +18,6 @@ from .auth import (
 
 _SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 
-# 仅保留真正需要匿名访问的入口。
-#
-# /api/v1/auth/token 与 /refresh 是移动端 JWT 登录引导接口，
-# 必须公开，否则 Boss App / API 客户端永远无法取得令牌。
 PUBLIC_EXACT_PATHS = frozenset(
     {
         "/login",
@@ -35,7 +32,6 @@ PUBLIC_EXACT_PATHS = frozenset(
     }
 )
 
-# 登录页当前不依赖 SPA assets；保留 /static 仅用于兼容必要静态资源。
 PUBLIC_PREFIXES = ("/static",)
 
 API_PREFIXES = (
@@ -65,8 +61,6 @@ def _unauthenticated_requires_json(request: Request) -> bool:
     if _is_api_path(request.url.path):
         return True
 
-    # /ai-review/run、/health-check/run、/manager/.../ask 等历史接口
-    # 虽没有 /api 前缀，但属于 AJAX 写接口。
     return request.method.upper() not in _SAFE_METHODS
 
 
@@ -120,6 +114,13 @@ def _bearer_only_request(request: Request) -> bool:
     )
 
 
+def _attach_security_headers(response):
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "same-origin")
+    return response
+
+
 class AuthMiddleware(BaseHTTPMiddleware):
     """全局 Fail-Closed 身份认证门禁。
 
@@ -129,6 +130,8 @@ class AuthMiddleware(BaseHTTPMiddleware):
     - 不存在 development 自动 admin
     - Session Cookie 写操作 -> Same-Origin + CSRF
     - Bearer-only API -> JWT 鉴权，不额外要求浏览器 CSRF
+    - 保证 request.state.user 与 request.state.current_user 双向兼容
+    - 全响应挂载安全响应头 (nosniff, DENY, same-origin)
     """
 
     async def dispatch(
@@ -138,52 +141,65 @@ class AuthMiddleware(BaseHTTPMiddleware):
     ):
         path = request.url.path
         method = request.method.upper()
+        actor_token = set_actor("anonymous")
 
-        # 登录页本身必须匿名可访问。
-        # POST /login 的 CSRF 双提交校验由登录路由完成；
-        # 这里额外执行 Origin 边界检查。
-        if path == "/login":
-            if method not in _SAFE_METHODS and not _same_origin_ok(request):
-                return JSONResponse(
-                    status_code=403,
-                    content={"detail": "跨站请求被拒绝"},
-                )
-            return await call_next(request)
+        try:
+            # 登录页本身必须匿名可访问。
+            if path == "/login":
+                if method not in _SAFE_METHODS and not _same_origin_ok(request):
+                    return _attach_security_headers(JSONResponse(
+                        status_code=403,
+                        content={"detail": "跨站请求被拒绝"},
+                    ))
+                response = await call_next(request)
+                return _attach_security_headers(response)
 
-        # 健康检查、API 文档和 JWT bootstrap 端点。
-        if _is_public_path(path):
-            return await call_next(request)
+            # 健康检查、API 文档和 JWT bootstrap 端点。
+            if _is_public_path(path):
+                response = await call_next(request)
+                return _attach_security_headers(response)
 
-        # 唯一身份来源：真实 Session Cookie 或真实 Bearer JWT。
-        # 严禁任何 development/admin 自动兜底。
-        user = current_user_from_request(request)
+            # 唯一身份来源：真实 Session Cookie 或真实 Bearer JWT。
+            user = current_user_from_request(request)
 
-        if user is None:
-            if _unauthenticated_requires_json(request):
-                return JSONResponse(
-                    status_code=401,
-                    content={"detail": "请先登录"},
-                )
+            if user is None:
+                if _unauthenticated_requires_json(request):
+                    return _attach_security_headers(JSONResponse(
+                        status_code=401,
+                        content={"detail": "请先登录"},
+                    ))
 
-            return RedirectResponse(
-                url="/login",
-                status_code=303,
+                return _attach_security_headers(RedirectResponse(
+                    url="/login",
+                    status_code=303,
+                ))
+
+            # 恢复并保证 user 与 current_user 兼容性
+            request.state.user = user
+            request.state.current_user = user
+            username = str(
+                getattr(user, "username", None)
+                or getattr(user, "display_name", None)
+                or "anonymous",
             )
+            reset_actor(actor_token)
+            actor_token = set_actor(username)
 
-        request.state.user = user
+            # Bearer-only 客户端不依赖浏览器 Cookie，因此不受 CSRF 约束。
+            if not _bearer_only_request(request):
+                if not _same_origin_ok(request):
+                    return _attach_security_headers(JSONResponse(
+                        status_code=403,
+                        content={"detail": "跨站请求被拒绝"},
+                    ))
 
-        # Bearer-only 客户端不依赖浏览器 Cookie，因此不受 CSRF 约束。
-        if not _bearer_only_request(request):
-            if not _same_origin_ok(request):
-                return JSONResponse(
-                    status_code=403,
-                    content={"detail": "跨站请求被拒绝"},
-                )
+                if not _csrf_allowed(request):
+                    return _attach_security_headers(JSONResponse(
+                        status_code=403,
+                        content={"detail": "CSRF 校验失败"},
+                    ))
 
-            if not _csrf_allowed(request):
-                return JSONResponse(
-                    status_code=403,
-                    content={"detail": "CSRF 校验失败"},
-                )
-
-        return await call_next(request)
+            response = await call_next(request)
+            return _attach_security_headers(response)
+        finally:
+            reset_actor(actor_token)
