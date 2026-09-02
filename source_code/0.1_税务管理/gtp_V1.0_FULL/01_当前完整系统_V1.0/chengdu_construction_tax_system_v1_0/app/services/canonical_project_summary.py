@@ -32,9 +32,9 @@ def _code(value: Any) -> str:
 def resolve_project_transaction_price(db, project_id: int) -> dict[str, Any]:
     """Resolve the project-revenue transaction price from Canonical contract facts.
 
-    Known historical main-contract identifiers are treated as equivalent aliases
-    when they carry the same accepted/current amount. Conflicting amounts still
-    fail closed instead of summing pass-through contracts.
+    Only registered historical main-contract identifiers are treated as equivalent
+    aliases when they carry the same accepted/current amount. All other candidate
+    sources must resolve to exactly one contract and fail closed when ambiguous.
     """
     internal_codes = {
         _code(code)
@@ -68,20 +68,31 @@ def resolve_project_transaction_price(db, project_id: int) -> dict[str, Any]:
                 }
             )
 
-    preferred = [row for row in candidates if row["known_main"] or row["explicit_main"]]
-    pool = preferred or candidates
-    if not pool:
-        return {
-            "amount": Decimal("0"),
-            "status": "EMPTY",
-            "source_fact_id": None,
-            "fact_version": None,
-            "contract_no": "",
-        }
-
-    unique_amounts = {row["amount"] for row in pool}
-    if len(unique_amounts) != 1:
-        raise ValueError("ambiguous canonical project transaction price")
+    known_main_candidates = [row for row in candidates if row["known_main"]]
+    if known_main_candidates:
+        unique_amounts = {row["amount"] for row in known_main_candidates}
+        if len(unique_amounts) != 1:
+            raise ValueError("ambiguous canonical project transaction price")
+        pool = known_main_candidates
+    else:
+        explicit_main_candidates = [row for row in candidates if row["explicit_main"]]
+        if explicit_main_candidates:
+            if len(explicit_main_candidates) != 1:
+                raise ValueError("ambiguous canonical project transaction price")
+            pool = explicit_main_candidates
+        else:
+            boundary_candidates = [row for row in candidates if row["crosses_boundary"]]
+            if not boundary_candidates:
+                return {
+                    "amount": Decimal("0"),
+                    "status": "EMPTY",
+                    "source_fact_id": None,
+                    "fact_version": None,
+                    "contract_no": "",
+                }
+            if len(boundary_candidates) != 1:
+                raise ValueError("ambiguous canonical project transaction price")
+            pool = boundary_candidates
 
     selected = sorted(pool, key=lambda row: (row["fact_version"], row["fact_id"]), reverse=True)[0]
     return {
