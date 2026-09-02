@@ -33,27 +33,15 @@ def test_cost_to_cost_accrual_and_cit_book_tax_difference() -> None:
         external_invoiced_cost=Decimal("2000000"),
         invoice_tax_addback=Decimal("200000"),
         accrual_facts=[
-            _fact(
-                1,
-                "accrual",
-                1,
-                {
-                    "amount": "500000",
-                    "reversal_amount": "0",
-                    "tax_deductible": False,
-                },
-            )
+            _fact(1, "accrual", 1, {"amount": "500000", "reversal_amount": "0", "tax_deductible": False})
         ],
-        progress_facts=[
-            _fact(2, "progress", 1, {"estimated_total_cost": "5000000"})
-        ],
+        progress_facts=[_fact(2, "progress", 1, {"estimated_total_cost": "5000000"})],
         tax_adjustment_facts=[
             _fact(3, "tax_adjustment", 1, {"direction": "ADD", "amount": "100000"}),
             _fact(4, "tax_adjustment", 1, {"direction": "DEDUCT", "amount": "50000"}),
         ],
         cit_rate=Decimal("0.25"),
     )
-
     assert result["recognition"]["basis"] == "cost_to_cost"
     assert result["recognition"]["completion_percent"] == Decimal("0.5")
     assert result["recognition"]["recognized_revenue"] == Decimal("5000000.00")
@@ -71,17 +59,7 @@ def test_certified_completion_overrides_cost_to_cost() -> None:
         external_invoiced_cost=Decimal("2000000"),
         invoice_tax_addback=Decimal("0"),
         accrual_facts=[],
-        progress_facts=[
-            _fact(
-                2,
-                "progress",
-                2,
-                {
-                    "completion_percent": "0.60",
-                    "estimated_total_cost": "5000000",
-                },
-            )
-        ],
+        progress_facts=[_fact(2, "progress", 2, {"completion_percent": "0.60", "estimated_total_cost": "5000000"})],
         tax_adjustment_facts=[],
     )
     assert result["recognition"]["basis"] == "certified_completion_percent"
@@ -115,15 +93,35 @@ def test_fact_engine_report_lineage_is_version_sensitive() -> None:
     assert hash_v1 != hash_v2
     assert rows_v1[0]["fact_version"] == 1
     assert rows_v2[0]["fact_version"] == 2
-    assert ENGINE_VERSION == "canonical-accounting-phase4-v1"
+    assert ENGINE_VERSION == "canonical-accounting-phase4-v2"
 
 
 def test_calculation_parameters_are_part_of_snapshot_identity() -> None:
-    hash_25, params_25 = calculation_parameters_hash(Decimal("0.25"))
-    hash_20, params_20 = calculation_parameters_hash(Decimal("0.20"))
+    hash_25, params_25 = calculation_parameters_hash(
+        Decimal("0.25"),
+        transaction_price=Decimal("1450000000.00"),
+        transaction_price_fact_id=101,
+        transaction_price_fact_version=3,
+    )
+    hash_20, params_20 = calculation_parameters_hash(
+        Decimal("0.20"),
+        transaction_price=Decimal("1450000000.00"),
+        transaction_price_fact_id=101,
+        transaction_price_fact_version=3,
+    )
     assert hash_25 != hash_20
-    assert params_25 == {"cit_rate": "0.25"}
-    assert params_20 == {"cit_rate": "0.20"}
+    assert params_25 == {
+        "cit_rate": "0.25",
+        "transaction_price": "1450000000.00",
+        "transaction_price_fact_id": "101",
+        "transaction_price_fact_version": "3",
+    }
+    assert params_20 == {
+        "cit_rate": "0.20",
+        "transaction_price": "1450000000.00",
+        "transaction_price_fact_id": "101",
+        "transaction_price_fact_version": "3",
+    }
 
 
 def test_reconciliation_zero_diff_and_detected_diff() -> None:
@@ -185,9 +183,7 @@ def test_phase4_service_has_no_legacy_transaction_table_reads() -> None:
 
 
 def test_phase4_migration_extends_v3_head_and_triple_lineage_snapshot() -> None:
-    source = (
-        ROOT / "alembic" / "versions" / "99_phase4_accounting_snapshots.py"
-    ).read_text(encoding="utf-8")
+    source = (ROOT / "alembic" / "versions" / "99_phase4_accounting_snapshots.py").read_text(encoding="utf-8")
     assert 'down_revision = "98_v3_explicit_fact_relationship_graph"' in source
     assert "fact_snapshot_hash" in source
     assert "calculation_parameters_hash" in source
