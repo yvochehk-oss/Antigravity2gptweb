@@ -1,8 +1,8 @@
 """Phase 4 deterministic accounting and book-tax engine.
 
-The engine consumes only accepted/current Canonical Facts plus Project master
-attributes.  It never treats payment cash flow as P&L and never reads legacy
-contract/invoice/cashflow tables for accounting truth.
+The engine consumes only accepted/current Canonical Facts plus static Project
+master attributes.  Dynamic accounting truth, including transaction price, is
+resolved from Canonical Facts.  Payment cash flow never enters P&L.
 """
 from __future__ import annotations
 
@@ -14,9 +14,10 @@ from typing import Any
 from sqlalchemy import text
 
 from ..models import Project
+from .canonical_project_summary import resolve_project_transaction_price
 from .canonical_ssot import consolidate_invoice_facts, load_current_facts
 
-ENGINE_VERSION = "canonical-accounting-phase4-v1"
+ENGINE_VERSION = "canonical-accounting-phase4-v2"
 DEFAULT_CIT_RATE = Decimal("0.25")
 _MONEY = Decimal("0.01")
 
@@ -73,8 +74,19 @@ def fact_snapshot_hash(facts: list[dict[str, Any]]) -> tuple[str, list[dict[str,
     return hashlib.sha256(encoded).hexdigest(), versions
 
 
-def calculation_parameters_hash(cit_rate: Decimal) -> tuple[str, dict[str, str]]:
-    parameters = {"cit_rate": str(cit_rate)}
+def calculation_parameters_hash(
+    cit_rate: Decimal,
+    *,
+    transaction_price: Decimal = Decimal("0"),
+    transaction_price_fact_id: int | None = None,
+    transaction_price_fact_version: int | None = None,
+) -> tuple[str, dict[str, str]]:
+    parameters = {
+        "cit_rate": str(cit_rate),
+        "transaction_price": str(transaction_price),
+        "transaction_price_fact_id": str(transaction_price_fact_id or ""),
+        "transaction_price_fact_version": str(transaction_price_fact_version or ""),
+    }
     encoded = json.dumps(parameters, sort_keys=True).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest(), parameters
 
@@ -90,17 +102,13 @@ def calculate_phase4_model(
     tax_adjustment_facts: list[dict[str, Any]],
     cit_rate: Decimal = DEFAULT_CIT_RATE,
 ) -> dict[str, Any]:
-    """Pure deterministic cost-to-cost recognition and book-tax calculation."""
     accrued_unbilled = Decimal("0")
     tax_addback_accrual = Decimal("0")
     capitalized = Decimal("0")
     for fact in accrual_facts:
         item = _payload(fact)
-        amount = max(
-            Decimal("0"),
-            _d(item.get("amount")) - _d(item.get("reversal_amount")),
-        )
-        if bool(item.get("capitalized", False)):
+        amount = max(Decimal("0"), _d(item.get("amount")) - _d(item.get("reversal_amount")))
+        if item.get("capitalized") is True:
             capitalized += amount
             continue
         accrued_unbilled += amount
@@ -127,10 +135,7 @@ def calculate_phase4_model(
         completion = min(Decimal("1"), max(Decimal("0"), _d(explicit_completion)))
         recognition_basis = "certified_completion_percent"
     elif estimated_total_cost > 0:
-        completion = min(
-            Decimal("1"),
-            max(Decimal("0"), incurred_cost / estimated_total_cost),
-        )
+        completion = min(Decimal("1"), max(Decimal("0"), incurred_cost / estimated_total_cost))
         recognition_basis = "cost_to_cost"
     else:
         completion = Decimal("0")
@@ -207,12 +212,7 @@ def _invoice_tax_addback(invoice_facts: list[dict[str, Any]]) -> Decimal:
     return total
 
 
-def build_project_accounting(
-    db,
-    project_id: int,
-    *,
-    cit_rate: Decimal = DEFAULT_CIT_RATE,
-) -> dict[str, Any]:
+def build_project_accounting(db, project_id: int, *, cit_rate: Decimal = DEFAULT_CIT_RATE) -> dict[str, Any]:
     project = db.get(Project, int(project_id))
     if project is None:
         raise LookupError(f"project not found: {project_id}")
@@ -229,10 +229,8 @@ def build_project_accounting(
     }
     invoice_facts = by_type.get("invoice", [])
     boundary = consolidate_invoice_facts(invoice_facts, internal_codes)
-    transaction_price = _d(
-        getattr(project, "contract_total", None)
-        or getattr(project, "contract_amount", None)
-    )
+    transaction = resolve_project_transaction_price(db, int(project_id))
+    transaction_price = _d(transaction["amount"])
     model = calculate_phase4_model(
         transaction_price=transaction_price,
         external_revenue_documentary=_d(boundary.get("external_revenue")),
@@ -244,10 +242,13 @@ def build_project_accounting(
         cit_rate=cit_rate,
     )
     snapshot_hash, versions = fact_snapshot_hash(all_facts)
-    params_hash, parameters = calculation_parameters_hash(cit_rate)
-    preview_version = (
-        f"PREVIEW-{ENGINE_VERSION}-{snapshot_hash[:8]}-{params_hash[:8]}"
+    params_hash, parameters = calculation_parameters_hash(
+        cit_rate,
+        transaction_price=transaction_price,
+        transaction_price_fact_id=transaction["source_fact_id"],
+        transaction_price_fact_version=transaction["fact_version"],
     )
+    preview_version = f"PREVIEW-{ENGINE_VERSION}-{snapshot_hash[:8]}-{params_hash[:8]}"
     return {
         "project_id": int(project_id),
         "project_code": str(getattr(project, "code", "") or ""),
@@ -257,122 +258,87 @@ def build_project_accounting(
         "engine_version": ENGINE_VERSION,
         **model,
         "boundary": boundary,
+        "transaction_price_source": {
+            "status": transaction["status"],
+            "fact_id": transaction["source_fact_id"],
+            "fact_version": transaction["fact_version"],
+            "contract_no": transaction["contract_no"],
+        },
         "lineage": {
             "fact_snapshot_hash": snapshot_hash,
             "fact_versions": versions,
             "engine_version": ENGINE_VERSION,
-            "calculation_parameters": parameters,
-            "calculation_parameters_hash": params_hash,
             "report_version": preview_version,
+            "calculation_parameters_hash": params_hash,
+            "calculation_parameters": parameters,
         },
     }
 
 
-def _lock_report_sequence(db, project_id: int) -> None:
-    bind = db.get_bind()
-    if getattr(getattr(bind, "dialect", None), "name", "") == "postgresql":
-        db.execute(
-            text(
-                "SELECT pg_advisory_xact_lock("
-                "hashtextextended(CAST(:key AS text), 0))"
-            ),
-            {"key": f"accounting_report_snapshot|{int(project_id)}"},
-        )
-
-
-def snapshot_project_accounting(
-    db,
-    project_id: int,
-    *,
-    cit_rate: Decimal = DEFAULT_CIT_RATE,
-) -> dict[str, Any]:
-    _lock_report_sequence(db, project_id)
-    result = build_project_accounting(db, project_id, cit_rate=cit_rate)
+def snapshot_project_accounting(db, project_id: int, *, cit_rate: Decimal = DEFAULT_CIT_RATE) -> dict[str, Any]:
+    result = build_project_accounting(db, int(project_id), cit_rate=cit_rate)
     lineage = result["lineage"]
+    db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": 4_000_000_000 + int(project_id)})
     existing = db.execute(
         text(
-            "SELECT report_version, result_json FROM accounting_report_snapshots "
+            "SELECT id, report_sequence, report_version, result_json "
+            "FROM accounting_report_snapshots "
             "WHERE project_id=:project_id AND engine_version=:engine_version "
-            "AND fact_snapshot_hash=:fact_hash "
-            "AND calculation_parameters_hash=:params_hash "
-            "ORDER BY id DESC LIMIT 1"
+            "AND fact_snapshot_hash=:fact_snapshot_hash "
+            "AND calculation_parameters_hash=:calculation_parameters_hash"
         ),
         {
-            "project_id": project_id,
+            "project_id": int(project_id),
             "engine_version": ENGINE_VERSION,
-            "fact_hash": lineage["fact_snapshot_hash"],
-            "params_hash": lineage["calculation_parameters_hash"],
+            "fact_snapshot_hash": lineage["fact_snapshot_hash"],
+            "calculation_parameters_hash": lineage["calculation_parameters_hash"],
         },
     ).mappings().first()
-    if existing:
+    if existing is not None:
         stored = existing["result_json"]
-        return stored if isinstance(stored, dict) else json.loads(stored)
+        if isinstance(stored, str):
+            stored = json.loads(stored)
+        return stored
 
-    next_version = int(
+    sequence = int(
         db.execute(
-            text(
-                "SELECT COALESCE(MAX(report_sequence), 0) + 1 "
-                "FROM accounting_report_snapshots WHERE project_id=:project_id"
-            ),
-            {"project_id": project_id},
+            text("SELECT COALESCE(MAX(report_sequence), 0) + 1 FROM accounting_report_snapshots WHERE project_id=:project_id"),
+            {"project_id": int(project_id)},
         ).scalar_one()
     )
-    report_version = f"P{project_id}-R{next_version}"
+    report_version = f"P{int(project_id)}-R{sequence}"
     result["lineage"]["report_version"] = report_version
-    normalized_result = json.loads(json.dumps(result, ensure_ascii=False, default=str))
+    payload = json.loads(json.dumps(result, default=str, ensure_ascii=False))
     db.execute(
         text(
             "INSERT INTO accounting_report_snapshots ("
-            "project_id, report_sequence, report_version, engine_version, "
-            "fact_snapshot_hash, calculation_parameters_hash, "
-            "fact_versions_json, calculation_parameters_json, result_json"
+            "project_id, report_sequence, report_version, engine_version, fact_snapshot_hash, "
+            "calculation_parameters_hash, fact_versions_json, calculation_parameters_json, result_json"
             ") VALUES ("
-            ":project_id, :sequence, :report_version, :engine_version, :fact_hash, "
-            ":params_hash, CAST(:fact_versions AS jsonb), CAST(:parameters AS jsonb), "
-            "CAST(:result AS jsonb))"
+            ":project_id, :report_sequence, :report_version, :engine_version, :fact_snapshot_hash, "
+            ":calculation_parameters_hash, CAST(:fact_versions_json AS jsonb), "
+            "CAST(:calculation_parameters_json AS jsonb), CAST(:result_json AS jsonb))"
         ),
         {
-            "project_id": project_id,
-            "sequence": next_version,
+            "project_id": int(project_id),
+            "report_sequence": sequence,
             "report_version": report_version,
             "engine_version": ENGINE_VERSION,
-            "fact_hash": lineage["fact_snapshot_hash"],
-            "params_hash": lineage["calculation_parameters_hash"],
-            "fact_versions": json.dumps(
-                lineage["fact_versions"],
-                ensure_ascii=False,
-                default=str,
-            ),
-            "parameters": json.dumps(
-                lineage["calculation_parameters"],
-                ensure_ascii=False,
-            ),
-            "result": json.dumps(normalized_result, ensure_ascii=False),
+            "fact_snapshot_hash": lineage["fact_snapshot_hash"],
+            "calculation_parameters_hash": lineage["calculation_parameters_hash"],
+            "fact_versions_json": json.dumps(lineage["fact_versions"], ensure_ascii=False, default=str),
+            "calculation_parameters_json": json.dumps(lineage["calculation_parameters"], ensure_ascii=False, default=str),
+            "result_json": json.dumps(payload, ensure_ascii=False, default=str),
         },
     )
-    return normalized_result
-
-
-def list_accounting_snapshots(db, project_id: int) -> list[dict[str, Any]]:
-    rows = db.execute(
-        text(
-            "SELECT report_version, engine_version, fact_snapshot_hash, "
-            "calculation_parameters_hash, calculation_parameters_json, created_at "
-            "FROM accounting_report_snapshots WHERE project_id=:project_id "
-            "ORDER BY report_sequence DESC"
-        ),
-        {"project_id": project_id},
-    ).mappings().all()
-    return [dict(row) for row in rows]
+    return payload
 
 
 __all__ = [
-    "DEFAULT_CIT_RATE",
     "ENGINE_VERSION",
+    "DEFAULT_CIT_RATE",
     "build_project_accounting",
     "calculate_phase4_model",
-    "calculation_parameters_hash",
     "fact_snapshot_hash",
-    "list_accounting_snapshots",
     "snapshot_project_accounting",
 ]
