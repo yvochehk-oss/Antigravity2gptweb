@@ -51,7 +51,6 @@ export default function App() {
     }
   });
 
-  // 真实项目数据只能来自 Tax API。后端当前没有项目集合接口，必须由 VITE_PROJECT_IDS 显式提供待加载 ID。
   const [projects, setProjects] = useState<ProjectItem[]>([]);
   const [projectStatus, setProjectStatus] = useState<DataStatus>('LOADING');
   const [projectStatusMessage, setProjectStatusMessage] = useState('正在从 Tax 服务加载项目数据…');
@@ -73,57 +72,120 @@ export default function App() {
   const [assistantMessages, setAssistantMessages] = useState<AssistantMessage[]>([]);
   const [isAiThinking, setIsAiThinking] = useState<boolean>(false);
   const [actionNotice, setActionNotice] = useState<string>('');
+
+  const entityVatAbortRef = useRef<AbortController | null>(null);
   const projectAbortRef = useRef<AbortController | null>(null);
+  const riskAbortRef = useRef<AbortController | null>(null);
+  const auditAbortRef = useRef<AbortController | null>(null);
   const assistantAbortRef = useRef<AbortController | null>(null);
 
   const [isNewRecordModalOpen, setIsNewRecordModalOpen] = useState<boolean>(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState<boolean>(false);
 
-  const loadProjects = useCallback(async (signal?: AbortSignal) => {
-    const ownedController = signal ? null : new AbortController();
-    if (ownedController) {
-      projectAbortRef.current?.abort();
-      projectAbortRef.current = ownedController;
-    }
-    const requestSignal = signal ?? ownedController?.signal;
-    setProjectStatus('LOADING');
-    setProjectStatusMessage('正在从 Tax 服务加载项目数据…');
-    setRiskStatus('LOADING');
-    setRiskStatusMessage('正在从 Tax 服务加载风险集合…');
+  const loadEntityVatDomain = useCallback(async () => {
+    entityVatAbortRef.current?.abort();
+    const controller = new AbortController();
+    entityVatAbortRef.current = controller;
     setTaxLedgerStatus('LOADING');
     setTaxLedgerStatusMessage('正在从 Tax 服务加载台账集合…');
-    setAuditStatus('LOADING');
     try {
-      const loadedProjects = await fetchConfiguredProjects(requestSignal);
-      // Project summaries, deterministic entity tax ledger, and risk events have
-      // separate contracts. Each collection is retained independently so one
-      // unavailable service does not fabricate or hide another's data.
-      const [ledgerResult, riskResults, auditResult] = await Promise.all([
-        fetchEntityTaxLedger(requestSignal)
-          .then(value => ({ ok: true as const, value, error: undefined }))
-          .catch((error: unknown) => ({ ok: false as const, value: undefined, error })),
-        Promise.allSettled(loadedProjects.map(project => fetchRiskEvents(project.numericId, requestSignal))),
-        fetchAuditLogs(requestSignal).catch(() => ({ items: [], status: 'READY' as DataStatus, message: '' })),
-      ]);
-      if (requestSignal?.aborted) return;
+      const result = await fetchEntityTaxLedger(controller.signal);
+      if (controller.signal.aborted) return;
+      setEntityTaxLedgerRecords(result.items);
+      setTaxLedgerStatus(result.status);
+      setTaxLedgerStatusMessage(
+        result.message || `已加载 ${result.items.length} 条法人月度确定性税务台账。`,
+      );
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      setEntityTaxLedgerRecords([]);
+      setTaxLedgerStatus('UNAVAILABLE');
+      setTaxLedgerStatusMessage(errorMessage(error));
+    } finally {
+      if (entityVatAbortRef.current === controller) entityVatAbortRef.current = null;
+    }
+  }, []);
 
+  const loadProjectDomain = useCallback(async () => {
+    projectAbortRef.current?.abort();
+    const controller = new AbortController();
+    projectAbortRef.current = controller;
+    setProjectStatus('LOADING');
+    setProjectStatusMessage('正在从 Tax 服务加载项目数据…');
+    try {
+      const loadedProjects = await fetchConfiguredProjects(controller.signal);
+      if (controller.signal.aborted) return;
       const projectsWithLedger = loadedProjects.map(project => ({
         ...project,
         taxRecords: [],
       }));
       setProjects(projectsWithLedger);
-      setSelectedProjectId(current => projectsWithLedger.some(project => project.id === current) ? current : (projectsWithLedger[0]?.id ?? ''));
+      setSelectedProjectId(current => projectsWithLedger.some(project => project.id === current)
+        ? current
+        : (projectsWithLedger[0]?.id ?? ''));
+      setProjectStatus('READY');
+      setProjectStatusMessage(`已加载 ${projectsWithLedger.length} 个项目及其基础数据。`);
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      setProjects([]);
+      setSelectedProjectId('');
+      setProjectStatus(error instanceof ApiError && error.status > 0 ? 'DEGRADED' : 'UNAVAILABLE');
+      setProjectStatusMessage(errorMessage(error));
+    } finally {
+      if (projectAbortRef.current === controller) projectAbortRef.current = null;
+    }
+  }, []);
+
+  const loadAuditDomain = useCallback(async () => {
+    auditAbortRef.current?.abort();
+    const controller = new AbortController();
+    auditAbortRef.current = controller;
+    setAuditStatus('LOADING');
+    try {
+      const result = await fetchAuditLogs(controller.signal);
+      if (controller.signal.aborted) return;
+      setAuditLogs(result.items);
+      setAuditStatus(result.status);
+    } catch {
+      if (controller.signal.aborted) return;
+      setAuditLogs([]);
+      setAuditStatus('UNAVAILABLE');
+    } finally {
+      if (auditAbortRef.current === controller) auditAbortRef.current = null;
+    }
+  }, []);
+
+  const loadRiskDomain = useCallback(async (projectIds: number[]) => {
+    riskAbortRef.current?.abort();
+    const controller = new AbortController();
+    riskAbortRef.current = controller;
+
+    if (projectIds.length === 0) {
+      setRiskEvents([]);
+      setRiskStatus('UNAVAILABLE');
+      setRiskStatusMessage('当前没有可用项目 ID，未读取风险集合。');
+      if (riskAbortRef.current === controller) riskAbortRef.current = null;
+      return;
+    }
+
+    setRiskStatus('LOADING');
+    setRiskStatusMessage('正在从 Tax 服务加载风险集合…');
+    try {
+      const riskResults = await Promise.allSettled(
+        projectIds.map(projectId => fetchRiskEvents(projectId, controller.signal)),
+      );
+      if (controller.signal.aborted) return;
 
       const successfulRiskResults = riskResults.filter(result => result.status === 'fulfilled');
       const riskRequestFailed = riskResults.some(result => result.status === 'rejected');
       const riskAllFailed = successfulRiskResults.length === 0;
-      const riskBackendDegraded = riskResults.some(result => result.status === 'fulfilled' && result.value.status !== 'READY');
-      const loadedRiskEvents = riskResults.flatMap(result => result.status === 'fulfilled' ? result.value.items : []);
+      const riskBackendDegraded = riskResults.some(
+        result => result.status === 'fulfilled' && result.value.status !== 'READY',
+      );
+      const loadedRiskEvents = riskResults.flatMap(
+        result => result.status === 'fulfilled' ? result.value.items : [],
+      );
       setRiskEvents(loadedRiskEvents);
-      if (auditResult) {
-        setAuditLogs(auditResult.items);
-        setAuditStatus(auditResult.status);
-      }
       const nextRiskStatus: DataStatus = riskAllFailed
         ? 'UNAVAILABLE'
         : riskRequestFailed || riskBackendDegraded ? 'DEGRADED' : 'READY';
@@ -135,43 +197,41 @@ export default function App() {
       setRiskStatusMessage(
         nextRiskStatus === 'UNAVAILABLE'
           ? '风险集合请求全部失败，未使用本地数据填充。'
-          : riskMessages[0] || (loadedRiskEvents.length > 0 ? `已加载 ${loadedRiskEvents.length} 条真实风险事件。` : '暂无已识别风险事件。'),
+          : riskMessages[0] || (loadedRiskEvents.length > 0
+            ? `已加载 ${loadedRiskEvents.length} 条真实风险事件。`
+            : '暂无已识别风险事件。'),
       );
-
-      if (ledgerResult.ok) {
-        setEntityTaxLedgerRecords(ledgerResult.value.items);
-        setTaxLedgerStatus(ledgerResult.value.status);
-        setTaxLedgerStatusMessage(
-          ledgerResult.value.message ||
-          `已加载 ${ledgerResult.value.items.length} 条法人月度确定性税务台账。`,
-        );
-      } else {
-        setEntityTaxLedgerRecords([]);
-        setTaxLedgerStatus('UNAVAILABLE');
-        setTaxLedgerStatusMessage(errorMessage(ledgerResult.error));
-      }
-
-      setProjectStatus('READY');
-      setProjectStatusMessage(`已加载 ${projectsWithLedger.length} 个项目及其基础数据。`);
-    } catch (error) {
-      if (requestSignal?.aborted) return;
-      setProjects([]);
-      setRiskEvents([]);
-      setRiskStatus('UNAVAILABLE');
-      setRiskStatusMessage('项目数据不可用，未读取风险集合。');
-      setTaxLedgerStatus('UNAVAILABLE');
-      setTaxLedgerStatusMessage('项目数据不可用，未读取台账集合。');
-      setProjectStatus(error instanceof ApiError && error.status > 0 ? 'DEGRADED' : 'UNAVAILABLE');
-      setProjectStatusMessage(errorMessage(error));
     } finally {
-      if (ownedController && projectAbortRef.current === ownedController) projectAbortRef.current = null;
+      if (riskAbortRef.current === controller) riskAbortRef.current = null;
     }
   }, []);
 
   useEffect(() => {
-    void loadProjects();
+    void loadEntityVatDomain();
+    return () => entityVatAbortRef.current?.abort();
+  }, [loadEntityVatDomain]);
+
+  useEffect(() => {
+    void loadProjectDomain();
     return () => projectAbortRef.current?.abort();
-  }, [loadProjects]);
+  }, [loadProjectDomain]);
+
+  useEffect(() => {
+    void loadAuditDomain();
+    return () => auditAbortRef.current?.abort();
+  }, [loadAuditDomain]);
+
+  const riskScopeKey = [...new Set(projects.map(project => project.numericId))]
+    .sort((left, right) => left - right)
+    .join(',');
+
+  useEffect(() => {
+    const projectIds = riskScopeKey
+      ? riskScopeKey.split(',').map(value => Number(value)).filter(value => Number.isInteger(value) && value > 0)
+      : [];
+    void loadRiskDomain(projectIds);
+    return () => riskAbortRef.current?.abort();
+  }, [loadRiskDomain, riskScopeKey]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -182,7 +242,6 @@ export default function App() {
       })
       .catch(() => {
         if (!controller.signal.aborted) {
-          // A failed health request is not evidence that a model is loaded.
           setAiModelStatus({ state: 'UNAVAILABLE', message: '状态暂不可用', endpoints: [] });
         }
       });
@@ -190,7 +249,10 @@ export default function App() {
   }, []);
 
   useEffect(() => () => {
+    entityVatAbortRef.current?.abort();
     projectAbortRef.current?.abort();
+    riskAbortRef.current?.abort();
+    auditAbortRef.current?.abort();
     assistantAbortRef.current?.abort();
   }, []);
 
@@ -229,8 +291,9 @@ export default function App() {
   };
 
   const handleRagSyncCompleted = () => {
-    setActionNotice('RAG 同步已完成，正在重新读取 Tax 项目与确定性台账数据。');
-    void loadProjects();
+    setActionNotice('RAG 同步已完成，正在重新读取 Tax 项目与法人确定性台账数据。');
+    void loadProjectDomain();
+    void loadEntityVatDomain();
   };
 
   const handleRebuildTaxLedger = async (period: string) => {
@@ -238,8 +301,8 @@ export default function App() {
     setIsLedgerRebuilding(true);
     try {
       const result = await rebuildTaxLedger(period);
-      await loadProjects();
-      setActionNotice(`已生成 ${result.rowCount} 条 ${result.period} 台账，页面已重新读取 Tax 项目与确定性台账数据。`);
+      await loadEntityVatDomain();
+      setActionNotice(`已生成 ${result.rowCount} 条 ${result.period} 台账，页面已重新读取法人确定性台账数据。`);
     } catch (error) {
       setActionNotice(`台账生成/重建失败：${errorMessage(error)}；已保留当前页面最后可信数据。`);
     } finally {
@@ -342,7 +405,7 @@ export default function App() {
                   projects={projects}
                   dataStatus={projectStatus}
                   dataStatusMessage={projectStatusMessage}
-                  onRetry={() => void loadProjects()}
+                  onRetry={() => void loadProjectDomain()}
                   onSelectProject={handleSelectProject}
                   onOpenRiskCenter={() => setCurrentTab('risk-center')}
                   onOpenExportModal={() => setIsExportModalOpen(true)}
@@ -361,7 +424,7 @@ export default function App() {
                   projects={projects}
                   dataStatus={projectStatus}
                   dataStatusMessage={projectStatusMessage}
-                  onRetry={() => void loadProjects()}
+                  onRetry={() => void loadProjectDomain()}
                   onSelectProject={handleSelectProject}
                   onOpenNewRecordModal={() => setIsNewRecordModalOpen(true)}
                   onOpenExportModal={() => setIsExportModalOpen(true)}
@@ -380,17 +443,17 @@ export default function App() {
                   onOpenExportModal={() => setIsExportModalOpen(true)}
                   onAskAiAboutRisk={handleAskAiAboutRisk}
                   onGoToPlanning={() => setCurrentTab('tax-planning')}
-                  onProjectDataDeleted={() => void loadProjects()}
+                  onProjectDataDeleted={() => void loadProjectDomain()}
                   settings={systemSettings}
                 />
               )}
 
               {currentTab === 'projects' && projectSubView === 'detail' && !currentProject && (
-                <DataStatusCard status={projectStatus} title="项目详情不可用" message={projectStatusMessage} onRetry={() => void loadProjects()} />
+                <DataStatusCard status={projectStatus} title="项目详情不可用" message={projectStatusMessage} onRetry={() => void loadProjectDomain()} />
               )}
 
               {currentTab === 'tax-ledger' && (
-                <TaxLedgerView records={entityTaxLedgerRecords} dataStatus={taxLedgerStatus} dataStatusMessage={taxLedgerStatusMessage} onRetry={() => void loadProjects()} onOpenNewRecordModal={() => setIsNewRecordModalOpen(true)} onOpenExportModal={() => setIsExportModalOpen(true)} onAskAiAboutRisk={handleAskAiAboutRisk} onRebuildTaxLedger={handleRebuildTaxLedger} isRebuilding={isLedgerRebuilding} settings={systemSettings} />
+                <TaxLedgerView records={entityTaxLedgerRecords} dataStatus={taxLedgerStatus} dataStatusMessage={taxLedgerStatusMessage} onRetry={() => void loadEntityVatDomain()} onOpenNewRecordModal={() => setIsNewRecordModalOpen(true)} onOpenExportModal={() => setIsExportModalOpen(true)} onAskAiAboutRisk={handleAskAiAboutRisk} onRebuildTaxLedger={handleRebuildTaxLedger} isRebuilding={isLedgerRebuilding} settings={systemSettings} />
               )}
               {currentTab === 'tax-planning' && (
                 <TaxPlanningView projects={projects} selectedProjectId={selectedProjectId} onSelectProject={setSelectedProjectId} onAskAiAboutRisk={handleAskAiAboutRisk} />
