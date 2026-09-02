@@ -141,7 +141,9 @@ describe('DashboardView dual-core executive summaries', () => {
       taxLedgerStatus: 'READY',
       taxLedgerRecords: ledgerRecords,
     });
-    expect(screen.getByRole('region', { name: '法人主体法定税务总览' })).toHaveTextContent('A08');
+    const statutory = screen.getByRole('region', { name: '法人主体法定税务总览' });
+    expect(statutory).toHaveTextContent('法人主体数量');
+    expect(statutory).toHaveTextContent('1 个');
     expect(screen.getByRole('region', { name: '项目工程管理口径总览' })).toHaveTextContent('项目接口不可用');
 
     const health = screen.getByRole('region', { name: '风险与数据源健康状态' });
