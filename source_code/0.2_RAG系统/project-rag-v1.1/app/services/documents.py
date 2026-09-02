@@ -32,7 +32,12 @@ from .storage.write import (
 logger = get_logger(__name__)
 
 
-<<<<<<< HEAD
+def _canonical_counterparty_code(metadata: dict, inferred: dict) -> str:
+    """Return the canonical external-party code before Document persistence."""
+    raw_code = metadata.get("counterparty_code") or inferred.get("counterparty_code", "")
+    return map_to_standard_external_code(raw_code) or ""
+
+
 def _lock_project_file_hash(
     db: Session,
     project_id: int,
@@ -80,12 +85,6 @@ def _find_existing_document(
         .order_by(Document.id.asc())
         .limit(1)
     )
-=======
-def _canonical_counterparty_code(metadata: dict, inferred: dict) -> str:
-    """Return the canonical external-party code before Document persistence."""
-    raw_code = metadata.get("counterparty_code") or inferred.get("counterparty_code", "")
-    return map_to_standard_external_code(raw_code) or ""
->>>>>>> origin/v3.0-macos
 
 
 def register_bytes(
@@ -210,9 +209,6 @@ def register_bytes(
         except Exception as e:
             logger.error(f"Failed to queue parsing for {d.id}: {e}")
 
-<<<<<<< HEAD
-    return d, job_id
-=======
     # Auto-register external party if counterparty is system-external
     if d.counterparty_code and not is_canonical_entity_code(d.counterparty_code):
         kind = "partner"
@@ -236,17 +232,7 @@ def register_bytes(
         )
         db.commit()
 
-    # Queue for parsing
-    jid = None
-    if auto_parse and not duplicate:
-        job = enqueue_parse(db, d.id)
-        jid = job.id
-        db.refresh(d)
-
-    # Tax and RAG share PostgreSQL; no cross-database async copy is performed.
-
-    return d, jid
->>>>>>> origin/v3.0-macos
+    return d, job_id
 
 
 def scan_folder(
