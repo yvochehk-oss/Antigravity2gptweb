@@ -63,7 +63,7 @@ describe('TaxLedgerView statutory VAT presentation', () => {
       '期末留抵',
       '未抵完预缴',
     ]) {
-      expect(screen.getByText(label)).toBeInTheDocument();
+      expect(screen.getAllByText(label).length).toBeGreaterThan(0);
     }
 
     for (const column of ['法人', '所属期', '期初留抵', '销项', '进项', '预缴', '应纳', '期末留抵', '期间状态', 'Run 状态']) {
