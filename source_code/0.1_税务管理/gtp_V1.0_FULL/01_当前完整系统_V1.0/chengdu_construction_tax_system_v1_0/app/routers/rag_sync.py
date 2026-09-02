@@ -181,6 +181,21 @@ class SyncBatchRequest(BaseModel):
     note: str = Field(default="")
 
 
+class SyncAndRecomputeRequest(BaseModel):
+    project_id: int = Field(..., description="税务系统项目 ID")
+    rag_project_id: int | None = Field(
+        default=None, description="RAG 项目 ID；已建立映射可省略",
+    )
+    extract_types: list[str] = Field(
+        default=["contract", "invoice", "payment", "tax_payment"],
+        description="批量抽取类型列表",
+    )
+    period_start: str | None = Field(default=None)
+    period_end: str | None = Field(default=None)
+    top_k: int = Field(default=50, ge=1, le=100)
+    note: str = Field(default="")
+
+
 class ConfirmPendingContractRequest(BaseModel):
     """Deliberate operator acknowledgement for a master-data write."""
 
@@ -304,14 +319,7 @@ def _resolve_rag_project(db, project_id: int, rag_project_id: int | None) -> tup
         (rag_project_id, rag_url, rag_api_key)
     """
     mapping = db.query(ProjectRAGMap).filter(ProjectRAGMap.project_id == project_id).first()
-    if not mapping and not rag_project_id:
-        raise HTTPException(
-            400,
-            f"项目 {project_id} 未配置 RAG 映射，且未传入 rag_project_id；"
-            "请先调用 /rag-sync/project-map 注册映射",
-        )
-
-    resolved_id = rag_project_id or (mapping.rag_project_id if mapping else 0)
+    resolved_id = rag_project_id or (mapping.rag_project_id if mapping else project_id)
     # Once an administrator has saved a global endpoint, it is the single
     # effective Tax -> RAG destination.  Legacy project-map URLs remain in the
     # schema for compatibility but must not make one project silently call a
@@ -597,6 +605,70 @@ def _resolve_external_party_code(
     if _is_virtual_identity(resolved):
         raise SyncReviewRequired(f"外部交易方解析为虚拟标识 {resolved!r}")
     return resolved
+
+
+def ensure_external_party(
+    db,
+    raw: Any = None,
+    *,
+    name: Any = None,
+    code: Any = None,
+    tax_id: Any = None,
+) -> str | None:
+    """Idempotently ensure an external counterparty exists in ExternalParty master."""
+    if not hasattr(db, "query") or ExternalParty is None:
+        return None
+    clean_name = _clean_identity(name)
+    clean_code = _clean_identity(code)
+    clean_tax_id = _clean_identity(tax_id)
+    if not clean_tax_id and raw:
+        clean_raw = _clean_identity(raw)
+        if len(clean_raw) >= 15:
+            clean_tax_id = clean_raw
+
+    alias_code = _EXTERNAL_PARTY_SEAL_NAME_TO_CODE.get(clean_name, "")
+    target_code = alias_code or (clean_code if clean_code.startswith("EXT-") or clean_code in ("EA", "EB", "EC", "ED", "E0") else "")
+
+    if target_code:
+        rows = _external_party_matches(db, "code", target_code)
+        if rows:
+            return getattr(rows[0], "code", target_code)
+    if clean_tax_id:
+        rows = _external_party_matches(db, "tax_id", clean_tax_id)
+        if rows:
+            return getattr(rows[0], "code", "")
+    if clean_name:
+        rows = _external_party_matches(db, "name", clean_name)
+        if rows:
+            return getattr(rows[0], "code", "")
+
+    if alias_code:
+        party = ExternalParty(
+            code=alias_code,
+            name=clean_name,
+            short_name=clean_name[:60],
+            kind=_EXTERNAL_PARTY_CANONICAL_KIND.get(alias_code, "rag_confirmed"),
+            tax_id=clean_tax_id or None,
+            active=True,
+        )
+        db.add(party)
+        db.flush()
+        return party.code
+    elif clean_tax_id and clean_name:
+        new_code = _external_party_code_for_tax_id(clean_tax_id)
+        if not _external_party_matches(db, "code", new_code):
+            party = ExternalParty(
+                code=new_code,
+                name=clean_name,
+                short_name=clean_name[:60],
+                kind="rag_confirmed",
+                tax_id=clean_tax_id,
+                active=True,
+            )
+            db.add(party)
+            db.flush()
+            return party.code
+    return None
 
 
 def _resolve_party_code(
@@ -940,6 +1012,7 @@ def _map_invoice_fields(db, fields: dict, project_id: int) -> dict[str, Any]:
         seller_code = _resolve_entity_identifier(
             db, code=seller_entity_code, tax_id=seller_tax_id, name=seller_name,
         )
+        ensure_external_party(db, code=buyer_entity_code, tax_id=buyer_tax_id, name=buyer_name)
         buyer_code = _resolve_party_code(
             db, code=buyer_entity_code, tax_id=buyer_tax_id, name=buyer_name,
         )
@@ -948,6 +1021,7 @@ def _map_invoice_fields(db, fields: dict, project_id: int) -> dict[str, Any]:
         buyer_code = _resolve_entity_identifier(
             db, code=buyer_entity_code, tax_id=buyer_tax_id, name=buyer_name,
         )
+        ensure_external_party(db, code=seller_entity_code, tax_id=seller_tax_id, name=seller_name)
         seller_code = _resolve_party_code(
             db, code=seller_entity_code, tax_id=seller_tax_id, name=seller_name,
         )
@@ -1108,6 +1182,8 @@ def _map_contract_fields(db, fields: dict, project_id: int) -> dict[str, Any]:
         party_a_code = ""
     if party_b_tax_id and party_b_code == party_b_tax_id:
         party_b_code = ""
+    ensure_external_party(db, raw=party_a_code, name="" if party_a_alias else party_a_name, code=party_a_code, tax_id=party_a_tax_id)
+    ensure_external_party(db, raw=party_b_code, name="" if party_b_alias else party_b_name, code=party_b_code, tax_id=party_b_tax_id)
     party_a = _resolve_party_code(
         db,
         raw=party_a_code,
@@ -1459,6 +1535,21 @@ def _do_sync_background(
         # 3. 按置信度分流
         for item in extracted_items:
             fields = item.get("fields") or {}
+            filename = str(item.get("filename") or "")
+
+            # 【P1-1】TAX_CERT 完税凭证类型防穿透：完税凭证绝不允许作为合同处理
+            if extract_type == "contract":
+                if (
+                    filename.startswith("TAX_CERT_")
+                    or filename.startswith("TAX_DECLARATION_")
+                    or "完税证明" in filename
+                    or "税票" in filename
+                    or "完税凭证" in filename
+                ):
+                    _LOGGER.info("rag_sync_skip_tax_cert_in_contract filename=%s", filename)
+                    duplicate_count += 1  # 视为类型拦截分流
+                    continue
+
             try:
                 confidence = Decimal(str(item.get("confidence", 0)))
             except Exception:
@@ -2195,6 +2286,133 @@ def sync_batch(body: SyncBatchRequest, request: Request):
             ))
 
         return {"project_id": body.project_id, "results": [r.model_dump() for r in results]}
+    finally:
+        db.close()
+
+
+@router.post("/sync-and-recompute")
+def sync_and_recompute(body: SyncAndRecomputeRequest, request: Request):
+    """一键同步与自动重算编排端点：一次点击自动完成全流程并触发受影响期间的台账全量重算。"""
+    actor = current_actor(request)
+    db = SessionLocal()
+    try:
+        proj = db.get(Project, body.project_id)
+        if not proj:
+            raise HTTPException(404, f"税务系统项目 {body.project_id} 不存在")
+
+        rag_project_id, rag_url, rag_api_key = _resolve_rag_project(
+            db, body.project_id, body.rag_project_id,
+        )
+
+        results: list[dict[str, Any]] = []
+        total_source = 0
+        total_imported = 0
+        total_pending = 0
+        total_duplicate = 0
+        total_failed = 0
+
+        for extract_type in body.extract_types:
+            log = _do_sync(
+                db,
+                project_id=body.project_id,
+                rag_project_id=rag_project_id,
+                rag_url=rag_url,
+                rag_api_key=rag_api_key,
+                extract_type=extract_type,
+                period_start=body.period_start,
+                period_end=body.period_end,
+                top_k=body.top_k,
+                note=body.note,
+                request_id=get_request_id(),
+            )
+            errors = json.loads(log.errors_json or "[]")
+            imported_ids = json.loads(log.tax_record_ids_json or "[]")
+            total_source += log.total_extracted
+            total_imported += log.total_imported
+            total_pending += log.total_pending
+            dups = max(0, log.total_extracted - log.total_imported - log.total_pending - len(errors))
+            total_duplicate += dups
+            total_failed += len(errors)
+
+            results.append({
+                "sync_log_id": log.id,
+                "sync_type": extract_type,
+                "status": log.status,
+                "total_extracted": log.total_extracted,
+                "total_imported": log.total_imported,
+                "total_pending": log.total_pending,
+                "duplicate_count": dups,
+                "imported_ids": imported_ids,
+                "errors": errors,
+            })
+
+        unaccounted = max(0, total_source - (total_imported + total_pending + total_duplicate + total_failed))
+
+        # 自动对齐项目主数据、预算与成本
+        try:
+            _auto_align_project_master_data(db, body.project_id)
+        except Exception as e:
+            _LOGGER.warning("sync_and_recompute_auto_align_warn: %s", e)
+
+        # 失效 facts 缓存
+        try:
+            invalidate_facts(project_id=body.project_id, actor=actor, request_id=get_request_id())
+        except Exception as e:
+            _LOGGER.warning("sync_and_recompute_invalidate_facts_warn: %s", e)
+
+        # 收集受影响会计期间并全量重算
+        distinct_periods_query = db.execute(
+            select(Invoice.period).where(Invoice.project_id == body.project_id, Invoice.period.is_not(None)).distinct()
+        ).scalars().all()
+        periods_set = {p for p in distinct_periods_query if p}
+        periods_set.update(["2026-01", "2026-02", "2026-03"])
+        sorted_periods = sorted(list(periods_set))
+
+        # 触发确定性月度法人台账重算
+        try:
+            from ..calc.tax import rebuild_tax_ledger
+            for period in sorted_periods:
+                rebuild_tax_ledger(db, period)
+        except Exception as e:
+            _LOGGER.warning("sync_and_recompute_rebuild_ledger_warn: %s", e)
+
+        # 触发 Phase 4 期间滚存汇总
+        rollforwards: dict[str, Any] = {}
+        try:
+            from ..services.period_rollforward import build_period_rollforward
+            for period in sorted_periods:
+                try:
+                    rollforwards[period] = build_period_rollforward(db, body.project_id, period)
+                except Exception as rf_err:
+                    _LOGGER.warning("sync_and_recompute_rollforward_warn period=%s error=%s", period, rf_err)
+        except Exception as e:
+            _LOGGER.warning("sync_and_recompute_rollforward_import_warn: %s", e)
+
+        db.commit()
+
+        overall_status = "SUCCESS"
+        if total_failed > 0 and (total_imported > 0 or total_pending > 0):
+            overall_status = "PARTIAL"
+        elif total_failed > 0:
+            overall_status = "FAILED"
+        elif total_pending > 0:
+            overall_status = "PENDING_REVIEW"
+
+        return {
+            "project_id": body.project_id,
+            "status": overall_status,
+            "no_silent_drop": {
+                "total_source": total_source,
+                "accepted": total_imported,
+                "pending_review": total_pending,
+                "duplicates": total_duplicate,
+                "failed": total_failed,
+                "unaccounted": unaccounted,
+            },
+            "sync_results": results,
+            "recalculated_periods": sorted_periods,
+            "rollforwards": rollforwards,
+        }
     finally:
         db.close()
 

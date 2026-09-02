@@ -2129,11 +2129,22 @@ def api_extract_tax(body: ExtractTaxRequest):
                 Document.filename.like("INVOICE_%"),
             ))
         elif body.extract_type == "contract":
-            doc_conds.append(or_(
-                Document.document_type.in_(["main_contract", "subcontract_contract"]),
-                Document.filename.like("%合同%"),
-                Document.filename.like("CDTF%"),
-            ))
+            doc_conds.append(
+                and_(
+                    or_(
+                        Document.document_type.in_(["main_contract", "subcontract_contract", "equipment_contract", "labor_contract", "material_contract", "contract"]),
+                        Document.filename.like("%合同%"),
+                        Document.filename.like("CDTF%"),
+                    ),
+                    ~Document.filename.like("TAX_CERT_%"),
+                    ~Document.filename.like("TAX_DECLARATION_%"),
+                    ~Document.filename.like("INVOICE_%"),
+                    ~Document.filename.like("BANK_%"),
+                    ~Document.filename.like("%完税%"),
+                    ~Document.filename.like("%税票%"),
+                    Document.document_type.notin_(["tax_payment_record", "tax_invoice", "bank_slip", "tax_document"]),
+                )
+            )
         elif body.extract_type == "payment":
             doc_conds.append(or_(
                 Document.document_type.in_(["bank_slip", "payment"]),
@@ -2142,7 +2153,9 @@ def api_extract_tax(body: ExtractTaxRequest):
             ))
         elif body.extract_type == "tax_payment":
             doc_conds.append(or_(
-                Document.document_type.in_(["tax_payment", "tax_receipt", "tax_payment_record", "duty_receipt"]),
+                Document.document_type.in_(["tax_payment", "tax_receipt", "tax_payment_record", "duty_receipt", "tax_document"]),
+                Document.filename.like("TAX_CERT_%"),
+                Document.filename.like("TAX_DECLARATION_%"),
                 Document.filename.like("%完税%"),
                 Document.filename.like("%税票%"),
                 Document.filename.like("%缴税%"),
