@@ -859,50 +859,33 @@ def _inject_verify_js(expected_prompt: str) -> str:
 
 
 def _stable_poll_js(target_message_id: Optional[str]) -> str:
-    if target_message_id:
-        target_literal = json.dumps(target_message_id)
-        return f"""
-        (() => {{
-            const stopBtn = document.querySelector(
-                "button[data-testid='stop-button']") ||
-                document.querySelector("button[aria-label='停止回答']");
-            const node = document.querySelector(
-                `[data-message-id="${{target_literal.replace(/"/g, '\\"')}}"]`);
-            if (!node) return JSON.stringify({{
-                targetPresent: false, isStreaming: !!stopBtn, text: "",
-                messageId: null
-            }});
-            return JSON.stringify({{
-                targetPresent: true,
-                isStreaming: !!stopBtn,
-                text: (node.innerText || "").trim(),
-                messageId: node.getAttribute("data-message-id") ||
-                    (node.closest && node.closest("[data-message-id]")
-                        ? node.closest("[data-message-id]").getAttribute("data-message-id")
-                        : null),
-            }});
-        }})()
-        """
-    return r"""
-    (() => {
+    safe_msg_id = target_message_id.replace("'", "") if target_message_id else ""
+    query_part = f'document.querySelector("[data-message-id=\'{safe_msg_id}\']")' if target_message_id else 'null'
+    return f"""
+    (() => {{
         const stopBtn = document.querySelector(
             "button[data-testid='stop-button']") ||
             document.querySelector("button[aria-label='停止回答']");
+        let node = {query_part};
         const asst = document.querySelectorAll("[data-message-author-role='assistant']");
         const last = asst.length > 0 ? asst[asst.length - 1] : null;
-        if (!last) return JSON.stringify({
-            targetPresent: false, isStreaming: !!stopBtn, text: "", messageId: null
-        });
-        return JSON.stringify({
+        if (!node && last) {{
+            node = last;
+        }}
+        if (!node) return JSON.stringify({{
+            targetPresent: false, isStreaming: !!stopBtn, text: "",
+            messageId: null
+        }});
+        return JSON.stringify({{
             targetPresent: true,
             isStreaming: !!stopBtn,
-            text: (last.innerText || "").trim(),
-            messageId: last.getAttribute("data-message-id") ||
-                (last.closest && last.closest("[data-message-id]")
-                    ? last.closest("[data-message-id]").getAttribute("data-message-id")
+            text: (node.innerText || "").trim(),
+            messageId: node.getAttribute("data-message-id") ||
+                (node.closest && node.closest("[data-message-id]")
+                    ? node.closest("[data-message-id]").getAttribute("data-message-id")
                     : null),
-        });
-    })()
+        }});
+    }})()
     """
 
 

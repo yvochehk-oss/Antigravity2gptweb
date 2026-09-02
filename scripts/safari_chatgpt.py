@@ -700,9 +700,9 @@ def _user_commit_probe_js(expected_prompt: str) -> str:
 
 
 def wait_for_user_message_committed(target_url: str, baseline_user_count: int,
-                                    expected_prompt: str, timeout: float) -> Dict[str, Any]:
-    """P0-1：等待且仅当 userCount == baseline + 1 且最后一条 user 文本 == expected 才视为提交成功。
-    不再接受“count>=baseline+2 即成功”的快速路径。
+                                    expected_prompt: str, timeout: float,
+                                    baseline_user_id: Optional[str] = None) -> Dict[str, Any]:
+    """P0-1：等待且仅当 userCount == baseline + 1 或 messageId 发生变化且匹配 expected 时视为提交成功。
     """
     probe_js = _user_commit_probe_js(expected_prompt)
     deadline = time.monotonic() + timeout
@@ -711,9 +711,10 @@ def wait_for_user_message_committed(target_url: str, baseline_user_count: int,
     while time.monotonic() < deadline:
         snap = _fetch_snapshot(target_url, js_override=probe_js)
         last_snapshot = snap
-        # 严格条件：user 数量必须正好 +1，且内容完全匹配
-        if (snap.get("userCount") == baseline_user_count + 1
-                and snap.get("matchesExpected") is True):
+        curr_id = snap.get("messageId")
+        id_changed = (baseline_user_id is not None and curr_id != baseline_user_id) or (baseline_user_id is None and curr_id is not None)
+        count_incremented = snap.get("userCount") == baseline_user_count + 1
+        if (count_incremented or id_changed) and snap.get("matchesExpected") is True:
             return snap
         time.sleep(0.4)
 
@@ -776,8 +777,9 @@ def verify_composer(target_url: str, expected_prompt: str, timeout: float) -> Di
 # 助手新回合（捕获 data-message-id）
 # =============================================================================
 def wait_for_assistant_new_turn(target_url: str, baseline_assistant_count: int,
-                                timeout: float) -> Dict[str, Any]:
-    """P0-1：必须 assistantCount == baseline + 1 且新 turn 已出现文本，
+                                timeout: float,
+                                baseline_assistant_id: Optional[str] = None) -> Dict[str, Any]:
+    """P0-1：必须 assistantCount == baseline + 1 或 id 变化，且新 turn 已出现文本，
     同时记录新 turn 的 messageId，供稳定阶段唯一定位。
     """
     js = _last_message_id_js("assistant")
@@ -787,8 +789,10 @@ def wait_for_assistant_new_turn(target_url: str, baseline_assistant_count: int,
     while time.monotonic() < deadline:
         snap = _fetch_snapshot(target_url, js_override=js)
         last_snapshot = snap
-        if (snap.get("count") == baseline_assistant_count + 1
-                and snap.get("textLen", 0) > 0):
+        curr_id = snap.get("id")
+        id_changed = (baseline_assistant_id is not None and curr_id != baseline_assistant_id) or (baseline_assistant_id is None and curr_id is not None)
+        count_incremented = snap.get("count") == baseline_assistant_count + 1
+        if (count_incremented or id_changed) and snap.get("textLen", 0) > 0:
             return snap
         time.sleep(0.4)
 
@@ -801,77 +805,68 @@ def wait_for_assistant_new_turn(target_url: str, baseline_assistant_count: int,
 # 稳定等待：只读取 target assistant turn 节点（P0-1 / Evidence Integrity 收口）
 # =============================================================================
 def _stable_poll_js(target_message_id: Optional[str]) -> str:
-    """若 target_message_id 存在，仅按 id 唯一定位；否则回退到最后一个 assistant turn。
-    任何时候都验证 target turn 节点仍然存在（DOM 未被卸载/替换）。
+    """若 target_message_id 存在，按 id 定位；若因占位符升级或 DOM 渲染未命中，自动回退到最新 assistant turn。
+    任何时候都验证 assistant turn 节点仍然存在。
     """
-    if target_message_id:
-        target_literal = json.dumps(target_message_id)
-        return f"""
-        (() => {{
-            const stopBtn = document.querySelector(
-                "button[data-testid='stop-button']") ||
-                document.querySelector("button[aria-label='停止回答']");
-            const node = document.querySelector(
-                `[data-message-id="${{target_literal.replace(/"/g, '\\"')}}"]`);
-            if (!node) return JSON.stringify({{
-                targetPresent: false, isStreaming: !!stopBtn, text: "",
-                messageId: null
-            }});
-            return JSON.stringify({{
-                targetPresent: true,
-                isStreaming: !!stopBtn,
-                text: (node.innerText || "").trim(),
-                messageId: node.getAttribute("data-message-id") ||
-                    (node.closest && node.closest("[data-message-id]")
-                        ? node.closest("[data-message-id]").getAttribute("data-message-id")
-                        : null),
-            }});
-        }})()
-        """
-    # fallback：最后一个 assistant 节点
-    return r"""
-    (() => {
+    safe_msg_id = target_message_id.replace("'", "") if target_message_id else ""
+    query_part = f'document.querySelector("[data-message-id=\'{safe_msg_id}\']")' if target_message_id else 'null'
+    return f"""
+    (() => {{
         const stopBtn = document.querySelector(
             "button[data-testid='stop-button']") ||
             document.querySelector("button[aria-label='停止回答']");
+        let node = {query_part};
         const asst = document.querySelectorAll("[data-message-author-role='assistant']");
         const last = asst.length > 0 ? asst[asst.length - 1] : null;
-        if (!last) return JSON.stringify({
-            targetPresent: false, isStreaming: !!stopBtn, text: "", messageId: null
-        });
-        return JSON.stringify({
+        if (!node && last) {{
+            node = last;
+        }}
+        if (!node) return JSON.stringify({{
+            targetPresent: false, isStreaming: !!stopBtn, text: "",
+            messageId: null
+        }});
+        return JSON.stringify({{
             targetPresent: true,
             isStreaming: !!stopBtn,
-            text: (last.innerText || "").trim(),
-            messageId: last.getAttribute("data-message-id") ||
-                (last.closest && last.closest("[data-message-id]")
-                    ? last.closest("[data-message-id]").getAttribute("data-message-id")
+            text: (node.innerText || "").trim(),
+            messageId: node.getAttribute("data-message-id") ||
+                (node.closest && node.closest("[data-message-id]")
+                    ? node.closest("[data-message-id]").getAttribute("data-message-id")
                     : null),
-        });
-    })()
+        }});
+    }})()
     """
 
 
 def wait_for_assistant_stable(target_url: str, target_message_id: Optional[str],
                               wait_timeout: float) -> Tuple[str, bool]:
     """稳定阶段：仅读取 target assistant turn；
-    若目标 turn 节点消失 / id 变化 → 视为证据失效（不再依赖 totalCount）。
+    容许 SPA 页面跳转（新对话从 chatgpt.com/ → chatgpt.com/c/<id>）期间的短暂 DOM 空窗，
+    最多允许 8 次连续 targetPresent=False（≈4s）后才真正报错。
     返回 (text, is_complete)。is_complete=False 表示超时退出。
     """
     js = _stable_poll_js(target_message_id)
     start = time.monotonic()
     last_text = ""
     stable_count = 0
+    absent_count = 0            # 连续 targetPresent=False 计数
+    ABSENT_TOLERANCE = 8        # 最多容忍 8 次（约 4s），覆盖 SPA 导航空窗
 
     while time.monotonic() - start < wait_timeout:
         snap = _fetch_snapshot(target_url, js_override=js)
 
-        # 目标 turn 已不存在 → 证据失效（替代旧"count 回落"逻辑）
         if not snap.get("targetPresent", False):
-            raise SafariError(
-                f"目标 assistant turn（id={target_message_id!r}）节点已消失，"
-                f"证据失效。最终快照={snap}"
-            )
+            absent_count += 1
+            if absent_count >= ABSENT_TOLERANCE:
+                raise SafariError(
+                    f"目标 assistant turn（id={target_message_id!r}）节点持续消失 "
+                    f"（{absent_count} 次），证据失效。最终快照={snap}"
+                )
+            time.sleep(0.5)
+            continue
+
+        # 节点已恢复（SPA 导航完成），重置缺失计数
+        absent_count = 0
 
         text = snap.get("text", "") or ""
         streaming = bool(snap.get("isStreaming", False))
@@ -1065,6 +1060,7 @@ def send_and_receive_safari_chatgpt(prompt: str, target_url: str,
             baseline_user_count=baseline["userCount"],
             expected_prompt=prompt,
             timeout=sub_budget,
+            baseline_user_id=baseline.get("lastUserMessageId"),
         )
     except NoTargetTabError as e:
         emit_event("submit_verify", EXIT_NO_TAB,
@@ -1091,6 +1087,7 @@ def send_and_receive_safari_chatgpt(prompt: str, target_url: str,
             target_url=target_url,
             baseline_assistant_count=baseline["assistantCount"],
             timeout=turn_budget,
+            baseline_assistant_id=baseline.get("lastAsstMessageId"),
         )
     except NoTargetTabError as e:
         emit_event("new_turn", EXIT_NO_TAB,
