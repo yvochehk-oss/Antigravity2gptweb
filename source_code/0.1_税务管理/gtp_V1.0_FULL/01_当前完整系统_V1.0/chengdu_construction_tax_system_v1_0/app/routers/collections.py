@@ -798,7 +798,7 @@ def project_tax_analysis(
             items.append(
                 {
                     "project_id": int(project.id),
-                    "project_code": str(project.project_code or project.code or ""),
+                    "project_code": str(getattr(project, "project_code", getattr(project, "code", "")) or ""),
                     "project_name": str(project.name or ""),
                     "period": period or "",
                     "entity": wanted_entity,
@@ -812,8 +812,8 @@ def project_tax_analysis(
                     "invoice_count": summary["invoice_count"],
                     "source_of_truth": summary["source_of_truth"],
                     "legacy_tables_used": False,
-                    "real_cost_basis": summary["real_cost_basis"],
-                    "data_gaps": summary["data_gaps"],
+                    "real_cost_basis": summary.get("real_cost_basis", "canonical_external_invoices"),
+                    "data_gaps": summary.get("data_gaps", []),
                 }
             )
 
@@ -832,7 +832,7 @@ def project_tax_analysis(
             "total": len(items),
             "source_of_truth": summary["source_of_truth"],
             "legacy_tables_used": False,
-            "data_gaps": summary["data_gaps"],
+            "data_gaps": summary.get("data_gaps", []),
         }
     except HTTPException:
         db.rollback()

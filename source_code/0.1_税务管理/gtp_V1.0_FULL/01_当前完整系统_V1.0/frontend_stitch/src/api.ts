@@ -21,7 +21,6 @@ import {
   RagSyncResult,
   RagSyncType,
   RiskEvent,
-  TaxLedgerRecord,
   EntityTaxLedgerRecord,
   ProjectTaxAnalysisRecord,
 } from './types';
@@ -737,18 +736,11 @@ export function mapProjectSummary(summary: ProjectSummaryResponse): ProjectItem 
     managerName: '—',
     location: String(project.location ?? project.city ?? '—'),
     teamAvatars: [],
-    taxRecords: [],
     costItems: [],
   };
 }
 
-export interface TaxLedgerCollectionResponse {
-  status: 'READY' | 'DEGRADED' | 'UNAVAILABLE' | string;
-  message: string;
-  items: TaxLedgerRecord[];
-  total: number;
-  hasMore: boolean;
-}
+
 
 export interface TaxLedgerRebuildResponse {
   status: string;
@@ -852,43 +844,6 @@ export async function fetchRiskEvents(
   };
 }
 
-function parseTaxRiskLevel(value: unknown): TaxLedgerRecord['riskLevel'] {
-  return value === '正常' || value === '预警' || value === '高危' || value === '未知'
-    ? value
-    : '未知';
-}
-
-function parseTaxLedgerRecord(value: unknown): TaxLedgerRecord | null {
-  const data = asRecord(value);
-  if (!data) return null;
-  const id = String(data.id ?? '').trim();
-  if (!id) return null;
-  const flow = asRecord(data.fourFlowsCheck ?? data.four_flows_check);
-  return {
-    id,
-    entityName: String(data.entityName ?? data.entity_name ?? '').trim(),
-    entityCategory: String(data.entityCategory ?? data.business_role ?? data.entity_category ?? '').trim(),
-    ...(typeof data.isInternal === 'boolean' ? { isInternal: data.isInternal } : {}),
-    ...(typeof data.source === 'string' ? { source: data.source } : {}),
-    declareAmount: toFiniteNumber(data.declareAmount ?? data.revenue),
-    taxAmount: toFiniteNumber(data.taxAmount ?? data.vat_payable),
-    taxCategory: String(data.taxCategory ?? data.tax_category ?? '未知'),
-    filingPeriod: String(data.filingPeriod ?? data.period ?? ''),
-    status: String(data.status ?? '未知'),
-    riskLevel: parseTaxRiskLevel(data.riskLevel ?? data.risk_level),
-    ...(typeof data.riskDescription === 'string' ? { riskDescription: data.riskDescription } : {}),
-    ...(typeof data.invoiceCode === 'string' ? { invoiceCode: data.invoiceCode } : {}),
-    ...(typeof data.ragSourceDoc === 'string' ? { ragSourceDoc: data.ragSourceDoc } : {}),
-    ...(typeof data.vectorSimilarity === 'number' ? { vectorSimilarity: data.vectorSimilarity } : {}),
-    fourFlowsCheck: {
-      contractMatch: flow?.contractMatch === true || flow?.contract_match === true,
-      invoiceMatch: flow?.invoiceMatch === true || flow?.invoice_match === true,
-      paymentMatch: flow?.paymentMatch === true || flow?.payment_match === true,
-      logisticsMatch: flow?.logisticsMatch === true || flow?.logistics_match === true,
-    },
-    updateTime: String(data.updateTime ?? data.update_time ?? ''),
-  };
-}
 
 function parseEntityTaxLedgerRecord(payload: unknown): EntityTaxLedgerRecord | null {
   const data = asRecord(payload);

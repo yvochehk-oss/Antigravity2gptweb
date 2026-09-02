@@ -333,8 +333,7 @@ export function ProjectRepositoryView({
             const hasContractTotal = proj.totalBudget > 0;
             const isOverBudget = proj.isOverBudget ?? (hasContractTotal ? proj.spentAmount > proj.totalBudget : false);
             const progress = hasContractTotal ? ((proj.spentAmount / proj.totalBudget) * 100).toFixed(1) : '—';
-            const highRiskCount = proj.taxRecords.filter(r => r.riskLevel === '高危').length;
-            const warningCount = proj.taxRecords.filter(r => r.riskLevel === '预警').length;
+
 
             return (
               <div
@@ -416,25 +415,13 @@ export function ProjectRepositoryView({
                   {/* 涉及关联实体与风险统计 */}
                   <div className="flex items-center justify-between text-[11px] pt-1 text-[#8e909f] border-t border-[#444653]/20">
                     <div className="flex items-center gap-1.5">
-                      <span>涉税凭证:</span>
-                      <strong className="text-[#dae2fd] font-mono-num">{proj.taxRecords.length > 0 ? `${proj.taxRecords.length} 笔` : '未加载'}</strong>
+                      <span>税务风险:</span>
+                      <strong className={`font-mono-num ${proj.taxRiskGrade === "高危" ? "text-[#EF4444]" : proj.taxRiskGrade === "中等偏高" ? "text-[#F59E0B]" : "text-[#10B981]"}`}>
+                        {proj.taxRiskGrade}
+                      </strong>
                     </div>
-                    <div className="flex items-center gap-2 font-mono-num">
-                      {highRiskCount > 0 && (
-                        <span className="text-[#EF4444] bg-[#EF4444]/15 px-1.5 py-0.2 rounded border border-[#EF4444]/30 font-bold">
-                          {highRiskCount} 高危
-                        </span>
-                      )}
-                      {warningCount > 0 && (
-                        <span className="text-[#F59E0B] bg-[#F59E0B]/15 px-1.5 py-0.2 rounded border border-[#F59E0B]/30 font-bold">
-                          {warningCount} 预警
-                        </span>
-                      )}
-                      {highRiskCount === 0 && warningCount === 0 && proj.taxRecords.length === 0 && (
-                        <span className="text-[#10B981] bg-[#10B981]/15 px-1.5 py-0.2 rounded border border-[#10B981]/30">
-                          台账未加载
-                        </span>
-                      )}
+                    <div className="flex items-center gap-2 text-[11px] text-[#8e909f]">
+                      <span>{proj.constructionStage}</span>
                     </div>
                   </div>
 
@@ -526,7 +513,11 @@ export function ProjectRepositoryView({
                         </span>
                       </td>
                       <td className="p-3.5 text-center font-mono-num text-[#dae2fd]">
-                        {proj.taxRecords.length > 0 ? `${proj.taxRecords.length} 笔` : '—'}
+                        <span className={`px-2 py-0.5 rounded text-[11px] font-bold border ${
+                          proj.taxRiskGrade === "高危" ? "bg-[#EF4444]/15 text-[#EF4444] border-[#EF4444]/30" : "bg-[#10B981]/15 text-[#10B981] border-[#10B981]/30"
+                        }`}>
+                          {proj.taxRiskGrade}
+                        </span>
                       </td>
                       <td className="p-3.5 text-center pr-4">
                         <button

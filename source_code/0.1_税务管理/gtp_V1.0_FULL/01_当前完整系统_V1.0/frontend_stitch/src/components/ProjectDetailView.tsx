@@ -1,32 +1,15 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from "react";
 import {
   Building2,
-  Download,
-  Database,
-  PlusCircle,
-  ShieldAlert,
-  ShieldCheck,
   AlertTriangle,
   ArrowLeft,
-  Search,
-  Filter,
   FileCheck2,
-  Info,
-  ChevronDown,
-  ExternalLink,
   CheckCircle2,
-  ArrowUpDown,
-  ArrowUp,
-  ArrowDown,
-  Compass,
   Trash2,
   Loader2
-} from 'lucide-react';
-import { ProjectItem, TaxLedgerRecord, CostBreakdownItem, SystemSettings } from '../types';
-import { fetchProjectCounterparties, ProjectCounterparty, deleteProjectData } from '../api';
-
-type SortField = 'entityName' | 'declareAmount' | 'taxCategory' | 'status' | 'flow' | null;
-type SortOrder = 'asc' | 'desc';
+} from "lucide-react";
+import { ProjectItem, CostBreakdownItem, SystemSettings, ProjectTaxAnalysisRecord } from "../types";
+import { fetchProjectCounterparties, ProjectCounterparty, deleteProjectData, fetchProjectTaxAnalysis } from "../api";
 
 interface ProjectDetailViewProps {
   project: ProjectItem;
@@ -46,94 +29,130 @@ export function ProjectDetailView({
   projects,
   onSelectProject,
   onBack,
-  onOpenNewRecordModal,
-  onOpenExportModal,
-  onAskAiAboutRisk,
-  onGoToPlanning,
+  onOpenNewRecordModal: _onOpenNewRecordModal,
+  onOpenExportModal: _onOpenExportModal,
+  onAskAiAboutRisk: _onAskAiAboutRisk,
+  onGoToPlanning: _onGoToPlanning,
   onProjectDataDeleted,
   settings
 }: ProjectDetailViewProps) {
-  const [selectedRecordForDetail, setSelectedRecordForDetail] = useState<TaxLedgerRecord | null>(null);
-  const [filterRisk, setFilterRisk] = useState<string>('全部');
-  const [sortField, setSortField] = useState<SortField>(null);
-  const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
-  const [counterparties, setCounterparties] = useState<ProjectCounterparty[]>([]);
-  const [counterpartyStatus, setCounterpartyStatus] = useState<'loading' | 'ready' | 'empty' | 'failed'>('loading');
-  const [counterpartyMessage, setCounterpartyMessage] = useState<string>('');
-  const [counterpartyFilter, setCounterpartyFilter] = useState<'全部' | '系统内' | '系统外'>('全部');
+  // 项目全周期税务分析状态 (Canonical Facts SSOT)
+  const [taxAnalysis, setTaxAnalysis] = useState<ProjectTaxAnalysisRecord | null>(null);
+  const [taxAnalysisStatus, setTaxAnalysisStatus] = useState<"loading" | "ready" | "empty" | "failed">("loading");
+  const [taxAnalysisMessage, setTaxAnalysisMessage] = useState<string>("");
 
+  // 对手方状态
+  const [counterparties, setCounterparties] = useState<ProjectCounterparty[]>([]);
+  const [counterpartyStatus, setCounterpartyStatus] = useState<"loading" | "ready" | "empty" | "failed">("loading");
+  const [counterpartyMessage, setCounterpartyMessage] = useState<string>("");
+  const [counterpartyFilter, setCounterpartyFilter] = useState<"全部" | "系统内" | "系统外">("全部");
+
+  // 数据清空弹窗状态
   const [showDeleteConfirmModal, setShowDeleteConfirmModal] = useState<boolean>(false);
-  const [deletePassword, setDeletePassword] = useState<string>('');
+  const [deletePassword, setDeletePassword] = useState<string>("");
   const [isDeletingData, setIsDeletingData] = useState<boolean>(false);
-  const [deleteResultNotice, setDeleteResultNotice] = useState<string | null>(null);
+  const [_deleteResultNotice, setDeleteResultNotice] = useState<string | null>(null);
   const [deleteErrorNotice, setDeleteErrorNotice] = useState<string | null>(null);
 
   const handleDeleteProjectData = async () => {
     const pid = project.numericId;
     if (!Number.isInteger(pid) || pid <= 0) {
-      setDeleteErrorNotice('项目缺少有效 ID，无法执行删除。');
+      setDeleteErrorNotice("项目缺少有效 ID，无法执行删除。");
       return;
     }
     if (!deletePassword.trim()) {
-      setDeleteErrorNotice('请输入当前账号登录密码进行安全验证。');
+      setDeleteErrorNotice("请输入当前账号登录密码进行安全验证。");
       return;
     }
     setIsDeletingData(true);
     setDeleteErrorNotice(null);
     try {
       const res = await deleteProjectData(pid, deletePassword.trim());
-      setDeleteResultNotice(res.message || '项目数据已成功清空！正在刷新页面…');
+      setDeleteResultNotice(res.message || "项目数据已成功清空！正在刷新页面…");
       setShowDeleteConfirmModal(false);
-      setDeletePassword('');
+      setDeletePassword("");
       if (onProjectDataDeleted) {
         onProjectDataDeleted();
       }
-      // 一次性删除后自动刷新整个页面
       setTimeout(() => {
         window.location.reload();
       }, 700);
     } catch (err) {
-      setDeleteErrorNotice(err instanceof Error ? err.message : '删除项目数据失败');
+      setDeleteErrorNotice(err instanceof Error ? err.message : "删除项目数据失败");
     } finally {
       setIsDeletingData(false);
     }
   };
 
+  // 1. 加载项目税务分析 (Canonical Facts SSOT)
+  useEffect(() => {
+    const pid = project.numericId;
+    if (!Number.isInteger(pid) || pid <= 0) {
+      setTaxAnalysis(null);
+      setTaxAnalysisStatus("empty");
+      setTaxAnalysisMessage("项目缺少有效 ID，无法加载项目税务分析。");
+      return;
+    }
+    const controller = new AbortController();
+    setTaxAnalysisStatus("loading");
+    setTaxAnalysisMessage("");
+    fetchProjectTaxAnalysis(pid, controller.signal)
+      .then(res => {
+        if (res.item) {
+          setTaxAnalysis(res.item);
+          setTaxAnalysisStatus("ready");
+          setTaxAnalysisMessage("");
+        } else {
+          setTaxAnalysis(null);
+          setTaxAnalysisStatus("empty");
+          setTaxAnalysisMessage(res.message || "该项目暂无发票事实分析数据。");
+        }
+      })
+      .catch(err => {
+        if (controller.signal.aborted) return;
+        setTaxAnalysis(null);
+        setTaxAnalysisStatus("failed");
+        setTaxAnalysisMessage(err instanceof Error ? err.message : "加载项目税务分析数据失败。");
+      });
+    return () => controller.abort();
+  }, [project.numericId]);
+
+  // 2. 加载对手方明细
   useEffect(() => {
     const pid = project.numericId;
     if (!Number.isInteger(pid) || pid <= 0) {
       setCounterparties([]);
-      setCounterpartyStatus('empty');
-      setCounterpartyMessage('项目缺少有效 numericId，无法加载对手方。');
+      setCounterpartyStatus("empty");
+      setCounterpartyMessage("项目缺少有效 numericId，无法加载对手方。");
       return;
     }
     const controller = new AbortController();
-    setCounterpartyStatus('loading');
-    setCounterpartyMessage('');
+    setCounterpartyStatus("loading");
+    setCounterpartyMessage("");
     fetchProjectCounterparties(pid, controller.signal)
       .then(response => {
         setCounterparties(response.items);
         if (response.items.length === 0) {
-          setCounterpartyStatus('empty');
-          setCounterpartyMessage(response.message || '该项目当前没有任何合同/发票/收付款数据。');
+          setCounterpartyStatus("empty");
+          setCounterpartyMessage(response.message || "该项目当前没有任何合同/发票/收付款数据。");
         } else {
-          setCounterpartyStatus('ready');
-          setCounterpartyMessage('');
+          setCounterpartyStatus("ready");
+          setCounterpartyMessage("");
         }
       })
       .catch(error => {
         if (controller.signal.aborted) return;
         setCounterparties([]);
-        setCounterpartyStatus('failed');
-        setCounterpartyMessage(error instanceof Error ? error.message : '对手方数据加载失败。');
+        setCounterpartyStatus("failed");
+        setCounterpartyMessage(error instanceof Error ? error.message : "对手方数据加载失败。");
       });
     return () => controller.abort();
   }, [project.numericId]);
 
   const filteredCounterparties = useMemo(() => {
-    if (counterpartyFilter === '全部') return counterparties;
+    if (counterpartyFilter === "全部") return counterparties;
     return counterparties.filter(party => {
-      if (counterpartyFilter === '系统内') return party.isInternal;
+      if (counterpartyFilter === "系统内") return party.isInternal;
       return !party.isInternal;
     });
   }, [counterparties, counterpartyFilter]);
@@ -154,15 +173,6 @@ export function ProjectDetailView({
     return { contractAmount, invoiceInVat, invoiceOutVat, cashflowOutAmount, realCostAmount };
   }, [counterparties]);
 
-  const handleSort = (field: SortField) => {
-    if (sortField === field) {
-      setSortOrder(prev => (prev === 'asc' ? 'desc' : 'asc'));
-    } else {
-      setSortField(field);
-      setSortOrder(field === 'declareAmount' ? 'desc' : 'asc');
-    }
-  };
-
   const stopPayThreshold = settings?.budgetOverrunStopPayThreshold ?? 5;
 
   const effectiveCostItems = useMemo<CostBreakdownItem[]>(() => {
@@ -172,99 +182,73 @@ export function ProjectDetailView({
     const totalB = project.totalBudget > 0 ? project.totalBudget : 1450000000;
     return [
       {
-        id: 'wbs-1',
-        code: '01. 主体结构与材料工程',
-        name: '钢材/商砼/特种物资采购',
+        id: "wbs-1",
+        code: "01. 主体结构与材料工程",
+        name: "钢材/商砼/特种物资采购",
         level: 1,
         plannedAmount: totalB * 0.38,
         actualAmount: totalB * 0.35,
         variancePercent: -7.9,
-        status: '正常推进',
-        manager: '王建国 (主材主管)',
+        status: "正常推进",
+        manager: "王建国 (主材主管)",
       },
       {
-        id: 'wbs-2',
-        code: '02. 土建劳务与现场作业',
-        name: '建筑主体施工劳务',
+        id: "wbs-2",
+        code: "02. 土建劳务与现场作业",
+        name: "建筑主体施工劳务",
         level: 1,
         plannedAmount: totalB * 0.20,
         actualAmount: totalB * 0.19,
         variancePercent: -5.0,
-        status: '正常推进',
-        manager: '李德明 (劳务主管)',
+        status: "正常推进",
+        manager: "李德明 (劳务主管)",
       },
       {
-        id: 'wbs-3',
-        code: '03. 塔吊与特种机械租赁',
-        name: '重型起重/吊装/机械运维',
+        id: "wbs-3",
+        code: "03. 塔吊与特种机械租赁",
+        name: "重型起重/吊装/机械运维",
         level: 1,
         plannedAmount: totalB * 0.08,
         actualAmount: totalB * 0.075,
         variancePercent: -6.2,
-        status: '节约支出',
-        manager: '张立强 (机械主管)',
+        status: "节约支出",
+        manager: "张立强 (机械主管)",
       },
       {
-        id: 'wbs-4',
-        code: '04. 专业分包与机电安装',
-        name: '幕墙/机电/消防安装工程',
+        id: "wbs-4",
+        code: "04. 专业分包与机电安装",
+        name: "幕墙/机电/消防安装工程",
         level: 1,
         plannedAmount: totalB * 0.22,
         actualAmount: totalB * 0.21,
         variancePercent: -4.5,
-        status: '正常推进',
-        manager: '赵志刚 (机电主管)',
+        status: "正常推进",
+        manager: "赵志刚 (机电主管)",
       },
       {
-        id: 'wbs-5',
-        code: '05. 地质勘察与深化设计',
-        name: '地勘专家组/设计咨询',
+        id: "wbs-5",
+        code: "05. 地质勘察与深化设计",
+        name: "地勘专家组/设计咨询",
         level: 1,
         plannedAmount: totalB * 0.06,
         actualAmount: totalB * 0.062,
         variancePercent: 3.3,
-        status: '正常推进',
-        manager: '陈晓峰 (总工程师)',
+        status: "正常推进",
+        manager: "陈晓峰 (总工程师)",
       },
       {
-        id: 'wbs-6',
-        code: '06. 施工安全与综合管理',
-        name: '临建/环保/现场综合管理',
+        id: "wbs-6",
+        code: "06. 施工安全与综合管理",
+        name: "临建/环保/现场综合管理",
         level: 1,
         plannedAmount: totalB * 0.06,
         actualAmount: totalB * 0.065,
         variancePercent: 8.3,
-        status: '超支预警',
-        manager: '周洪波 (项目副经理)',
+        status: "超支预警",
+        manager: "周洪波 (项目副经理)",
       },
     ];
   }, [project.costItems, project.totalBudget]);
-
-  const filteredTaxRecords = project.taxRecords.filter(rec => {
-    if (filterRisk === '全部') return true;
-    return rec.riskLevel === filterRisk;
-  });
-
-  const sortedTaxRecords = [...filteredTaxRecords].sort((a, b) => {
-    if (!sortField) return 0;
-
-    let res = 0;
-    if (sortField === 'entityName') {
-      res = a.entityName.localeCompare(b.entityName, 'zh-CN');
-    } else if (sortField === 'declareAmount') {
-      res = a.declareAmount - b.declareAmount;
-    } else if (sortField === 'taxCategory') {
-      res = a.taxCategory.localeCompare(b.taxCategory, 'zh-CN');
-    } else if (sortField === 'status') {
-      res = a.status.localeCompare(b.status, 'zh-CN');
-    } else if (sortField === 'flow') {
-      const aFlow = Object.values(a.fourFlowsCheck).every(Boolean) ? 1 : 0;
-      const bFlow = Object.values(b.fourFlowsCheck).every(Boolean) ? 1 : 0;
-      res = aFlow - bFlow;
-    }
-
-    return sortOrder === 'asc' ? res : -res;
-  });
 
   return (
     <div className="space-y-6">
@@ -298,104 +282,58 @@ export function ProjectDetailView({
           )}
         </div>
 
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => {
-              if (onGoToPlanning) {
-                onGoToPlanning();
-              }
-            }}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-[#8b5cf6]/20 hover:bg-[#8b5cf6]/30 text-[#c4b5fd] text-[12px] font-semibold rounded-lg border border-[#a78bfa]/40 transition-all cursor-pointer shadow-[0_0_10px_rgba(139,92,246,0.2)]"
-            title="进入两层财税筹划沙盘与确定性计算引擎"
-          >
-            <Compass className="w-3.5 h-3.5 text-[#a78bfa]" />
-            <span>🧭 财税筹划沙盘</span>
-          </button>
-          <button
-            onClick={onOpenNewRecordModal}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-[#03b5d3]/20 hover:bg-[#03b5d3]/30 text-[#4cd7f6] text-[12px] font-semibold rounded-lg border border-[#4cd7f6]/40 transition-all cursor-pointer"
-          >
-            <Database className="w-3.5 h-3.5" />
-            <span>RAG 知识库检索同步</span>
-          </button>
-          <button
-            onClick={onOpenExportModal}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-[#1e40af]/60 hover:bg-[#1e40af] text-[#dde1ff] text-[12px] font-semibold rounded-lg border border-[#4cd7f6]/30 transition-all cursor-pointer"
-          >
-            <Download className="w-3.5 h-3.5 text-[#4cd7f6]" />
-            <span>导出项目专报</span>
-          </button>
+        <div className="flex items-center gap-2">
+          {/* 清空项目数据按钮 */}
           <button
             onClick={() => {
               setDeleteErrorNotice(null);
+              setDeletePassword("");
               setShowDeleteConfirmModal(true);
             }}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-[#ef4444]/20 hover:bg-[#ef4444]/30 text-[#fca5a5] text-[12px] font-semibold rounded-lg border border-[#ef4444]/40 transition-all cursor-pointer shadow-[0_0_10px_rgba(239,68,68,0.2)]"
-            title="一次性清空/删除当前项目在 Tax 系统的全部合同、发票、流水与台账数据（RAG 凭证库保持不变）"
+            className="flex items-center gap-1.5 text-[12px] font-medium text-[#ef4444] hover:text-white hover:bg-[#ef4444] bg-[#ef4444]/10 border border-[#ef4444]/30 px-3 py-1.5 rounded-lg transition-all cursor-pointer"
+            title="清空该项目在 Tax 数据库中的所有台账数据（RAG底层凭证库保持不变）"
           >
-            <Trash2 className="w-3.5 h-3.5 text-[#ef4444]" />
-            <span>删除项目数据</span>
+            <Trash2 className="w-3.5 h-3.5" />
+            <span>清空项目数据</span>
           </button>
         </div>
       </div>
 
-      {deleteResultNotice && (
-        <div className="mb-4 flex items-start justify-between gap-3 rounded-lg border border-[#10B981]/30 bg-[#10B981]/10 px-3 py-2 text-[12px] text-[#6ee7b7]" role="status">
-          <span>{deleteResultNotice}</span>
-          <button type="button" onClick={() => setDeleteResultNotice(null)} className="text-[#8e909f] hover:text-[#dae2fd]">关闭</button>
-        </div>
-      )}
-
-      {/* 模块 1: 项目财务总览指标卡 (还原 Image 1 顶部看板) */}
-      <section className="glass-panel rounded-xl p-5 glow-cyan relative overflow-hidden">
-        {/* 背景氛围晕染 */}
-        <div className="absolute -right-20 -top-20 w-64 h-64 bg-[#4cd7f6]/5 rounded-full blur-3xl pointer-events-none"></div>
-
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+      {/* 模块 1: 项目概况与基础指标卡片 */}
+      <section className="glass-panel rounded-xl p-5 space-y-4">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
-            <h3 className="text-[22px] font-bold text-[#dae2fd] flex items-center gap-2.5">
-              <Building2 className="w-6 h-6 text-[#4cd7f6]" />
-              <span>项目概况: {project.name || '天府国际金融中心二期'}</span>
-            </h3>
-            <p className="text-[13px] text-[#c4c5d5] mt-1">
-              工程编号: <span className="font-mono-num text-[#dae2fd]">{project.projectCode || 'CD-TF-001'}</span> | 财务阶段: <span className="text-[#4cd7f6] font-semibold">{project.constructionStage && project.constructionStage !== '—' ? project.constructionStage : '主体结构施工阶段'}</span>
-            </p>
+            <div className="flex items-center gap-3">
+              <span className="text-[12px] font-bold px-2 py-0.5 rounded bg-[#4cd7f6]/10 text-[#4cd7f6] border border-[#4cd7f6]/20">
+                {project.projectCode}
+              </span>
+              <h2 className="text-[20px] font-bold text-[#dae2fd]">{project.name}</h2>
+            </div>
+            <div className="flex flex-wrap items-center gap-4 text-[12px] text-[#8e909f] mt-1.5">
+              <span>项目经理: <strong className="text-[#dae2fd]">{project.managerName}</strong></span>
+              <span>工程地点: <strong className="text-[#dae2fd]">{project.location}</strong></span>
+              <span>建设阶段: <strong className="text-[#4cd7f6]">{project.constructionStage}</strong></span>
+              <span>综合评级: <strong className="text-[#10B981]">{project.healthGrade}</strong></span>
+            </div>
           </div>
-          <div className="flex items-center gap-2 bg-[#171f33] px-3.5 py-1.5 rounded-full border border-[#444653]/40">
-            <span className="w-2.5 h-2.5 rounded-full bg-[#10B981] shadow-[0_0_8px_#10B981]"></span>
-            <span className="text-[12px] font-bold text-[#dae2fd]">健康评级: {project.healthGrade && project.healthGrade !== '未知' ? project.healthGrade : '甲级·A-'}</span>
+
+          <div className="flex items-center gap-3">
+            <div className="text-right">
+              <div className="text-[11px] text-[#8e909f]">合同总投资</div>
+              <div className="text-[18px] font-bold text-[#dae2fd] font-mono-num">
+                ¥ {(project.totalBudget / 100000000).toFixed(2)} 亿元
+              </div>
+            </div>
           </div>
         </div>
 
-        {/* 三栏金额核心指标 */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-          <div className="bg-[#0b1326]/60 rounded-xl p-4 border border-[#444653]/30">
-            <p className="text-[11px] font-bold text-[#8e909f] uppercase tracking-wider">总预算 (已批复)</p>
-            <p className="text-[22px] font-bold font-mono-num text-[#dae2fd] mt-1">
-              ¥ {project.totalBudget.toLocaleString('zh-CN')} 元
-            </p>
-          </div>
-          <div className="bg-[#0b1326]/60 rounded-xl p-4 border border-[#444653]/30">
-            <p className="text-[11px] font-bold text-[#8e909f] uppercase tracking-wider">累计已付款项</p>
-            <p className="text-[22px] font-bold font-mono-num text-[#b8c4ff] mt-1">
-              ¥ {project.spentAmount.toLocaleString('zh-CN')} 元
-            </p>
-          </div>
-          <div className="bg-[#0b1326]/60 rounded-xl p-4 border border-[#444653]/30">
-            <p className="text-[11px] font-bold text-[#8e909f] uppercase tracking-wider">剩余可用预算</p>
-            <p className="text-[22px] font-bold font-mono-num text-[#4cd7f6] mt-1">
-              ¥ {project.remainingBudget.toLocaleString('zh-CN')} 元
-            </p>
-          </div>
-        </div>
-
-        {/* 资金消耗进度条 */}
-        <div className="w-full">
-          <div className="flex justify-between text-[12px] font-mono-num mb-2 text-[#c4c5d5]">
-            <span>资金消耗进度</span>
+        {/* 进度条 */}
+        <div>
+          <div className="flex justify-between text-[11px] text-[#8e909f] mb-1">
+            <span>工程形象进度</span>
             <span className="text-[#4cd7f6] font-bold">{project.progressPercent}%</span>
           </div>
-          <div className="h-2.5 w-full bg-[#2d3449] rounded-full overflow-hidden flex">
+          <div className="w-full bg-[#131b2e] h-2 rounded-full overflow-hidden border border-[#444653]/30">
             <div 
               className="h-full bg-gradient-to-r from-[#1e40af] to-[#4cd7f6] shadow-[0_0_12px_#4cd7f6] rounded-full transition-all duration-500" 
               style={{ width: `${project.progressPercent}%` }}
@@ -404,259 +342,109 @@ export function ProjectDetailView({
         </div>
       </section>
 
-      {/* 模块 2: 税务台账列表 (还原 Image 1 中部表格) */}
-      <section className="glass-panel rounded-xl p-5 flex flex-col">
+      {/* 模块 2: 项目全周期税务分析 (基于 Canonical Facts SSOT) */}
+      <section className="glass-panel rounded-xl p-5 flex flex-col" data-testid="project-tax-analysis-section">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-[#444653]/30 mb-4">
-          <div className="flex items-center gap-3">
-            <h3 className="text-[17px] font-bold text-[#dae2fd]">税务台账: 各分包与供应商实体明细</h3>
-            <div className="flex items-center gap-1 bg-[#131b2e] px-2 py-1 rounded border border-[#444653]/30 text-[11px]">
-              <Filter className="w-3 h-3 text-[#8e909f]" />
-              <select
-                value={filterRisk}
-                onChange={(e) => setFilterRisk(e.target.value)}
-                className="bg-transparent text-[#dae2fd] focus:outline-none cursor-pointer"
-              >
-                <option value="全部" className="bg-[#171f33]">全部风险</option>
-                <option value="正常" className="bg-[#171f33]">正常</option>
-                <option value="预警" className="bg-[#171f33]">预警</option>
-                <option value="高危" className="bg-[#171f33]">高危稽查</option>
-              </select>
-            </div>
+          <div>
+            <h3 className="text-[17px] font-bold text-[#dae2fd] flex items-center gap-2">
+              <FileCheck2 className="w-4 h-4 text-[#4cd7f6]" />
+              <span>项目全周期税务分析 (Canonical Facts)</span>
+            </h3>
+            <p className="text-[12px] text-[#8e909f] mt-0.5">
+              基于事实层投影（analytics_canonical_facts_current），严禁冒充法人应纳税款。
+            </p>
           </div>
 
           <div className="flex items-center gap-2">
-            <button
-              onClick={onOpenExportModal}
-              className="text-[12px] font-medium text-[#4cd7f6] hover:text-[#dae2fd] transition-colors flex items-center gap-1 cursor-pointer"
-            >
-              <span>导出表格</span>
-              <Download className="w-3.5 h-3.5" />
-            </button>
+            <span className="text-[11px] px-2 py-0.5 rounded bg-[#10B981]/15 text-[#10B981] border border-[#10B981]/30 font-medium">
+              🛡️ Canonical SSOT 事实源
+            </span>
           </div>
         </div>
 
-        {/* 表格容器 */}
-        <div className="overflow-x-auto">
-          <table className="w-full table-fixed text-left border-collapse text-[12.5px] font-mono-num">
-            <colgroup>
-              <col style={{ width: '28%' }} />
-              <col style={{ width: '10%' }} />
-              <col style={{ width: '18%' }} />
-              <col style={{ width: '14%' }} />
-              <col style={{ width: '10%' }} />
-              <col style={{ width: '10%' }} />
-              <col style={{ width: '10%' }} />
-            </colgroup>
-            <thead>
-              <tr className="border-b border-[#444653]/30 text-[12px] font-semibold text-[#8e909f]">
-                <th 
-                  onClick={() => handleSort('entityName')}
-                  className="py-2.5 px-3 cursor-pointer hover:text-[#4cd7f6] select-none transition-colors group"
-                  title="点击按实体名称排序"
-                >
-                  <div className="flex items-center gap-1.5">
-                    <div>
-                      <div className="text-[12px] text-[#8e909f] group-hover:text-[#4cd7f6] truncate">实体名称</div>
-                      <div className="text-[10px] text-[#8e909f]/70 font-normal">标段分类</div>
-                    </div>
-                    {sortField === 'entityName' ? (
-                      sortOrder === 'asc' ? <ArrowUp className="w-3.5 h-3.5 text-[#4cd7f6] flex-shrink-0" /> : <ArrowDown className="w-3.5 h-3.5 text-[#4cd7f6] flex-shrink-0" />
-                    ) : (
-                      <ArrowUpDown className="w-3 h-3 text-[#8e909f]/40 group-hover:text-[#4cd7f6]/70 transition-opacity flex-shrink-0" />
-                    )}
-                  </div>
-                </th>
-                <th className="py-2.5 px-2 text-center whitespace-nowrap">
-                  <div>归属属性</div>
-                  <div className="text-[10px] text-[#8e909f]/70 font-normal">内部/外部</div>
-                </th>
-                <th 
-                  onClick={() => handleSort('declareAmount')}
-                  className="py-2.5 px-3 text-right whitespace-nowrap cursor-pointer hover:text-[#4cd7f6] select-none transition-colors group"
-                  title="点击按金额/税额排序"
-                >
-                  <div className="flex items-center justify-end gap-1.5">
-                    <div className="text-right">
-                      <div className="text-[12px] text-[#8e909f] group-hover:text-[#4cd7f6]">申报计税</div>
-                      <div className="text-[10px] text-[#8e909f]/70 font-normal">应纳税额</div>
-                    </div>
-                    {sortField === 'declareAmount' ? (
-                      sortOrder === 'asc' ? <ArrowUp className="w-3.5 h-3.5 text-[#4cd7f6] flex-shrink-0" /> : <ArrowDown className="w-3.5 h-3.5 text-[#4cd7f6] flex-shrink-0" />
-                    ) : (
-                      <ArrowUpDown className="w-3 h-3 text-[#8e909f]/40 group-hover:text-[#4cd7f6]/70 transition-opacity flex-shrink-0" />
-                    )}
-                  </div>
-                </th>
-                <th 
-                  onClick={() => handleSort('taxCategory')}
-                  className="py-2.5 px-3 cursor-pointer hover:text-[#4cd7f6] select-none transition-colors group"
-                  title="点击按税种/周期排序"
-                >
-                  <div className="flex items-center gap-1.5">
-                    <div>
-                      <div className="text-[12px] text-[#8e909f] group-hover:text-[#4cd7f6] truncate">税种类别</div>
-                      <div className="text-[10px] text-[#8e909f]/70 font-normal">申报周期</div>
-                    </div>
-                    {sortField === 'taxCategory' ? (
-                      sortOrder === 'asc' ? <ArrowUp className="w-3.5 h-3.5 text-[#4cd7f6] flex-shrink-0" /> : <ArrowDown className="w-3.5 h-3.5 text-[#4cd7f6] flex-shrink-0" />
-                    ) : (
-                      <ArrowUpDown className="w-3 h-3 text-[#8e909f]/40 group-hover:text-[#4cd7f6]/70 transition-opacity flex-shrink-0" />
-                    )}
-                  </div>
-                </th>
-                <th 
-                  onClick={() => handleSort('status')}
-                  className="py-2.5 px-2 text-center whitespace-nowrap cursor-pointer hover:text-[#4cd7f6] select-none transition-colors group"
-                  title="点击按审核状态排序"
-                >
-                  <div className="flex items-center justify-center gap-1.5">
-                    <div>
-                      <div className="text-[12px] text-[#8e909f] group-hover:text-[#4cd7f6]">审核状态</div>
-                      <div className="text-[10px] text-[#8e909f]/70 font-normal">入库/复核</div>
-                    </div>
-                    {sortField === 'status' ? (
-                      sortOrder === 'asc' ? <ArrowUp className="w-3.5 h-3.5 text-[#4cd7f6] flex-shrink-0" /> : <ArrowDown className="w-3.5 h-3.5 text-[#4cd7f6] flex-shrink-0" />
-                    ) : (
-                      <ArrowUpDown className="w-3 h-3 text-[#8e909f]/40 group-hover:text-[#4cd7f6]/70 transition-opacity flex-shrink-0" />
-                    )}
-                  </div>
-                </th>
-                <th 
-                  onClick={() => handleSort('flow')}
-                  className="py-2.5 px-2 text-center whitespace-nowrap cursor-pointer hover:text-[#4cd7f6] select-none transition-colors group"
-                  title="点击按四流合一合规性排序"
-                >
-                  <div className="flex items-center justify-center gap-1.5">
-                    <div>
-                      <div className="text-[12px] text-[#8e909f] group-hover:text-[#4cd7f6]">四流合一</div>
-                      <div className="text-[10px] text-[#8e909f]/70 font-normal">核验结果</div>
-                    </div>
-                    {sortField === 'flow' ? (
-                      sortOrder === 'asc' ? <ArrowUp className="w-3.5 h-3.5 text-[#4cd7f6] flex-shrink-0" /> : <ArrowDown className="w-3.5 h-3.5 text-[#4cd7f6] flex-shrink-0" />
-                    ) : (
-                      <ArrowUpDown className="w-3 h-3 text-[#8e909f]/40 group-hover:text-[#4cd7f6]/70 transition-opacity flex-shrink-0" />
-                    )}
-                  </div>
-                </th>
-                <th className="py-2.5 px-2 text-center whitespace-nowrap">
-                  <div>操作</div>
-                  <div className="text-[10px] text-[#8e909f]/70 font-normal">详情/研判</div>
-                </th>
-              </tr>
-            </thead>
-            <tbody className="text-[12.5px] font-mono-num divide-y divide-[#444653]/20">
-              {sortedTaxRecords.map((rec) => {
-                const isHighRisk = rec.riskLevel === '高危';
-                const isMediumRisk = rec.riskLevel === '预警';
-                const allFlowsOk = Object.values(rec.fourFlowsCheck).every(Boolean);
+        {taxAnalysisStatus === "loading" && (
+          <div className="flex items-center justify-center gap-2 py-8 text-[13px] text-[#8e909f]">
+            <Loader2 className="w-4 h-4 animate-spin text-[#4cd7f6]" />
+            <span>正在加载项目税务分析事实数据…</span>
+          </div>
+        )}
 
-                return (
-                  <tr 
-                    key={rec.id}
-                    className={`transition-colors duration-150 ${
-                      isHighRisk 
-                        ? 'bg-[#EF4444]/10 hover:bg-[#EF4444]/20 border-l-2 border-[#EF4444]' 
-                        : isMediumRisk
-                        ? 'bg-[#F59E0B]/5 hover:bg-[#F59E0B]/15 border-l-2 border-[#F59E0B]'
-                        : 'hover:bg-[#222a3d]/50'
-                    }`}
-                  >
-                    {/* 实体名称与标段分类 */}
-                    <td className="py-2 px-3">
-                      <div className={`font-semibold text-[13px] leading-snug break-words whitespace-normal ${isHighRisk ? 'text-[#ffb4ab]' : 'text-[#dae2fd]'}`} title={rec.entityName}>
-                        {rec.entityName}
-                      </div>
-                      <div className="text-[11px] text-[#8e909f] break-words whitespace-normal mt-0.5" title={rec.entityCategory}>
-                        {rec.entityCategory}
-                      </div>
-                    </td>
+        {taxAnalysisStatus === "failed" && (
+          <div className="p-4 rounded-lg bg-[#EF4444]/10 border border-[#EF4444]/30 text-[13px] text-[#ffb4ab] flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+            <span>{taxAnalysisMessage || "加载项目税务分析数据失败"}</span>
+          </div>
+        )}
 
-                    {/* 归属属性：系统内 / 系统外 */}
-                    <td className="py-2 px-2 text-center whitespace-nowrap">
-                      {(() => {
-                        const isExt = rec.entityName.includes('EXT-') || rec.entityName.includes('外部') || rec.entityName.includes('系统外') || rec.isInternal === false;
+        {taxAnalysisStatus === "empty" && (
+          <div className="p-6 text-center text-[13px] text-[#8e909f] bg-[#131b2e]/40 rounded-lg border border-[#444653]/20">
+            {taxAnalysisMessage || "该工程项目暂无 Canonical 发票事实记录。"}
+          </div>
+        )}
 
-                        return !isExt ? (
-                          <span className="inline-flex items-center gap-1 text-[11px] text-[#10B981] bg-[#10B981]/15 px-2 py-0.5 rounded border border-[#10B981]/30 font-medium">
-                            🏢 内部
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 text-[11px] text-[#a78bfa] bg-[#8b5cf6]/15 px-2 py-0.5 rounded border border-[#8b5cf6]/30 font-medium">
-                            🌐 外部
-                          </span>
-                        );
-                      })()}
-                    </td>
+        {taxAnalysisStatus === "ready" && taxAnalysis && (
+          <div className="space-y-4 font-mono-num">
+            {/* 核心指标卡片矩阵 */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              {/* 销项金额与税额 */}
+              <div className="p-3.5 rounded-lg bg-[#131b2e] border border-[#444653]/30">
+                <div className="text-[11px] text-[#8e909f] font-sans">开具销项 (不含税)</div>
+                <div className="text-[15px] font-bold text-[#dae2fd] mt-1">
+                  ¥ {taxAnalysis.outInvoiceNet.toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </div>
+                <div className="text-[11px] text-[#4cd7f6] mt-0.5">
+                  销项 VAT: ¥ {taxAnalysis.outInvoiceVat.toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </div>
+              </div>
 
-                    {/* 申报计税金额与应纳税额 */}
-                    <td className="py-2 px-3 text-right whitespace-nowrap">
-                      <div className="font-bold text-[#dae2fd] text-[13px]">
-                        ¥ {rec.declareAmount.toLocaleString('zh-CN')}
-                      </div>
-                      <div className="text-[11.5px] font-semibold text-[#4cd7f6] mt-0.5">
-                        税: ¥ {rec.taxAmount.toLocaleString('zh-CN')}
-                      </div>
-                    </td>
+              {/* 进项金额与税额 */}
+              <div className="p-3.5 rounded-lg bg-[#131b2e] border border-[#444653]/30">
+                <div className="text-[11px] text-[#8e909f] font-sans">取得进项 (不含税)</div>
+                <div className="text-[15px] font-bold text-[#dae2fd] mt-1">
+                  ¥ {taxAnalysis.inInvoiceNet.toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </div>
+                <div className="text-[11px] text-[#4cd7f6] mt-0.5">
+                  进项 VAT: ¥ {taxAnalysis.inInvoiceVat.toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </div>
+              </div>
 
-                    {/* 税种类别与所属期 */}
-                    <td className="py-2 px-3">
-                      <div className="text-[#c4c5d5] text-[12px] font-medium leading-snug break-words whitespace-normal">
-                        {rec.taxCategory}
-                      </div>
-                      <div className="text-[11px] text-[#8e909f] mt-0.5">
-                        {rec.filingPeriod}
-                      </div>
-                    </td>
+              {/* 可抵扣进项 VAT */}
+              <div className="p-3.5 rounded-lg bg-[#131b2e] border border-[#444653]/30">
+                <div className="text-[11px] text-[#8e909f] font-sans">可抵扣进项 VAT</div>
+                <div className="text-[15px] font-bold text-[#10B981] mt-1">
+                  ¥ {taxAnalysis.deductibleInputVat.toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </div>
+                <div className="text-[11px] text-[#8e909f] font-sans mt-0.5">
+                  发票事实: {taxAnalysis.invoiceCount} 张
+                </div>
+              </div>
 
-                    {/* 审核状态 */}
-                    <td className="py-2 px-2 text-center whitespace-nowrap">
-                      <span className={`text-[11px] font-bold px-2 py-0.5 rounded ${
-                        isHighRisk 
-                          ? 'text-[#EF4444] bg-[#EF4444]/15 border border-[#EF4444]/30' 
-                          : isMediumRisk 
-                          ? 'text-[#F59E0B] bg-[#F59E0B]/15 border border-[#F59E0B]/30' 
-                          : 'text-[#10B981] bg-[#10B981]/15 border border-[#10B981]/30'
-                      }`}>
-                        {rec.status}
-                      </span>
-                    </td>
+              {/* 项目进销差额 */}
+              <div className="p-3.5 rounded-lg bg-[#131b2e] border border-[#444653]/30">
+                <div className="text-[11px] text-[#8e909f] font-sans">项目增值税差额 (进销差)</div>
+                <div className="text-[15px] font-bold text-[#dae2fd] mt-1">
+                  ¥ {(taxAnalysis.outInvoiceVat - taxAnalysis.deductibleInputVat).toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </div>
+                <div className="text-[10px] text-[#8e909f] font-sans mt-0.5">
+                  * 项目口径进销差额，非法人申报应纳税额
+                </div>
+              </div>
+            </div>
 
-                    {/* 四流合一核验 */}
-                    <td className="py-2 px-2 text-center whitespace-nowrap">
-                      {allFlowsOk ? (
-                        <span className="inline-flex items-center gap-1 text-[11px] text-[#10B981] bg-[#10B981]/15 px-2 py-0.5 rounded border border-[#10B981]/30 font-medium">
-                          <CheckCircle2 className="w-3 h-3" /> 合规
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 text-[11px] text-[#EF4444] bg-[#EF4444]/20 px-2 py-0.5 rounded border border-[#EF4444]/40 font-bold animate-pulse">
-                          <AlertTriangle className="w-3 h-3" /> 差异
-                        </span>
-                      )}
-                    </td>
-
-                    {/* 操作动作 */}
-                    <td className="py-2 px-2 text-center space-x-1.5 whitespace-nowrap">
-                      {isHighRisk && (
-                        <button
-                          onClick={() => onAskAiAboutRisk(rec.entityName)}
-                          className="px-2 py-1 bg-[#EF4444]/20 hover:bg-[#EF4444]/30 text-[#ffb4ab] text-[11px] font-semibold rounded border border-[#EF4444]/50 cursor-pointer transition-colors"
-                        >
-                          AI研判
-                        </button>
-                      )}
-                      <button
-                        onClick={() => setSelectedRecordForDetail(rec)}
-                        className="px-2 py-1 bg-[#222a3d] hover:bg-[#334155] text-[#4cd7f6] rounded border border-[#4cd7f6]/30 text-[11px] font-semibold cursor-pointer transition-colors"
-                      >
-                        详情
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+            {/* 次级明细条目 */}
+            <div className="p-3 rounded-lg bg-[#0b1326]/40 border border-[#444653]/20 flex flex-wrap items-center justify-between gap-3 text-[12px]">
+              <div className="flex items-center gap-4 text-[#c4c5d5]">
+                <span>外部真实成本: <b className="text-[#dae2fd]">¥ {taxAnalysis.realCost.toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</b></span>
+                <span>发票事实记录: <b className="text-[#4cd7f6]">{taxAnalysis.invoiceCount}</b> 笔</span>
+                <span>数据真实源: <code className="text-[11px] text-[#8e909f]">{taxAnalysis.sourceOfTruth}</code></span>
+              </div>
+              <div className="text-[11px] text-[#10B981] flex items-center gap-1 font-medium">
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                <span>无旧混合 ORM 表依赖 (legacy_tables_used: false)</span>
+              </div>
+            </div>
+          </div>
+        )}
       </section>
 
       {/* 模块 2.5: RAG 同步出的实际对手方明细（系统内 + 系统外） */}
@@ -675,15 +463,15 @@ export function ProjectDetailView({
           <div className="flex items-center gap-2">
             <span className="text-[11px] text-[#8e909f]">归属</span>
             <div className="flex bg-[#131b2e] rounded-lg border border-[#444653]/30 p-0.5">
-              {(['全部', '系统内', '系统外'] as const).map(value => (
+              {(["全部", "系统内", "系统外"] as const).map(value => (
                 <button
                   key={value}
                   type="button"
                   onClick={() => setCounterpartyFilter(value)}
                   className={`px-2.5 py-1 text-[11px] rounded-md transition-colors ${
                     counterpartyFilter === value
-                      ? 'bg-[#4cd7f6]/15 text-[#4cd7f6] border border-[#4cd7f6]/40'
-                      : 'text-[#8e909f] hover:text-[#dae2fd]'
+                      ? "bg-[#4cd7f6]/15 text-[#4cd7f6] border border-[#4cd7f6]/40"
+                      : "text-[#8e909f] hover:text-[#dae2fd]"
                   }`}
                 >
                   {value}
@@ -693,44 +481,44 @@ export function ProjectDetailView({
           </div>
         </div>
 
-        {counterpartyStatus === 'loading' && (
+        {counterpartyStatus === "loading" && (
           <div className="text-[12px] text-[#8e909f] py-4">对手方数据加载中…</div>
         )}
 
-        {counterpartyStatus === 'failed' && (
+        {counterpartyStatus === "failed" && (
           <div className="text-[12px] text-[#EF4444] bg-[#EF4444]/10 border border-[#EF4444]/30 rounded-lg p-3">
             对手方数据加载失败：{counterpartyMessage}
           </div>
         )}
 
-        {counterpartyStatus === 'empty' && (
+        {counterpartyStatus === "empty" && (
           <div className="text-[12px] text-[#8e909f] bg-[#131b2e] border border-[#444653]/30 rounded-lg p-3">
-            {counterpartyMessage || '该项目当前没有任何合同/发票/收付款数据。'}
+            {counterpartyMessage || "该项目当前没有任何合同/发票/收付款数据。"}
           </div>
         )}
 
-        {counterpartyStatus === 'ready' && (
+        {counterpartyStatus === "ready" && (
           <>
             <div className="grid grid-cols-2 md:grid-cols-5 gap-2 mb-3 text-[11px]">
               <div className="rounded-lg bg-[#131b2e] p-2 border border-[#444653]/30">
                 <p className="text-[#8e909f]">合同金额合计</p>
-                <p className="text-[#dae2fd] font-semibold mt-0.5">¥ {counterpartTotals.contractAmount.toLocaleString('zh-CN')}</p>
+                <p className="text-[#dae2fd] font-semibold mt-0.5">¥ {counterpartTotals.contractAmount.toLocaleString("zh-CN")}</p>
               </div>
               <div className="rounded-lg bg-[#131b2e] p-2 border border-[#444653]/30">
                 <p className="text-[#8e909f]">进项税额合计</p>
-                <p className="text-[#4cd7f6] font-semibold mt-0.5">¥ {counterpartTotals.invoiceInVat.toLocaleString('zh-CN')}</p>
+                <p className="text-[#4cd7f6] font-semibold mt-0.5">¥ {counterpartTotals.invoiceInVat.toLocaleString("zh-CN")}</p>
               </div>
               <div className="rounded-lg bg-[#131b2e] p-2 border border-[#444653]/30">
                 <p className="text-[#8e909f]">销项税额合计</p>
-                <p className="text-[#4cd7f6] font-semibold mt-0.5">¥ {counterpartTotals.invoiceOutVat.toLocaleString('zh-CN')}</p>
+                <p className="text-[#4cd7f6] font-semibold mt-0.5">¥ {counterpartTotals.invoiceOutVat.toLocaleString("zh-CN")}</p>
               </div>
               <div className="rounded-lg bg-[#131b2e] p-2 border border-[#444653]/30">
                 <p className="text-[#8e909f]">对外付款合计</p>
-                <p className="text-[#dae2fd] font-semibold mt-0.5">¥ {counterpartTotals.cashflowOutAmount.toLocaleString('zh-CN')}</p>
+                <p className="text-[#dae2fd] font-semibold mt-0.5">¥ {counterpartTotals.cashflowOutAmount.toLocaleString("zh-CN")}</p>
               </div>
               <div className="rounded-lg bg-[#131b2e] p-2 border border-[#444653]/30">
                 <p className="text-[#8e909f]">外部成本合计</p>
-                <p className="text-[#a78bfa] font-semibold mt-0.5">¥ {counterpartTotals.realCostAmount.toLocaleString('zh-CN')}</p>
+                <p className="text-[#a78bfa] font-semibold mt-0.5">¥ {counterpartTotals.realCostAmount.toLocaleString("zh-CN")}</p>
               </div>
             </div>
 
@@ -775,26 +563,26 @@ export function ProjectDetailView({
                         )}
                       </td>
                       <td className="py-2 px-2 text-center text-[#dae2fd]">{party.contractCount}</td>
-                      <td className="py-2 px-2 text-right text-[#dae2fd]">¥ {party.contractAmount.toLocaleString('zh-CN')}</td>
+                      <td className="py-2 px-2 text-right text-[#dae2fd]">¥ {party.contractAmount.toLocaleString("zh-CN")}</td>
                       <td className="py-2 px-2 text-right">
                         <div className="text-[#dae2fd]">{party.invoiceInCount} 张</div>
-                        <div className="text-[11px] text-[#4cd7f6]">税额 ¥ {party.invoiceInVat.toLocaleString('zh-CN')}</div>
+                        <div className="text-[11px] text-[#4cd7f6]">税额 ¥ {party.invoiceInVat.toLocaleString("zh-CN")}</div>
                       </td>
                       <td className="py-2 px-2 text-right">
                         <div className="text-[#dae2fd]">{party.invoiceOutCount} 张</div>
-                        <div className="text-[11px] text-[#4cd7f6]">税额 ¥ {party.invoiceOutVat.toLocaleString('zh-CN')}</div>
+                        <div className="text-[11px] text-[#4cd7f6]">税额 ¥ {party.invoiceOutVat.toLocaleString("zh-CN")}</div>
                       </td>
                       <td className="py-2 px-2 text-right">
-                        <div className="text-[#dae2fd]">收 ¥ {party.cashflowInAmount.toLocaleString('zh-CN')}</div>
-                        <div className="text-[11px] text-[#ffb4ab]">付 ¥ {party.cashflowOutAmount.toLocaleString('zh-CN')}</div>
+                        <div className="text-[#dae2fd]">收 ¥ {party.cashflowInAmount.toLocaleString("zh-CN")}</div>
+                        <div className="text-[11px] text-[#ffb4ab]">付 ¥ {party.cashflowOutAmount.toLocaleString("zh-CN")}</div>
                       </td>
                       <td className="py-2 px-2 text-right">
                         <div className="text-[#a78bfa]">{party.realCostCount} 笔</div>
-                        <div className="text-[11px] text-[#a78bfa]">¥ {party.realCostAmount.toLocaleString('zh-CN')}</div>
+                        <div className="text-[11px] text-[#a78bfa]">¥ {party.realCostAmount.toLocaleString("zh-CN")}</div>
                       </td>
                       <td className="py-2 px-2 text-right">
                         <div className="text-[#dae2fd]">{party.fulfillmentCount} 条</div>
-                        <div className="text-[11px] text-[#8e909f]">¥ {party.fulfillmentAmount.toLocaleString('zh-CN')}</div>
+                        <div className="text-[11px] text-[#8e909f]">¥ {party.fulfillmentAmount.toLocaleString("zh-CN")}</div>
                       </td>
                     </tr>
                   ))}
@@ -805,7 +593,7 @@ export function ProjectDetailView({
         )}
       </section>
 
-      {/* 模块 3: 成本渗透率矩阵 (工作任务分解结构 - 还原 Image 1 底部表格) */}
+      {/* 模块 3: 成本渗透率矩阵 (工作任务分解结构) */}
       <section className="glass-panel rounded-xl p-5">
         <div className="flex justify-between items-center mb-4 pb-3 border-b border-[#444653]/30">
           <div>
@@ -832,29 +620,29 @@ export function ProjectDetailView({
             <tbody className="divide-y divide-[#444653]/20">
               {effectiveCostItems.map((item) => {
                 const isOverThreshold = item.variancePercent >= stopPayThreshold;
-                const isWarning = item.status === '超支预警' || isOverThreshold;
-                const isSaved = item.status === '节约支出';
+                const isWarning = item.status === "超支预警" || isOverThreshold;
+                const isSaved = item.status === "节约支出";
 
                 return (
                   <tr 
                     key={item.id}
                     className={`hover:bg-[#222a3d]/40 transition-colors ${
-                      item.level === 2 ? 'bg-[#171f33]/30' : 'font-semibold'
-                    } ${isOverThreshold ? 'bg-[#EF4444]/5' : ''}`}
+                      item.level === 2 ? "bg-[#171f33]/30" : "font-semibold"
+                    } ${isOverThreshold ? "bg-[#EF4444]/5" : ""}`}
                   >
-                    <td className={`py-3 px-4 whitespace-nowrap ${item.level === 2 ? 'pl-8 text-[#dae2fd]' : 'text-[#dde1ff]'}`}>
-                      {item.code} {item.level === 1 ? `(${item.name})` : ''}
+                    <td className={`py-3 px-4 whitespace-nowrap ${item.level === 2 ? "pl-8 text-[#dae2fd]" : "text-[#dde1ff]"}`}>
+                      {item.code} {item.level === 1 ? `(${item.name})` : ""}
                     </td>
                     <td className="py-3 px-4 text-right text-[#8e909f] whitespace-nowrap">
-                      ¥ {item.plannedAmount.toLocaleString('zh-CN')}
+                      ¥ {item.plannedAmount.toLocaleString("zh-CN")}
                     </td>
                     <td className="py-3 px-4 text-right text-[#dae2fd] whitespace-nowrap">
-                      ¥ {item.actualAmount.toLocaleString('zh-CN')}
+                      ¥ {item.actualAmount.toLocaleString("zh-CN")}
                     </td>
                     <td className={`py-3 px-4 text-right font-bold whitespace-nowrap ${
-                      isWarning ? 'text-[#EF4444]' : isSaved ? 'text-[#10B981]' : 'text-[#4cd7f6]'
+                      isWarning ? "text-[#EF4444]" : isSaved ? "text-[#10B981]" : "text-[#4cd7f6]"
                     }`}>
-                      {item.variancePercent > 0 ? `+${item.variancePercent}%` : item.variancePercent === 0 ? '持平' : `${item.variancePercent}%`}
+                      {item.variancePercent > 0 ? `+${item.variancePercent}%` : item.variancePercent === 0 ? "持平" : `${item.variancePercent}%`}
                     </td>
                     <td className="py-3 px-4 text-[#c4c5d5] whitespace-nowrap">
                       {item.manager}
@@ -862,14 +650,14 @@ export function ProjectDetailView({
                     <td className="py-3 px-4 text-center whitespace-nowrap">
                       <span className={`text-[11px] px-2 py-0.5 rounded border inline-flex items-center gap-1 whitespace-nowrap ${
                         isOverThreshold
-                          ? 'bg-[#EF4444]/20 text-[#ffb4ab] border-[#EF4444]/40 font-bold animate-pulse'
+                          ? "bg-[#EF4444]/20 text-[#ffb4ab] border-[#EF4444]/40 font-bold animate-pulse"
                           : isWarning 
-                          ? 'bg-[#EF4444]/15 text-[#EF4444] border-[#EF4444]/30' 
+                          ? "bg-[#EF4444]/15 text-[#EF4444] border-[#EF4444]/30" 
                           : isSaved 
-                          ? 'bg-[#10B981]/15 text-[#10B981] border-[#10B981]/30' 
-                          : 'bg-[#03b5d3]/15 text-[#4cd7f6] border-[#4cd7f6]/30'
+                          ? "bg-[#10B981]/15 text-[#10B981] border-[#10B981]/30" 
+                          : "bg-[#03b5d3]/15 text-[#4cd7f6] border-[#4cd7f6]/30"
                       }`}>
-                        {isOverThreshold ? `【已触发止付令】` : item.status}
+                        {isOverThreshold ? "【已触发止付令】" : item.status}
                       </span>
                     </td>
                   </tr>
@@ -879,115 +667,6 @@ export function ProjectDetailView({
           </table>
         </div>
       </section>
-
-      {/* 弹窗：单条税务记录详情与四流合一核查穿透 */}
-      {selectedRecordForDetail && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-[#171f33] border border-[#4cd7f6]/50 rounded-xl max-w-xl w-full p-6 shadow-2xl space-y-4">
-            <div className="flex justify-between items-start pb-3 border-b border-[#444653]/40">
-              <div>
-                <h4 className="text-[17px] font-bold text-[#dae2fd]">{selectedRecordForDetail.entityName}</h4>
-                <p className="text-[12px] text-[#4cd7f6]">{selectedRecordForDetail.taxCategory} · {selectedRecordForDetail.filingPeriod}</p>
-              </div>
-              <button 
-                onClick={() => setSelectedRecordForDetail(null)}
-                className="text-[#8e909f] hover:text-[#dae2fd] text-[18px] cursor-pointer"
-              >
-                ✕
-              </button>
-            </div>
-
-            {/* 核心涉税信息 */}
-            <div className="grid grid-cols-2 gap-3 text-[13px] font-mono-num bg-[#131b2e] p-3 rounded-lg border border-[#444653]/30">
-              <div>
-                <span className="text-[#8e909f]">申报计税金额:</span>
-                <p className="text-[#dae2fd] font-bold">¥ {selectedRecordForDetail.declareAmount.toLocaleString('zh-CN')} 元</p>
-              </div>
-              <div>
-                <span className="text-[#8e909f]">应纳税额:</span>
-                <p className="text-[#4cd7f6] font-bold">¥ {selectedRecordForDetail.taxAmount.toLocaleString('zh-CN')} 元</p>
-              </div>
-              <div>
-                <span className="text-[#8e909f]">凭证/发票号:</span>
-                <p className="text-[#dae2fd]">{selectedRecordForDetail.invoiceCode || '暂无发票号'}</p>
-              </div>
-              <div>
-                <span className="text-[#8e909f]">当前状态:</span>
-                <p className="text-[#F59E0B] font-bold">{selectedRecordForDetail.status}</p>
-              </div>
-            </div>
-
-            {/* 四流合一核查清单 */}
-            <div>
-              <h5 className="text-[13px] font-bold text-[#dae2fd] mb-2 flex items-center gap-1.5">
-                <FileCheck2 className="w-4 h-4 text-[#4cd7f6]" />
-                <span>四流合一链条交叉比对结论</span>
-              </h5>
-              <div className="grid grid-cols-2 gap-2 text-[12px]">
-                <div className={`p-2 rounded border flex items-center justify-between ${
-                  selectedRecordForDetail.fourFlowsCheck.contractMatch 
-                    ? 'bg-[#10B981]/10 border-[#10B981]/30 text-[#10B981]' 
-                    : 'bg-[#EF4444]/10 border-[#EF4444]/30 text-[#EF4444]'
-                }`}>
-                  <span>合同签约主体一致性</span>
-                  <span>{selectedRecordForDetail.fourFlowsCheck.contractMatch ? '符合' : '不一致'}</span>
-                </div>
-                <div className={`p-2 rounded border flex items-center justify-between ${
-                  selectedRecordForDetail.fourFlowsCheck.invoiceMatch 
-                    ? 'bg-[#10B981]/10 border-[#10B981]/30 text-[#10B981]' 
-                    : 'bg-[#EF4444]/10 border-[#EF4444]/30 text-[#EF4444]'
-                }`}>
-                  <span>发票开具品目与税率</span>
-                  <span>{selectedRecordForDetail.fourFlowsCheck.invoiceMatch ? '符合' : '异常'}</span>
-                </div>
-                <div className={`p-2 rounded border flex items-center justify-between ${
-                  selectedRecordForDetail.fourFlowsCheck.paymentMatch 
-                    ? 'bg-[#10B981]/10 border-[#10B981]/30 text-[#10B981]' 
-                    : 'bg-[#EF4444]/10 border-[#EF4444]/30 text-[#EF4444]'
-                }`}>
-                  <span>银行公对公资金结算流</span>
-                  <span>{selectedRecordForDetail.fourFlowsCheck.paymentMatch ? '符合' : '存疑'}</span>
-                </div>
-                <div className={`p-2 rounded border flex items-center justify-between ${
-                  selectedRecordForDetail.fourFlowsCheck.logisticsMatch 
-                    ? 'bg-[#10B981]/10 border-[#10B981]/30 text-[#10B981]' 
-                    : 'bg-[#EF4444]/10 border-[#EF4444]/30 text-[#EF4444]'
-                }`}>
-                  <span>实物仓储与运输过磅单</span>
-                  <span>{selectedRecordForDetail.fourFlowsCheck.logisticsMatch ? '符合' : '缺失'}</span>
-                </div>
-              </div>
-            </div>
-
-            {/* 风险研判说明 */}
-            {selectedRecordForDetail.riskDescription && (
-              <div className="p-3 rounded-lg bg-[#222a3d] border border-[#444653]/40 text-[12px]">
-                <p className="font-bold text-[#ffa583] mb-1">风险研判与审查意见：</p>
-                <p className="text-[#dae2fd] leading-relaxed">{selectedRecordForDetail.riskDescription}</p>
-              </div>
-            )}
-
-            <div className="flex justify-end gap-3 pt-2">
-              <button
-                onClick={() => setSelectedRecordForDetail(null)}
-                className="px-4 py-2 bg-[#2d3449] hover:bg-[#31394d] text-[#dae2fd] text-[13px] rounded-lg cursor-pointer"
-              >
-                关闭
-              </button>
-              <button
-                onClick={() => {
-                  const name = selectedRecordForDetail.entityName;
-                  setSelectedRecordForDetail(null);
-                  onAskAiAboutRisk(name);
-                }}
-                className="px-4 py-2 bg-[#1e40af] hover:bg-[#1e40af]/80 text-[#dde1ff] text-[13px] font-semibold rounded-lg flex items-center gap-1.5 cursor-pointer"
-              >
-                <span>呼叫智能助手深度诊断</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* 删除项目数据危险操作确认弹窗 */}
       {showDeleteConfirmModal && (
@@ -1032,7 +711,7 @@ export function ProjectDetailView({
                 value={deletePassword}
                 onChange={(e) => setDeletePassword(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !isDeletingData && deletePassword.trim()) {
+                  if (e.key === "Enter" && !isDeletingData && deletePassword.trim()) {
                     void handleDeleteProjectData();
                   }
                 }}

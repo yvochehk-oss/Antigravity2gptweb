@@ -261,7 +261,6 @@ export interface ProjectItem {
   managerName: string;        // 项目经理
   location: string;           // 项目所在地
   teamAvatars: string[];      // 团队成员头像
-  taxRecords: TaxLedgerRecord[]; // 关联税务台账
   costItems: CostBreakdownItem[];// 关联成本分解
 }
 

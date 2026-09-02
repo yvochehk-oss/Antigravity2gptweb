@@ -266,7 +266,6 @@ test('mapProjectSummary keeps only values returned by the project API', () => {
   assert.equal(project.spentAmount, 250);
   assert.equal(project.progressPercent, 40);
   assert.equal(project.taxRiskGrade, '未知');
-  assert.equal(project.taxRecords.length, 0);
   assert.equal(project.managerName, '—');
 });
 
@@ -897,4 +896,16 @@ test('fetchProjectCounterparties validates project id', async () => {
     () => fetchProjectCounterparties(0),
     error => error instanceof ApiError && error.status === 400,
   );
+});
+
+test("project detail consumes canonical project tax analysis instead of legacy taxRecords", () => {
+  const detail = readFileSync(
+    new URL("./components/ProjectDetailView.tsx", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(detail, /fetchProjectTaxAnalysis/);
+  assert.equal(detail.includes("project.taxRecords"), false);
+  assert.equal(detail.includes("fourFlowsCheck"), false);
+  assert.match(detail, /项目全周期税务分析/);
 });
