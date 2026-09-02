@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   Building2,
+  Download,
+  Database,
+  Compass,
   AlertTriangle,
   ArrowLeft,
   FileCheck2,
@@ -29,16 +32,16 @@ export function ProjectDetailView({
   projects,
   onSelectProject,
   onBack,
-  onOpenNewRecordModal: _onOpenNewRecordModal,
-  onOpenExportModal: _onOpenExportModal,
+  onOpenNewRecordModal,
+  onOpenExportModal,
   onAskAiAboutRisk: _onAskAiAboutRisk,
-  onGoToPlanning: _onGoToPlanning,
+  onGoToPlanning,
   onProjectDataDeleted,
   settings
 }: ProjectDetailViewProps) {
   // 项目全周期税务分析状态 (Canonical Facts SSOT)
   const [taxAnalysis, setTaxAnalysis] = useState<ProjectTaxAnalysisRecord | null>(null);
-  const [taxAnalysisStatus, setTaxAnalysisStatus] = useState<"loading" | "ready" | "empty" | "failed">("loading");
+  const [taxAnalysisStatus, setTaxAnalysisStatus] = useState<"loading" | "ready" | "degraded" | "empty" | "failed">("loading");
   const [taxAnalysisMessage, setTaxAnalysisMessage] = useState<string>("");
 
   // 对手方状态
@@ -51,7 +54,7 @@ export function ProjectDetailView({
   const [showDeleteConfirmModal, setShowDeleteConfirmModal] = useState<boolean>(false);
   const [deletePassword, setDeletePassword] = useState<string>("");
   const [isDeletingData, setIsDeletingData] = useState<boolean>(false);
-  const [_deleteResultNotice, setDeleteResultNotice] = useState<string | null>(null);
+  const [deleteResultNotice, setDeleteResultNotice] = useState<string | null>(null);
   const [deleteErrorNotice, setDeleteErrorNotice] = useState<string | null>(null);
 
   const handleDeleteProjectData = async () => {
@@ -84,7 +87,7 @@ export function ProjectDetailView({
     }
   };
 
-  // 1. 加载项目税务分析 (Canonical Facts SSOT)
+  // 1. 加载项目税务分析 (Canonical Facts SSOT) - 严格区分 READY / DEGRADED
   useEffect(() => {
     const pid = project.numericId;
     if (!Number.isInteger(pid) || pid <= 0) {
@@ -100,8 +103,13 @@ export function ProjectDetailView({
       .then(res => {
         if (res.item) {
           setTaxAnalysis(res.item);
-          setTaxAnalysisStatus("ready");
-          setTaxAnalysisMessage("");
+          if (res.status === "DEGRADED") {
+            setTaxAnalysisStatus("degraded");
+            setTaxAnalysisMessage(res.message || "项目税务分析处于降级状态 (部分事实数据可能存在缺口)");
+          } else {
+            setTaxAnalysisStatus("ready");
+            setTaxAnalysisMessage("");
+          }
         } else {
           setTaxAnalysis(null);
           setTaxAnalysisStatus("empty");
@@ -282,8 +290,43 @@ export function ProjectDetailView({
           )}
         </div>
 
-        <div className="flex items-center gap-2">
-          {/* 清空项目数据按钮 */}
+        {/* 顶部右侧业务操作按钮组 */}
+        <div className="flex flex-wrap items-center gap-2.5">
+          {/* 1. 财税筹划沙盘 */}
+          <button
+            onClick={() => {
+              if (onGoToPlanning) {
+                onGoToPlanning();
+              }
+            }}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-[#8b5cf6]/20 hover:bg-[#8b5cf6]/30 text-[#c4b5fd] text-[12px] font-semibold rounded-lg border border-[#a78bfa]/40 transition-all cursor-pointer shadow-[0_0_10px_rgba(139,92,246,0.2)]"
+            title="进入两层财税筹划沙盘与确定性计算引擎"
+          >
+            <Compass className="w-3.5 h-3.5 text-[#a78bfa]" />
+            <span>🧭 财税筹划沙盘</span>
+          </button>
+
+          {/* 2. RAG 知识库检索同步 */}
+          <button
+            onClick={onOpenNewRecordModal}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-[#03b5d3]/20 hover:bg-[#03b5d3]/30 text-[#4cd7f6] text-[12px] font-semibold rounded-lg border border-[#4cd7f6]/40 transition-all cursor-pointer"
+            title="检索并同步 RAG 底层凭证知识库"
+          >
+            <Database className="w-3.5 h-3.5" />
+            <span>RAG 知识库检索同步</span>
+          </button>
+
+          {/* 3. 导出项目专报 */}
+          <button
+            onClick={onOpenExportModal}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-[#1e40af]/60 hover:bg-[#1e40af] text-[#dde1ff] text-[12px] font-semibold rounded-lg border border-[#4cd7f6]/30 transition-all cursor-pointer"
+            title="导出当前项目的完整财税与成本专报"
+          >
+            <Download className="w-3.5 h-3.5 text-[#4cd7f6]" />
+            <span>导出项目专报</span>
+          </button>
+
+          {/* 4. 清空项目数据 */}
           <button
             onClick={() => {
               setDeleteErrorNotice(null);
@@ -298,6 +341,13 @@ export function ProjectDetailView({
           </button>
         </div>
       </div>
+
+      {deleteResultNotice && (
+        <div className="mb-4 flex items-start justify-between gap-3 rounded-lg border border-[#10B981]/30 bg-[#10B981]/10 px-3 py-2 text-[12px] text-[#6ee7b7]" role="status">
+          <span>{deleteResultNotice}</span>
+          <button type="button" onClick={() => setDeleteResultNotice(null)} className="text-[#8e909f] hover:text-[#dae2fd]">关闭</button>
+        </div>
+      )}
 
       {/* 模块 1: 项目概况与基础指标卡片 */}
       <section className="glass-panel rounded-xl p-5 space-y-4">
@@ -356,9 +406,15 @@ export function ProjectDetailView({
           </div>
 
           <div className="flex items-center gap-2">
-            <span className="text-[11px] px-2 py-0.5 rounded bg-[#10B981]/15 text-[#10B981] border border-[#10B981]/30 font-medium">
-              🛡️ Canonical SSOT 事实源
-            </span>
+            {taxAnalysisStatus === "degraded" ? (
+              <span className="text-[11px] px-2 py-0.5 rounded bg-[#F59E0B]/15 text-[#F59E0B] border border-[#F59E0B]/30 font-medium">
+                ⚠️ 数据降级 (DEGRADED)
+              </span>
+            ) : (
+              <span className="text-[11px] px-2 py-0.5 rounded bg-[#10B981]/15 text-[#10B981] border border-[#10B981]/30 font-medium">
+                🛡️ Canonical SSOT 事实源
+              </span>
+            )}
           </div>
         </div>
 
@@ -382,8 +438,23 @@ export function ProjectDetailView({
           </div>
         )}
 
-        {taxAnalysisStatus === "ready" && taxAnalysis && (
+        {(taxAnalysisStatus === "ready" || taxAnalysisStatus === "degraded") && taxAnalysis && (
           <div className="space-y-4 font-mono-num">
+            {/* 降级状态数据缺口提示 (Data Gaps) */}
+            {taxAnalysisStatus === "degraded" && taxAnalysis.dataGaps.length > 0 && (
+              <div className="p-3 rounded-lg bg-[#F59E0B]/10 border border-[#F59E0B]/30 text-[12px] text-[#F59E0B] font-sans">
+                <p className="font-bold flex items-center gap-1.5 mb-1">
+                  <AlertTriangle className="w-3.5 h-3.5 text-[#F59E0B]" />
+                  <span>数据完整性缺口提示 (Data Gaps)：</span>
+                </p>
+                <ul className="list-disc list-inside space-y-0.5 text-[#dae2fd]/80">
+                  {taxAnalysis.dataGaps.map((gap, i) => (
+                    <li key={i}>{gap}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
             {/* 核心指标卡片矩阵 */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               {/* 销项金额与税额 */}
