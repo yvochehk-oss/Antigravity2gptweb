@@ -545,30 +545,52 @@ test('fetchEntityTaxLedger maps deterministic entity ledger rows with pagination
       message: '',
       items: [{
         id: 'A01-2026-08',
+        entity_id: 1,
+        reporting_party_id: 1,
+        calculation_run_id: 101,
         entity_code: 'A01',
         entity_name: '真实主体',
         business_role: '施工',
-        revenue: '100.5',
-        vat_payable: '2.5',
+        legal_entity: true,
         period: '2026-08',
-        output_vat: '9.0',
-        input_vat: '6.5',
-        real_cost: '80.0',
-        estimated_profit: '20.5',
-        estimated_cit: '5.125',
-        generated: true,
+        scope: 'LEGAL_ENTITY_STATUTORY',
+        is_filing_basis: true,
+        source_of_truth: 'entity_vat_ledgers',
+        opening_input_credit: 0,
+        output_vat: 9.0,
+        input_vat: 6.5,
+        tax_prepayment: 0,
+        vat_payable_before_prepayment: 2.5,
+        closing_input_credit: 0,
+        vat_payable_after_prepayment: 2.5,
+        unapplied_tax_prepayment: 0,
+        run_kind: 'NORMAL',
+        run_status: 'SUCCEEDED',
+        ruleset_version: 'v3',
+        period_state: 'OPEN',
+        input_snapshot_sha256: 'sha-in',
+        result_sha256: 'sha-out',
+        legal_entity_vat_identity_ok: true,
+        lineage_components: [{
+          component_type: 'TAX_INVOICES',
+          amount: 2.5,
+        }],
         data_status: 'READY',
+        data_gaps: [],
+        trusted: true,
       }],
       total: 1,
       has_more: false,
     });
   }, async () => {
     const result = await fetchEntityTaxLedger();
-    assert.equal(result.items[0].revenue, 100.5);
-    assert.equal(result.items[0].vatPayable, 2.5);
-    assert.equal(result.items[0].outputVat, 9.0);
-    assert.equal(result.items[0].inputVat, 6.5);
-    assert.equal(result.items[0].generated, true);
+    const item = result.items[0];
+    assert.equal(item.entityId, item.reportingPartyId);
+    assert.equal(item.scope, 'LEGAL_ENTITY_STATUTORY');
+    assert.equal(item.isFilingBasis, true);
+    assert.equal(item.sourceOfTruth, 'entity_vat_ledgers');
+    assert.equal(item.vatPayableAfterPrepayment, 2.5);
+    assert.equal(item.lineageComponents.length, 1);
   });
 });
 
@@ -582,15 +604,27 @@ test('fetchProjectTaxAnalysis maps project tax projection backed by canonical fa
         project_id: 15,
         project_code: 'PRJ-15',
         project_name: '测试项目15',
+        scope: 'PROJECT_BOUNDARY',
+        is_filing_basis: false,
         out_invoice_net: 1000,
         out_invoice_vat: 90,
         in_invoice_net: 600,
         in_invoice_vat: 54,
         deductible_input_vat: 54,
+        nondeductible_input_vat: 0,
+        pending_input_vat: 0,
+        signed_vat_position: 36,
+        internal_eliminated_net: 0,
+        internal_eliminated_vat: 0,
+        input_vat_accounted: 54,
+        input_vat_unaccounted: 0,
+        input_vat_identity_ok: true,
         real_cost: 600,
         invoice_count: 5,
         source_of_truth: 'analytics_canonical_facts_current',
         legacy_tables_used: false,
+        real_cost_basis: 'PAYMENT_CONFIRMED',
+        data_gaps: [],
       }],
       total: 1,
     });
@@ -598,6 +632,10 @@ test('fetchProjectTaxAnalysis maps project tax projection backed by canonical fa
     const result = await fetchProjectTaxAnalysis(15);
     assert.equal(result.status, 'READY');
     assert.equal(result.item?.projectId, 15);
+    assert.equal(result.item?.scope, 'PROJECT_BOUNDARY');
+    assert.equal(result.item?.isFilingBasis, false);
+    assert.equal(result.item?.signedVatPosition, 36);
+    assert.equal(result.item?.inputVatIdentityOk, true);
     assert.equal(result.item?.outInvoiceNet, 1000);
     assert.equal(result.item?.realCost, 600);
     assert.equal(result.item?.legacyTablesUsed, false);
