@@ -63,8 +63,8 @@ describe('DashboardView dual-core executive summaries', () => {
 
   it('keeps the page title independent from the action controls', () => {
     const { container } = renderDashboard();
-    const title = container.querySelector('[data-page-title="dashboard"]');
-    const controls = container.querySelector('[data-page-controls="dashboard"]');
+    const title = container.querySelector<HTMLElement>('[data-page-title="dashboard"]');
+    const controls = container.querySelector<HTMLElement>('[data-page-controls="dashboard"]');
     expect(title).toBeInTheDocument();
     expect(controls).toBeInTheDocument();
     expect(title?.parentElement).toBe(controls?.parentElement);
