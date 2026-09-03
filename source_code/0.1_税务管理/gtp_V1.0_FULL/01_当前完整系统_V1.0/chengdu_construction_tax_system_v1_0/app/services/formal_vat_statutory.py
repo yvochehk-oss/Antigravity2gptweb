@@ -188,7 +188,7 @@ def get_formal_vat_statutory_resource(
         {"reporting_party_id": party_id, "tax_period": tax_period},
     ).mappings().all()
 
-    if not rows or rows[0]["current_run_id"] is None:
+    if not rows:
         raise FormalVatStatutoryResourceNotFoundError(
             f"no official VAT resource for {wanted} {period}"
         )
@@ -198,6 +198,11 @@ def get_formal_vat_statutory_resource(
         )
 
     row = rows[0]
+    if row["current_run_id"] is None:
+        raise FormalVatStatutoryResourceIntegrityError(
+            "official VAT period state has no current calculation run"
+        )
+
     current_run_id = int(row["current_run_id"])
     expected_period = tax_period.isoformat()
 

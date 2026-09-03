@@ -21,7 +21,7 @@ def _summarize_fact_periods(
     *,
     entity_code: str,
 ) -> dict[str, Any]:
-    """Pure period aggregation used by the DB adapter and regression tests."""
+    """Pure period aggregation used by regression tests and compatibility callers."""
     wanted = _code(entity_code)
     counts: Counter[str] = Counter()
     unperiodized_fact_count = 0
@@ -59,7 +59,12 @@ def _summarize_fact_periods(
 
 
 def get_legal_entity_fact_periods(db, entity_code: str) -> dict[str, Any]:
-    """Return actual invoice periods for one active V3 legal entity."""
+    """Return actual invoice periods for one active V3 legal entity.
+
+    Entity filtering and period aggregation stay inside PostgreSQL so response
+    cost scales with the selected legal entity's period cardinality instead of
+    transferring every canonical invoice payload into the application process.
+    """
     wanted = _code(entity_code)
     exists = db.execute(
         text(
@@ -78,18 +83,68 @@ def get_legal_entity_fact_periods(db, entity_code: str) -> dict[str, Any]:
     if exists is None:
         raise LegalEntityNotFoundError(wanted)
 
-    facts = [
-        dict(row)
-        for row in db.execute(
-            text(
-                "SELECT fact_id, payload "
-                "FROM analytics_canonical_facts_current "
-                "WHERE fact_type = 'invoice' "
-                "ORDER BY business_key, fact_version"
-            )
-        ).mappings().all()
-    ]
-    return _summarize_fact_periods(facts, entity_code=wanted)
+    rows = db.execute(
+        text(
+            "WITH scoped AS ("
+            "SELECT CASE "
+            "WHEN length(entity_facts.raw_period) >= 7 "
+            "AND substr(entity_facts.raw_period, 5, 1) = '-' "
+            "THEN left(entity_facts.raw_period, 7) "
+            "ELSE NULL END AS fact_period "
+            "FROM ("
+            "SELECT btrim(COALESCE("
+            "NULLIF(payload::jsonb ->> 'invoice_date', ''), "
+            "payload::jsonb ->> 'period', ''"
+            ")) AS raw_period "
+            "FROM analytics_canonical_facts_current "
+            "WHERE fact_type = 'invoice' "
+            "AND ("
+            "UPPER(btrim(COALESCE("
+            "NULLIF(payload::jsonb ->> 'seller_entity_code', ''), "
+            "payload::jsonb ->> 'seller_code', ''"
+            "))) = :entity_code "
+            "OR UPPER(btrim(COALESCE("
+            "NULLIF(payload::jsonb ->> 'buyer_entity_code', ''), "
+            "payload::jsonb ->> 'buyer_code', ''"
+            "))) = :entity_code"
+            ")"
+            ") AS entity_facts"
+            ") "
+            "SELECT fact_period AS period, COUNT(*) AS fact_count "
+            "FROM scoped "
+            "GROUP BY fact_period "
+            "ORDER BY (fact_period IS NULL), COUNT(*) DESC, fact_period DESC"
+        ),
+        {"entity_code": wanted},
+    ).mappings().all()
+
+    periods: list[dict[str, Any]] = []
+    total_fact_count = 0
+    unperiodized_fact_count = 0
+    for row in rows:
+        fact_count = int(row["fact_count"] or 0)
+        period = str(row["period"] or "").strip()
+        if not period:
+            unperiodized_fact_count += fact_count
+            continue
+        total_fact_count += fact_count
+        periods.append(
+            {
+                "period": period,
+                "fact_count": fact_count,
+                "is_primary": len(periods) == 0,
+            }
+        )
+
+    return {
+        "status": "READY" if periods else "EMPTY",
+        "entity_code": wanted,
+        "source_of_truth": _SOURCE,
+        "fact_type": "invoice",
+        "total_fact_count": total_fact_count,
+        "unperiodized_fact_count": unperiodized_fact_count,
+        "periods": periods,
+    }
 
 
 __all__ = [

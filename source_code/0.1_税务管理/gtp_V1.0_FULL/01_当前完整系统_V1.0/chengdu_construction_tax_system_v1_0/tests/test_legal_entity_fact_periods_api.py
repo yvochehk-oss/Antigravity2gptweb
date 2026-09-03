@@ -3,7 +3,10 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
-from app.services.legal_entity_fact_periods import _summarize_fact_periods
+from app.services.legal_entity_fact_periods import (
+    _summarize_fact_periods,
+    get_legal_entity_fact_periods,
+)
 
 
 def _login(client: TestClient) -> None:
@@ -54,6 +57,58 @@ def test_fact_period_summary_returns_empty_without_fabricating_periods():
     assert result["periods"] == []
     assert result["total_fact_count"] == 0
     assert result["unperiodized_fact_count"] == 1
+
+
+def test_fact_period_db_adapter_pushes_entity_filter_and_aggregation_into_sql():
+    class _ExistsResult:
+        @staticmethod
+        def scalar_one_or_none():
+            return 88
+
+    class _RowsResult:
+        @staticmethod
+        def mappings():
+            return _RowsResult()
+
+        @staticmethod
+        def all():
+            return [
+                {"period": "2026-03", "fact_count": 2},
+                {"period": "2025-08", "fact_count": 1},
+                {"period": None, "fact_count": 1},
+            ]
+
+    class _RecordingDb:
+        def __init__(self):
+            self.calls: list[tuple[str, dict[str, str]]] = []
+
+        def execute(self, statement, params=None):
+            self.calls.append((str(statement), dict(params or {})))
+            return _ExistsResult() if len(self.calls) == 1 else _RowsResult()
+
+    db = _RecordingDb()
+    result = get_legal_entity_fact_periods(db, "a08")
+
+    assert len(db.calls) == 2
+    sql, params = db.calls[1]
+    assert params == {"entity_code": "A08"}
+    assert "seller_entity_code" in sql
+    assert "buyer_entity_code" in sql
+    assert ":entity_code" in sql
+    assert "GROUP BY fact_period" in sql
+    assert "ORDER BY business_key, fact_version" not in sql
+    assert result == {
+        "status": "READY",
+        "entity_code": "A08",
+        "source_of_truth": "analytics_canonical_facts_current",
+        "fact_type": "invoice",
+        "total_fact_count": 3,
+        "unperiodized_fact_count": 1,
+        "periods": [
+            {"period": "2026-03", "fact_count": 2, "is_primary": True},
+            {"period": "2025-08", "fact_count": 1, "is_primary": False},
+        ],
+    }
 
 
 def test_fact_period_api_exposes_canonical_invoice_period_contract(seeded_app, monkeypatch):

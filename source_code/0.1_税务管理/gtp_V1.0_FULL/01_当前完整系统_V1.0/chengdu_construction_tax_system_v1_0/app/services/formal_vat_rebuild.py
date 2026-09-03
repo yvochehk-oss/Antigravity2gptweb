@@ -16,6 +16,7 @@ remain atomic.
 """
 from __future__ import annotations
 
+from dataclasses import asdict
 from datetime import date, datetime, timezone
 from decimal import Decimal
 import hashlib
@@ -352,7 +353,7 @@ def make_formal_vat_rebuild_plan(
         "input_snapshot_sha256": _canonical_hash(snapshot),
         "period_state": _state_summary(db, party_id, tax_period),
         "source_snapshot": snapshot,
-        "calculation": calculation.__dict__,
+        "calculation": asdict(calculation),
     }
     return {**core, "plan_digest": _canonical_hash(core)}
 

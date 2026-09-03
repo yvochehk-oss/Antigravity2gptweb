@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.db import engine
 from app.services.formal_vat_statutory import (
+    FormalVatStatutoryResourceIntegrityError,
     FormalVatStatutoryResourceNotFoundError,
     get_formal_vat_statutory_resource,
 )
@@ -208,6 +209,51 @@ def test_formal_vat_missing_period_fails_closed_without_rebuild(seeded_app):
             tx.rollback()
 
 
+def test_formal_vat_existing_state_without_current_run_is_integrity_error(seeded_app):
+    with engine.connect() as conn:
+        tx = conn.begin()
+        session = Session(bind=conn, expire_on_commit=False)
+        try:
+            party = Party(
+                code="FVAT-FVA3",
+                name="Formal VAT FVA3",
+                short_name="FVA3",
+                party_type="internal",
+                active=True,
+            )
+            session.add(party)
+            session.flush()
+            session.add(
+                InternalEntity(
+                    party_id=party.id,
+                    canonical_code="FVA3",
+                    business_role="A",
+                    legal_entity=True,
+                    active=True,
+                )
+            )
+            session.add(
+                TaxPeriodState(
+                    reporting_party_id=party.id,
+                    tax_type="VAT",
+                    tax_period=date(2026, 4, 1),
+                    state="OPEN",
+                    current_run_id=None,
+                    state_version=1,
+                )
+            )
+            session.flush()
+
+            with pytest.raises(
+                FormalVatStatutoryResourceIntegrityError,
+                match="no current calculation run",
+            ):
+                get_formal_vat_statutory_resource(session, "FVA3", "2026-04")
+        finally:
+            session.close()
+            tx.rollback()
+
+
 def test_formal_vat_api_exposes_single_entity_single_period_contract(seeded_app, monkeypatch):
     from app.main import app
     import app.routers.legal_entity_operating_projection as router_module
@@ -288,3 +334,28 @@ def test_formal_vat_api_maps_missing_resource_to_explicit_404(seeded_app, monkey
 
     assert response.status_code == 404
     assert response.json()["detail"]["code"] == "FORMAL_VAT_STATUTORY_RESOURCE_NOT_FOUND"
+
+
+def test_formal_vat_api_maps_broken_current_pointer_to_explicit_409(seeded_app, monkeypatch):
+    from app.main import app
+    import app.routers.legal_entity_operating_projection as router_module
+
+    def fake_invalid(db, entity_code: str, period: str):
+        raise FormalVatStatutoryResourceIntegrityError(
+            "official VAT period state has no current calculation run"
+        )
+
+    monkeypatch.setattr(router_module, "get_formal_vat_statutory_resource", fake_invalid)
+    client = TestClient(app)
+    _login(client)
+
+    response = client.get(
+        "/api/v3/legal-entities/A08/statutory-vat",
+        params={"period": "2026-04"},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == {
+        "code": "FORMAL_VAT_STATUTORY_RESOURCE_INVALID",
+        "detail": "official VAT period state has no current calculation run",
+    }
