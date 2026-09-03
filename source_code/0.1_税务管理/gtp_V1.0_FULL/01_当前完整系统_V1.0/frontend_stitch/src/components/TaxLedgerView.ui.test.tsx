@@ -79,8 +79,8 @@ describe('TaxLedgerView statutory presentation', () => {
 
   it('keeps the page title independent from export controls', () => {
     const { container } = render(<TaxLedgerView {...defaultProps} records={[record]} />);
-    const title = container.querySelector('[data-page-title="tax-ledger"]');
-    const controls = container.querySelector('[data-page-controls="tax-ledger"]');
+    const title = container.querySelector<HTMLElement>('[data-page-title="tax-ledger"]');
+    const controls = container.querySelector<HTMLElement>('[data-page-controls="tax-ledger"]');
     expect(title).toBeInTheDocument();
     expect(controls).toBeInTheDocument();
     expect(title?.parentElement).toBe(controls?.parentElement);
