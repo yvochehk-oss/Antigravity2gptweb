@@ -143,48 +143,48 @@ export function SettingsModal({
   };
 
   return (
-    <div className="fixed inset-0 bg-black/75 backdrop-blur-md z-50 flex items-center justify-center p-4">
-      <div className="bg-[#171f33] border border-[#4cd7f6]/40 rounded-2xl max-w-lg w-full p-6 shadow-2xl flex flex-col max-h-[90vh] overflow-hidden text-[#dae2fd]">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4">
+      <div className="surface-card flex max-h-[90vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl p-6 text-primary shadow-2xl">
         {/* 标题栏 */}
-        <div className="flex justify-between items-center pb-4 border-b border-[#444653]/40">
+        <div className="flex items-center justify-between border-b border-default pb-4">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-[#03b5d3]/20 flex items-center justify-center border border-[#4cd7f6]/40 text-[#4cd7f6]">
-              <Settings className="w-4 h-4" />
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-default bg-surface-2 text-brand">
+              <Settings className="h-4 w-4" />
             </div>
             <div>
-              <h3 className="text-[16px] font-bold text-[#dae2fd]">系统运行参数与风控阈值配置</h3>
-              <p className="text-[11px] text-[#8e909f]">设置变更将即时应用至全站风控计算、预算止付与 AI 审查逻辑</p>
+              <h3 className="text-[16px] font-bold text-primary">系统运行参数与风控阈值配置</h3>
+              <p className="text-[11px] text-secondary">设置变更将即时应用至全站风控计算、预算止付与 AI 审查逻辑</p>
             </div>
           </div>
           <button 
             onClick={onClose} 
-            className="p-1.5 rounded-lg text-[#8e909f] hover:text-[#dae2fd] hover:bg-[#222a3d] transition-colors cursor-pointer"
+            className="cursor-pointer rounded-lg p-1.5 text-secondary transition-colors hover:bg-surface-2 hover:text-primary"
           >
-            <X className="w-5 h-5" />
+            <X className="h-5 w-5" />
           </button>
         </div>
 
         {/* 设置表单内容 */}
-        <div className="flex-1 overflow-y-auto py-4 space-y-5 scrollbar-hide text-[13px]">
+        <div className="scrollbar-hide flex-1 space-y-5 overflow-y-auto py-4 text-[13px]">
           
           {/* 1. 税控与四流合一规则 */}
-          <div className="bg-[#131b2e] p-4 rounded-xl border border-[#444653]/40 space-y-3.5">
-            <div className="flex items-center gap-2 text-[#4cd7f6] font-bold text-[13px] border-b border-[#444653]/30 pb-2">
-              <ShieldCheck className="w-4 h-4" />
+          <div className="surface-card space-y-3.5 rounded-xl p-4">
+            <div className="flex items-center gap-2 border-b border-default pb-2 text-[13px] font-bold text-brand">
+              <ShieldCheck className="h-4 w-4" />
               <span>税控合规与四流核验规则</span>
             </div>
 
             {/* 自动四流合一开关 */}
             <div className="flex items-center justify-between">
               <div>
-                <p className="font-semibold text-[#dae2fd]">自动启动“四流合一”交叉比对</p>
-                <p className="text-[11px] text-[#8e909f]">自动关联核验发票代码、采购合同、银行流水与过磅单据</p>
+                <p className="font-semibold text-primary">自动启动“四流合一”交叉比对</p>
+                <p className="text-[11px] text-secondary">自动关联核验发票代码、采购合同、银行流水与过磅单据</p>
               </div>
               <button
                 type="button"
                 onClick={() => setFormData(prev => ({ ...prev, autoFourFlowsMatch: !prev.autoFourFlowsMatch }))}
-                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors cursor-pointer ${
-                  formData.autoFourFlowsMatch ? 'bg-[#03b5d3]' : 'bg-[#2d3449]'
+                className={`relative inline-flex h-6 w-11 cursor-pointer items-center rounded-full transition-colors ${
+                  formData.autoFourFlowsMatch ? 'bg-[var(--color-brand)]' : 'bg-surface-2'
                 }`}
               >
                 <span
@@ -197,13 +197,13 @@ export function SettingsModal({
 
             {/* 跨区异地预缴核销偏差阈值 */}
             <div className="pt-2">
-              <div className="flex justify-between items-center mb-1.5">
-                <span className="font-semibold text-[#dae2fd]">跨区施工异地预缴核销偏差阈值</span>
-                <span className="text-[#4cd7f6] font-mono-num font-bold bg-[#03b5d3]/15 px-2 py-0.5 rounded border border-[#4cd7f6]/30 text-[12px]">
+              <div className="mb-1.5 flex items-center justify-between">
+                <span className="font-semibold text-primary">跨区施工异地预缴核销偏差阈值</span>
+                <span className="rounded border border-[var(--color-brand)]/30 bg-[var(--color-brand)]/10 px-2 py-0.5 text-[12px] font-bold text-brand font-mono-num">
                   {formData.crossRegionTaxThreshold}%
                 </span>
               </div>
-              <p className="text-[11px] text-[#8e909f] mb-2">
+              <p className="mb-2 text-[11px] text-secondary">
                 当跨地市施工预缴税额与个税扣缴申报差额比例超过此值时触发预警
               </p>
               <div className="flex items-center gap-3">
@@ -214,10 +214,10 @@ export function SettingsModal({
                   step="1"
                   value={formData.crossRegionTaxThreshold}
                   onChange={(e) => setFormData(prev => ({ ...prev, crossRegionTaxThreshold: Number(e.target.value) }))}
-                  className="w-full h-1.5 bg-[#222a3d] rounded-lg appearance-none cursor-pointer accent-[#4cd7f6]"
+                  className="h-1.5 w-full cursor-pointer appearance-none rounded-lg bg-surface-2 accent-[var(--color-brand)]"
                 />
               </div>
-              <div className="flex justify-between text-[10px] text-[#8e909f] mt-1 font-mono-num">
+              <div className="mt-1 flex justify-between text-[10px] text-secondary font-mono-num">
                 <span>1% (严格审慎)</span>
                 <span>5% (推荐基准)</span>
                 <span>15% (宽松容差)</span>
@@ -226,21 +226,21 @@ export function SettingsModal({
           </div>
 
           {/* 2. 成本管控与自动止付令 */}
-          <div className="bg-[#131b2e] p-4 rounded-xl border border-[#444653]/40 space-y-3.5">
-            <div className="flex items-center gap-2 text-[#ffb59a] font-bold text-[13px] border-b border-[#444653]/30 pb-2">
-              <Sliders className="w-4 h-4" />
+          <div className="surface-card space-y-3.5 rounded-xl p-4">
+            <div className="flex items-center gap-2 border-b border-default pb-2 text-[13px] font-bold text-warning">
+              <Sliders className="h-4 w-4" />
               <span>资金与概算硬约束</span>
             </div>
 
             {/* 超概算阈值自动触发止付令 */}
             <div>
-              <div className="flex justify-between items-center mb-1.5">
-                <span className="font-semibold text-[#dae2fd]">超概算阈值自动触发止付令</span>
-                <span className="text-[#ffb59a] font-mono-num font-bold bg-[#ffb59a]/15 px-2 py-0.5 rounded border border-[#ffb59a]/30 text-[12px]">
+              <div className="mb-1.5 flex items-center justify-between">
+                <span className="font-semibold text-primary">超概算阈值自动触发止付令</span>
+                <span className="rounded border border-[var(--color-warning)]/30 bg-[var(--color-warning)]/10 px-2 py-0.5 text-[12px] font-bold text-warning font-mono-num">
                   {formData.budgetOverrunStopPayThreshold}%
                 </span>
               </div>
-              <p className="text-[11px] text-[#8e909f] mb-2">
+              <p className="mb-2 text-[11px] text-secondary">
                 当施工分部或标段实际支出超预算达到该比例时，系统自动锁定付款通道并生成止付令
               </p>
               <div className="flex items-center gap-3">
@@ -251,10 +251,10 @@ export function SettingsModal({
                   step="1"
                   value={formData.budgetOverrunStopPayThreshold}
                   onChange={(e) => setFormData(prev => ({ ...prev, budgetOverrunStopPayThreshold: Number(e.target.value) }))}
-                  className="w-full h-1.5 bg-[#222a3d] rounded-lg appearance-none cursor-pointer accent-[#ffb59a]"
+                  className="h-1.5 w-full cursor-pointer appearance-none rounded-lg bg-surface-2 accent-[var(--color-warning)]"
                 />
               </div>
-              <div className="flex justify-between text-[10px] text-[#8e909f] mt-1 font-mono-num">
+              <div className="mt-1 flex justify-between text-[10px] text-secondary font-mono-num">
                 <span>1% (立即熔断)</span>
                 <span>5% (标准预警)</span>
                 <span>20% (弹性缓冲)</span>
@@ -263,23 +263,23 @@ export function SettingsModal({
           </div>
 
           {/* 3. 智能决策与系统协同 */}
-          <div className="bg-[#131b2e] p-4 rounded-xl border border-[#444653]/40 space-y-3.5">
-            <div className="flex items-center gap-2 text-[#b8c4ff] font-bold text-[13px] border-b border-[#444653]/30 pb-2">
-              <Cpu className="w-4 h-4" />
+          <div className="surface-card space-y-3.5 rounded-xl p-4">
+            <div className="flex items-center gap-2 border-b border-default pb-2 text-[13px] font-bold text-brand">
+              <Cpu className="h-4 w-4" />
               <span>AI 决策大脑与实时通知</span>
             </div>
 
             {/* AI 深度穿透模式 */}
             <div className="flex items-center justify-between">
               <div>
-                <p className="font-semibold text-[#dae2fd]">AI 智能助手深度穿透核验模式</p>
-                <p className="text-[11px] text-[#8e909f]">回答时仅检索当前真实项目及后端已接通的底稿数据</p>
+                <p className="font-semibold text-primary">AI 智能助手深度穿透核验模式</p>
+                <p className="text-[11px] text-secondary">回答时仅检索当前真实项目及后端已接通的底稿数据</p>
               </div>
               <button
                 type="button"
                 onClick={() => setFormData(prev => ({ ...prev, aiDeepAnalysisMode: !prev.aiDeepAnalysisMode }))}
-                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors cursor-pointer ${
-                  formData.aiDeepAnalysisMode ? 'bg-[#1e40af]' : 'bg-[#2d3449]'
+                className={`relative inline-flex h-6 w-11 cursor-pointer items-center rounded-full transition-colors ${
+                  formData.aiDeepAnalysisMode ? 'bg-[var(--color-brand)]' : 'bg-surface-2'
                 }`}
               >
                 <span
@@ -293,14 +293,14 @@ export function SettingsModal({
             {/* 风险自动弹窗通知 */}
             <div className="flex items-center justify-between">
               <div>
-                <p className="font-semibold text-[#dae2fd]">高危涉税风险实时自动弹窗告警</p>
-                <p className="text-[11px] text-[#8e909f]">侦测到偷漏税隐患或虚开异常时立即高亮推送</p>
+                <p className="font-semibold text-primary">高危涉税风险实时自动弹窗告警</p>
+                <p className="text-[11px] text-secondary">侦测到偷漏税隐患或虚开异常时立即高亮推送</p>
               </div>
               <button
                 type="button"
                 onClick={() => setFormData(prev => ({ ...prev, taxAuditAutoNotify: !prev.taxAuditAutoNotify }))}
-                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors cursor-pointer ${
-                  formData.taxAuditAutoNotify ? 'bg-[#EF4444]' : 'bg-[#2d3449]'
+                className={`relative inline-flex h-6 w-11 cursor-pointer items-center rounded-full transition-colors ${
+                  formData.taxAuditAutoNotify ? 'bg-[var(--color-danger)]' : 'bg-surface-2'
                 }`}
               >
                 <span
@@ -313,7 +313,7 @@ export function SettingsModal({
 
             {/* 数据大屏自动同步周期 */}
             <div className="pt-1">
-              <p className="font-semibold text-[#dae2fd] mb-1.5">数据大屏与台账自动同步频率</p>
+              <p className="mb-1.5 font-semibold text-primary">数据大屏与台账自动同步频率</p>
               <div className="grid grid-cols-4 gap-2">
                 {[
                   { label: '30秒', value: 30 },
@@ -325,10 +325,10 @@ export function SettingsModal({
                     key={item.value}
                     type="button"
                     onClick={() => setFormData(prev => ({ ...prev, dataRefreshInterval: item.value }))}
-                    className={`py-1.5 px-2 rounded-lg text-[11.5px] font-medium border text-center transition-all cursor-pointer ${
+                    className={`cursor-pointer rounded-lg border px-2 py-1.5 text-center text-[11.5px] font-medium transition-all ${
                       formData.dataRefreshInterval === item.value
-                        ? 'bg-[#03b5d3]/20 border-[#4cd7f6] text-[#4cd7f6] font-bold shadow-[0_0_8px_rgba(76,215,246,0.2)]'
-                        : 'bg-[#171f33] border-[#444653]/40 text-[#8e909f] hover:text-[#dae2fd]'
+                        ? 'border-[var(--color-brand)] bg-[var(--color-brand)]/10 font-bold text-brand'
+                        : 'border-default bg-surface-2 text-secondary hover:text-primary'
                     }`}
                   >
                     {item.label}
@@ -339,17 +339,17 @@ export function SettingsModal({
           </div>
 
           {/* 4. Tax -> RAG 连接设置。凭证只由 Tax 服务端环境变量提供。 */}
-          <div className="bg-[#131b2e] p-4 rounded-xl border border-[#4cd7f6]/30 space-y-3.5">
-            <div className="flex items-center gap-2 text-[#4cd7f6] font-bold text-[13px] border-b border-[#444653]/30 pb-2">
-              <Radio className="w-4 h-4" />
+          <div className="surface-card space-y-3.5 rounded-xl p-4">
+            <div className="flex items-center gap-2 border-b border-default pb-2 text-[13px] font-bold text-brand">
+              <Radio className="h-4 w-4" />
               <span>RAG 知识库连接（管理员）</span>
             </div>
 
             <div>
-              <label htmlFor="rag-service-url" className="font-semibold text-[#dae2fd]">
+              <label htmlFor="rag-service-url" className="font-semibold text-primary">
                 RAG 系统 IP 地址或域名
               </label>
-              <p className="text-[11px] text-[#8e909f] mt-1 mb-2">
+              <p className="mb-2 mt-1 text-[11px] text-secondary">
                 Tax 与 RAG 可部署在不同电脑；填写 RAG 服务的完整地址，例如 http://192.168.1.20:8922 或 https://rag.example.com。
               </p>
               <div className="flex gap-2">
@@ -365,21 +365,21 @@ export function SettingsModal({
                   placeholder="http://192.168.1.20:8922"
                   maxLength={300}
                   disabled={ragLoading || ragAction !== null}
-                  className="min-w-0 flex-1 bg-[#171f33] border border-[#444653]/60 focus:border-[#4cd7f6] text-[12px] font-mono-num text-[#dae2fd] px-3 py-2 rounded-lg focus:outline-none disabled:opacity-50"
+                  className="min-w-0 flex-1 rounded-lg border border-default bg-surface px-3 py-2 text-[12px] text-primary font-mono-num focus:border-[var(--color-brand)] focus:outline-none disabled:opacity-50"
                 />
                 <button
                   type="button"
                   onClick={() => void handleTestRag()}
                   disabled={ragLoading || ragAction !== null || !ragUrl.trim()}
-                  className="shrink-0 px-3 py-2 bg-[#222a3d] hover:bg-[#2d3449] border border-[#4cd7f6]/40 text-[#4cd7f6] text-[12px] font-semibold rounded-lg flex items-center gap-1.5 disabled:opacity-50"
+                  className="flex shrink-0 items-center gap-1.5 rounded-lg border border-default bg-surface-2 px-3 py-2 text-[12px] font-semibold text-brand hover:bg-surface disabled:opacity-50"
                 >
-                  {ragAction === 'test' ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : null}
+                  {ragAction === 'test' ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : null}
                   测试连接
                 </button>
               </div>
             </div>
 
-            <label className="flex items-start gap-2.5 cursor-pointer">
+            <label className="flex cursor-pointer items-start gap-2.5">
               <input
                 type="checkbox"
                 checked={approvePrivate}
@@ -389,19 +389,19 @@ export function SettingsModal({
                   setRagError('');
                 }}
                 disabled={ragLoading || ragAction !== null}
-                className="mt-0.5 h-4 w-4 accent-[#03b5d3]"
+                className="mt-0.5 h-4 w-4 accent-[var(--color-brand)]"
               />
               <span>
-                <span className="block font-semibold text-[#dae2fd]">批准本机/公司内网 RAG 地址</span>
-                <span className="block text-[11px] text-[#8e909f] mt-0.5">
+                <span className="block font-semibold text-primary">批准本机/公司内网 RAG 地址</span>
+                <span className="mt-0.5 block text-[11px] text-secondary">
                   仅当 RAG 位于本机或可信内网时勾选；系统会记录 DNS 地址快照，地址变化后要求重新批准。
                 </span>
               </span>
             </label>
 
-            <div className="rounded-lg bg-[#0b1326]/70 border border-[#444653]/40 px-3 py-2 text-[11px] text-[#aeb6d4]">
+            <div className="rounded-lg border border-default bg-surface-2 px-3 py-2 text-[11px] text-secondary">
               {ragLoading ? (
-                <span className="inline-flex items-center gap-1.5"><RefreshCw className="w-3 h-3 animate-spin" />正在读取 Tax 后端保存的连接设置…</span>
+                <span className="inline-flex items-center gap-1.5"><RefreshCw className="h-3 w-3 animate-spin" />正在读取 Tax 后端保存的连接设置…</span>
               ) : ragSettings?.configured ? (
                 <span>当前已保存：{ragSettings.host || ragSettings.url}{ragSettings.lastTestedAt ? ` · 最近测试 ${ragSettings.lastTestedAt}` : ''}</span>
               ) : ragSettings ? (
@@ -412,29 +412,29 @@ export function SettingsModal({
             </div>
 
             {ragTestResult?.ok && (
-              <div className="rounded-lg bg-[#10B981]/10 border border-[#10B981]/30 px-3 py-2 text-[11px] text-[#6ee7b7]" role="status">
+              <div className="rounded-lg border border-[var(--color-success)]/30 bg-[var(--color-success)]/10 px-3 py-2 text-[11px] text-success" role="status">
                 连接测试成功{ragTestResult.ragVersion ? ` · RAG ${ragTestResult.ragVersion}` : ''}；发现 {ragTestResult.projects.length} 个 RAG 项目。点击底部“保存设置并应用”后才会持久化地址。
               </div>
             )}
             {ragError && (
-              <div className="rounded-lg bg-[#EF4444]/10 border border-[#EF4444]/30 px-3 py-2 text-[11px] text-[#fca5a5]" role="alert">
-                <AlertTriangle className="w-3.5 h-3.5 inline mr-1 align-[-2px]" />{ragError}
+              <div className="rounded-lg border border-[var(--color-danger)]/30 bg-[var(--color-danger)]/10 px-3 py-2 text-[11px] text-danger" role="alert">
+                <AlertTriangle className="mr-1 inline h-3.5 w-3.5 align-[-2px]" />{ragError}
               </div>
             )}
-            <p className="text-[10px] text-[#8e909f]">
+            <p className="text-[10px] text-secondary">
               shared key 仅保存在 Tax 服务端环境变量 RAG_SHARED_API_KEY 中，不会在此页面显示或发送。
             </p>
           </div>
         </div>
 
         {/* 底部按钮操作区 */}
-        <div className="flex justify-between items-center pt-4 border-t border-[#444653]/40">
+        <div className="flex items-center justify-between border-t border-default pt-4">
           <button
             type="button"
             onClick={handleResetDefaults}
-            className="flex items-center gap-1.5 px-3 py-2 text-[#8e909f] hover:text-[#dae2fd] text-[12px] rounded-lg hover:bg-[#222a3d] transition-colors cursor-pointer"
+            className="flex cursor-pointer items-center gap-1.5 rounded-lg px-3 py-2 text-[12px] text-secondary transition-colors hover:bg-surface-2 hover:text-primary"
           >
-            <RotateCcw className="w-3.5 h-3.5" />
+            <RotateCcw className="h-3.5 w-3.5" />
             <span>恢复默认值</span>
           </button>
 
@@ -442,7 +442,7 @@ export function SettingsModal({
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 bg-[#2d3449] hover:bg-[#31394d] text-[#dae2fd] text-[13px] font-medium rounded-lg cursor-pointer"
+              className="cursor-pointer rounded-lg border border-default bg-surface-2 px-4 py-2 text-[13px] font-medium text-primary hover:bg-surface"
             >
               取消
             </button>
@@ -450,16 +450,16 @@ export function SettingsModal({
               type="button"
               onClick={handleSave}
               disabled={isSaving || ragAction !== null || ragLoading}
-              className="px-5 py-2 bg-[#03b5d3] hover:bg-[#03b5d3]/80 text-[#001f26] text-[13px] font-bold rounded-lg flex items-center gap-1.5 cursor-pointer shadow-[0_0_12px_rgba(76,215,246,0.3)] disabled:opacity-50"
+              className="flex cursor-pointer items-center gap-1.5 rounded-lg bg-[var(--color-brand)] px-5 py-2 text-[13px] font-bold text-white transition-colors hover:bg-[var(--color-brand-hover)] disabled:opacity-50"
             >
               {isSaving ? (
                 <>
-                  <RefreshCw className="w-4 h-4 animate-spin" />
+                  <RefreshCw className="h-4 w-4 animate-spin" />
                   <span>正在应用...</span>
                 </>
               ) : showSavedToast ? (
                 <>
-                  <Check className="w-4 h-4" />
+                  <Check className="h-4 w-4" />
                   <span>已保存并生效！</span>
                 </>
               ) : (
