@@ -75,34 +75,34 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
-describe('ProjectDetailView PROJECT_BOUNDARY semantics', () => {
-  it('shows the complete input VAT split and identity status from backend facts', async () => {
+describe('ProjectDetailView project-boundary semantics', () => {
+  it('shows the complete input tax split and identity status from backend facts', async () => {
     mockAnalysis(baseAnalysis);
     render(<ProjectDetailView {...defaultProps} />);
 
-    expect(await screen.findByText('PROJECT_BOUNDARY 项目管理口径 · 非申报依据')).toBeInTheDocument();
-    expect(screen.getByText('已确认可抵扣进项 VAT')).toBeInTheDocument();
-    expect(screen.getByText('待认证/待判定进项 VAT')).toBeInTheDocument();
-    expect(screen.getByText('不可抵扣进项 VAT')).toBeInTheDocument();
-    expect(screen.getByText('已入账进项 VAT')).toBeInTheDocument();
-    expect(screen.getByText('未入账进项 VAT')).toBeInTheDocument();
+    expect(await screen.findByText('项目管理边界 · 项目管理口径 · 非申报依据')).toBeInTheDocument();
+    expect(screen.getByText('已确认可抵扣进项税额')).toBeInTheDocument();
+    expect(screen.getByText('待认证／待判定进项税额')).toBeInTheDocument();
+    expect(screen.getByText('不可抵扣进项税额')).toBeInTheDocument();
+    expect(screen.getByText('已入账进项税额')).toBeInTheDocument();
+    expect(screen.getByText('未入账进项税额')).toBeInTheDocument();
     expect(screen.getByText('进项一致性核验：通过')).toBeInTheDocument();
     expect(screen.getByTestId('pending-input-vat')).toHaveTextContent('10.00');
     expect(screen.getByTestId('nondeductible-input-vat')).toHaveTextContent('6.00');
   });
 
-  it('labels positive and negative signedVatPosition without recomputing an amount', async () => {
+  it('labels positive and negative signed management positions without recomputing an amount', async () => {
     mockAnalysis({ ...baseAnalysis, signedVatPosition: 36 });
     const { unmount } = render(<ProjectDetailView {...defaultProps} />);
-    expect(await screen.findByText('净销项 VAT 管理头寸')).toBeInTheDocument();
+    expect(await screen.findByText('净销项增值税管理头寸')).toBeInTheDocument();
     expect(screen.getByTestId('signed-vat-position')).toHaveTextContent('36.00');
     unmount();
 
     mockAnalysis({ ...baseAnalysis, projectId: 16, signedVatPosition: -18 });
     render(<ProjectDetailView {...defaultProps} project={{ ...project, id: '16', numericId: 16 }} />);
-    expect(await screen.findByText('净进项 VAT 管理头寸')).toBeInTheDocument();
+    expect(await screen.findByText('净进项增值税管理头寸')).toBeInTheDocument();
     expect(screen.getByTestId('signed-vat-position')).toHaveTextContent('-18.00');
-    expect(screen.queryByText('应纳 VAT')).not.toBeInTheDocument();
+    expect(screen.queryByText('应纳增值税')).not.toBeInTheDocument();
     expect(screen.queryByText('申报税额')).not.toBeInTheDocument();
   });
 
@@ -117,7 +117,7 @@ describe('ProjectDetailView PROJECT_BOUNDARY semantics', () => {
     render(<ProjectDetailView {...defaultProps} project={{ ...project, id: '16', numericId: 16 }} />);
     expect(await screen.findByTestId('internal-elimination-card')).toHaveTextContent('抵消净额');
     expect(screen.getByTestId('internal-elimination-card')).toHaveTextContent('120.00');
-    expect(screen.getByTestId('internal-elimination-card')).toHaveTextContent('抵消 VAT');
+    expect(screen.getByTestId('internal-elimination-card')).toHaveTextContent('抵消增值税');
     expect(screen.getByTestId('internal-elimination-card')).toHaveTextContent('10.80');
   });
 
@@ -126,7 +126,7 @@ describe('ProjectDetailView PROJECT_BOUNDARY semantics', () => {
     render(<ProjectDetailView {...defaultProps} />);
 
     expect(await screen.findByText('进项一致性核验：未通过')).toBeInTheDocument();
-    expect(screen.getAllByText('DEGRADED · 实际成本尚未归集入账').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('降级运行 · 实际成本尚未归集入账').length).toBeGreaterThan(0);
     await waitFor(() => expect(fetchProjectTaxAnalysis).toHaveBeenCalledTimes(1));
   });
 });

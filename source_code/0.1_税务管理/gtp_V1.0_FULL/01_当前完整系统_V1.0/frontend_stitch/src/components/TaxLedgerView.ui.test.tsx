@@ -48,31 +48,43 @@ const defaultProps = {
   isRebuilding: false,
 };
 
-describe('TaxLedgerView statutory VAT presentation', () => {
-  it('renders only LEGAL_ENTITY_STATUTORY VAT KPIs and table columns', () => {
+describe('TaxLedgerView statutory presentation', () => {
+  it('renders only statutory VAT KPIs and table columns using Chinese business labels', () => {
     render(<TaxLedgerView {...defaultProps} records={[record]} />);
 
-    expect(screen.getByText('LEGAL_ENTITY_STATUTORY 法人法定申报口径')).toBeInTheDocument();
+    expect(screen.getByText('法人法定申报口径')).toBeInTheDocument();
     for (const label of [
       '期初留抵',
-      '销项 VAT',
-      '进项 VAT',
+      '销项税额',
+      '进项税额',
       '税款预缴',
-      '预缴前应纳',
-      '实际应纳 VAT',
+      '预缴前应纳税额',
+      '实际应纳增值税',
       '期末留抵',
       '未抵完预缴',
     ]) {
       expect(screen.getAllByText(label).length).toBeGreaterThan(0);
     }
 
-    for (const column of ['法人', '所属期', '期初留抵', '销项', '进项', '预缴', '应纳', '期末留抵', '期间状态', 'Run 状态']) {
+    for (const column of ['法人', '所属期', '期初留抵', '销项税额', '进项税额', '税款预缴', '应纳增值税', '期末留抵', '期间状态', '计算运行状态']) {
       expect(screen.getByRole('columnheader', { name: column })).toBeInTheDocument();
     }
 
-    expect(screen.getByText('OPEN')).toBeInTheDocument();
-    expect(screen.getByText('SUCCEEDED')).toBeInTheDocument();
+    expect(screen.getByText('开放期')).toBeInTheDocument();
+    expect(screen.getByText('执行成功')).toBeInTheDocument();
+    expect(screen.queryByText('OPEN')).not.toBeInTheDocument();
+    expect(screen.queryByText('SUCCEEDED')).not.toBeInTheDocument();
     expect(screen.getAllByText('¥14').length).toBeGreaterThan(0);
+  });
+
+  it('keeps the page title independent from export controls', () => {
+    const { container } = render(<TaxLedgerView {...defaultProps} records={[record]} />);
+    const title = container.querySelector('[data-page-title="tax-ledger"]');
+    const controls = container.querySelector('[data-page-controls="tax-ledger"]');
+    expect(title).toBeInTheDocument();
+    expect(controls).toBeInTheDocument();
+    expect(title?.parentElement).toBe(controls?.parentElement);
+    expect(title).not.toContainElement(controls);
   });
 
   it('does not render legacy P&L KPI labels for an empty statutory ledger', () => {

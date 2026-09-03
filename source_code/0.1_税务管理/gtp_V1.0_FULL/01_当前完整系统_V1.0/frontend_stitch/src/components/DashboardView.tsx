@@ -1,6 +1,7 @@
-import { Building2, Database, Download, ExternalLink, Landmark, ShieldAlert } from 'lucide-react';
+import { Building2, Database, Download, ExternalLink, Landmark, LayoutDashboard, ShieldAlert } from 'lucide-react';
 import { DataStatusCard } from './DataStatusCard';
 import { ProjectItem, DataStatus, RiskEvent, SystemSettings, EntityTaxLedgerRecord } from '../types';
+import { dataStatusLabel } from './uiLocalization';
 
 interface DashboardViewProps {
   projects: ProjectItem[];
@@ -79,11 +80,17 @@ export function DashboardView({
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col justify-between gap-4 md:flex-row md:items-end">
-        <div>
-          <h2 className="text-[28px] font-bold tracking-tight text-[#dae2fd]">集团经营总览</h2>
-          <p className="mt-1 text-[14px] text-[#c4c5d5]">法人法定申报事实与项目工程管理口径分区展示，禁止跨域混算。</p>
+      <header data-page-title="dashboard" className="w-full">
+        <div className="flex items-start gap-2.5">
+          <LayoutDashboard className="mt-1 h-7 w-7 flex-shrink-0 text-[#4cd7f6]" />
+          <div>
+            <h2 className="text-[28px] font-bold tracking-tight text-[#dae2fd]">集团经营总览</h2>
+            <p className="mt-1 text-[14px] text-[#c4c5d5]">法人法定申报事实与项目工程管理口径分区展示，禁止跨域混算。</p>
+          </div>
         </div>
+      </header>
+
+      <div data-page-controls="dashboard" className="glass-panel flex flex-wrap items-center justify-end gap-3 rounded-xl border border-[#444653]/30 p-3.5">
         <button
           type="button"
           onClick={onOpenExportModal}
@@ -100,9 +107,9 @@ export function DashboardView({
           <div>
             <div className="flex items-center gap-2 text-[#4cd7f6]">
               <Landmark className="h-5 w-5" />
-              <h3 className="text-[17px] font-bold text-[#dae2fd]">法人主体 Statutory VAT 总览</h3>
+              <h3 className="text-[17px] font-bold text-[#dae2fd]">法人主体法定申报增值税总览</h3>
             </div>
-            <p className="mt-1 text-[12px] font-semibold text-[#4cd7f6]">LEGAL_ENTITY_STATUTORY · 法人法定申报口径</p>
+            <p className="mt-1 text-[12px] font-semibold text-[#4cd7f6]">法人法定申报 · 法定申报口径</p>
           </div>
           <button
             type="button"
@@ -114,7 +121,7 @@ export function DashboardView({
         </div>
 
         {taxLedgerStatus !== 'READY' && (
-          <DataStatusCard status={taxLedgerStatus} title="法人法定 VAT 数据状态" message={taxLedgerStatusMessage} />
+          <DataStatusCard status={taxLedgerStatus} title="法人法定增值税数据状态" message={taxLedgerStatusMessage} />
         )}
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
@@ -124,16 +131,16 @@ export function DashboardView({
           <StatutoryKpi label="本期法定应纳税额合计" value={hasStatutoryData ? formatAmount(totalVatPayableAfterPrepayment) : '—'} />
           <StatutoryKpi label="期末留抵税额合计" value={hasStatutoryData ? formatAmount(totalClosingInputCredit) : '—'} />
         </div>
-        <p className="text-[11px] leading-relaxed text-[#8e909f]">权威来源：entity_vat_ledgers。此区域不展示项目 VAT 管理净头寸。</p>
+        <p className="text-[11px] leading-relaxed text-[#8e909f]">权威来源：法人增值税法定台账。本区域不展示项目增值税管理净头寸。</p>
       </section>
 
       <section aria-label="项目工程管理口径总览" className="space-y-4 rounded-2xl border border-[#8b5cf6]/30 bg-[#8b5cf6]/5 p-5">
         <div>
           <div className="flex items-center gap-2 text-[#c4b5fd]">
             <Building2 className="h-5 w-5" />
-            <h3 className="text-[17px] font-bold text-[#dae2fd]">项目工程 Project Boundary 总览</h3>
+            <h3 className="text-[17px] font-bold text-[#dae2fd]">项目工程管理边界总览</h3>
           </div>
-          <p className="mt-1 text-[12px] font-semibold text-[#c4b5fd]">PROJECT_BOUNDARY · 项目管理/测算口径</p>
+          <p className="mt-1 text-[12px] font-semibold text-[#c4b5fd]">项目管理边界 · 项目管理／测算口径</p>
         </div>
 
         {dataStatus !== 'READY' && (
@@ -141,9 +148,9 @@ export function DashboardView({
         )}
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <ProjectKpi label="Tax API 项目数量" value={`${projects.length} 个`} note="来源：/api/projects/{id}" />
-          <ProjectKpi label="项目外部收入总额（合同额）" value={formatAmount(totalContract)} note="由项目接口 contract_total 汇总" />
-          <ProjectKpi label="真实归集成本" value={formatAmount(totalCost)} note="由项目接口 real_cost 汇总" />
+          <ProjectKpi label="项目接口项目数量" value={`${projects.length} 个`} note="来源：项目真实接口" />
+          <ProjectKpi label="项目外部收入总额（合同额）" value={formatAmount(totalContract)} note="由项目接口合同总额汇总" />
+          <ProjectKpi label="真实归集成本" value={formatAmount(totalCost)} note="由项目接口真实成本汇总" />
           <ProjectKpi
             label="合同额与真实成本差额"
             value={formatAmount(contractCostGap)}
@@ -157,7 +164,7 @@ export function DashboardView({
               <Building2 className="h-4 w-4 text-[#c4b5fd]" />
               项目工程列表
             </h4>
-            <span className="text-[10px] text-[#8e909f]">点击进入 PROJECT_BOUNDARY 项目详情</span>
+            <span className="text-[10px] text-[#8e909f]">点击进入项目管理边界详情</span>
           </div>
           <div className="space-y-2">
             {projects.length === 0 ? (
@@ -194,21 +201,21 @@ export function DashboardView({
           <div className="flex items-center gap-2 text-[#EF4444]"><ShieldAlert className="h-4 w-4" /><h3 className="font-semibold text-[#dae2fd]">风险中心</h3></div>
           <p className="mt-3 text-[13px] leading-relaxed text-[#c4c5d5]">{hasRiskData ? `未闭环风险事件：${unresolvedRiskCount} 条` : '未闭环风险事件：—'}</p>
           <p className="mt-2 text-[11px] leading-relaxed text-[#c4c5d5]">{riskStatusMessage}</p>
-          <span className="mt-3 inline-block rounded border border-[#EF4444]/30 px-2 py-1 text-[10px] font-bold text-[#EF4444]">{riskStatus}</span>
+          <span className="mt-3 inline-block rounded border border-[#EF4444]/30 px-2 py-1 text-[10px] font-bold text-[#EF4444]">{dataStatusLabel(riskStatus)}</span>
         </button>
 
         <div className="glass-panel rounded-xl border border-[#444653]/30 p-5">
           <div className="flex items-center gap-2 text-[#4cd7f6]"><Database className="h-4 w-4" /><h3 className="font-semibold text-[#dae2fd]">数据源健康状态</h3></div>
           <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="rounded-lg border border-[#444653]/25 bg-[#131b2e]/70 p-3">
-              <p className="text-[11px] text-[#8e909f]">法人 Statutory VAT</p>
-              <p className="mt-1 text-[13px] font-semibold text-[#dae2fd]">{taxLedgerStatus}</p>
-              <p className="mt-1 text-[10px] text-[#8e909f]">entity_vat_ledgers</p>
+              <p className="text-[11px] text-[#8e909f]">法人法定申报增值税</p>
+              <p className="mt-1 text-[13px] font-semibold text-[#dae2fd]">{dataStatusLabel(taxLedgerStatus)}</p>
+              <p className="mt-1 text-[10px] text-[#8e909f]">法人增值税法定台账</p>
             </div>
             <div className="rounded-lg border border-[#444653]/25 bg-[#131b2e]/70 p-3">
-              <p className="text-[11px] text-[#8e909f]">项目 Project Boundary</p>
-              <p className="mt-1 text-[13px] font-semibold text-[#dae2fd]">{dataStatus}</p>
-              <p className="mt-1 text-[10px] text-[#8e909f]">Tax API / Canonical projection</p>
+              <p className="text-[11px] text-[#8e909f]">项目管理边界</p>
+              <p className="mt-1 text-[13px] font-semibold text-[#dae2fd]">{dataStatusLabel(dataStatus)}</p>
+              <p className="mt-1 text-[10px] text-[#8e909f]">项目真实接口／规范经营投影</p>
             </div>
           </div>
         </div>

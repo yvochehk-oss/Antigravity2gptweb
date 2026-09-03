@@ -14,40 +14,10 @@ vi.mock('../api', () => ({
 
 const projects: ProjectItem[] = [
   {
-    id: '1',
-    numericId: 1,
-    projectCode: 'P-001',
-    name: '真实项目一',
-    constructionStage: '施工中',
-    healthGrade: '未知',
-    totalBudget: 1000,
-    spentAmount: 0,
-    remainingBudget: 1000,
-    progressPercent: 10,
-    taxRiskGrade: '未知',
-    isOverBudget: null,
-    managerName: '—',
-    location: '成都',
-    teamAvatars: [],
-    costItems: [],
+    id: '1', numericId: 1, projectCode: 'P-001', name: '真实项目一', constructionStage: '施工中', healthGrade: '未知', totalBudget: 1000, spentAmount: 0, remainingBudget: 1000, progressPercent: 10, taxRiskGrade: '未知', isOverBudget: null, managerName: '—', location: '成都', teamAvatars: [], costItems: [],
   },
   {
-    id: '2',
-    numericId: 2,
-    projectCode: 'P-002',
-    name: '真实项目二',
-    constructionStage: '施工中',
-    healthGrade: '未知',
-    totalBudget: 2000,
-    spentAmount: 0,
-    remainingBudget: 2000,
-    progressPercent: 20,
-    taxRiskGrade: '未知',
-    isOverBudget: null,
-    managerName: '—',
-    location: '成都',
-    teamAvatars: [],
-    costItems: [],
+    id: '2', numericId: 2, projectCode: 'P-002', name: '真实项目二', constructionStage: '施工中', healthGrade: '未知', totalBudget: 2000, spentAmount: 0, remainingBudget: 2000, progressPercent: 20, taxRiskGrade: '未知', isOverBudget: null, managerName: '—', location: '成都', teamAvatars: [], costItems: [],
   },
 ];
 
@@ -68,11 +38,11 @@ describe('TaxPlanningView scenario execution contract', () => {
     expect(source.includes('currentPresets')).toBe(false);
   });
 
-  it('starts with empty scenario amount and explicit user-assumption ratio defaults', async () => {
+  it('starts with empty simulation amount and explicit user-assumption ratio defaults', async () => {
     render(<TaxPlanningView projects={projects} selectedProjectId="1" />);
 
     expect(screen.getByRole('note')).toHaveTextContent(
-      'SCENARIO · 模拟方案 | 本视图基于用户输入假设，不代表当前项目真实经营结果，不属于法人法定申报依据。',
+      '模拟方案 · 本视图基于用户输入假设，不代表当前项目真实经营结果，不属于法人法定申报依据。',
     );
     expect(screen.getByLabelText('业务包金额（元）')).toHaveValue(null);
     expect(screen.getByLabelText('系统内最低比例（%，用户假设）')).toHaveValue(0);
@@ -93,7 +63,7 @@ describe('TaxPlanningView scenario execution contract', () => {
     expect(postJson).not.toHaveBeenCalled();
   });
 
-  it('switches project by clearing scenario input and issuing zero automatic POST requests', async () => {
+  it('switches project by clearing simulation input and issuing zero automatic POST requests', async () => {
     const { rerender } = render(<TaxPlanningView projects={projects} selectedProjectId="1" />);
     await waitFor(() => expect(fetchJson).toHaveBeenCalledWith('/api/projects/1/system-penetration', expect.anything()));
 

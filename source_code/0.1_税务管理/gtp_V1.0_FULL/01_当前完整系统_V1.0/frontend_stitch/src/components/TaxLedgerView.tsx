@@ -6,10 +6,12 @@ import {
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
+  ReceiptText,
 } from 'lucide-react';
 import { DataStatus, EntityTaxLedgerRecord, SystemSettings } from '../types';
 import { DataStatusCard } from './DataStatusCard';
 import { EntityVatLineageDrawer } from './EntityVatLineageDrawer';
+import { periodStateLabel, runStatusLabel } from './uiLocalization';
 
 type SortField =
   | 'entityName'
@@ -23,7 +25,7 @@ type SortField =
   | null;
 type SortOrder = 'asc' | 'desc';
 
-export const TAX_LEDGER_EMPTY_MESSAGE = '接口正常、指定期间暂无已生成台账。请确认底层事实数据（Canonical Facts）已就绪，再由受控确定性重建生成。';
+export const TAX_LEDGER_EMPTY_MESSAGE = '接口正常、指定期间暂无已生成台账。请确认底层规范事实已就绪，再由受控确定性重建生成。';
 
 interface TaxLedgerViewProps {
   records: EntityTaxLedgerRecord[];
@@ -63,7 +65,6 @@ export function TaxLedgerView({
   dataStatus,
   dataStatusMessage,
   onRetry,
-  onOpenNewRecordModal,
   onOpenExportModal,
   onRebuildTaxLedger,
   isRebuilding,
@@ -134,27 +135,39 @@ export function TaxLedgerView({
   const handleRebuild = () => {
     if (!/^(?:\d{4})-(?:0[1-9]|1[0-2])$/.test(rebuildPeriod) || isRebuilding) return;
     const confirmed = window.confirm(
-      `将对 ${rebuildPeriod} 执行受控确定性台账生成/重建。该操作会原子替换该期间汇总；请确认底层事实数据已归集就绪。继续吗？`,
+      `将对 ${rebuildPeriod} 执行受控确定性台账生成／重建。该操作会原子替换该期间汇总；请确认底层事实数据已归集就绪。继续吗？`,
     );
     if (confirmed) void onRebuildTaxLedger(rebuildPeriod);
   };
 
+  const pageTitle = (
+    <header data-page-title="tax-ledger" className="w-full">
+      <div className="flex items-start gap-2.5">
+        <ReceiptText className="mt-1 h-7 w-7 flex-shrink-0 text-[#4cd7f6]" />
+        <div>
+          <h2 className="text-[28px] font-bold tracking-tight text-[#dae2fd]">法人法定税务</h2>
+          <p className="mt-1 text-[14px] text-[#c4c5d5]">按独立法人及纳税所属期展示确定性增值税结果。项目经营损益与项目税务分析不进入本申报口径。</p>
+        </div>
+      </div>
+    </header>
+  );
+
   if (dataStatus !== 'READY') {
     return (
       <div className="space-y-6">
-        <h2 className="text-[28px] font-bold text-[#dae2fd]">法人月度确定性税务台账</h2>
-        <DataStatusCard status={dataStatus} title="法人税务台账不可用" message={dataStatusMessage} onRetry={onRetry} />
+        {pageTitle}
+        <DataStatusCard status={dataStatus} title="法人法定税务台账不可用" message={dataStatusMessage} onRetry={onRetry} />
       </div>
     );
   }
 
   const kpis = [
     ['期初留抵', totals.openingInputCredit],
-    ['销项 VAT', totals.outputVat],
-    ['进项 VAT', totals.inputVat],
+    ['销项税额', totals.outputVat],
+    ['进项税额', totals.inputVat],
     ['税款预缴', totals.taxPrepayment],
-    ['预缴前应纳', totals.vatPayableBeforePrepayment],
-    ['实际应纳 VAT', totals.vatPayableAfterPrepayment],
+    ['预缴前应纳税额', totals.vatPayableBeforePrepayment],
+    ['实际应纳增值税', totals.vatPayableAfterPrepayment],
     ['期末留抵', totals.closingInputCredit],
     ['未抵完预缴', totals.unappliedTaxPrepayment],
   ] as const;
@@ -177,28 +190,22 @@ export function TaxLedgerView({
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
-        <div>
-          <h2 className="text-[28px] font-bold text-[#dae2fd] tracking-tight">法人月度确定性税务台账</h2>
-          <p className="text-[14px] text-[#c4c5d5] mt-1">
-            按独立法人及纳税所属期展示确定性 VAT 结果。项目经营损益与项目税务分析不进入本申报口径。
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <button
-            type="button"
-            onClick={onOpenExportModal}
-            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#1e40af] hover:bg-[#1e40af]/80 text-[#dde1ff] text-[13px] font-semibold border-t border-[#4cd7f6]/30 transition-all cursor-pointer"
-          >
-            <Download className="w-4 h-4 text-[#4cd7f6]" />
-            <span>导出全量台账</span>
-          </button>
-        </div>
+      {pageTitle}
+
+      <div data-page-controls="tax-ledger" className="glass-panel flex flex-wrap items-center justify-end gap-3 rounded-xl border border-[#444653]/30 p-3.5">
+        <button
+          type="button"
+          onClick={onOpenExportModal}
+          className="flex cursor-pointer items-center gap-1.5 rounded-xl border-t border-[#4cd7f6]/30 bg-[#1e40af] px-3.5 py-2 text-[13px] font-semibold text-[#dde1ff] transition-all hover:bg-[#1e40af]/80"
+        >
+          <Download className="w-4 h-4 text-[#4cd7f6]" />
+          <span>导出全量台账</span>
+        </button>
       </div>
 
       <div className="rounded-xl border border-[#4cd7f6]/30 bg-[#03b5d3]/5 px-4 py-3" role="note">
-        <p className="text-[13px] font-semibold text-[#4cd7f6]">LEGAL_ENTITY_STATUTORY 法人法定申报口径</p>
-        <p className="text-[12px] text-[#c4c5d5] mt-1">本页只展示法人 VAT 法定事实与计算运行状态，不展示营业收入、真实成本、预计利润或所得税经营指标。</p>
+        <p className="text-[13px] font-semibold text-[#4cd7f6]">法人法定申报口径</p>
+        <p className="mt-1 text-[12px] text-[#c4c5d5]">本页只展示法人增值税法定事实与计算运行状态，不展示营业收入、真实成本、预计利润或企业所得税经营指标。</p>
       </div>
 
       {records.length === 0 && (
@@ -210,10 +217,10 @@ export function TaxLedgerView({
         </div>
       )}
 
-      <div className="glass-panel rounded-xl p-4 flex flex-wrap items-center justify-between gap-4 border border-[#4cd7f6]/20">
+      <div className="glass-panel flex flex-wrap items-center justify-between gap-4 rounded-xl border border-[#4cd7f6]/20 p-4">
         <div>
-          <p className="font-semibold text-[#dae2fd]">受控确定性台账生成/重建</p>
-          <p className="text-[12px] text-[#c4c5d5] mt-1 leading-relaxed">请确认底层事实数据已归集就绪；确认后将原子替换所选期间汇总。</p>
+          <p className="font-semibold text-[#dae2fd]">受控确定性台账生成／重建</p>
+          <p className="mt-1 text-[12px] leading-relaxed text-[#c4c5d5]">请确认底层事实数据已归集就绪；确认后将原子替换所选期间汇总。</p>
         </div>
         <div className="flex flex-wrap items-center gap-2.5">
           <select
@@ -221,7 +228,7 @@ export function TaxLedgerView({
             value={rebuildYear}
             onChange={event => setRebuildYear(event.target.value)}
             disabled={isRebuilding}
-            className="bg-[#171f33] border border-[#444653]/40 rounded-lg px-2.5 py-1.5 text-[13px] text-[#dae2fd] focus:outline-none focus:border-[#4cd7f6]"
+            className="rounded-lg border border-[#444653]/40 bg-[#171f33] px-2.5 py-1.5 text-[13px] text-[#dae2fd] focus:border-[#4cd7f6] focus:outline-none"
           >
             {YEAR_OPTIONS.map(year => <option key={year} value={year}>{year}年</option>)}
           </select>
@@ -230,7 +237,7 @@ export function TaxLedgerView({
             value={rebuildMonth}
             onChange={event => setRebuildMonth(event.target.value)}
             disabled={isRebuilding}
-            className="bg-[#171f33] border border-[#444653]/40 rounded-lg px-2.5 py-1.5 text-[13px] text-[#dae2fd] focus:outline-none focus:border-[#4cd7f6]"
+            className="rounded-lg border border-[#444653]/40 bg-[#171f33] px-2.5 py-1.5 text-[13px] text-[#dae2fd] focus:border-[#4cd7f6] focus:outline-none"
           >
             {MONTH_OPTIONS.map(month => <option key={month.value} value={month.value}>{month.label}</option>)}
           </select>
@@ -238,100 +245,79 @@ export function TaxLedgerView({
             type="button"
             onClick={handleRebuild}
             disabled={isRebuilding}
-            className="px-3.5 py-1.5 rounded-lg bg-[#03b5d3] hover:bg-[#03b5d3]/80 disabled:opacity-50 text-[#0b1326] font-semibold text-[13px] transition-colors"
+            className="rounded-lg bg-[#03b5d3] px-3.5 py-1.5 text-[13px] font-semibold text-[#0b1326] transition-colors hover:bg-[#03b5d3]/80 disabled:opacity-50"
           >
-            {isRebuilding ? '生成中...' : `生成 ${rebuildPeriod} 台账`}
+            {isRebuilding ? '生成中…' : `生成 ${rebuildPeriod} 台账`}
           </button>
         </div>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-8 gap-3">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-8">
         {kpis.map(([label, value]) => (
-          <div key={label} className="glass-panel p-3.5 rounded-xl border border-[#444653]/20">
+          <div key={label} className="glass-panel rounded-xl border border-[#444653]/20 p-3.5">
             <div className="text-[11px] text-[#8e909f]">{label}</div>
-            <div className="text-[17px] font-bold text-[#dae2fd] mt-1 font-mono-num">{formatAmount(value)}</div>
+            <div className="mt-1 text-[17px] font-bold font-mono-num text-[#dae2fd]">{formatAmount(value)}</div>
           </div>
         ))}
       </div>
 
-      <div className="glass-panel rounded-xl p-3 flex flex-wrap items-center justify-between gap-3">
-        <div className="relative flex-1 min-w-[200px]">
-          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[#8e909f]" />
+      <div className="glass-panel flex flex-wrap items-center justify-between gap-3 rounded-xl p-3">
+        <div className="relative min-w-[200px] flex-1">
+          <Search className="absolute left-3 top-1/2 w-4 h-4 -translate-y-1/2 text-[#8e909f]" />
           <input
             type="text"
             placeholder="搜索法人主体名称、编码、业务角色..."
             value={searchWord}
             onChange={event => setSearchWord(event.target.value)}
-            className="w-full bg-[#171f33]/60 border border-[#444653]/30 rounded-lg pl-9 pr-3 py-1.5 text-[13px] text-[#dae2fd] focus:outline-none focus:border-[#4cd7f6]"
+            className="w-full rounded-lg border border-[#444653]/30 bg-[#171f33]/60 py-1.5 pl-9 pr-3 text-[13px] text-[#dae2fd] focus:border-[#4cd7f6] focus:outline-none"
           />
         </div>
         <div className="flex items-center gap-2">
-          <select
-            value={filterYear}
-            onChange={event => setFilterYear(event.target.value)}
-            className="bg-[#171f33] border border-[#444653]/40 rounded-lg px-2.5 py-1.5 text-[13px] text-[#dae2fd] focus:outline-none focus:border-[#4cd7f6]"
-          >
+          <select value={filterYear} onChange={event => setFilterYear(event.target.value)} className="rounded-lg border border-[#444653]/40 bg-[#171f33] px-2.5 py-1.5 text-[13px] text-[#dae2fd] focus:border-[#4cd7f6] focus:outline-none">
             <option value="全部年份">全部年份</option>
             {YEAR_OPTIONS.map(year => <option key={year} value={year}>{year}年</option>)}
           </select>
-          <select
-            value={filterMonth}
-            onChange={event => setFilterMonth(event.target.value)}
-            className="bg-[#171f33] border border-[#444653]/40 rounded-lg px-2.5 py-1.5 text-[13px] text-[#dae2fd] focus:outline-none focus:border-[#4cd7f6]"
-          >
+          <select value={filterMonth} onChange={event => setFilterMonth(event.target.value)} className="rounded-lg border border-[#444653]/40 bg-[#171f33] px-2.5 py-1.5 text-[13px] text-[#dae2fd] focus:border-[#4cd7f6] focus:outline-none">
             <option value="全部月份">全部月份</option>
             {MONTH_OPTIONS.map(month => <option key={month.value} value={month.value}>{month.label}</option>)}
           </select>
         </div>
       </div>
 
-      <div className="glass-panel rounded-xl overflow-hidden border border-[#444653]/30">
+      <div className="glass-panel overflow-hidden rounded-xl border border-[#444653]/30">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-[13px]">
-            <thead className="bg-[#171f33]/80 border-b border-[#444653]/40 text-[#8e909f]">
+            <thead className="border-b border-[#444653]/40 bg-[#171f33]/80 text-[#8e909f]">
               <tr>
                 {sortableHeader('法人', 'entityName', 'left')}
                 {sortableHeader('所属期', 'period', 'left')}
                 {sortableHeader('期初留抵', 'openingInputCredit')}
-                {sortableHeader('销项', 'outputVat')}
-                {sortableHeader('进项', 'inputVat')}
-                {sortableHeader('预缴', 'taxPrepayment')}
-                {sortableHeader('应纳', 'vatPayableAfterPrepayment')}
+                {sortableHeader('销项税额', 'outputVat')}
+                {sortableHeader('进项税额', 'inputVat')}
+                {sortableHeader('税款预缴', 'taxPrepayment')}
+                {sortableHeader('应纳增值税', 'vatPayableAfterPrepayment')}
                 {sortableHeader('期末留抵', 'closingInputCredit')}
                 <th className="py-2.5 px-3 text-center">期间状态</th>
-                <th className="py-2.5 px-3 text-center">Run 状态</th>
+                <th className="py-2.5 px-3 text-center">计算运行状态</th>
                 <th className="py-2.5 px-3 text-center">溯源</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-[#444653]/20">
               {sortedRecords.length === 0 ? (
-                <tr>
-                  <td colSpan={11} className="py-8 text-center text-[#8e909f]">没有匹配的法人台账记录。</td>
-                </tr>
+                <tr><td colSpan={11} className="py-8 text-center text-[#8e909f]">没有匹配的法人台账记录。</td></tr>
               ) : sortedRecords.map(record => (
-                <tr key={record.id} className="hover:bg-[#222a3d]/50 transition-colors">
-                  <td className="py-2.5 px-3">
-                    <div className="font-semibold text-[#dae2fd]">{record.entityName}</div>
-                    <div className="text-[11px] text-[#8e909f] font-mono-num">{record.entityCode} {record.businessRole ? `· ${record.businessRole}` : ''}</div>
-                  </td>
-                  <td className="py-2.5 px-3 font-mono-num text-[#c4c5d5] whitespace-nowrap">{record.period}</td>
+                <tr key={record.id} className="transition-colors hover:bg-[#222a3d]/50">
+                  <td className="py-2.5 px-3"><div className="font-semibold text-[#dae2fd]">{record.entityName}</div><div className="text-[11px] font-mono-num text-[#8e909f]">{record.entityCode} {record.businessRole ? `· ${record.businessRole}` : ''}</div></td>
+                  <td className="whitespace-nowrap py-2.5 px-3 font-mono-num text-[#c4c5d5]">{record.period}</td>
                   <td className="py-2.5 px-3 text-right font-mono-num text-[#dae2fd]">{formatAmount(record.openingInputCredit)}</td>
                   <td className="py-2.5 px-3 text-right font-mono-num text-[#dae2fd]">{formatAmount(record.outputVat)}</td>
                   <td className="py-2.5 px-3 text-right font-mono-num text-[#dae2fd]">{formatAmount(record.inputVat)}</td>
                   <td className="py-2.5 px-3 text-right font-mono-num text-[#dae2fd]">{formatAmount(record.taxPrepayment)}</td>
                   <td className="py-2.5 px-3 text-right font-mono-num font-semibold text-[#10B981]">{formatAmount(record.vatPayableAfterPrepayment)}</td>
                   <td className="py-2.5 px-3 text-right font-mono-num text-[#dae2fd]">{formatAmount(record.closingInputCredit)}</td>
-                  <td className="py-2.5 px-3 text-center"><span className="inline-flex px-2 py-0.5 rounded-full text-[11px] border border-[#4cd7f6]/30 text-[#4cd7f6]">{record.periodState}</span></td>
-                  <td className="py-2.5 px-3 text-center"><span className="inline-flex px-2 py-0.5 rounded-full text-[11px] border border-[#10B981]/30 text-[#10B981]">{record.runStatus}</span></td>
-                  <td className="py-2.5 px-3 text-center">
-                    <button
-                      type="button"
-                      onClick={() => setLineageRecord(record)}
-                      className="whitespace-nowrap text-[12px] font-medium text-[#4cd7f6] hover:underline"
-                    >
-                      血缘溯源
-                    </button>
-                  </td>
+                  <td className="py-2.5 px-3 text-center"><span className="inline-flex rounded-full border border-[#4cd7f6]/30 px-2 py-0.5 text-[11px] text-[#4cd7f6]">{periodStateLabel(record.periodState)}</span></td>
+                  <td className="py-2.5 px-3 text-center"><span className="inline-flex rounded-full border border-[#10B981]/30 px-2 py-0.5 text-[11px] text-[#10B981]">{runStatusLabel(record.runStatus)}</span></td>
+                  <td className="py-2.5 px-3 text-center"><button type="button" onClick={() => setLineageRecord(record)} className="whitespace-nowrap text-[12px] font-medium text-[#4cd7f6] hover:underline">血缘溯源</button></td>
                 </tr>
               ))}
             </tbody>
@@ -339,11 +325,7 @@ export function TaxLedgerView({
         </div>
       </div>
 
-      <EntityVatLineageDrawer
-        open={lineageRecord !== null}
-        record={lineageRecord}
-        onClose={() => setLineageRecord(null)}
-      />
+      <EntityVatLineageDrawer open={lineageRecord !== null} record={lineageRecord} onClose={() => setLineageRecord(null)} />
     </div>
   );
 }

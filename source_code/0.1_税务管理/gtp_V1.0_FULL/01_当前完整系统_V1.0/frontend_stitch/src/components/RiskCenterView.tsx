@@ -1,15 +1,9 @@
 import { useState } from 'react';
-import { 
-  AlertOctagon, 
-  AlertTriangle, 
-  ShieldAlert, 
-  CheckCircle2, 
-  Clock, 
-  ArrowRight, 
-  Sparkles, 
-  FileText,
+import {
+  ShieldAlert,
+  Clock,
+  Sparkles,
   UserCheck,
-  Filter
 } from 'lucide-react';
 import { DataStatus, RiskEvent, SystemSettings } from '../types';
 import { DataStatusCard } from './DataStatusCard';
@@ -29,25 +23,33 @@ export function RiskCenterView({
   dataStatusMessage,
   onResolveRisk,
   onAskAiAboutRisk,
-  settings
+  settings,
 }: RiskCenterViewProps) {
   const [activeFilter, setActiveFilter] = useState<'全部' | '高危' | '中度' | '轻度'>('全部');
-  const [selectedRisk, setSelectedRisk] = useState<RiskEvent | null>(null);
 
   const crossRegionThreshold = settings?.crossRegionTaxThreshold ?? 5;
   const budgetStopPayThreshold = settings?.budgetOverrunStopPayThreshold ?? 5;
-
-  const filtered = riskEvents.filter(r => {
-    if (activeFilter === '全部') return true;
-    return r.severity === activeFilter;
-  });
-
+  const filtered = riskEvents.filter(risk => activeFilter === '全部' || risk.severity === activeFilter);
   const statusMessage = dataStatusMessage.trim() || '风险集合状态暂未返回详细说明。';
+
+  const pageTitle = (
+    <header data-page-title="risk-center" className="w-full">
+      <div className="flex items-start gap-2.5">
+        <ShieldAlert className="mt-1 h-7 w-7 flex-shrink-0 text-[#EF4444]" />
+        <div>
+          <h2 className="text-[28px] font-bold tracking-tight text-[#dae2fd]">风控中心</h2>
+          <p className="mt-1 text-[14px] text-[#c4c5d5]">
+            动态监测大额跨期暂估、跨区施工预缴核销（偏差阈值 ≥{crossRegionThreshold}%）、四流一致性比对及工程造价超概算（止付阈值 ≥{budgetStopPayThreshold}%）。
+          </p>
+        </div>
+      </div>
+    </header>
+  );
 
   if (dataStatus === 'LOADING' || dataStatus === 'UNAVAILABLE' || (dataStatus === 'DEGRADED' && riskEvents.length === 0)) {
     return (
       <div className="space-y-6">
-        <h2 className="text-[28px] font-bold text-[#dae2fd]">风控预警与稽查处置中心</h2>
+        {pageTitle}
         <DataStatusCard
           status={dataStatus}
           title={dataStatus === 'LOADING' ? '风险集合加载中' : dataStatus === 'DEGRADED' ? '风险集合数据不完整' : '风险集合不可用'}
@@ -60,127 +62,84 @@ export function RiskCenterView({
   if (riskEvents.length === 0) {
     return (
       <div className="space-y-6">
-        <h2 className="text-[28px] font-bold text-[#dae2fd]">风控预警与稽查处置中心</h2>
+        {pageTitle}
         <div className="rounded-xl border border-[#10B981]/30 bg-[#10B981]/5 p-5" role="status" aria-live="polite">
           <p className="font-semibold text-[#dae2fd]">暂无已识别风险事件</p>
-          <p className="text-[13px] text-[#c4c5d5] mt-1 leading-relaxed">{statusMessage}</p>
+          <p className="mt-1 text-[13px] leading-relaxed text-[#c4c5d5]">{statusMessage}</p>
         </div>
       </div>
     );
   }
 
   return (
-      <div className="space-y-6">
-      {dataStatus === 'DEGRADED' && (
-        <DataStatusCard status="DEGRADED" title="风险集合数据不完整" message={statusMessage} />
-      )}
-      {/* 顶部标题与应急看板 */}
-      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
-        <div>
-          <h2 className="text-[28px] font-bold text-[#dae2fd] tracking-tight flex items-center gap-2">
-            <ShieldAlert className="w-7 h-7 text-[#EF4444]" />
-            <span>风控预警与稽查处置中心</span>
-          </h2>
-          <p className="text-[14px] text-[#c4c5d5] mt-1">
-            动态监测大额跨期暂估、跨区施工预缴核销 (偏差阈值 ≥{crossRegionThreshold}%)、四流合一比对及工程造价超概算 (止付阈值 ≥{budgetStopPayThreshold}%)。
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          {(['全部', '高危', '中度', '轻度'] as const).map((lvl) => (
+    <div className="space-y-6">
+      {pageTitle}
+
+      <div data-page-controls="risk-center" className="glass-panel flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#444653]/30 p-3.5">
+        <span className="text-[12px] font-semibold text-[#c4c5d5]">风险等级筛选</span>
+        <div className="flex flex-wrap items-center gap-2">
+          {(['全部', '高危', '中度', '轻度'] as const).map(level => (
             <button
-              key={lvl}
-              onClick={() => setActiveFilter(lvl)}
-              className={`px-3 py-1.5 rounded-lg text-[12px] font-semibold transition-all cursor-pointer ${
-                activeFilter === lvl
-                  ? lvl === '高危'
+              key={level}
+              type="button"
+              onClick={() => setActiveFilter(level)}
+              className={`cursor-pointer rounded-lg px-3 py-1.5 text-[12px] font-semibold transition-all ${
+                activeFilter === level
+                  ? level === '高危'
                     ? 'bg-[#EF4444] text-white shadow-[0_0_12px_#EF4444]'
-                    : 'bg-[#1e40af] text-[#dde1ff] border border-[#4cd7f6]/40'
+                    : 'border border-[#4cd7f6]/40 bg-[#1e40af] text-[#dde1ff]'
                   : 'bg-[#171f33] text-[#8e909f] hover:text-[#dae2fd]'
               }`}
             >
-              {lvl}
+              {level}
             </button>
           ))}
         </div>
       </div>
 
-      {/* 风险事件卡片流 */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {filtered.map((risk) => {
+      {dataStatus === 'DEGRADED' && (
+        <DataStatusCard status="DEGRADED" title="风险集合数据不完整" message={statusMessage} />
+      )}
+
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        {filtered.map(risk => {
           const isHigh = risk.severity === '高危';
           const isResolved = risk.status === '已闭环';
-
           return (
             <div
               key={risk.id}
-              className={`glass-panel rounded-xl p-5 flex flex-col justify-between gap-4 transition-all ${
-                isHigh ? 'border-[#EF4444]/60 glow-red bg-[#171f33]/90' : 'border-[#F59E0B]/50 glow-amber'
-              }`}
+              className={`glass-panel flex flex-col justify-between gap-4 rounded-xl p-5 transition-all ${isHigh ? 'glow-red border-[#EF4444]/60 bg-[#171f33]/90' : 'glow-amber border-[#F59E0B]/50'}`}
             >
               <div>
-                {/* 标头 */}
-                <div className="flex justify-between items-start gap-2 mb-3">
-                  <div className="flex items-center gap-2">
-                    <span className={`px-2 py-0.5 rounded text-[11px] font-bold ${
-                      isHigh ? 'bg-[#EF4444]/20 text-[#ffb4ab] border border-[#EF4444]/40 animate-pulse' : 'bg-[#F59E0B]/20 text-[#ffa583] border border-[#F59E0B]/40'
-                    }`}>
+                <div className="mb-3 flex items-start justify-between gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className={`rounded px-2 py-0.5 text-[11px] font-bold ${isHigh ? 'animate-pulse border border-[#EF4444]/40 bg-[#EF4444]/20 text-[#ffb4ab]' : 'border border-[#F59E0B]/40 bg-[#F59E0B]/20 text-[#ffa583]'}`}>
                       {risk.severity}风险 · {risk.riskType}
                     </span>
-                    <span className="text-[11px] font-mono-num text-[#8e909f] flex items-center gap-1">
-                      <Clock className="w-3 h-3" />
-                      {risk.triggerTime}
-                    </span>
+                    <span className="flex items-center gap-1 text-[11px] font-mono-num text-[#8e909f]"><Clock className="h-3 w-3" />{risk.triggerTime}</span>
                   </div>
-                  <span className="text-[12px] font-bold text-[#dae2fd] bg-[#131b2e] px-2.5 py-1 rounded border border-[#444653]/30">
-                    {risk.status}
-                  </span>
+                  <span className="rounded border border-[#444653]/30 bg-[#131b2e] px-2.5 py-1 text-[12px] font-bold text-[#dae2fd]">{risk.status}</span>
                 </div>
 
-                {/* 涉及项目与主体 */}
-                <h4 className="text-[16px] font-bold text-[#dae2fd]">
-                  {risk.projectName}
-                </h4>
-                <p className="text-[13px] text-[#4cd7f6] font-medium mt-0.5">
-                  涉税关联主体: {risk.entityName}
-                </p>
+                <h4 className="text-[16px] font-bold text-[#dae2fd]">{risk.projectName}</h4>
+                <p className="mt-0.5 text-[13px] font-medium text-[#4cd7f6]">涉税关联主体：{risk.entityName}</p>
 
-                {/* 风险详细描述 */}
-                <div className="my-3 p-3 rounded-lg bg-[#0b1326]/70 border border-[#444653]/30 text-[12px] text-[#dae2fd] leading-relaxed">
-                  <p className="font-semibold text-[#ffa583] mb-1">风险触发诱因：</p>
+                <div className="my-3 rounded-lg border border-[#444653]/30 bg-[#0b1326]/70 p-3 text-[12px] leading-relaxed text-[#dae2fd]">
+                  <p className="mb-1 font-semibold text-[#ffa583]">风险触发诱因：</p>
                   {risk.description}
                 </div>
 
-                {/* 审计应对建议 */}
-                <div className="p-3 rounded-lg bg-[#1e40af]/15 border border-[#4cd7f6]/20 text-[12px] text-[#c4c5d5]">
-                  <p className="font-semibold text-[#4cd7f6] mb-1 flex items-center gap-1">
-                    <Sparkles className="w-3.5 h-3.5 text-[#4cd7f6]" />
-                    <span>智能审计处置建议：</span>
-                  </p>
+                <div className="rounded-lg border border-[#4cd7f6]/20 bg-[#1e40af]/15 p-3 text-[12px] text-[#c4c5d5]">
+                  <p className="mb-1 flex items-center gap-1 font-semibold text-[#4cd7f6]"><Sparkles className="h-3.5 w-3.5" /><span>智能审计处置建议：</span></p>
                   {risk.auditSuggestions}
                 </div>
               </div>
 
-              {/* 底部经办人与处置操作 */}
-              <div className="pt-3 border-t border-[#444653]/30 flex justify-between items-center text-[12px]">
-                <div className="flex items-center gap-1.5 text-[#8e909f]">
-                  <UserCheck className="w-4 h-4 text-[#4cd7f6]" />
-                  <span>责任专员: <strong className="text-[#dae2fd]">{risk.handler}</strong></span>
-                </div>
+              <div className="flex items-center justify-between border-t border-[#444653]/30 pt-3 text-[12px]">
+                <div className="flex items-center gap-1.5 text-[#8e909f]"><UserCheck className="h-4 w-4 text-[#4cd7f6]" /><span>责任专员：<strong className="text-[#dae2fd]">{risk.handler}</strong></span></div>
                 <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => onAskAiAboutRisk(risk.entityName)}
-                    className="px-3 py-1.5 rounded-lg bg-[#03b5d3]/15 hover:bg-[#03b5d3]/25 text-[#4cd7f6] text-[12px] font-semibold border border-[#4cd7f6]/40 cursor-pointer"
-                  >
-                    呼叫智能助手协助取证
-                  </button>
-                  {!isResolved && (
-                    <button
-                      onClick={() => onResolveRisk(risk.id)}
-                      className="px-3 py-1.5 rounded-lg bg-[#10B981] hover:bg-[#10B981]/80 text-[#0b1326] text-[12px] font-bold transition-colors cursor-pointer"
-                    >
-                      完成闭环整改
-                    </button>
-                  )}
+                  <button onClick={() => onAskAiAboutRisk(risk.entityName)} className="cursor-pointer rounded-lg border border-[#4cd7f6]/40 bg-[#03b5d3]/15 px-3 py-1.5 text-[12px] font-semibold text-[#4cd7f6] hover:bg-[#03b5d3]/25">呼叫智能助手协助取证</button>
+                  {!isResolved && <button onClick={() => onResolveRisk(risk.id)} className="cursor-pointer rounded-lg bg-[#10B981] px-3 py-1.5 text-[12px] font-bold text-[#0b1326] transition-colors hover:bg-[#10B981]/80">完成闭环整改</button>}
                 </div>
               </div>
             </div>
