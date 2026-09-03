@@ -268,7 +268,7 @@ function ragSettingsBody(input: { url: string; approvePrivate: boolean }): Recor
   if (url.length > 300) throw new ApiError('RAG 服务地址不能超过 300 个字符。', 400);
   return {
     url,
-    approved_private: input.approvePrivate === true,
+    approve_private: input.approvePrivate === true,
   };
 }
 
