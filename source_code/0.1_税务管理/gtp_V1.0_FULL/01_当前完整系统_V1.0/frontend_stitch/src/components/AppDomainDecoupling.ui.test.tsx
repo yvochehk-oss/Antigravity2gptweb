@@ -11,6 +11,14 @@ const apiMocks = vi.hoisted(() => ({
   rebuildTaxLedger: vi.fn(),
 }));
 
+const legalEntityApiMocks = vi.hoisted(() => ({
+  fetchLegalEntities: vi.fn(),
+  fetchLegalEntityFactPeriods: vi.fn(),
+  fetchLegalEntityStatutoryVat: vi.fn(),
+  fetchLegalEntityStatutoryVatCollection: vi.fn(),
+  rebuildLegalEntityStatutoryVatCollection: vi.fn(),
+}));
+
 const dashboardRenderSpy = vi.hoisted(() => vi.fn());
 
 vi.mock('../api', () => {
@@ -29,6 +37,10 @@ vi.mock('../api', () => {
     ...apiMocks,
   };
 });
+
+vi.mock('../legalEntityApi', () => ({
+  ...legalEntityApiMocks,
+}));
 
 vi.mock('./Sidebar', () => ({ Sidebar: () => null }));
 vi.mock('./Header', () => ({ Header: () => null }));
@@ -94,6 +106,14 @@ beforeEach(() => {
   apiMocks.fetchEntityTaxLedger.mockResolvedValue({ items: [], status: 'READY', message: '' });
   apiMocks.fetchRiskEvents.mockResolvedValue({ items: [], status: 'READY', message: '' });
   apiMocks.rebuildTaxLedger.mockResolvedValue({ status: 'READY', period: '2026-08', rowCount: 0 });
+  legalEntityApiMocks.fetchLegalEntityStatutoryVatCollection.mockResolvedValue({ items: [], status: 'READY', message: '' });
+  legalEntityApiMocks.rebuildLegalEntityStatutoryVatCollection.mockResolvedValue({
+    status: 'READY',
+    period: '2026-08',
+    rowCount: 0,
+    failedCount: 0,
+    message: '',
+  });
 });
 
 describe('App domain loading decoupling', () => {
@@ -107,7 +127,7 @@ describe('App domain loading decoupling', () => {
   });
 
   it('keeps Project READY when the Legal Entity VAT API fails', async () => {
-    apiMocks.fetchEntityTaxLedger.mockRejectedValueOnce(new Error('entity vat unavailable'));
+    legalEntityApiMocks.fetchLegalEntityStatutoryVatCollection.mockRejectedValueOnce(new Error('entity vat unavailable'));
 
     render(<App />);
 

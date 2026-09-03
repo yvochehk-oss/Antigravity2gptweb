@@ -12,6 +12,7 @@ import {
   fetchRiskEvents,
   postJson,
 } from '../api';
+import { fetchLegalEntityStatutoryVatCollection } from '../legalEntityApi';
 import App from '../App';
 import { AiDecisionCenterView } from './AiDecisionCenterView';
 import { ProjectDetailView } from './ProjectDetailView';
@@ -36,6 +37,14 @@ const apiMocks = vi.hoisted(() => ({
   deleteProjectData: vi.fn(),
 }));
 
+const legalEntityApiMocks = vi.hoisted(() => ({
+  fetchLegalEntities: vi.fn(),
+  fetchLegalEntityFactPeriods: vi.fn(),
+  fetchLegalEntityStatutoryVat: vi.fn(),
+  fetchLegalEntityStatutoryVatCollection: vi.fn(),
+  rebuildLegalEntityStatutoryVatCollection: vi.fn(),
+}));
+
 vi.mock('../api', () => {
   class ApiError extends Error {
     readonly status: number;
@@ -52,6 +61,10 @@ vi.mock('../api', () => {
     ...apiMocks,
   };
 });
+
+vi.mock('../legalEntityApi', () => ({
+  ...legalEntityApiMocks,
+}));
 
 vi.mock('./Sidebar', () => ({
   Sidebar: (props: any) => (
@@ -205,11 +218,23 @@ beforeEach(() => {
   apiMocks.postJson.mockResolvedValue({ recommended: {}, scenarios: [] });
   apiMocks.fetchProjectTaxAnalysis.mockResolvedValue({ status: 'READY', message: '', item: projectAnalysis });
   apiMocks.fetchProjectCounterparties.mockResolvedValue({ status: 'EMPTY', message: '', items: [], total: 0 });
+  legalEntityApiMocks.fetchLegalEntityStatutoryVatCollection.mockResolvedValue({
+    items: [statutoryRecord()],
+    status: 'READY',
+    message: '',
+  });
+  legalEntityApiMocks.rebuildLegalEntityStatutoryVatCollection.mockResolvedValue({
+    status: 'READY',
+    period: '2026-08',
+    rowCount: 1,
+    failedCount: 0,
+    message: '',
+  });
 });
 
 describe('Phase 2 dual-domain invariants T1-T10', () => {
   it('T1: Entity fail / Project ready keeps the Project view fully usable', async () => {
-    vi.mocked(fetchEntityTaxLedger).mockRejectedValueOnce(new Error('entity unavailable'));
+    vi.mocked(fetchLegalEntityStatutoryVatCollection).mockRejectedValueOnce(new Error('entity unavailable'));
 
     render(<App />);
 
@@ -221,7 +246,11 @@ describe('Phase 2 dual-domain invariants T1-T10', () => {
 
   it('T2: Project fail / Entity ready keeps the statutory Entity view fully usable', async () => {
     apiMocks.fetchConfiguredProjects.mockRejectedValueOnce(new Error('project unavailable'));
-    vi.mocked(fetchEntityTaxLedger).mockResolvedValueOnce({ items: [statutoryRecord('法人 A')], status: 'READY', message: '' });
+    vi.mocked(fetchLegalEntityStatutoryVatCollection).mockResolvedValueOnce({
+      items: [statutoryRecord('法人 A')],
+      status: 'READY',
+      message: '',
+    });
 
     render(<App />);
 
@@ -237,7 +266,7 @@ describe('Phase 2 dual-domain invariants T1-T10', () => {
   it('T3: Abort race prevents a slow stale Entity response from overwriting the newer ready Entity data', async () => {
     const stale = deferred<any>();
     let staleSignal: AbortSignal | undefined;
-    vi.mocked(fetchEntityTaxLedger)
+    vi.mocked(fetchLegalEntityStatutoryVatCollection)
       .mockImplementationOnce((signal?: AbortSignal) => {
         staleSignal = signal;
         return stale.promise;
@@ -250,7 +279,7 @@ describe('Phase 2 dual-domain invariants T1-T10', () => {
       </StrictMode>,
     );
 
-    await waitFor(() => expect(vi.mocked(fetchEntityTaxLedger).mock.calls.length).toBeGreaterThanOrEqual(2));
+    await waitFor(() => expect(vi.mocked(fetchLegalEntityStatutoryVatCollection).mock.calls.length).toBeGreaterThanOrEqual(2));
     expect(staleSignal?.aborted).toBe(true);
     fireEvent.click(screen.getByTestId('nav-tax-ledger'));
     expect(await screen.findByText('新法人数据')).toBeInTheDocument();
