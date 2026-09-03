@@ -153,6 +153,12 @@ def get_formal_vat_statutory_resource(
         raise FormalVatStatutoryResourceIntegrityError(
             "official VAT calculation run is not SUCCEEDED"
         )
+
+    input_snapshot_sha256 = str(row["input_snapshot_sha256"] or "")
+    if len(input_snapshot_sha256) != 64:
+        raise FormalVatStatutoryResourceIntegrityError(
+            "official VAT calculation run has no valid input snapshot hash"
+        )
     result_sha256 = str(row["result_sha256"] or "")
     if len(result_sha256) != 64:
         raise FormalVatStatutoryResourceIntegrityError(
@@ -186,7 +192,7 @@ def get_formal_vat_statutory_resource(
             "run_kind": row["run_kind"],
             "run_status": row["run_status"],
             "ruleset_version": row["ruleset_version"],
-            "input_snapshot_sha256": row["input_snapshot_sha256"],
+            "input_snapshot_sha256": input_snapshot_sha256,
             "result_sha256": result_sha256,
             "completed_at": _iso_datetime(row["completed_at"]),
         },
