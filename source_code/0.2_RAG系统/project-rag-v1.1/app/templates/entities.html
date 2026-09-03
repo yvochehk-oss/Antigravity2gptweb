@@ -5,28 +5,50 @@
 {% endblock %}
 
 {% block body %}
-<!-- 头部标头 -->
+<style>
+.glass-panel,
+.glass-panel-elevated {
+  background: var(--color-surface) !important;
+  border-color: var(--color-border) !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+.badge-cyan,
+.badge-purple,
+.project-code {
+  background: var(--color-brand-muted) !important;
+  border-color: var(--color-border) !important;
+  color: var(--color-brand) !important;
+  box-shadow: none !important;
+}
+#entity-table thead tr { background: var(--color-surface-2) !important; }
+.entity-row:hover { background: var(--color-surface-2) !important; }
+#modal-import-entity .modal-content {
+  background: var(--color-surface) !important;
+  border: 1px solid var(--color-border) !important;
+  box-shadow: none !important;
+}
+#drop-zone {
+  background: var(--color-surface-2) !important;
+  border-color: var(--color-border) !important;
+}
+</style>
+
 <div class="toolbar" style="margin-bottom: 20px;">
   <div>
     <h1>👥 实际经营单位与涉税主体穿透大盘</h1>
-    <p class="subtitle">
-      包含系统内企业 {{ entity_summary.internal }} 家与系统外合作单位 {{ entity_summary.external }} 家（共 {{ entity_summary.total }} 家），支持四流合一风控与穿透追溯。
-    </p>
+    <p class="subtitle">包含系统内企业 {{ entity_summary.internal }} 家与系统外合作单位 {{ entity_summary.external }} 家（共 {{ entity_summary.total }} 家），支持四流合一风控与穿透追溯。</p>
   </div>
   <div class="toolbar-right" style="display: flex; gap: 10px; align-items: center;">
-    <button onclick="document.getElementById('modal-import-entity').classList.add('active')" class="btn btn-primary" style="display: flex; align-items: center; gap: 6px; box-shadow: 0 0 15px rgba(6,182,212,0.35);">
+    <button onclick="document.getElementById('modal-import-entity').classList.add('active')" class="btn btn-primary" style="display: flex; align-items: center; gap: 6px; box-shadow: none;">
       <span>📥 智能录入系统内单位（Excel / Word / PDF）</span>
     </button>
-    <span class="badge badge-cyan" style="font-size: 12px; padding: 6px 12px;">
-      ● 系统内 {{ entity_summary.internal }} 家
-    </span>
-    <span class="badge badge-purple" style="font-size: 12px; padding: 6px 12px;">
-      ● 系统外 {{ entity_summary.external }} 家
-    </span>
+    <span class="badge badge-cyan" style="font-size: 12px; padding: 6px 12px;">● 系统内 {{ entity_summary.internal }} 家</span>
+    <span class="badge badge-purple" style="font-size: 12px; padding: 6px 12px;">● 系统外 {{ entity_summary.external }} 家</span>
   </div>
 </div>
 
-<!-- 快捷筛选器 -->
 <div class="glass-panel" style="padding: 16px 20px; margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
   <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
     <span style="font-size: 12px; font-weight: 700; color: var(--text-muted);">筛选范围:</span>
@@ -34,7 +56,6 @@
     <button onclick="filterScope('internal')" class="btn btn-sm btn-secondary filter-scope-btn" data-scope="internal">🏢 系统内企业 ({{ entity_summary.internal }})</button>
     <button onclick="filterScope('external')" class="btn btn-sm btn-secondary filter-scope-btn" data-scope="external">🌐 系统外合作单位 ({{ entity_summary.external }})</button>
   </div>
-
   <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
     <span style="font-size: 12px; font-weight: 700; color: var(--text-muted);">业务角色:</span>
     <button onclick="filterRole('all')" class="btn btn-sm btn-primary filter-role-btn" data-role="all">全部角色</button>
@@ -46,72 +67,24 @@
   </div>
 </div>
 
-<!-- 结构化主体表格 -->
 <div class="glass-panel" style="padding: 0; overflow: hidden; margin-bottom: 30px;">
   <table id="entity-table" class="table" style="width: 100%; border-collapse: collapse; text-align: left; font-size: 13px;">
-    <thead>
-      <tr style="background: rgba(255, 255, 255, 0.03); border-bottom: 1px solid var(--border-subtle); color: var(--text-muted); font-weight: 600; user-select: none;">
-        <th style="padding: 14px 16px; width: 110px; cursor: pointer;" onclick="sortTable(0)" title="点击按主体代码排序">代码 <span class="ent-sort-icon" id="e-sort-0">↕</span></th>
-        <th style="padding: 14px 16px; width: 130px; cursor: pointer;" onclick="sortTable(1)" title="点击按来源属性排序">来源属性 <span class="ent-sort-icon" id="e-sort-1">↕</span></th>
-        <th style="padding: 14px 16px; width: 140px; cursor: pointer;" onclick="sortTable(2)" title="点击按业务角色排序">业务角色 <span class="ent-sort-icon" id="e-sort-2">↕</span></th>
-        <th style="padding: 14px 16px; min-width: 280px; cursor: pointer;" onclick="sortTable(3)" title="点击按单位全称排序">单位全称 (点击查看参与项目与往来详情) <span class="ent-sort-icon" id="e-sort-3">↕</span></th>
-        <th style="padding: 14px 16px;">业务说明 / 往来定位</th>
-        <th style="padding: 14px 16px; width: 120px; text-align: center;">操作</th>
-      </tr>
-    </thead>
+    <thead><tr style="border-bottom: 1px solid var(--border-subtle); color: var(--text-muted); font-weight: 600; user-select: none;">
+      <th style="padding: 14px 16px; width: 110px; cursor: pointer;" onclick="sortTable(0)" title="点击按主体代码排序">代码 <span class="ent-sort-icon" id="e-sort-0">↕</span></th>
+      <th style="padding: 14px 16px; width: 130px; cursor: pointer;" onclick="sortTable(1)" title="点击按来源属性排序">来源属性 <span class="ent-sort-icon" id="e-sort-1">↕</span></th>
+      <th style="padding: 14px 16px; width: 140px; cursor: pointer;" onclick="sortTable(2)" title="点击按业务角色排序">业务角色 <span class="ent-sort-icon" id="e-sort-2">↕</span></th>
+      <th style="padding: 14px 16px; min-width: 280px; cursor: pointer;" onclick="sortTable(3)" title="点击按单位全称排序">单位全称 (点击查看参与项目与往来详情) <span class="ent-sort-icon" id="e-sort-3">↕</span></th>
+      <th style="padding: 14px 16px;">业务说明 / 往来定位</th><th style="padding: 14px 16px; width: 120px; text-align: center;">操作</th>
+    </tr></thead>
     <tbody>
       {% for entity in entities %}
-      <tr class="entity-row" 
-          data-scope="{% if entity.is_external %}external{% else %}internal{% endif %}"
-          data-role="{{ entity.business_role }}"
-          style="border-bottom: 1px solid var(--border-subtle); transition: background 0.15s;">
-        <!-- 代码 (可点击) -->
-        <td style="padding: 14px 16px;">
-          <a href="/entities/{{ entity.entity_code }}" class="project-code font-mono" style="font-weight: 700; text-decoration: none; display: inline-block;">
-            {{ entity.entity_code }}
-          </a>
-        </td>
-        <!-- 来源属性 -->
-        <td style="padding: 14px 16px;">
-          {% if entity.is_external %}
-            <span class="badge badge-purple" style="font-size: 11px;">系统外单位</span>
-          {% else %}
-            <span class="badge badge-cyan" style="font-size: 11px;">系统内关联</span>
-          {% endif %}
-        </td>
-        <!-- 业务角色 -->
-        <td style="padding: 14px 16px;">
-          <div style="display: flex; align-items: center; gap: 6px;">
-            <span class="badge {{ entity.business_role_badge }}" style="font-size: 11px;">
-              {{ entity.business_role_label }}
-            </span>
-            {% if not entity.legal_entity %}
-            <span class="badge badge-amber" style="font-size: 10px;">分公司</span>
-            {% endif %}
-          </div>
-        </td>
-        <!-- 单位全称 (可点击) -->
-        <td style="padding: 14px 16px;">
-          <a href="/entities/{{ entity.entity_code }}" style="font-weight: 600; font-size: 14px; color: var(--accent-cyan); text-decoration: none; display: flex; align-items: center; gap: 6px;">
-            <span>🏢</span>
-            <span>{{ entity.name }}</span>
-          </a>
-          {% if entity.parent_entity_code %}
-          <div style="font-size: 11px; color: var(--text-muted); margin-top: 3px;">
-            上级法人: <a href="/entities/{{ entity.parent_entity_code }}" class="font-mono" style="color: var(--text-secondary); text-decoration: underline;">{{ entity.parent_entity_code }}</a>
-          </div>
-          {% endif %}
-        </td>
-        <!-- 业务说明 -->
-        <td style="padding: 14px 16px; font-size: 12px; color: var(--text-muted); line-height: 1.4;">
-          {{ entity.note or entity.business_role_description }}
-        </td>
-        <!-- 穿透按钮 -->
-        <td style="padding: 14px 16px; text-align: center;">
-          <a href="/entities/{{ entity.entity_code }}" class="btn btn-sm btn-secondary" style="font-size: 11px; padding: 4px 10px;">
-            穿透详情 ➔
-          </a>
-        </td>
+      <tr class="entity-row" data-scope="{% if entity.is_external %}external{% else %}internal{% endif %}" data-role="{{ entity.business_role }}" style="border-bottom: 1px solid var(--border-subtle); transition: background 0.15s;">
+        <td style="padding: 14px 16px;"><a href="/entities/{{ entity.entity_code }}" class="project-code font-mono" style="font-weight: 700; text-decoration: none; display: inline-block;">{{ entity.entity_code }}</a></td>
+        <td style="padding: 14px 16px;">{% if entity.is_external %}<span class="badge badge-purple" style="font-size: 11px;">系统外单位</span>{% else %}<span class="badge badge-cyan" style="font-size: 11px;">系统内关联</span>{% endif %}</td>
+        <td style="padding: 14px 16px;"><div style="display: flex; align-items: center; gap: 6px;"><span class="badge {{ entity.business_role_badge }}" style="font-size: 11px;">{{ entity.business_role_label }}</span>{% if not entity.legal_entity %}<span class="badge badge-amber" style="font-size: 10px;">分公司</span>{% endif %}</div></td>
+        <td style="padding: 14px 16px;"><a href="/entities/{{ entity.entity_code }}" style="font-weight: 600; font-size: 14px; color: var(--color-brand); text-decoration: none; display: flex; align-items: center; gap: 6px;"><span>🏢</span><span>{{ entity.name }}</span></a>{% if entity.parent_entity_code %}<div style="font-size: 11px; color: var(--text-muted); margin-top: 3px;">上级法人: <a href="/entities/{{ entity.parent_entity_code }}" class="font-mono" style="color: var(--text-secondary); text-decoration: underline;">{{ entity.parent_entity_code }}</a></div>{% endif %}</td>
+        <td style="padding: 14px 16px; font-size: 12px; color: var(--text-muted); line-height: 1.4;">{{ entity.note or entity.business_role_description }}</td>
+        <td style="padding: 14px 16px; text-align: center;"><a href="/entities/{{ entity.entity_code }}" class="btn btn-sm btn-secondary" style="font-size: 11px; padding: 4px 10px;">穿透详情 ➔</a></td>
       </tr>
       {% endfor %}
     </tbody>
@@ -121,216 +94,33 @@
 <script>
 let currentScope = 'all';
 let currentRole = 'all';
-
-const roleAliasMap = {
-  'A': 'construction', 'construction': 'construction', 'EA': 'construction',
-  'B': 'trade', 'trade': 'trade', 'EB': 'trade',
-  'C': 'labor', 'labor': 'labor', 'EC': 'labor',
-  'D': 'equipment', 'equipment': 'equipment', 'ED': 'equipment',
-  'E0': 'owner', 'owner': 'owner', 'E': 'owner'
-};
-
-function filterScope(scope) {
-  currentScope = scope;
-  document.querySelectorAll('.filter-scope-btn').forEach(btn => {
-    if (btn.dataset.scope === scope) {
-      btn.classList.remove('btn-secondary');
-      btn.classList.add('btn-primary');
-    } else {
-      btn.classList.remove('btn-primary');
-      btn.classList.add('btn-secondary');
-    }
-  });
-  applyFilters();
-}
-
-function filterRole(role) {
-  currentRole = role;
-  document.querySelectorAll('.filter-role-btn').forEach(btn => {
-    if (btn.dataset.role === role) {
-      btn.classList.remove('btn-secondary');
-      btn.classList.add('btn-primary');
-    } else {
-      btn.classList.remove('btn-primary');
-      btn.classList.add('btn-secondary');
-    }
-  });
-  applyFilters();
-}
-
-function applyFilters() {
-  const rows = document.querySelectorAll('.entity-row');
-  rows.forEach(row => {
-    const rowScope = row.dataset.scope;
-    const rowRawRole = row.dataset.role;
-    const normalizedRole = roleAliasMap[rowRawRole] || rowRawRole;
-
-    const matchScope = (currentScope === 'all' || rowScope === currentScope);
-    const matchRole = (currentRole === 'all' || normalizedRole === currentRole || rowRawRole === currentRole);
-    if (matchScope && matchRole) {
-      row.style.display = '';
-    } else {
-      row.style.display = 'none';
-    }
-  });
-}
-
-function sortTable(columnIndex) {
-  const table = document.getElementById("entity-table");
-  const tbody = table.querySelector("tbody");
-  const rows = Array.from(tbody.querySelectorAll("tr"));
-  
-  const isAsc = table.dataset.sortCol == columnIndex && table.dataset.sortOrder == "asc";
-  const newOrder = isAsc ? "desc" : "asc";
-  table.dataset.sortCol = columnIndex;
-  table.dataset.sortOrder = newOrder;
-
-  document.querySelectorAll('.ent-sort-icon').forEach((el, idx) => {
-    if (idx === columnIndex) {
-      el.textContent = newOrder === 'asc' ? '↑' : '↓';
-      el.style.color = 'var(--accent-cyan)';
-    } else {
-      el.textContent = '↕';
-      el.style.color = 'inherit';
-    }
-  });
-
-  rows.sort((a, b) => {
-    const aText = a.cells[columnIndex].innerText.trim();
-    const bText = b.cells[columnIndex].innerText.trim();
-    return newOrder === 'asc' ? aText.localeCompare(bText, 'zh-CN') : bText.localeCompare(aText, 'zh-CN');
-  });
-
-  rows.forEach(r => tbody.appendChild(r));
-}
-
+const roleAliasMap = {'A':'construction','construction':'construction','EA':'construction','B':'trade','trade':'trade','EB':'trade','C':'labor','labor':'labor','EC':'labor','D':'equipment','equipment':'equipment','ED':'equipment','E0':'owner','owner':'owner','E':'owner'};
+function filterScope(scope) { currentScope = scope; document.querySelectorAll('.filter-scope-btn').forEach(btn => { if (btn.dataset.scope === scope) { btn.classList.remove('btn-secondary'); btn.classList.add('btn-primary'); } else { btn.classList.remove('btn-primary'); btn.classList.add('btn-secondary'); } }); applyFilters(); }
+function filterRole(role) { currentRole = role; document.querySelectorAll('.filter-role-btn').forEach(btn => { if (btn.dataset.role === role) { btn.classList.remove('btn-secondary'); btn.classList.add('btn-primary'); } else { btn.classList.remove('btn-primary'); btn.classList.add('btn-secondary'); } }); applyFilters(); }
+function applyFilters() { const rows = document.querySelectorAll('.entity-row'); rows.forEach(row => { const rowScope = row.dataset.scope; const rowRawRole = row.dataset.role; const normalizedRole = roleAliasMap[rowRawRole] || rowRawRole; const matchScope = (currentScope === 'all' || rowScope === currentScope); const matchRole = (currentRole === 'all' || normalizedRole === currentRole || rowRawRole === currentRole); row.style.display = (matchScope && matchRole) ? '' : 'none'; }); }
+function sortTable(columnIndex) { const table = document.getElementById('entity-table'); const tbody = table.querySelector('tbody'); const rows = Array.from(tbody.querySelectorAll('tr')); const isAsc = table.dataset.sortCol == columnIndex && table.dataset.sortOrder == 'asc'; const newOrder = isAsc ? 'desc' : 'asc'; table.dataset.sortCol = columnIndex; table.dataset.sortOrder = newOrder; document.querySelectorAll('.ent-sort-icon').forEach((el, idx) => { if (idx === columnIndex) { el.textContent = newOrder === 'asc' ? '↑' : '↓'; el.style.color = 'var(--color-brand)'; } else { el.textContent = '↕'; el.style.color = 'inherit'; } }); rows.sort((a,b) => { const aText = a.cells[columnIndex].innerText.trim(); const bText = b.cells[columnIndex].innerText.trim(); return newOrder === 'asc' ? aText.localeCompare(bText,'zh-CN') : bText.localeCompare(aText,'zh-CN'); }); rows.forEach(r => tbody.appendChild(r)); }
 let selectedEntityFile = null;
-
-function handleFileSelect(file) {
-  if (!file) return;
-  selectedEntityFile = file;
-  document.getElementById('selected-file-name').textContent = `📄 ${file.name} (${(file.size / 1024).toFixed(1)} KB)`;
-  document.getElementById('selected-file-info').style.display = 'flex';
-  document.getElementById('btn-do-import').disabled = false;
-  document.getElementById('import-result-box').style.display = 'none';
-}
-
-function handleDrop(e) {
-  if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-    handleFileSelect(e.dataTransfer.files[0]);
-  }
-}
-
-function clearSelectedFile(e) {
-  if (e) e.stopPropagation();
-  selectedEntityFile = null;
-  document.getElementById('entity-file-input').value = '';
-  document.getElementById('selected-file-info').style.display = 'none';
-  document.getElementById('btn-do-import').disabled = true;
-  document.getElementById('import-result-box').style.display = 'none';
-}
-
-function closeImportModal() {
-  document.getElementById('modal-import-entity').classList.remove('active');
-  clearSelectedFile();
-}
-
+function handleFileSelect(file) { if (!file) return; selectedEntityFile = file; document.getElementById('selected-file-name').textContent = `📄 ${file.name} (${(file.size / 1024).toFixed(1)} KB)`; document.getElementById('selected-file-info').style.display = 'flex'; document.getElementById('btn-do-import').disabled = false; document.getElementById('import-result-box').style.display = 'none'; }
+function handleDrop(e) { if (e.dataTransfer.files && e.dataTransfer.files.length > 0) handleFileSelect(e.dataTransfer.files[0]); }
+function clearSelectedFile(e) { if (e) e.stopPropagation(); selectedEntityFile = null; document.getElementById('entity-file-input').value = ''; document.getElementById('selected-file-info').style.display = 'none'; document.getElementById('btn-do-import').disabled = true; document.getElementById('import-result-box').style.display = 'none'; }
+function closeImportModal() { document.getElementById('modal-import-entity').classList.remove('active'); clearSelectedFile(); }
 async function uploadAndImportEntityFile() {
   if (!selectedEntityFile) return;
-
-  const btn = document.getElementById('btn-do-import');
-  const resultBox = document.getElementById('import-result-box');
-  btn.disabled = true;
-  btn.innerHTML = '<span>⏳ 正在全文档深度识别与对齐...</span>';
-  resultBox.style.display = 'block';
-  resultBox.innerHTML = '<div style="color: var(--accent-cyan);">正在解析文档内容并提取企业全称、税号与业务角色，请稍候...</div>';
-
-  const formData = new FormData();
-  formData.append('file', selectedEntityFile);
-
-  try {
-    const res = await fetch('/api/v1/entities/import-file', {
-      method: 'POST',
-      body: formData,
-      credentials: 'include',
-    });
-
-    const data = await res.json();
-    if (!res.ok) {
-      throw new Error(data.detail || '导入识别失败');
-    }
-
-    let itemsHtml = (data.items || []).map(it => `
-      <div style="display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px dashed rgba(255,255,255,0.08);">
-        <span><b style="color: var(--accent-cyan);">${it.entity_code}</b> · ${it.name}</span>
-        <span style="color: var(--text-muted);">${it.tax_id || '已分配代码'} (${it.business_role || 'A'})</span>
-      </div>
-    `).join('');
-
-    resultBox.innerHTML = `
-      <div style="color: #10b981; font-weight: 600; margin-bottom: 8px;">
-        ✓ 成功识别并入库 ${data.total_parsed} 家单位（新增 ${data.created_count} 家，更新 ${data.updated_count} 家）！
-      </div>
-      <div style="margin-top: 6px;">${itemsHtml}</div>
-      <div style="margin-top: 10px; color: var(--accent-cyan); font-weight: 500;">
-        页面将在 2 秒后自动刷新以呈现最新穿透大盘...
-      </div>
-    `;
-
-    setTimeout(() => {
-      window.location.reload();
-    }, 2000);
-
-  } catch (err) {
-    resultBox.innerHTML = `<div style="color: var(--accent-rose); font-weight: 600;">❌ 识别失败: ${err.message}</div>`;
-    btn.disabled = false;
-    btn.innerHTML = '<span>⚡ 重新尝试识别并入库</span>';
-  }
+  const btn = document.getElementById('btn-do-import'); const resultBox = document.getElementById('import-result-box'); btn.disabled = true; btn.innerHTML = '<span>⏳ 正在全文档深度识别与对齐...</span>'; resultBox.style.display = 'block'; resultBox.innerHTML = '<div style="color: var(--color-brand);">正在解析文档内容并提取企业全称、税号与业务角色，请稍候...</div>';
+  const formData = new FormData(); formData.append('file', selectedEntityFile);
+  try { const res = await fetch('/api/v1/entities/import-file', { method: 'POST', body: formData, credentials: 'include' }); const data = await res.json(); if (!res.ok) throw new Error(data.detail || '导入识别失败'); let itemsHtml = (data.items || []).map(it => `<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px dashed var(--color-border);"><span><b style="color:var(--color-brand);">${it.entity_code}</b> · ${it.name}</span><span style="color:var(--text-muted);">${it.tax_id || '已分配代码'} (${it.business_role || 'A'})</span></div>`).join(''); resultBox.innerHTML = `<div style="color:var(--color-success);font-weight:600;margin-bottom:8px;">✓ 成功识别并入库 ${data.total_parsed} 家单位（新增 ${data.created_count} 家，更新 ${data.updated_count} 家）！</div><div style="margin-top:6px;">${itemsHtml}</div><div style="margin-top:10px;color:var(--color-brand);font-weight:500;">页面将在 2 秒后自动刷新以呈现最新穿透大盘...</div>`; setTimeout(() => { window.location.reload(); }, 2000); }
+  catch (err) { resultBox.innerHTML = `<div style="color:var(--color-danger);font-weight:600;">❌ 识别失败: ${err.message}</div>`; btn.disabled = false; btn.innerHTML = '<span>⚡ 重新尝试识别并入库</span>'; }
 }
 </script>
 
-<!-- 智能导入系统内单位 Modal -->
 <div id="modal-import-entity" class="modal-overlay">
-  <div class="glass-panel-elevated modal-content" style="max-width: 620px; border: 1px solid var(--accent-cyan); border-radius: 12px; padding: 24px;">
-    <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-      <h3 style="margin: 0; color: #fff; font-size: 16px; display: flex; align-items: center; gap: 8px;">
-        <span>🏢</span> 智能识别与录入系统内单位
-      </h3>
-      <button class="modal-close" onclick="closeImportModal()">&times;</button>
-    </div>
-
-    <div style="font-size: 13px; color: var(--text-muted); line-height: 1.6; margin-bottom: 16px;">
-      支持直接上传包含系统内单位清单的 <b style="color: #fff;">Excel 表格 (.xlsx, .xls)</b>、单位立项/成立证明 <b style="color: #fff;">Word 文档 (.docx)</b> 或 营业执照/开户证明 <b style="color: #fff;">PDF 扫描件 (.pdf)</b>。<br/>
-      系统将自动深度提取<b style="color: var(--accent-cyan);">企业全称、统一社会信用代码/税号、法定代表人、注册资本</b>等字段，并自动完成主数据建档与规范化对齐。
-    </div>
-
-    <!-- 上传区域 -->
-    <div id="drop-zone" style="border: 2px dashed var(--border-subtle); border-radius: 8px; padding: 28px 20px; text-align: center; background: rgba(255,255,255,0.02); cursor: pointer; transition: all 0.2s;"
-         onclick="document.getElementById('entity-file-input').click()"
-         ondragover="event.preventDefault(); this.style.borderColor='var(--accent-cyan)';"
-         ondragleave="this.style.borderColor='var(--border-subtle)';"
-         ondrop="event.preventDefault(); handleDrop(event);">
-      <div style="font-size: 32px; margin-bottom: 8px;">📄</div>
-      <div style="color: #fff; font-weight: 600; font-size: 14px; margin-bottom: 4px;">点击选择文件 或 将文件拖拽至此处</div>
-      <div style="color: var(--text-muted); font-size: 12px;">支持格式：.xlsx, .xls, .docx, .pdf</div>
-      <input type="file" id="entity-file-input" style="display: none;" accept=".xlsx,.xls,.docx,.doc,.pdf" onchange="handleFileSelect(this.files[0])" />
-    </div>
-
-    <div id="selected-file-info" style="display: none; margin-top: 12px; font-size: 13px; padding: 10px 14px; border-radius: 6px; background: rgba(6,182,212,0.1); border: 1px solid rgba(6,182,212,0.3); align-items: center; justify-content: space-between;">
-      <span id="selected-file-name" style="color: #fff; font-weight: 500;"></span>
-      <button onclick="clearSelectedFile(event)" style="background: none; border: none; color: var(--accent-rose); cursor: pointer; font-size: 12px;">清除</button>
-    </div>
-
-    <!-- 识别与导入结果反馈区 -->
-    <div id="import-result-box" style="display: none; margin-top: 16px; max-height: 200px; overflow-y: auto; font-size: 12px; border-radius: 6px; padding: 12px; background: rgba(0,0,0,0.3); border: 1px solid var(--border-subtle);">
-    </div>
-
-    <div class="modal-footer" style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px;">
-      <button type="button" onclick="closeImportModal()" class="btn btn-secondary">取消</button>
-      <button id="btn-do-import" type="button" onclick="uploadAndImportEntityFile()" class="btn btn-primary" disabled>
-        <span>⚡ 开始智能解析并入库</span>
-      </button>
-    </div>
+  <div class="glass-panel-elevated modal-content" style="max-width: 620px; border-radius: 12px; padding: 24px;">
+    <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;"><h3 style="margin: 0; color: var(--color-text-primary); font-size: 16px; display: flex; align-items: center; gap: 8px;"><span>🏢</span> 智能识别与录入系统内单位</h3><button class="modal-close" onclick="closeImportModal()">&times;</button></div>
+    <div style="font-size: 13px; color: var(--text-muted); line-height: 1.6; margin-bottom: 16px;">支持直接上传包含系统内单位清单的 <b style="color: var(--color-text-primary);">Excel 表格 (.xlsx, .xls)</b>、单位立项/成立证明 <b style="color: var(--color-text-primary);">Word 文档 (.docx)</b> 或 营业执照/开户证明 <b style="color: var(--color-text-primary);">PDF 扫描件 (.pdf)</b>。<br/>系统将自动深度提取<b style="color: var(--color-brand);">企业全称、统一社会信用代码/税号、法定代表人、注册资本</b>等字段，并自动完成主数据建档与规范化对齐。</div>
+    <div id="drop-zone" style="border: 2px dashed var(--color-border); border-radius: 8px; padding: 28px 20px; text-align: center; cursor: pointer; transition: border-color 0.2s;" onclick="document.getElementById('entity-file-input').click()" ondragover="event.preventDefault(); this.style.borderColor='var(--color-brand)';" ondragleave="this.style.borderColor='var(--color-border)';" ondrop="event.preventDefault(); handleDrop(event);"><div style="font-size: 32px; margin-bottom: 8px;">📄</div><div style="color: var(--color-text-primary); font-weight: 600; font-size: 14px; margin-bottom: 4px;">点击选择文件 或 将文件拖拽至此处</div><div style="color: var(--text-muted); font-size: 12px;">支持格式：.xlsx, .xls, .docx, .pdf</div><input type="file" id="entity-file-input" style="display: none;" accept=".xlsx,.xls,.docx,.doc,.pdf" onchange="handleFileSelect(this.files[0])" /></div>
+    <div id="selected-file-info" style="display: none; margin-top: 12px; font-size: 13px; padding: 10px 14px; border-radius: 6px; background: var(--color-brand-muted); border: 1px solid var(--color-border); align-items: center; justify-content: space-between;"><span id="selected-file-name" style="color: var(--color-text-primary); font-weight: 500;"></span><button onclick="clearSelectedFile(event)" style="background: none; border: none; color: var(--color-danger); cursor: pointer; font-size: 12px;">清除</button></div>
+    <div id="import-result-box" style="display: none; margin-top: 16px; max-height: 200px; overflow-y: auto; font-size: 12px; border-radius: 6px; padding: 12px; background: var(--color-surface-2); border: 1px solid var(--color-border);"></div>
+    <div class="modal-footer" style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px;"><button type="button" onclick="closeImportModal()" class="btn btn-secondary">取消</button><button id="btn-do-import" type="button" onclick="uploadAndImportEntityFile()" class="btn btn-primary" disabled><span>⚡ 开始智能解析并入库</span></button></div>
   </div>
 </div>
 {% endblock %}
