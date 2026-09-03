@@ -10,250 +10,63 @@
 <div class="content-header">
   <div>
     <h1>📁 物理资料目录挂载与智能扫描</h1>
-    <p style="color: var(--text-muted); margin-top: 8px;">
-      配置局域网或本地的物理目录。系统扫描时会自动按子目录名称自动新建项目、增量入库并拉起智能文档解析与向量化索引流。
-    </p>
+    <p style="color: var(--color-text-muted); margin-top: 8px;">配置局域网或本地的物理目录。系统扫描时会自动按子目录名称自动新建项目、增量入库并拉起智能文档解析与向量化索引流。</p>
   </div>
-  <button id="btn-scan" onclick="triggerScan()" class="btn btn-primary" style="display: flex; align-items: center; gap: 8px;">
-    <span>🚀</span> 一键全局扫描
-  </button>
+  <button id="btn-scan" onclick="triggerScan()" class="btn btn-primary" style="display: flex; align-items: center; gap: 8px;"><span>🚀</span> 一键全局扫描</button>
 </div>
 
-<!-- 已挂载目录列表 -->
-<div class="glass-panel" style="padding: 24px; margin-bottom: 24px;">
+<div class="surface-card" style="padding: 24px; margin-bottom: 24px;">
   <h2 style="font-size: 16px; margin-bottom: 16px;">已挂载的目录</h2>
   <table class="table" style="width: 100%; text-align: left; border-collapse: collapse;">
-    <thead>
-      <tr style="border-bottom: 1px solid var(--border-subtle);">
-        <th style="padding: 12px;">路径</th>
-        <th style="padding: 12px;">状态</th>
-        <th style="padding: 12px;">最后扫描时间</th>
-        <th style="padding: 12px;">操作</th>
-      </tr>
-    </thead>
+    <thead><tr style="border-bottom: 1px solid var(--color-border);"><th style="padding: 12px;">路径</th><th style="padding: 12px;">状态</th><th style="padding: 12px;">最后扫描时间</th><th style="padding: 12px;">操作</th></tr></thead>
     <tbody>
       {% for mount in mounts %}
-      <tr style="border-bottom: 1px solid var(--border-subtle);">
-        <td style="padding: 12px; font-family: "Cascadia Code", "Segoe UI Mono", "Consolas", "Roboto Mono", "PingFang SC", "Microsoft YaHei UI", monospace; font-variant-numeric: tabular-nums; color: var(--accent-cyan);">{{ mount.path }}</td>
-        <td style="padding: 12px;">
-          {% if mount.active %}<span class="badge badge-cyan">Active</span>
-          {% else %}<span class="badge badge-secondary">Disabled</span>{% endif %}
-        </td>
+      <tr style="border-bottom: 1px solid var(--color-border);">
+        <td style="padding: 12px; font-family: var(--font-mono, monospace); color: var(--color-brand);">{{ mount.path }}</td>
+        <td style="padding: 12px;">{% if mount.active %}<span class="badge badge-emerald">已启用</span>{% else %}<span class="badge badge-muted">已停用</span>{% endif %}</td>
         <td style="padding: 12px;">{{ mount.last_scan_at.strftime('%Y-%m-%d %H:%M:%S') if mount.last_scan_at else '从未扫描' }}</td>
-        <td style="padding: 12px;">
-          <form method="POST" action="/api/v1/mounts/{{ mount.id }}/delete" style="display:inline;">
-            <button type="submit" class="btn btn-sm btn-secondary" onclick="return confirm('确定移除该挂载点吗？')">移除</button>
-          </form>
-        </td>
+        <td style="padding: 12px;"><form method="POST" action="/api/v1/mounts/{{ mount.id }}/delete" style="display:inline;"><button type="submit" class="btn btn-sm btn-secondary" onclick="return confirm('确定移除该挂载点吗？')">移除</button></form></td>
       </tr>
-      {% else %}
-      <tr>
-        <td colspan="4" style="padding: 24px; text-align: center; color: var(--text-muted);">尚未挂载任何目录，请点击下方按钮选择。</td>
-      </tr>
-      {% endfor %}
+      {% else %}<tr><td colspan="4" style="padding: 24px; text-align: center; color: var(--color-text-muted);">尚未挂载任何目录，请点击下方按钮选择。</td></tr>{% endfor %}
     </tbody>
   </table>
 </div>
 
-<!-- 新增挂载点 -->
-<div class="glass-panel" style="padding: 24px;">
+<div class="surface-card" style="padding: 24px;">
   <h2 style="font-size: 16px; margin-bottom: 16px;">添加挂载目录</h2>
   <form method="POST" action="/api/v1/mounts" style="display: flex; gap: 12px; align-items: flex-end;">
-    <div style="flex: 1;">
-      <label style="display: block; font-size: 13px; color: var(--text-secondary); margin-bottom: 8px;">选中的目录路径</label>
-      <div style="display: flex; gap: 8px;">
-        <input type="text" id="path-input" name="path" class="form-input" style="flex:1;" placeholder="点击右侧按钮选择目录…" required readonly>
-        <button type="button" class="btn btn-secondary" onclick="openPicker('/')">📂 浏览目录</button>
-      </div>
-    </div>
+    <div style="flex: 1;"><label style="display: block; font-size: 13px; color: var(--color-text-secondary); margin-bottom: 8px;">选中的目录路径</label><div style="display: flex; gap: 8px;"><input type="text" id="path-input" name="path" class="form-input" style="flex:1;" placeholder="点击右侧按钮选择目录…" required readonly><button type="button" class="btn btn-secondary" onclick="openPicker('/')">📂 浏览目录</button></div></div>
     <button type="submit" class="btn btn-primary">挂载</button>
   </form>
 </div>
 
-<!-- 目录选取弹窗 -->
-<div id="picker-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.65); z-index:9999; align-items:center; justify-content:center;">
-  <div style="background: var(--panel-bg,#1a2235); border:1px solid var(--border-subtle,#2a3550); border-radius:12px; width:720px; max-height:82vh; display:flex; flex-direction:column; overflow:hidden; box-shadow: 0 24px 80px rgba(0,0,0,0.5);">
-    <!-- 头部 -->
-    <div style="padding:14px 20px; border-bottom:1px solid var(--border-subtle,#2a3550); display:flex; align-items:center; gap:12px;">
-      <span style="font-size:20px;">📂</span>
-      <div style="flex:1;">
-        <div style="font-weight:600; font-size:15px;">选择目录</div>
-        <div style="font-size:11px; color:var(--text-muted,#8a9ab5); margin-top:2px;">单击选中 · 双击进入子目录</div>
-      </div>
-      <button onclick="closePicker()" style="background:none;border:none;color:var(--text-muted,#8a9ab5);cursor:pointer;font-size:22px;line-height:1;">&times;</button>
-    </div>
-    <!-- 路径面包屑 -->
-    <div id="picker-breadcrumb" style="padding:7px 16px; font-size:12px; border-bottom:1px solid var(--border-subtle,#2a3550); display:flex; flex-wrap:wrap; gap:4px; align-items:center; min-height:34px; background:rgba(0,0,0,0.1);"></div>
-    <!-- 双栏: 快速访问 + 文件列表 -->
-    <div style="display:flex; flex:1; overflow:hidden; min-height:240px;">
-      <!-- 左侧快速访问 -->
-      <div id="picker-quick" style="width:180px; border-right:1px solid var(--border-subtle,#2a3550); overflow-y:auto; padding:8px 6px; background:rgba(0,0,0,0.08); flex-shrink:0;">
-        <div style="font-size:11px; color:var(--text-muted,#8a9ab5); padding:4px 8px 8px; font-weight:600; text-transform:uppercase; letter-spacing:0.5px;">常用位置</div>
-      </div>
-      <!-- 右侧目录列表 -->
-      <div id="picker-list" style="flex:1; overflow-y:auto; padding:6px 10px;"></div>
-    </div>
-    <!-- 底部操作 -->
-    <div style="padding:12px 20px; border-top:1px solid var(--border-subtle,#2a3550); display:flex; gap:10px; align-items:center;">
-      <span id="picker-selected-label" style="flex:1; font-size:13px; color:var(--text-secondary,#a0b0cc); font-family: "Cascadia Code", "Consolas", "Segoe UI Mono", "Courier New", monospace; font-variant-numeric: tabular-nums; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">未选中任何目录</span>
-      <button onclick="closePicker()" class="btn btn-secondary" style="padding:8px 16px;">取消</button>
-      <button id="picker-confirm" onclick="confirmPicker()" class="btn btn-primary" style="padding:8px 16px;" disabled>✓ 选择此目录</button>
-    </div>
+<div id="picker-modal" style="display:none; position:fixed; inset:0; background:rgba(11,19,38,0.78); z-index:9999; align-items:center; justify-content:center;">
+  <div style="background:var(--color-surface);border:1px solid var(--color-border);border-radius:12px;width:720px;max-height:82vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 24px 80px rgba(0,0,0,0.45);">
+    <div style="padding:14px 20px;border-bottom:1px solid var(--color-border);display:flex;align-items:center;gap:12px;"><span style="font-size:20px;">📂</span><div style="flex:1;"><div style="font-weight:600;font-size:15px;">选择目录</div><div style="font-size:11px;color:var(--color-text-muted);margin-top:2px;">单击选中 · 双击进入子目录</div></div><button onclick="closePicker()" style="background:none;border:none;color:var(--color-text-muted);cursor:pointer;font-size:22px;line-height:1;">&times;</button></div>
+    <div id="picker-breadcrumb" style="padding:7px 16px;font-size:12px;border-bottom:1px solid var(--color-border);display:flex;flex-wrap:wrap;gap:4px;align-items:center;min-height:34px;background:var(--color-surface-2);"></div>
+    <div style="display:flex;flex:1;overflow:hidden;min-height:240px;"><div id="picker-quick" style="width:180px;border-right:1px solid var(--color-border);overflow-y:auto;padding:8px 6px;background:var(--color-surface-2);flex-shrink:0;"><div style="font-size:11px;color:var(--color-text-muted);padding:4px 8px 8px;font-weight:600;">常用位置</div></div><div id="picker-list" style="flex:1;overflow-y:auto;padding:6px 10px;"></div></div>
+    <div style="padding:12px 20px;border-top:1px solid var(--color-border);display:flex;gap:10px;align-items:center;"><span id="picker-selected-label" style="flex:1;font-size:13px;color:var(--color-text-secondary);font-family:var(--font-mono,monospace);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">未选中任何目录</span><button onclick="closePicker()" class="btn btn-secondary" style="padding:8px 16px;">取消</button><button id="picker-confirm" onclick="confirmPicker()" class="btn btn-primary" style="padding:8px 16px;" disabled>✓ 选择此目录</button></div>
   </div>
 </div>
 
 <script>
 let pickerSelectedPath = null;
-
-function openPicker() {
-  pickerSelectedPath = null;
-  document.getElementById('picker-modal').style.display = 'flex';
-  document.getElementById('picker-confirm').disabled = true;
-  document.getElementById('picker-selected-label').textContent = '未选中任何目录';
-  browseTo('');   // empty = server defaults to home dir
-}
-
-function closePicker() {
-  document.getElementById('picker-modal').style.display = 'none';
-}
-
-function confirmPicker() {
-  if (pickerSelectedPath) {
-    document.getElementById('path-input').value = pickerSelectedPath;
-    closePicker();
-  }
-}
-
+function openPicker() { pickerSelectedPath = null; document.getElementById('picker-modal').style.display = 'flex'; document.getElementById('picker-confirm').disabled = true; document.getElementById('picker-selected-label').textContent = '未选中任何目录'; browseTo(''); }
+function closePicker() { document.getElementById('picker-modal').style.display = 'none'; }
+function confirmPicker() { if (pickerSelectedPath) { document.getElementById('path-input').value = pickerSelectedPath; closePicker(); } }
 async function browseTo(path) {
-  renderBreadcrumb(path);
-  const list = document.getElementById('picker-list');
-  list.innerHTML = '<div style="padding:20px; color:var(--text-muted,#8a9ab5); text-align:center; font-size:13px;">加载中…</div>';
-
-  try {
-    const url = '/api/v1/mounts/fs' + (path ? '?path=' + encodeURIComponent(path) : '');
-    const res = await fetch(url);
-    const data = await res.json();
-    renderQuickAccess(data.quick_access || []);
-    renderList(data);
-  } catch(e) {
-    list.innerHTML = '<div style="padding:20px; color:#f87171; font-size:13px;">读取失败: ' + e + '</div>';
-  }
+  renderBreadcrumb(path); const list = document.getElementById('picker-list'); list.innerHTML = '<div style="padding:20px;color:var(--color-text-muted);text-align:center;font-size:13px;">加载中…</div>';
+  try { const url = '/api/v1/mounts/fs' + (path ? '?path=' + encodeURIComponent(path) : ''); const res = await fetch(url); const data = await res.json(); renderQuickAccess(data.quick_access || []); renderList(data); } catch(e) { list.innerHTML = '<div style="padding:20px;color:var(--color-danger);font-size:13px;">读取失败: ' + e + '</div>'; }
 }
-
-function renderQuickAccess(items) {
-  const panel = document.getElementById('picker-quick');
-  // Keep the title div, rebuild items after it
-  const title = panel.querySelector('div');
-  panel.innerHTML = '';
-  panel.appendChild(title);
-
-  items.forEach(item => {
-    const row = document.createElement('div');
-    row.textContent = item.label;
-    row.title = item.path;
-    row.style.cssText = 'padding:7px 10px; border-radius:6px; cursor:pointer; font-size:13px; color:var(--text-secondary,#a0b0cc); transition:background 0.1s; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;';
-    row.addEventListener('mouseover', () => row.style.background = 'rgba(0,212,255,0.08)');
-    row.addEventListener('mouseout', () => row.style.background = '');
-    row.addEventListener('click', () => browseTo(item.path));
-    panel.appendChild(row);
-  });
-}
-
-function renderBreadcrumb(path) {
-  const bc = document.getElementById('picker-breadcrumb');
-  bc.innerHTML = '';
-  if (!path) return;
-  const parts = path.split('/').filter((p, i) => p || i === 0);
-  parts.forEach((part, i) => {
-    const target = '/' + parts.slice(1, i + 1).join('/');
-    const label = part === '' ? '/' : part;
-    const span = document.createElement('span');
-    span.textContent = label;
-    span.style.cssText = 'cursor:pointer; color:var(--accent-cyan,#00d4ff); text-decoration:underline; font-size:12px;';
-    span.onclick = () => browseTo(i === 0 ? '/' : target);
-    bc.appendChild(span);
-    if (i < parts.length - 1) {
-      const sep = document.createElement('span');
-      sep.textContent = ' › ';
-      sep.style.color = 'var(--text-muted,#8a9ab5)';
-      bc.appendChild(sep);
-    }
-  });
-}
-
+function renderQuickAccess(items) { const panel = document.getElementById('picker-quick'); const title = panel.querySelector('div'); panel.innerHTML = ''; panel.appendChild(title); items.forEach(item => { const row = document.createElement('div'); row.textContent = item.label; row.title = item.path; row.style.cssText = 'padding:7px 10px;border-radius:6px;cursor:pointer;font-size:13px;color:var(--color-text-secondary);transition:background 0.1s;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;'; row.addEventListener('mouseover', () => row.style.background = 'var(--color-brand-muted)'); row.addEventListener('mouseout', () => row.style.background = ''); row.addEventListener('click', () => browseTo(item.path)); panel.appendChild(row); }); }
+function renderBreadcrumb(path) { const bc = document.getElementById('picker-breadcrumb'); bc.innerHTML = ''; if (!path) return; const parts = path.split('/').filter((p, i) => p || i === 0); parts.forEach((part, i) => { const target = '/' + parts.slice(1, i + 1).join('/'); const label = part === '' ? '/' : part; const span = document.createElement('span'); span.textContent = label; span.style.cssText = 'cursor:pointer;color:var(--color-brand);text-decoration:underline;font-size:12px;'; span.onclick = () => browseTo(i === 0 ? '/' : target); bc.appendChild(span); if (i < parts.length - 1) { const sep = document.createElement('span'); sep.textContent = ' › '; sep.style.color = 'var(--color-text-muted)'; bc.appendChild(sep); } }); }
 function renderList(data) {
-  const list = document.getElementById('picker-list');
-  list.innerHTML = '';
-
-  if (data.error) {
-    list.innerHTML = '<div style="padding:16px; color:#f87171; font-size:13px;">错误: ' + data.error + '</div>';
-    return;
-  }
-
-  if (!data.items || data.items.length === 0) {
-    list.innerHTML = '<div style="padding:20px; color:var(--text-muted,#8a9ab5); text-align:center; font-size:13px;">（空目录）</div>';
-    return;
-  }
-
-  data.items.forEach(item => {
-    const row = document.createElement('div');
-    row.style.cssText = 'display:flex; align-items:center; padding:8px 10px; border-radius:6px; cursor:pointer; gap:10px; transition:background 0.1s; user-select:none;';
-
-    const icon = document.createElement('span');
-    icon.textContent = item.name === '..' ? '⬆️' : '📁';
-    icon.style.cssText = 'font-size:16px; flex-shrink:0;';
-
-    const nameEl = document.createElement('span');
-    nameEl.textContent = item.name === '..' ? '返回上级目录' : item.name;
-    nameEl.style.cssText = 'font-size:14px; flex:1;';
-
-    row.appendChild(icon);
-    row.appendChild(nameEl);
-
-    row.addEventListener('mouseover', () => {
-      if (pickerSelectedPath !== item.path) row.style.background = 'rgba(0,212,255,0.06)';
-    });
-    row.addEventListener('mouseout', () => {
-      if (pickerSelectedPath !== item.path) row.style.background = '';
-    });
-
-    // Single click: if parent nav, go up; otherwise select
-    row.addEventListener('click', () => {
-      if (item.name === '..') { browseTo(item.path); return; }
-      pickerSelectedPath = item.path;
-      document.getElementById('picker-selected-label').textContent = item.path;
-      document.getElementById('picker-confirm').disabled = false;
-      list.querySelectorAll('div').forEach(r => r.style.background = '');
-      row.style.background = 'rgba(0,212,255,0.15)';
-    });
-
-    // Double click: navigate in
-    row.addEventListener('dblclick', () => {
-      if (item.name !== '..') browseTo(item.path);
-    });
-
-    list.appendChild(row);
-  });
+  const list = document.getElementById('picker-list'); list.innerHTML = '';
+  if (data.error) { list.innerHTML = '<div style="padding:16px;color:var(--color-danger);font-size:13px;">错误: ' + data.error + '</div>'; return; }
+  if (!data.items || data.items.length === 0) { list.innerHTML = '<div style="padding:20px;color:var(--color-text-muted);text-align:center;font-size:13px;">（空目录）</div>'; return; }
+  data.items.forEach(item => { const row = document.createElement('div'); row.style.cssText = 'display:flex;align-items:center;padding:8px 10px;border-radius:6px;cursor:pointer;gap:10px;transition:background 0.1s;user-select:none;'; const icon = document.createElement('span'); icon.textContent = item.name === '..' ? '⬆️' : '📁'; icon.style.cssText = 'font-size:16px;flex-shrink:0;'; const nameEl = document.createElement('span'); nameEl.textContent = item.name === '..' ? '返回上级目录' : item.name; nameEl.style.cssText = 'font-size:14px;flex:1;'; row.appendChild(icon); row.appendChild(nameEl); row.addEventListener('mouseover', () => { if (pickerSelectedPath !== item.path) row.style.background = 'var(--color-brand-muted)'; }); row.addEventListener('mouseout', () => { if (pickerSelectedPath !== item.path) row.style.background = ''; }); row.addEventListener('click', () => { if (item.name === '..') { browseTo(item.path); return; } pickerSelectedPath = item.path; document.getElementById('picker-selected-label').textContent = item.path; document.getElementById('picker-confirm').disabled = false; list.querySelectorAll('div').forEach(r => r.style.background = ''); row.style.background = 'var(--color-brand-muted)'; }); row.addEventListener('dblclick', () => { if (item.name !== '..') browseTo(item.path); }); list.appendChild(row); });
 }
-
-async function triggerScan() {
-  const btn = document.getElementById('btn-scan');
-  btn.disabled = true;
-  btn.innerHTML = '<span>⏳</span> 扫描中...';
-  try {
-    const res = await fetch('/api/v1/mounts/scan', { method: 'POST' });
-    const data = await res.json();
-    alert(`扫描完成！\n\n- 新建项目: ${data.projects_created} 个\n- 扫描文件: ${data.scanned} 份\n- 成功增量入库: ${data.added} 份\n- 失败跳过: ${data.errors} 份`);
-    window.location.reload();
-  } catch (err) {
-    alert('扫描失败: ' + err);
-    btn.disabled = false;
-    btn.innerHTML = '<span>🚀</span> 一键全局扫描';
-  }
-}
-
-document.getElementById('picker-modal').addEventListener('click', function(e) {
-  if (e.target === this) closePicker();
-});
+async function triggerScan() { const btn = document.getElementById('btn-scan'); btn.disabled = true; btn.innerHTML = '<span>⏳</span> 扫描中...'; try { const res = await fetch('/api/v1/mounts/scan', { method: 'POST' }); const data = await res.json(); alert(`扫描完成！\n\n- 新建项目: ${data.projects_created} 个\n- 扫描文件: ${data.scanned} 份\n- 成功增量入库: ${data.added} 份\n- 失败跳过: ${data.errors} 份`); window.location.reload(); } catch (err) { alert('扫描失败: ' + err); btn.disabled = false; btn.innerHTML = '<span>🚀</span> 一键全局扫描'; } }
+document.getElementById('picker-modal').addEventListener('click', function(e) { if (e.target === this) closePicker(); });
 </script>
 {% endblock %}
