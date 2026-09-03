@@ -5,6 +5,44 @@
 {% endblock %}
 
 {% block body %}
+<style>
+  .rag-surface-card,
+  .rag-surface-card-elevated {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 10px;
+    box-shadow: none;
+  }
+  .rag-surface-card-elevated { background: var(--color-surface-2); }
+  .rag-status-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 8px;
+    background: rgba(34, 197, 94, 0.12);
+    border: 1px solid rgba(34, 197, 94, 0.28);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+  }
+  .rag-brand-action {
+    background: var(--color-brand-muted) !important;
+    color: var(--color-brand) !important;
+    border: 1px solid var(--color-border) !important;
+    font-weight: 600 !important;
+    transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .rag-brand-action:hover {
+    background: var(--color-brand) !important;
+    border-color: var(--color-brand) !important;
+    color: #fff !important;
+    box-shadow: none !important;
+  }
+</style>
+
 <!-- 头部标头 -->
 <div class="toolbar">
   <div>
@@ -20,66 +58,64 @@
 
 <!-- 核心 KPI 统计大屏 -->
 <div class="kpi-grid">
-  <div class="glass-panel kpi-card glow-cyan">
+  <div class="rag-surface-card kpi-card">
     <div class="kpi-label">
       <span>工程项目空间</span>
       <span class="badge badge-cyan">项目</span>
     </div>
     <div class="kpi-value" id="kpi-projects">{{ projects|length }}</div>
     <div class="kpi-meta">
-      <span style="color: var(--accent-cyan)">●</span>
+      <span style="color: var(--color-brand)">●</span>
       <span>涵盖总包/商贸/劳务/租赁</span>
     </div>
   </div>
 
-  <div class="glass-panel kpi-card">
+  <div class="rag-surface-card kpi-card">
     <div class="kpi-label">
       <span>资料文件资产（文档）</span>
       <span class="badge badge-emerald">文档</span>
     </div>
     <div class="kpi-value" id="kpi-documents">{{ docs }}</div>
     <div class="kpi-meta">
-      <span style="color: var(--accent-emerald)">●</span>
+      <span style="color: var(--color-success)">●</span>
       <span>合同/发票/结算单/台班</span>
     </div>
   </div>
 
-  <div class="glass-panel kpi-card glow-emerald">
+  <div class="rag-surface-card kpi-card">
     <div class="kpi-label">
       <span>向量化切块索引（切块）</span>
       <span class="badge badge-emerald">索引块</span>
     </div>
     <div class="kpi-value" id="kpi-indexed-chunks">{{ indexed_chunks }}</div>
     <div class="kpi-meta">
-      <span style="color: var(--accent-emerald)">●</span>
+      <span style="color: var(--color-success)">●</span>
       <span>已建立 HNSW 向量索引（Chunk）</span>
     </div>
   </div>
 
-  <div class="glass-panel kpi-card {% if waiting > 0 %}glow-amber{% endif %}">
+  <div class="rag-surface-card kpi-card">
     <div class="kpi-label">
       <span>队列与待解析（文档）</span>
       <span class="badge {% if waiting > 0 %}badge-amber{% else %}badge-muted{% endif %}">文档</span>
     </div>
     <div class="kpi-value" id="kpi-waiting-documents">{{ waiting }}</div>
     <div class="kpi-meta">
-      <span style="color: var(--accent-amber)">●</span>
+      <span style="color: var(--color-warning)">●</span>
       <span>后台异步解析处理中</span>
     </div>
   </div>
 </div>
 
 <!-- 系统引擎就绪状态看板 -->
-<div class="glass-panel-elevated" style="padding: 16px 20px; margin-bottom: 24px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px;">
+<div class="rag-surface-card-elevated" style="padding: 16px 20px; margin-bottom: 24px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px;">
   <div style="display: flex; align-items: center; gap: 14px;">
-    <div style="width: 40px; height: 40px; border-radius: 8px; background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.3); display: flex; align-items: center; justify-content: center; font-size: 20px;">
-      ⚡
-    </div>
+    <div class="rag-status-icon">⚡</div>
     <div>
-      <div style="font-weight: 700; color: #fff; font-size: 14px;">
+      <div style="font-weight: 700; color: var(--color-text-primary); font-size: 14px;">
         底层数据与向量检索引擎：PostgreSQL + pgvector（HNSW 加速）
       </div>
-      <div style="font-size: 12px; color: var(--text-muted); margin-top: 2px;">
+      <div style="font-size: 12px; color: var(--color-text-muted); margin-top: 2px;">
         文档解析引擎: IDP 3.0 智能文档录入与结构化解析引擎 · 嵌入模型: BGE-M3 · 重排模型: BGE-Reranker-v2-m3
       </div>
     </div>
@@ -91,14 +127,14 @@
 </div>
 
 <!-- IDP 文档解析与异步索引实时监控视窗 -->
-<div class="glass-panel-elevated" style="padding: 16px 20px; margin-bottom: 24px; border-left: 4px solid var(--accent-cyan);">
+<div class="rag-surface-card-elevated" style="padding: 16px 20px; margin-bottom: 24px; border-left: 4px solid var(--color-brand);">
   <div style="display: flex; justify-content: space-between; align-items: center;">
     <div>
-      <div style="font-weight: 700; color: #fff; font-size: 15px; display: flex; align-items: center; gap: 8px;">
-        <span id="parser-pulse" style="display: inline-block; width: 10px; height: 10px; border-radius: 50%; background-color: var(--text-muted);"></span>
+      <div style="font-weight: 700; color: var(--color-text-primary); font-size: 15px; display: flex; align-items: center; gap: 8px;">
+        <span id="parser-pulse" style="display: inline-block; width: 10px; height: 10px; border-radius: 50%; background-color: var(--color-text-muted);"></span>
         IDP 文档解析与索引任务实时监控
       </div>
-      <div id="parser-status-text" style="font-size: 13px; color: var(--accent-cyan); margin-top: 6px; font-family: "Cascadia Code", "Segoe UI Mono", "Consolas", "Roboto Mono", "PingFang SC", "Microsoft YaHei UI", monospace; font-variant-numeric: tabular-nums;">
+      <div id="parser-status-text" style="font-size: 13px; color: var(--color-brand); margin-top: 6px; font-family: &quot;Cascadia Code&quot;, &quot;Segoe UI Mono&quot;, &quot;Consolas&quot;, &quot;Roboto Mono&quot;, &quot;PingFang SC&quot;, &quot;Microsoft YaHei UI&quot;, monospace; font-variant-numeric: tabular-nums;">
         正在检查后台任务状态...
       </div>
     </div>
@@ -146,8 +182,8 @@
         idleBadge.style.display = 'none';
 
         if (data.status === 'active') {
-          pulse.style.backgroundColor = 'var(--accent-cyan)';
-          pulse.style.boxShadow = '0 0 10px var(--accent-cyan)';
+          pulse.style.backgroundColor = 'var(--color-brand)';
+          pulse.style.boxShadow = 'none';
           const activeJob = data.active_job;
           if (!activeJob || typeof activeJob.document_name !== 'string' ||
               !Number.isInteger(activeJob.attempts) || activeJob.attempts < 0 ||
@@ -160,8 +196,8 @@
             (data.counts.failed ? `；另有 ${data.counts.failed} 个历史失败任务待查看。` : '');
           activeBadge.style.display = 'inline-flex';
         } else if (data.status === 'queued' || data.status === 'retry') {
-          pulse.style.backgroundColor = 'var(--accent-amber)';
-          pulse.style.boxShadow = '0 0 10px var(--accent-amber)';
+          pulse.style.backgroundColor = 'var(--color-warning)';
+          pulse.style.boxShadow = 'none';
           const queued = data.counts.queued;
           const retry = data.counts.retry;
           text.textContent = `当前有 ${queued} 个排队任务、${retry} 个重试任务等待处理。`;
@@ -171,11 +207,11 @@
           pendingBadge.textContent = data.status === 'retry' ? '重试等待中 (Retry)' : '队列等待中 (Queued)';
           pendingBadge.style.display = 'inline-flex';
         } else if (data.status === 'failed') {
-          pulse.style.backgroundColor = 'var(--accent-rose)';
-          pulse.style.boxShadow = '0 0 10px var(--accent-rose)';
+          pulse.style.backgroundColor = 'var(--color-danger)';
+          pulse.style.boxShadow = 'none';
           text.textContent = `存在 ${data.counts.failed} 个解析失败任务，请查看任务详情。`;
         } else {
-          pulse.style.backgroundColor = 'var(--text-muted)';
+          pulse.style.backgroundColor = 'var(--color-text-muted)';
           pulse.style.boxShadow = 'none';
           text.textContent = '当前无待解析任务，文档索引引擎处于就绪状态。';
           idleBadge.style.display = 'inline-flex';
@@ -213,8 +249,8 @@
         }
       })
       .catch(() => {
-        document.getElementById('parser-pulse').style.backgroundColor = 'var(--accent-rose)';
-        document.getElementById('parser-pulse').style.boxShadow = '0 0 10px var(--accent-rose)';
+        document.getElementById('parser-pulse').style.backgroundColor = 'var(--color-danger)';
+        document.getElementById('parser-pulse').style.boxShadow = 'none';
         document.getElementById('parser-status-text').textContent = '监控异常：无法读取后台任务状态。';
         document.getElementById('parser-active-badge').style.display = 'none';
         document.getElementById('parser-pending-badge').style.display = 'none';
@@ -228,43 +264,20 @@
 </script>
 
 <!-- 当前 canonical 单位主数据摘要 -->
-<div class="glass-panel" style="padding: 18px 20px; margin-bottom: 24px;">
+<div class="rag-surface-card" style="padding: 18px 20px; margin-bottom: 24px;">
   <div class="toolbar" style="margin-bottom: 12px;">
     <h2>
       <span>🏢 实际经营单位</span>
       <span class="badge badge-cyan">{{ entity_summary.total }} 家</span>
     </h2>
-    <style>
-@keyframes tax-glow-pulse {
-        0% { box-shadow: 0 0 10px rgba(76, 215, 246, 0.15); opacity: 1; }
-        50% { box-shadow: 0 0 20px rgba(76, 215, 246, 0.4); opacity: 0.8; }
-        100% { box-shadow: 0 0 10px rgba(76, 215, 246, 0.15); opacity: 1; }
-      }
-      .btn-tax-effect {
-        animation: tax-glow-pulse 2s infinite;
-        background-color: rgba(3, 181, 211, 0.15) !important;
-        color: #4cd7f6 !important;
-        border: none !important;
-        border-left: 3px solid #4cd7f6 !important;
-        font-weight: 600 !important;
-        transition: all 0.2s ease;
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-      }
-      .btn-tax-effect:hover {
-        background-color: rgba(3, 181, 211, 0.25) !important;
-        box-shadow: 0 0 25px rgba(76, 215, 246, 0.5) !important;
-      }
-    </style>
-    <a href="/entities" class="btn btn-tax-effect" style="font-size: 15px; padding: 10px 24px; border-radius: 8px;">
+    <a href="/entities" class="btn rag-brand-action" style="font-size: 15px; padding: 10px 24px; border-radius: 8px;">
       查看完整主数据 <span>→</span>
     </a>
   </div>
   {% if canonical_entities %}
-  <div style="color: var(--text-muted); font-size: 13px; margin-top: 10px;">已成功加载 {{ entity_summary.total }} 家实际经营单位基础档案数据，请点击右侧按钮进入穿透管理界面。</div>
+  <div style="color: var(--color-text-muted); font-size: 13px; margin-top: 10px;">已成功加载 {{ entity_summary.total }} 家实际经营单位基础档案数据，请点击右侧按钮进入穿透管理界面。</div>
   {% else %}
-  <div style="color: var(--text-muted); font-size: 13px; margin-top: 10px;">尚未加载实际经营单位主数据。</div>
+  <div style="color: var(--color-text-muted); font-size: 13px; margin-top: 10px;">尚未加载实际经营单位主数据。</div>
   {% endif %}
 </div>
 
@@ -278,19 +291,19 @@
 
 <div class="project-grid">
   {% for p in projects %}
-  <div class="glass-panel project-card">
+  <div class="rag-surface-card project-card">
     <div>
       <div class="project-card-header">
         <span class="project-code">{{ p.project_code }}</span>
         <span class="badge badge-emerald">{{ p.status or '运行中' }}</span>
       </div>
       <div class="project-title">{{ p.name }}</div>
-      <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">
+      <div style="font-size: 12px; color: var(--color-text-muted); margin-top: 4px;">
         外部对接：{{ p.external_system or '未绑定' }} {% if p.external_project_id %}(ID: {{ p.external_project_id }}){% endif %}
       </div>
       {% if p.entity_code and entity_by_code.get(p.entity_code) %}
-      <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">
-        归属单位：<span style="color: var(--accent-cyan);">{{ p.entity_code }} · {{ entity_by_code.get(p.entity_code).name }}</span>
+      <div style="font-size: 12px; color: var(--color-text-muted); margin-top: 4px;">
+        归属单位：<span style="color: var(--color-brand);">{{ p.entity_code }} · {{ entity_by_code.get(p.entity_code).name }}</span>
       </div>
       {% endif %}
     </div>
@@ -312,7 +325,7 @@
           <div class="val" title="涉及主体列表: {{ project_stats.get(p.id).entities|join(', ') if project_stats.get(p.id) else '' }}">
             {% if project_stats.get(p.id) and project_stats.get(p.id).entity_count %}
             <b>{{ project_stats.get(p.id).entity_count }} 家主体</b>
-            <span style="font-size: 11px; color: var(--text-muted); font-weight: normal; margin-left: 4px;">
+            <span style="font-size: 11px; color: var(--color-text-muted); font-weight: normal; margin-left: 4px;">
               (系统内 {{ project_stats.get(p.id).internal_count }} + 外部 {{ project_stats.get(p.id).external_count }})
             </span>
             {% elif p.entity_code %}
@@ -334,9 +347,9 @@
     </div>
   </div>
   {% else %}
-  <div class="glass-panel" style="grid-column: 1 / -1; padding: 40px; text-align: center; color: var(--text-muted);">
+  <div class="rag-surface-card" style="grid-column: 1 / -1; padding: 40px; text-align: center; color: var(--color-text-muted);">
     <div style="font-size: 36px; margin-bottom: 12px;">📁</div>
-    <div style="font-size: 16px; color: var(--text-primary); font-weight: 600;">暂无项目空间</div>
+    <div style="font-size: 16px; color: var(--color-text-primary); font-weight: 600;">暂无项目空间</div>
     <p style="margin-top: 6px;">点击上方“新建项目空间”创建第一个工程知识库</p>
   </div>
   {% endfor %}
@@ -344,28 +357,28 @@
 
 <!-- 新建项目弹窗 (Modal) -->
 <div id="modal-new-project" class="modal-overlay">
-  <div class="glass-panel-elevated modal-content">
+  <div class="rag-surface-card-elevated modal-content">
     <div class="modal-header">
-      <h3 style="color: #fff; font-size: 16px;">➕ 新建工程项目空间</h3>
+      <h3 style="color: var(--color-text-primary); font-size: 16px;">➕ 新建工程项目空间</h3>
       <button class="modal-close" onclick="document.getElementById('modal-new-project').classList.remove('active')">&times;</button>
     </div>
     <form method="post" action="/projects">
       <div style="display: flex; flex-direction: column; gap: 14px;">
         <div>
-          <label style="font-size: 12px; color: var(--text-muted); display: block; margin-bottom: 6px;">项目编码 (必填)</label>
+          <label style="font-size: 12px; color: var(--color-text-muted); display: block; margin-bottom: 6px;">项目编码 (必填)</label>
           <input class="form-input" style="width: 100%" name="project_code" placeholder="例：YB001 / CD-JG-2026" required>
         </div>
         <div>
-          <label style="font-size: 12px; color: var(--text-muted); display: block; margin-bottom: 6px;">项目工程名称 (必填)</label>
+          <label style="font-size: 12px; color: var(--color-text-muted); display: block; margin-bottom: 6px;">项目工程名称 (必填)</label>
           <input class="form-input" style="width: 100%" name="name" placeholder="例：成都建工某某商业综合体工程" required>
         </div>
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
           <div>
-            <label style="font-size: 12px; color: var(--text-muted); display: block; margin-bottom: 6px;">外部系统标识</label>
+            <label style="font-size: 12px; color: var(--color-text-muted); display: block; margin-bottom: 6px;">外部系统标识</label>
             <input class="form-input" style="width: 100%" name="external_system" placeholder="例：construction-tax">
           </div>
           <div>
-            <label style="font-size: 12px; color: var(--text-muted); display: block; margin-bottom: 6px;">外部项目ID</label>
+            <label style="font-size: 12px; color: var(--color-text-muted); display: block; margin-bottom: 6px;">外部项目ID</label>
             <input class="form-input" style="width: 100%" name="external_project_id" placeholder="例：1001">
           </div>
         </div>
