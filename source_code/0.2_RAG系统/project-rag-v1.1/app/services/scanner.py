@@ -18,7 +18,19 @@ logger = get_logger(__name__)
 
 
 def sync_single_mount(db: Session, mount: MountConfig) -> dict:
-    """Scan a single mount point incrementally (only new or changed files)."""
+    """Scan one mount incrementally, parsing only new or changed files.
+
+    Fast path: when a known path has the same size and its filesystem mtime is
+    not newer than the previous successful mount scan, skip it without reading
+    file contents. If metadata indicates a possible change, SHA-256 is used as
+    the authoritative content check before a re-parse is queued.
+    """
+    scan_started_at = datetime.now(timezone.utc)
+    previous_scan_at = mount.last_scan_at
+    if previous_scan_at is not None and previous_scan_at.tzinfo is None:
+        # SQLite/test backends may deserialize timezone-aware columns as naive.
+        previous_scan_at = previous_scan_at.replace(tzinfo=timezone.utc)
+
     results = {
         "mount_id": mount.id,
         "mount_path": mount.path,
@@ -47,7 +59,7 @@ def sync_single_mount(db: Session, mount: MountConfig) -> dict:
             if is_created:
                 results["projects_created"] += 1
 
-            # Scan all files recursively inside this project directory
+            # Scan all files recursively inside this project directory.
             for filepath in project_dir.rglob("*"):
                 if filepath.is_symlink() or not filepath.is_file():
                     continue
@@ -59,7 +71,9 @@ def sync_single_mount(db: Session, mount: MountConfig) -> dict:
                 try:
                     resolved_file = filepath.resolve()
                     validate_safe_directory(resolved_file.parent)
-                    current_size = resolved_file.stat().st_size
+                    file_stat = resolved_file.stat()
+                    current_size = file_stat.st_size
+                    current_mtime = datetime.fromtimestamp(file_stat.st_mtime, tz=timezone.utc)
                 except (StorageError, PathTraversalError, OSError) as exc:
                     logger.warning("Skipping unsafe local file %s: %s", filepath, exc)
                     results["errors"] += 1
@@ -71,26 +85,46 @@ def sync_single_mount(db: Session, mount: MountConfig) -> dict:
                 )
 
                 if existing_doc:
-                    # 检查文件是否发生变更 (基于 size 和 hash)
-                    if existing_doc.size_bytes == current_size:
-                        # 大小一致，读取哈希验证
-                        try:
-                            data = read_file_limited(resolved_file)
-                            digest = sha256_bytes(data)
-                        except Exception:
-                            digest = None
+                    # Metadata fast path: known path + unchanged size + mtime not
+                    # newer than the prior mount scan means no file read/hash.
+                    if (
+                        existing_doc.size_bytes == current_size
+                        and previous_scan_at is not None
+                        and current_mtime <= previous_scan_at
+                    ):
+                        results["unchanged"] += 1
+                        continue
 
-                        if digest and digest == existing_doc.file_hash:
-                            # 之前扫描过且文件内容未改变：增量跳过，不重复扫描
-                            results["unchanged"] += 1
-                            continue
-
-                    # 文件发生变动（大小改变或内容哈希改变）：更新哈希并重新触发解析
+                    # Metadata indicates a possible change (or this is the first
+                    # mount scan after an upgrade). Hash is authoritative.
                     try:
                         data = read_file_limited(resolved_file)
-                        new_digest = sha256_bytes(data)
+                        digest = sha256_bytes(data)
+                    except Exception as exc:
+                        logger.error("Failed to hash local file %s: %s", filepath, exc)
+                        results["errors"] += 1
+                        continue
+
+                    if digest == existing_doc.file_hash:
+                        # Timestamp-only change (touch/copy) or first post-upgrade
+                        # verification: content is identical, so do not re-parse.
+                        if existing_doc.size_bytes != len(data):
+                            existing_doc.size_bytes = len(data)
+                            try:
+                                db.commit()
+                            except Exception:
+                                db.rollback()
+                                logger.exception("Failed to refresh size for unchanged file %s", filepath)
+                                results["errors"] += 1
+                                continue
+                        results["unchanged"] += 1
+                        continue
+
+                    # File content changed: update canonical document fingerprint
+                    # and queue exactly one new parse/index job for this document.
+                    try:
                         existing_doc.size_bytes = len(data)
-                        existing_doc.file_hash = new_digest
+                        existing_doc.file_hash = digest
                         existing_doc.parse_status = "QUEUED"
                         existing_doc.updated_at = datetime.now(timezone.utc)
                         db.commit()
@@ -101,22 +135,33 @@ def sync_single_mount(db: Session, mount: MountConfig) -> dict:
                         db.rollback()
                         results["errors"] += 1
                 else:
-                    # 新增文件：入库并触发解析
+                    # New path: register once; register_local_path remains the
+                    # project/hash idempotency boundary for duplicate content.
                     try:
-                        register_local_path(db, project, resolved_file, auto_parse=True)
-                        results["added"] += 1
+                        document, job_id = register_local_path(
+                            db, project, resolved_file, auto_parse=True
+                        )
+                        if str(document.original_path) == abs_path_str:
+                            results["added"] += 1
+                        else:
+                            # Same content already exists under another path.
+                            # It is not a new durable document and must not be
+                            # reported as an imported file.
+                            results["unchanged"] += 1
                     except Exception as exc:
                         logger.error("Failed to register local file %s: %s", filepath, exc)
                         db.rollback()
                         results["errors"] += 1
 
-    except Exception as e:
-        logger.error(f"Error scanning mount {mount.path}: {e}")
+    except Exception as exc:
+        logger.error("Error scanning mount %s: %s", mount.path, exc)
         db.rollback()
         results["errors"] += 1
 
-    # Update last scan time
-    mount.last_scan_at = datetime.now(timezone.utc)
+    # Persist the scan *start* time, not the finish time. A file modified while
+    # scanning therefore remains newer than the checkpoint and is reconsidered
+    # on the next scan instead of being accidentally hidden by the checkpoint.
+    mount.last_scan_at = scan_started_at
     try:
         db.commit()
     except Exception:
@@ -150,6 +195,8 @@ def sync_all_mounts(db: Session) -> dict:
         summary["projects_created"] += single_res.get("projects_created", 0)
 
     return summary
+
+
 CATEGORY_KEYWORDS = (
     "合同", "发票", "磅单", "流水", "凭证", "报告", "立项", "招投标",
     "施工", "监理", "材料", "结算", "检测", "进度", "计量", "税", "图纸",
@@ -174,7 +221,7 @@ def _is_category_folder(name: str) -> bool:
 
 def _find_or_create_project(db: Session, project_raw_name: str) -> tuple[Project | None, bool]:
     """Find existing project by code/name or auto-create a clean project entity.
-    
+
     Returns (project, is_created).
     """
     parts = project_raw_name.split("_")
@@ -258,12 +305,10 @@ def _resolve_project_targets(root_path: Path) -> list[tuple[str, Path]]:
 
     # Check if subdirs are category subfolders
     category_subdir_count = sum(1 for d in subdirs if _is_category_folder(d.name))
-    
+
     # If all or most subdirs are category folders, root_path itself is ONE project
     if category_subdir_count > 0 and (category_subdir_count >= len(subdirs) / 2 or category_subdir_count >= 2):
         return [(root_path.name, root_path)]
 
     # Otherwise, each subdir is considered a separate project
     return [(d.name, d) for d in subdirs]
-
-
