@@ -14,12 +14,10 @@
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
 }
-.badge-cyan,
-.badge-purple,
 .project-code {
   background: var(--color-brand-muted) !important;
   border-color: var(--color-border) !important;
-  color: var(--color-brand) !important;
+  color: #7dd3fc !important;
   box-shadow: none !important;
 }
 #entity-table thead tr { background: var(--color-surface-2) !important; }
@@ -75,6 +73,82 @@
 #entity-table .ent-sort-icon {
   color: #cbd5e1;
 }
+
+/* 来源属性：系统内 / 系统外使用鲜明非蓝语义色 */
+.toolbar-right .badge-cyan,
+#entity-table tbody td:nth-child(2) .badge-cyan,
+.filter-scope-btn[data-scope="internal"] {
+  background: rgba(16, 185, 129, 0.18) !important;
+  border: 1px solid #10b981 !important;
+  color: #34d399 !important;
+  font-weight: 700 !important;
+  box-shadow: none !important;
+}
+.toolbar-right .badge-purple,
+#entity-table tbody td:nth-child(2) .badge-purple,
+.filter-scope-btn[data-scope="external"] {
+  background: rgba(245, 158, 11, 0.18) !important;
+  border: 1px solid #f59e0b !important;
+  color: #fbbf24 !important;
+  font-weight: 700 !important;
+  box-shadow: none !important;
+}
+.filter-scope-btn[data-scope="internal"]:hover,
+.filter-scope-btn[data-scope="internal"].btn-primary {
+  background: rgba(16, 185, 129, 0.28) !important;
+  color: #6ee7b7 !important;
+}
+.filter-scope-btn[data-scope="external"]:hover,
+.filter-scope-btn[data-scope="external"].btn-primary {
+  background: rgba(245, 158, 11, 0.28) !important;
+  color: #fde68a !important;
+}
+
+/* 业务角色：施工 / 商贸 / 劳务 / 机械服务分色 */
+.entity-row[data-role="A"] td:nth-child(3) .badge,
+.entity-row[data-role="EA"] td:nth-child(3) .badge,
+.entity-row[data-role="construction"] td:nth-child(3) .badge,
+.filter-role-btn[data-role="construction"] {
+  background: rgba(14, 165, 233, 0.18) !important;
+  border: 1px solid #0ea5e9 !important;
+  color: #38bdf8 !important;
+  font-weight: 700 !important;
+}
+.entity-row[data-role="B"] td:nth-child(3) .badge,
+.entity-row[data-role="EB"] td:nth-child(3) .badge,
+.entity-row[data-role="trade"] td:nth-child(3) .badge,
+.filter-role-btn[data-role="trade"] {
+  background: rgba(20, 184, 166, 0.18) !important;
+  border: 1px solid #14b8a6 !important;
+  color: #5eead4 !important;
+  font-weight: 700 !important;
+}
+.entity-row[data-role="C"] td:nth-child(3) .badge,
+.entity-row[data-role="EC"] td:nth-child(3) .badge,
+.entity-row[data-role="labor"] td:nth-child(3) .badge,
+.filter-role-btn[data-role="labor"] {
+  background: rgba(168, 85, 247, 0.18) !important;
+  border: 1px solid #a855f7 !important;
+  color: #c084fc !important;
+  font-weight: 700 !important;
+}
+.entity-row[data-role="D"] td:nth-child(3) .badge,
+.entity-row[data-role="ED"] td:nth-child(3) .badge,
+.entity-row[data-role="equipment"] td:nth-child(3) .badge,
+.filter-role-btn[data-role="equipment"] {
+  background: rgba(249, 115, 22, 0.18) !important;
+  border: 1px solid #f97316 !important;
+  color: #fb923c !important;
+  font-weight: 700 !important;
+}
+.filter-role-btn[data-role="construction"]:hover,
+.filter-role-btn[data-role="construction"].btn-primary { background: rgba(14, 165, 233, 0.28) !important; }
+.filter-role-btn[data-role="trade"]:hover,
+.filter-role-btn[data-role="trade"].btn-primary { background: rgba(20, 184, 166, 0.28) !important; }
+.filter-role-btn[data-role="labor"]:hover,
+.filter-role-btn[data-role="labor"].btn-primary { background: rgba(168, 85, 247, 0.28) !important; }
+.filter-role-btn[data-role="equipment"]:hover,
+.filter-role-btn[data-role="equipment"].btn-primary { background: rgba(249, 115, 22, 0.28) !important; }
 </style>
 
 <div class="toolbar" style="margin-bottom: 20px;">
@@ -124,7 +198,7 @@
         <td style="padding: 14px 16px;"><a href="/entities/{{ entity.entity_code }}" class="project-code font-mono" style="font-weight: 700; text-decoration: none; display: inline-block;">{{ entity.entity_code }}</a></td>
         <td style="padding: 14px 16px;">{% if entity.is_external %}<span class="badge badge-purple" style="font-size: 11px;">系统外单位</span>{% else %}<span class="badge badge-cyan" style="font-size: 11px;">系统内关联</span>{% endif %}</td>
         <td style="padding: 14px 16px;"><div style="display: flex; align-items: center; gap: 6px;"><span class="badge {{ entity.business_role_badge }}" style="font-size: 11px;">{{ entity.business_role_label }}</span>{% if not entity.legal_entity %}<span class="badge badge-amber" style="font-size: 10px;">分公司</span>{% endif %}</div></td>
-        <td style="padding: 14px 16px;"><a href="/entities/{{ entity.entity_code }}" style="font-weight: 600; font-size: 14px; color: var(--color-brand); text-decoration: none; display: flex; align-items: center; gap: 6px;"><span>🏢</span><span>{{ entity.name }}</span></a>{% if entity.parent_entity_code %}<div style="font-size: 11px; color: var(--text-muted); margin-top: 3px;">上级法人: <a href="/entities/{{ entity.parent_entity_code }}" class="font-mono" style="color: var(--text-secondary); text-decoration: underline;">{{ entity.parent_entity_code }}</a></div>{% endif %}</td>
+        <td style="padding: 14px 16px;"><a href="/entities/{{ entity.entity_code }}" style="font-weight: 600; font-size: 14px; color: #ffffff !important; text-decoration: none; display: flex; align-items: center; gap: 6px;"><span>🏢</span><span>{{ entity.name }}</span></a>{% if entity.parent_entity_code %}<div style="font-size: 11px; color: var(--text-muted); margin-top: 3px;">上级法人: <a href="/entities/{{ entity.parent_entity_code }}" class="font-mono" style="color: var(--text-secondary); text-decoration: underline;">{{ entity.parent_entity_code }}</a></div>{% endif %}</td>
         <td style="padding: 14px 16px; font-size: 12px; color: var(--text-muted); line-height: 1.4;">{{ entity.note or entity.business_role_description }}</td>
         <td style="padding: 14px 16px; text-align: center;"><a href="/entities/{{ entity.entity_code }}" class="btn btn-sm btn-secondary" style="font-size: 11px; padding: 4px 10px;">穿透详情 ➔</a></td>
       </tr>
