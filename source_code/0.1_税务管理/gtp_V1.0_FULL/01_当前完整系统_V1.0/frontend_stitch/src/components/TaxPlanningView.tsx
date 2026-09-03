@@ -151,7 +151,7 @@ export function TaxPlanningView({ projects, selectedProjectId, onSelectProject }
   if (!currentProject) {
     return (
       <div className="space-y-6">
-        <h2 className="text-[26px] font-bold text-[#dae2fd]">智能税务筹划</h2>
+        <h2 className="text-[26px] font-bold text-primary">智能税务筹划</h2>
         <DataStatusCard status="UNAVAILABLE" title="筹划数据不可用" message="请先配置真实项目并让税务接口返回项目数据，系统不会使用静态筹划结果。" />
       </div>
     );
@@ -164,39 +164,39 @@ export function TaxPlanningView({ projects, selectedProjectId, onSelectProject }
 
   return (
     <div className="space-y-6">
-      <div className="glass-panel glow-cyan flex flex-col justify-between gap-4 rounded-2xl border border-[#444653]/30 p-5 md:flex-row md:items-center">
+      <div className="surface-card flex flex-col justify-between gap-4 rounded-2xl p-5 md:flex-row md:items-center">
         <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-[#a78bfa]/40 bg-[#8b5cf6]/20"><Compass className="h-5 w-5 text-[#a78bfa]" /></div>
-          <div><h2 className="text-[20px] font-bold text-[#dde1ff]">智能税务筹划</h2><p className="mt-0.5 text-[12px] text-[#8e909f]">项目切换只加载真实上下文；推荐计算仅由用户显式触发。</p></div>
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-default bg-surface-2"><Compass className="h-5 w-5 text-brand" /></div>
+          <div><h2 className="text-[20px] font-bold text-primary">智能税务筹划</h2><p className="mt-0.5 text-[12px] text-secondary">项目切换只加载真实上下文；推荐计算仅由用户显式触发。</p></div>
         </div>
-        <select aria-label="选择筹划项目" value={currentProjectId} onChange={event => handleProjectChange(event.target.value)} className="min-w-[280px] rounded-lg border border-[#4cd7f6]/60 bg-[#0b1326] px-3 py-2 text-[13px] text-[#dae2fd]">
+        <select aria-label="选择筹划项目" value={currentProjectId} onChange={event => handleProjectChange(event.target.value)} className="min-w-[280px] rounded-lg border border-default bg-surface px-3 py-2 text-[13px] text-primary focus:border-[var(--color-brand)] focus:outline-none">
           {projects.map(project => <option key={project.id} value={project.id}>{project.projectCode} · {project.name}</option>)}
         </select>
       </div>
 
-      <div className="rounded-xl border border-[#F59E0B]/40 bg-[#F59E0B]/10 px-4 py-3" role="note"><p className="text-[13px] font-bold text-[#F59E0B]">模拟方案 · 本视图基于用户输入假设，不代表当前项目真实经营结果，不属于法人法定申报依据。</p></div>
+      <div className="rounded-xl border border-[var(--color-warning)]/40 bg-[var(--color-warning)]/10 px-4 py-3" role="note"><p className="text-[13px] font-bold text-[var(--color-warning)]">模拟方案 · 本视图基于用户输入假设，不代表当前项目真实经营结果，不属于法人法定申报依据。</p></div>
 
       <DataStatusCard status={status} title="筹划接口状态" message={statusMessage} />
 
-      <div className="glass-panel rounded-2xl border border-[#444653]/30 p-5">
-        <div className="mb-4 flex items-center gap-2"><Layers className="h-4 w-4 text-[#a78bfa]" /><h3 className="text-[15px] font-bold text-[#dde1ff]">模拟方案用户输入假设</h3></div>
+      <div className="surface-card rounded-2xl p-5">
+        <div className="mb-4 flex items-center gap-2"><Layers className="h-4 w-4 text-brand" /><h3 className="text-[15px] font-bold text-primary">模拟方案用户输入假设</h3></div>
         <div className="grid grid-cols-1 gap-4 text-[12px] md:grid-cols-2 lg:grid-cols-4">
-          <label className="text-[#8e909f]">业务包名称<input value={packageName} onChange={event => setPackageName(event.target.value)} placeholder="请输入业务包名称" className="mt-1 h-9 w-full rounded-lg border border-[#444653]/50 bg-[#131b2e] px-3 text-[#dae2fd]" /></label>
-          <label className="text-[#8e909f]">业务类型<select value={category} onChange={event => setCategory(event.target.value)} className="mt-1 h-9 w-full rounded-lg border border-[#444653]/50 bg-[#131b2e] px-3 text-[#dae2fd]"><option value="劳务">劳务</option><option value="材料">材料</option><option value="设备">设备</option><option value="专业分包">专业分包</option></select></label>
-          <label className="text-[#8e909f]">业务包金额（元）<input aria-label="业务包金额（元）" type="number" min="0" step="0.01" value={packageAmount} onChange={event => setPackageAmount(event.target.value)} placeholder="请输入模拟金额" className="mt-1 h-9 w-full rounded-lg border border-[#444653]/50 bg-[#131b2e] px-3 text-[#dae2fd]" /></label>
-          <label className="text-[#8e909f]">优化目标<select value={objective} onChange={event => setObjective(event.target.value)} className="mt-1 h-9 w-full rounded-lg border border-[#444653]/50 bg-[#131b2e] px-3 text-[#dae2fd]"><option value="balanced">综合平衡</option><option value="profit">利润优先</option><option value="tax">税务现金优先</option><option value="risk">风控合规优先</option></select></label>
-          <label className="text-[#8e909f]">系统内最低比例（%，用户假设）<input aria-label="系统内最低比例（%，用户假设）" type="number" min="0" max="100" value={internalMinRatio} onChange={event => setInternalMinRatio(event.target.value)} className="mt-1 h-9 w-full rounded-lg border border-[#444653]/50 bg-[#131b2e] px-3 text-[#dae2fd]" /></label>
-          <label className="text-[#8e909f]">系统内最高比例（%，用户假设）<input aria-label="系统内最高比例（%，用户假设）" type="number" min="0" max="100" value={internalMaxRatio} onChange={event => setInternalMaxRatio(event.target.value)} className="mt-1 h-9 w-full rounded-lg border border-[#444653]/50 bg-[#131b2e] px-3 text-[#dae2fd]" /></label>
-          <label className="text-[#8e909f]">偏好比例（可选，%，用户假设）<input aria-label="偏好比例（可选，%，用户假设）" type="number" min="0" max="100" value={preferredRatio} onChange={event => setPreferredRatio(event.target.value)} placeholder="可留空" className="mt-1 h-9 w-full rounded-lg border border-[#444653]/50 bg-[#131b2e] px-3 text-[#dae2fd]" /></label>
-          <div className="flex items-end"><button type="button" onClick={() => void handleRunPlanning()} disabled={isCalculating} className="flex h-9 w-full cursor-pointer items-center justify-center gap-2 rounded-lg bg-[#8b5cf6] font-bold text-white shadow-lg shadow-[#8b5cf6]/20 hover:bg-[#8b5cf6]/80 disabled:opacity-50"><RefreshCw className={`h-4 w-4 ${isCalculating ? 'animate-spin' : ''}`} />{isCalculating ? '计算中…' : '测算筹划沙盘'}</button></div>
+          <label className="text-secondary">业务包名称<input value={packageName} onChange={event => setPackageName(event.target.value)} placeholder="请输入业务包名称" className="mt-1 h-9 w-full rounded-lg border border-default bg-surface px-3 text-primary focus:border-[var(--color-brand)] focus:outline-none" /></label>
+          <label className="text-secondary">业务类型<select value={category} onChange={event => setCategory(event.target.value)} className="mt-1 h-9 w-full rounded-lg border border-default bg-surface px-3 text-primary focus:border-[var(--color-brand)] focus:outline-none"><option value="劳务">劳务</option><option value="材料">材料</option><option value="设备">设备</option><option value="专业分包">专业分包</option></select></label>
+          <label className="text-secondary">业务包金额（元）<input aria-label="业务包金额（元）" type="number" min="0" step="0.01" value={packageAmount} onChange={event => setPackageAmount(event.target.value)} placeholder="请输入模拟金额" className="mt-1 h-9 w-full rounded-lg border border-default bg-surface px-3 text-primary focus:border-[var(--color-brand)] focus:outline-none" /></label>
+          <label className="text-secondary">优化目标<select value={objective} onChange={event => setObjective(event.target.value)} className="mt-1 h-9 w-full rounded-lg border border-default bg-surface px-3 text-primary focus:border-[var(--color-brand)] focus:outline-none"><option value="balanced">综合平衡</option><option value="profit">利润优先</option><option value="tax">税务现金优先</option><option value="risk">风控合规优先</option></select></label>
+          <label className="text-secondary">系统内最低比例（%，用户假设）<input aria-label="系统内最低比例（%，用户假设）" type="number" min="0" max="100" value={internalMinRatio} onChange={event => setInternalMinRatio(event.target.value)} className="mt-1 h-9 w-full rounded-lg border border-default bg-surface px-3 text-primary focus:border-[var(--color-brand)] focus:outline-none" /></label>
+          <label className="text-secondary">系统内最高比例（%，用户假设）<input aria-label="系统内最高比例（%，用户假设）" type="number" min="0" max="100" value={internalMaxRatio} onChange={event => setInternalMaxRatio(event.target.value)} className="mt-1 h-9 w-full rounded-lg border border-default bg-surface px-3 text-primary focus:border-[var(--color-brand)] focus:outline-none" /></label>
+          <label className="text-secondary">偏好比例（可选，%，用户假设）<input aria-label="偏好比例（可选，%，用户假设）" type="number" min="0" max="100" value={preferredRatio} onChange={event => setPreferredRatio(event.target.value)} placeholder="可留空" className="mt-1 h-9 w-full rounded-lg border border-default bg-surface px-3 text-primary focus:border-[var(--color-brand)] focus:outline-none" /></label>
+          <div className="flex items-end"><button type="button" onClick={() => void handleRunPlanning()} disabled={isCalculating} className="flex h-9 w-full cursor-pointer items-center justify-center gap-2 rounded-lg bg-brand px-4 font-bold text-white transition-colors hover:bg-[var(--color-brand-hover)] disabled:opacity-50"><RefreshCw className={`h-4 w-4 ${isCalculating ? 'animate-spin' : ''}`} />{isCalculating ? '计算中…' : '测算筹划沙盘'}</button></div>
         </div>
       </div>
 
       {planningResult ? (
         <div className="space-y-4">
-          <div className="glass-panel rounded-xl border border-[#4cd7f6]/30 p-5">
-            <h3 className="font-bold text-[#dae2fd]">推荐结果</h3>
-            <p className="mt-2 text-[13px] text-[#c4c5d5]">{label(recommendation.summary)}</p>
+          <div className="surface-card rounded-xl p-5">
+            <h3 className="font-bold text-primary">推荐结果</h3>
+            <p className="mt-2 text-[13px] text-secondary">{label(recommendation.summary)}</p>
             <div className="mt-4 grid grid-cols-2 gap-3 text-[12px] md:grid-cols-4">
               {[
                 { k: 'scenario_id', l: '方案编号' },
@@ -207,22 +207,22 @@ export function TaxPlanningView({ projects, selectedProjectId, onSelectProject }
                 { k: 'system_external_cost', l: '系统外真实成本' },
                 { k: 'incremental_tax_cash', l: '边际税费支出' },
                 { k: 'projected_management_profit', l: '预估管理利润' },
-              ].map(item => <div key={item.k} className="rounded-lg border border-[#444653]/20 bg-[#131b2e] p-3"><p className="text-[#8e909f]">{item.l}</p><p className="mt-1 break-all font-semibold text-[#dae2fd]">{label(recommended[item.k])}</p></div>)}
+              ].map(item => <div key={item.k} className="rounded-lg border border-default bg-surface p-3"><p className="text-secondary">{item.l}</p><p className="mt-1 break-all font-semibold text-primary">{label(recommended[item.k])}</p></div>)}
             </div>
           </div>
 
           {allocations.length > 0 && (
-            <div className="glass-panel rounded-xl border border-[#444653]/30 p-5"><h3 className="mb-3 font-bold text-[#dae2fd]">分配明细</h3><div className="overflow-x-auto"><table className="w-full text-left text-[12px]"><thead><tr className="border-b border-[#444653]/30 text-[#8e909f]"><th className="p-2">范围</th><th className="p-2">主体</th><th className="p-2 text-right">金额</th><th className="p-2 text-right">比例</th></tr></thead><tbody>{allocations.map((item, index) => <tr key={index} className="border-b border-[#444653]/20"><td className="p-2">{scopeLabel(typeof item.scope === 'string' ? item.scope : '')}</td><td className="p-2">{label(item.party_code)} · {label(item.party_name)}</td><td className="p-2 text-right">{label(item.amount)}</td><td className="p-2 text-right">{label(item.share)}</td></tr>)}</tbody></table></div></div>
+            <div className="surface-card rounded-xl p-5"><h3 className="mb-3 font-bold text-primary">分配明细</h3><div className="overflow-x-auto"><table className="w-full text-left text-[12px]"><thead><tr className="border-b border-default text-secondary"><th className="p-2">范围</th><th className="p-2">主体</th><th className="p-2 text-right">金额</th><th className="p-2 text-right">比例</th></tr></thead><tbody>{allocations.map((item, index) => <tr key={index} className="border-b border-default"><td className="p-2">{scopeLabel(typeof item.scope === 'string' ? item.scope : '')}</td><td className="p-2">{label(item.party_code)} · {label(item.party_name)}</td><td className="p-2 text-right">{label(item.amount)}</td><td className="p-2 text-right">{label(item.share)}</td></tr>)}</tbody></table></div></div>
           )}
 
           {scenarios.length > 0 && (
-            <div className="glass-panel rounded-xl border border-[#444653]/30 p-5"><h3 className="mb-3 flex items-center gap-2 font-bold text-[#dae2fd]"><TrendingUp className="h-4 w-4 text-[#4cd7f6]" />方案比较</h3><div className="overflow-x-auto"><table className="w-full text-left text-[12px]"><thead><tr className="border-b border-[#444653]/30 text-[#8e909f]"><th className="p-2">方案</th><th className="p-2">系统内比例</th><th className="p-2">外部成本</th><th className="p-2">评分</th></tr></thead><tbody>{scenarios.map((item, index) => <tr key={index} className="border-b border-[#444653]/20"><td className="p-2">{label(item.scenario_id)}</td><td className="p-2">{label(item.internal_ratio)}</td><td className="p-2">{label(item.system_external_cost)}</td><td className="p-2">{label(item.score)}</td></tr>)}</tbody></table></div></div>
+            <div className="surface-card rounded-xl p-5"><h3 className="mb-3 flex items-center gap-2 font-bold text-primary"><TrendingUp className="h-4 w-4 text-brand" />方案比较</h3><div className="overflow-x-auto"><table className="w-full text-left text-[12px]"><thead><tr className="border-b border-default text-secondary"><th className="p-2">方案</th><th className="p-2">系统内比例</th><th className="p-2">外部成本</th><th className="p-2">评分</th></tr></thead><tbody>{scenarios.map((item, index) => <tr key={index} className="border-b border-default"><td className="p-2">{label(item.scenario_id)}</td><td className="p-2">{label(item.internal_ratio)}</td><td className="p-2">{label(item.system_external_cost)}</td><td className="p-2">{label(item.score)}</td></tr>)}</tbody></table></div></div>
           )}
         </div>
       ) : <DataStatusCard status="UNAVAILABLE" title="尚无筹划结果" message="填写用户假设并点击“测算筹划沙盘”后，真实模拟结果会显示在这里。" />}
 
       {penetrationData && (
-        <div className="glass-panel rounded-xl border border-[#444653]/30 p-4 text-[12px] text-[#c4c5d5]" role="status">
+        <div className="surface-card rounded-xl p-4 text-[12px] text-secondary" role="status">
           项目穿透上下文已加载。原始技术字段仅供后台诊断，不在业务界面直接展示。
         </div>
       )}
