@@ -63,8 +63,14 @@ function StatusLine({ status, message }: { status: DataStatus; message: string }
   );
 }
 
-function ProjectionKpi({ label, value }: { label: string; value: number | undefined }) {
-  return <div className="surface-card rounded-xl p-3.5"><div className="text-[11px] text-secondary">{label}</div><div className="mt-1 text-[17px] font-bold text-primary font-mono-num">{formatAmount(value)}</div></div>;
+function ProjectionKpi({ label, value, cumulative }: { label: string; value: number | undefined; cumulative?: number }) {
+  return (
+    <div className="surface-card rounded-xl p-3.5">
+      <div className="text-[11px] text-secondary">{label}</div>
+      <div className="mt-1 text-[17px] font-bold text-primary font-mono-num">{formatAmount(value)}</div>
+      {cumulative !== undefined && <div className="mt-1 text-[11px] font-semibold text-secondary font-mono-num">累计：{formatAmount(cumulative)}</div>}
+    </div>
+  );
 }
 
 function StatutoryKpi({ label, value }: { label: string; value: number | undefined }) {
@@ -316,9 +322,27 @@ export function EntityCorporateView() {
       <StatusLine status={masterStatus} message={masterMessage} />
 
       <section aria-label="经营投影" className="surface-card space-y-4 rounded-2xl p-4">
-        <div className="flex flex-wrap items-start justify-between gap-3"><div><div className="flex items-center gap-2 text-[15px] font-bold text-primary"><Building2 className="h-4 w-4 text-brand" />经营投影</div><p className="mt-1 text-[12px] font-semibold text-secondary">法人管理／经营投影 · 管理口径，非申报口径</p></div><span className="rounded-full border border-default bg-surface px-2.5 py-1 text-[10px] text-secondary"><span>{entityCode || '—'} · {period}</span>{activeEntityName && activeEntityName !== entityCode && <span className="ml-1 text-primary">（{activeEntityName}）</span>}</span></div>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <div className="flex items-center gap-2 text-[15px] font-bold text-primary"><Building2 className="h-4 w-4 text-brand" />经营投影</div>
+            <p className="mt-1 text-[12px] font-semibold text-secondary">法人管理／经营投影 · 当期发生与开工至本期累计并列 · 管理口径，非申报口径</p>
+          </div>
+          <span className="rounded-full border border-default bg-surface px-2.5 py-1 text-[10px] text-secondary"><span>{entityCode || '—'} · {period}</span>{activeEntityName && activeEntityName !== entityCode && <span className="ml-1 text-primary">（{activeEntityName}）</span>}</span>
+        </div>
         <StatusLine status={projectionStatus} message={projectionMessage} />
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5"><ProjectionKpi label="收入投影" value={projection?.revenue} /><ProjectionKpi label="账面成本投影" value={projection?.bookCostProjection} /><ProjectionKpi label="会计利润投影" value={projection?.accountingProfitProjection} /><ProjectionKpi label="销项增值税投影" value={projection?.outputVat} /><ProjectionKpi label="进项增值税投影" value={projection?.inputVat} /><ProjectionKpi label="可抵扣进项税额" value={projection?.deductibleInputVat} /><ProjectionKpi label="不可抵扣进项税额" value={projection?.nondeductibleInputVat} /><ProjectionKpi label="待确认进项税额" value={projection?.pendingInputVat} /><ProjectionKpi label="内部法人交易净额" value={projection?.internalTradeNet} /><ProjectionKpi label="内部法人交易增值税" value={projection?.internalTradeVat} /></div>
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
+          <ProjectionKpi label="收入投影（当期）" value={projection?.revenue} cumulative={projection?.cumulative.revenue} />
+          <ProjectionKpi label="账面成本投影（当期）" value={projection?.bookCostProjection} cumulative={projection?.cumulative.bookCostProjection} />
+          <ProjectionKpi label="会计利润投影（当期）" value={projection?.accountingProfitProjection} cumulative={projection?.cumulative.accountingProfitProjection} />
+          <ProjectionKpi label="销项增值税投影（当期）" value={projection?.outputVat} cumulative={projection?.cumulative.outputVat} />
+          <ProjectionKpi label="进项增值税投影（当期）" value={projection?.inputVat} cumulative={projection?.cumulative.inputVat} />
+          <ProjectionKpi label="可抵扣进项税额" value={projection?.deductibleInputVat} />
+          <ProjectionKpi label="不可抵扣进项税额" value={projection?.nondeductibleInputVat} />
+          <ProjectionKpi label="待确认进项税额" value={projection?.pendingInputVat} />
+          <ProjectionKpi label="内部法人交易净额" value={projection?.internalTradeNet} />
+          <ProjectionKpi label="内部法人交易增值税" value={projection?.internalTradeVat} />
+        </div>
+        {projection && <div className="rounded-lg border border-default bg-surface px-3 py-2 text-[11px] text-secondary">当期规范事实：<span className="font-semibold text-primary font-mono-num">{projection.factCount}</span> 笔 · 开工至本期累计规范事实：<span className="font-semibold text-primary font-mono-num">{projection.cumulative.factCount}</span> 笔</div>}
         <div className="rounded-lg border border-[var(--color-warning)]/30 bg-[var(--color-warning)]/5 px-3 py-2 text-[12px] text-[var(--color-warning)]" role="note">企业所得税／税后利润：暂未接入（等待确定性企业所得税引擎接入）</div>
       </section>
 
