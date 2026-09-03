@@ -889,4 +889,225 @@
 * {
   scrollbar-width: none;
 }
-\n/* FORCE_CLEARTYPE */\n*, *::before, *::after, html, body, .antialiased { -webkit-font-smoothing: auto !important; -moz-osx-font-smoothing: auto !important; }\n
+
+/* FORCE_CLEARTYPE */
+*, *::before, *::after, html, body, .antialiased {
+  -webkit-font-smoothing: auto !important;
+  -moz-osx-font-smoothing: auto !important;
+}
+
+/* UI-4 Boss 端统一 Design Tokens / Surface 兼容覆盖层 */
+:root {
+  --bg-app: #0b1326;
+  --surface-card: #1a2540;
+  --surface-2-token: #1e2d4d;
+  --border-token: #2a3a5c;
+  --brand: #3b82f6;
+  --brand-hover: #2563eb;
+  --brand-muted: rgba(59, 130, 246, 0.15);
+  --text-primary-token: #e8eef7;
+  --text-secondary-token: #8899b4;
+  --text-muted-token: #5a6a82;
+
+  --page-bg: var(--bg-app);
+  --surface-0: var(--bg-app);
+  --surface-1: var(--surface-card);
+  --surface-2: var(--surface-2-token);
+  --surface-raised: var(--surface-2-token);
+  --surface-glass: var(--surface-card);
+  --line-subtle: var(--border-token);
+  --line-default: var(--border-token);
+  --line-strong: #3b4d70;
+  --line-gold: var(--brand);
+  --ink: var(--text-primary-token);
+  --ink-secondary: var(--text-secondary-token);
+  --ink-muted: var(--text-muted-token);
+  --ink-subtle: var(--text-muted-token);
+
+  /* 兼容旧 class/token 名称，但视觉统一映射到品牌蓝 */
+  --brand-gold-light: var(--brand);
+  --brand-gold: var(--brand);
+  --brand-gold-strong: var(--brand-hover);
+  --brand-gold-glow: var(--brand-muted);
+  --cyan: var(--brand);
+  --cyan-bg: var(--brand-muted);
+
+  --success: #22c55e;
+  --success-bg: rgba(34, 197, 94, 0.12);
+  --success-border: rgba(34, 197, 94, 0.35);
+  --warning: #f59e0b;
+  --warning-bg: rgba(245, 158, 11, 0.12);
+  --warning-border: rgba(245, 158, 11, 0.35);
+  --danger: #ef4444;
+  --danger-bg: rgba(239, 68, 68, 0.12);
+  --danger-border: rgba(239, 68, 68, 0.35);
+}
+
+body,
+.font-financial {
+  font-family: "HarmonyOS Sans SC", "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "Segoe UI", Arial, sans-serif;
+}
+
+.surface-card,
+.glass-panel,
+.glass-panel-gold,
+.hero-gold-card {
+  background: var(--surface-card);
+  border-color: var(--border-token);
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.hero-gold-card::before {
+  display: none;
+}
+
+.status-pill {
+  background: var(--surface-2-token);
+  border-color: var(--border-token);
+  backdrop-filter: none;
+}
+
+.primary-button {
+  border-color: var(--brand);
+  background: var(--brand);
+  color: #ffffff;
+  box-shadow: none;
+}
+
+.primary-button:hover {
+  background: var(--brand-hover);
+  box-shadow: none;
+}
+
+.primary-button:active {
+  background: var(--brand-hover);
+}
+
+.secondary-button {
+  border-color: var(--border-token);
+  background: var(--surface-2-token);
+  color: var(--text-primary-token);
+  box-shadow: none;
+}
+
+.secondary-button:hover {
+  border-color: var(--brand);
+  color: var(--brand);
+  background: var(--surface-2-token);
+}
+
+.app-header {
+  background: var(--surface-card);
+  border-bottom-color: var(--border-token);
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.app-header__badge {
+  border-color: var(--brand);
+  background: var(--brand-muted);
+  color: var(--brand);
+}
+
+.icon-button {
+  border-color: var(--border-token);
+  background: var(--surface-2-token);
+  box-shadow: none;
+}
+
+.icon-button:hover,
+.icon-button[aria-pressed="true"] {
+  border-color: var(--brand);
+  background: var(--surface-2-token);
+  color: var(--brand);
+  box-shadow: none;
+}
+
+.bottom-navigation {
+  border-color: var(--border-token);
+  background: var(--surface-card);
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.bottom-navigation__item.is-active {
+  color: var(--brand);
+  background: var(--brand-muted);
+}
+
+.bottom-navigation__item.is-active::after {
+  background: var(--brand);
+  box-shadow: none;
+}
+
+.ai-breathing-aura,
+.ai-button-bubble::after {
+  display: none;
+}
+
+.ai-button-bubble {
+  border-color: var(--brand);
+  background: var(--brand);
+  color: #ffffff;
+  box-shadow: none;
+}
+
+.ai-icon {
+  filter: none;
+  animation: none;
+}
+
+.nav-label--ai {
+  color: var(--brand) !important;
+  text-shadow: none;
+}
+
+.bottom-navigation__item--ai.is-active .ai-button-bubble {
+  border-color: var(--brand);
+  box-shadow: none;
+}
+
+.login-page {
+  background: var(--page-bg);
+}
+
+.login-card {
+  border-color: var(--border-token);
+  background: var(--surface-card);
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+.login-brand-mark {
+  border-color: var(--brand);
+  box-shadow: none;
+}
+
+.login-subtitle {
+  color: var(--brand);
+}
+
+.form-input {
+  border-color: var(--border-token);
+  background: var(--surface-2-token);
+}
+
+.form-input:focus {
+  border-color: var(--brand);
+  background: var(--surface-2-token);
+  box-shadow: 0 0 0 3px var(--brand-muted);
+}
+
+@media (min-width: 768px) {
+  body {
+    background: var(--page-bg);
+  }
+
+  .app-shell {
+    box-shadow: 0 0 0 1px var(--border-token);
+  }
+}
