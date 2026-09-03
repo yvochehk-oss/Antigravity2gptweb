@@ -47,6 +47,14 @@ function projection(entityCode: string, period: string, revenue = 1000, status: 
     nonProjectContribution: { ...contribution, projectId: null, projectCode: '', projectName: '非项目归属', revenue: 0, bookCostProjection: 0, accountingProfitProjection: 0, outputVat: 0, inputVat: 0, deductibleInputVat: 0, nondeductibleInputVat: 0, pendingInputVat: 0, internalTradeNet: 0, internalTradeVat: 0, factCount: 0, factIds: [] },
     factCount: 2,
     factIds: [11, 12],
+    cumulative: {
+      revenue: revenue + 5000,
+      bookCostProjection: 3600,
+      accountingProfitProjection: revenue + 1400,
+      outputVat: 540,
+      inputVat: 216,
+      factCount: 12,
+    },
     dataGaps: status === 'DEGRADED' ? ['INPUT_VAT_DEDUCTIBILITY_NEEDS_REVIEW'] : [],
     sourceOfTruth: 'analytics_canonical_facts_current',
     officialVatLedger: 'entity_vat_ledgers',
@@ -70,7 +78,7 @@ beforeEach(() => {
 describe('EntityCorporateView legal-entity dual-scope workspace', () => {
   it('renders management projection and statutory VAT as distinct Chinese business scopes and never invents income tax or after-tax profit', async () => {
     render(<EntityCorporateView />);
-    expect(await screen.findByText('法人管理／经营投影 · 管理口径，非申报口径')).toBeInTheDocument();
+    expect(await screen.findByText('法人管理／经营投影 · 当期发生与开工至本期累计并列 · 管理口径，非申报口径')).toBeInTheDocument();
     expect(screen.getByText('法人法定申报 · 法人申报口径')).toBeInTheDocument();
     expect(screen.getByText('企业所得税／税后利润：暂未接入（等待确定性企业所得税引擎接入）')).toBeInTheDocument();
     expect(screen.getByText('项目穿透贡献')).toBeInTheDocument();
@@ -187,7 +195,7 @@ describe('EntityCorporateView legal-entity dual-scope workspace', () => {
   it('T_UI_4: displays fail-closed formal VAT empty guidance note and never falls back to Projection figures', async () => {
     vi.mocked(fetchEntityTaxLedger).mockResolvedValue({ status: 'READY', message: '', items: [] });
     render(<EntityCorporateView />);
-    expect(await screen.findByText('法人管理／经营投影 · 管理口径，非申报口径')).toBeInTheDocument();
+    expect(await screen.findByText('法人管理／经营投影 · 当期发生与开工至本期累计并列 · 管理口径，非申报口径')).toBeInTheDocument();
     expect(await screen.findByText(/上方【法定申报增值税】是纳税申报口径/)).toBeInTheDocument();
     expect(screen.getByText(/当前期间未归档正式台账，故显示为“—”/)).toBeInTheDocument();
     const statutorySection = screen.getByRole('region', { name: '法定申报增值税' });
