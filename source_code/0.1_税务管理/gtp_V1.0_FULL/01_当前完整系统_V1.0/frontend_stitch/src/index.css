@@ -1,27 +1,104 @@
 /**
  * ============================================================================
  * 成都建工 V3.0 - 锐宝财税智控系统 全局样式 (index.css)
- * 
+ *
  * 【字体规范与跨平台渲染说明】
- * 1. 本地 WebFont 方案：
- *    - 采用开源商用 HarmonyOS Sans SC (鸿蒙字体)，完全本地静态引入 (/assets/fonts/)，0 外网 CDN 依赖。
- * 2. Windows / macOS 跨平台清晰度保障：
- *    - 严格禁止在 Windows 环境下强开 `-webkit-font-smoothing: antialiased` 或 `grayscale`；
- *    - 保持 `-webkit-font-smoothing: auto`，使 Windows 原生 ClearType 亚像素平滑引擎充分发挥，文字深黑饱满无毛边；
- *    - macOS / Retina 高分屏自动匹配系统最佳灰度抗锯齿，两端互不干扰。
- * 3. 字体回退序列：
- *    HarmonyOS Sans SC -> Microsoft YaHei UI -> Microsoft YaHei -> Segoe UI -> Arial -> sans-serif。
- * 4. 金额与表格数字：
- *    开启 font-variant-numeric: tabular-nums，保障多列金额纵向严格等宽对齐。
+ * 1. 本地 WebFont：HarmonyOS Sans SC，静态路径 /fonts/harmony-sans-sc/，0 外网 CDN。
+ * 2. Windows 保持 ClearType；macOS / Retina 使用系统最佳灰度抗锯齿。
+ * 3. 字体回退：HarmonyOS Sans SC -> Microsoft YaHei UI -> Microsoft YaHei
+ *    -> PingFang SC -> Segoe UI -> Arial -> sans-serif。
+ * 4. 金额与表格数字使用 tabular-nums，保障金额纵向对齐。
  * ============================================================================
  */
 
-:root {
-  --font-ui: "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "Segoe UI", Arial, sans-serif;
-  --font-sans: var(--font-ui);
+@import "tailwindcss";
+
+@font-face {
+  font-family: "HarmonyOS Sans SC";
+  src: url("/fonts/harmony-sans-sc/HarmonyOS_Sans_SC-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
 }
 
-@import "tailwindcss";
+@font-face {
+  font-family: "HarmonyOS Sans SC";
+  src: url("/fonts/harmony-sans-sc/HarmonyOS_Sans_SC-Medium.woff2") format("woff2");
+  font-weight: 500 600;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "HarmonyOS Sans SC";
+  src: url("/fonts/harmony-sans-sc/HarmonyOS_Sans_SC-Bold.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  /* === V3.0 统一 Design Tokens：Tax / RAG / Boss 共用语义 === */
+
+  /* 页面与表面 */
+  --color-bg: #0b1326;
+  --color-surface: #1a2540;
+  --color-surface-2: #1e2d4d;
+  --color-border: #2a3a5c;
+
+  /* 品牌 */
+  --color-brand: #3b82f6;
+  --color-brand-hover: #2563eb;
+  --color-brand-muted: rgba(59, 130, 246, 0.15);
+
+  /* 文字 */
+  --color-text-primary: #e8eef7;
+  --color-text-secondary: #8899b4;
+  --color-text-muted: #5a6a82;
+
+  /* 真实业务状态 */
+  --color-success: #22c55e;
+  --color-warning: #f59e0b;
+  --color-danger: #ef4444;
+  --color-info: #3b82f6;
+
+  /* 阴影 */
+  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.3);
+  --shadow-elevated: 0 4px 12px rgba(0, 0, 0, 0.4);
+
+  /* 桌面五级字号 */
+  --font-xs: 12px;
+  --font-sm: 14px;
+  --font-base: 16px;
+  --font-lg: 20px;
+  --font-kpi: 28px;
+
+  /* 金额 / KPI 数字 */
+  --font-num-sm: 20px;
+  --font-num-base: 28px;
+  --font-num-hero: 48px;
+
+  /* 4px 间距基准 */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+
+  /* 圆角 */
+  --radius-sm: 6px;
+  --radius-base: 8px;
+  --radius-lg: 12px;
+
+  /* Shell */
+  --sidebar-width: 192px;
+  --header-height: 56px;
+
+  /* 字体 */
+  --font-ui: "HarmonyOS Sans SC", "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "Segoe UI", Arial, sans-serif;
+  --font-sans: var(--font-ui);
+}
 
 @layer base {
   html, body, #root {
@@ -33,14 +110,14 @@
     position: fixed;
     inset: 0;
     font-family: var(--font-ui);
-    font-size: 14px;
+    font-size: var(--font-sm);
     line-height: 1.55;
     font-weight: 400;
     -webkit-font-smoothing: auto;
     -moz-osx-font-smoothing: auto;
     transform: translateZ(0);
   }
-  
+
   button, input, textarea, select, table {
     font-family: inherit;
   }
@@ -51,14 +128,27 @@
   }
 }
 
-/* 强制保持 Windows ClearType 亚像素平滑，避免 React 挂载后字体退化变细 */
+/* 语义 Utility：新代码优先使用语义，而非新增 JSX 十六进制颜色。 */
+.text-primary { color: var(--color-text-primary); }
+.text-secondary { color: var(--color-text-secondary); }
+.text-muted { color: var(--color-text-muted); }
+.text-brand { color: var(--color-brand); }
+.bg-page { background-color: var(--color-bg); }
+.bg-surface { background-color: var(--color-surface); }
+.bg-surface-2 { background-color: var(--color-surface-2); }
+.border-default { border-color: var(--color-border); }
+.status-success { color: var(--color-success); }
+.status-warning { color: var(--color-warning); }
+.status-danger { color: var(--color-danger); }
+
+/* 强制保持 Windows ClearType 亚像素平滑，避免 React 挂载后字体退化变细。 */
 *, *::before, *::after, html, body, .antialiased {
   -webkit-font-smoothing: auto !important;
   -moz-osx-font-smoothing: auto !important;
   text-rendering: auto !important;
 }
 
-/* 玻璃拟态与发光特效 */
+/* 旧视觉类暂保留，后续 UI-1 组件样板阶段渐进退役，避免一次性扩大回归面。 */
 .glass-panel {
   background-color: rgba(23, 31, 51, 0.85);
   border: 1px solid rgba(76, 215, 246, 0.12);
@@ -85,13 +175,13 @@
 }
 
 .chart-grid {
-  background-image: 
+  background-image:
     linear-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px),
     linear-gradient(90deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px);
   background-size: 24px 24px;
 }
 
-/* 隐藏滚动条但保留滚动功能 */
+/* 隐藏滚动条但保留滚动功能。 */
 .scrollbar-hide::-webkit-scrollbar {
   display: none;
 }
@@ -100,7 +190,7 @@
   scrollbar-width: none;
 }
 
-/* 微动效 */
+/* 微动效。 */
 @keyframes slow-pulse {
   0%, 100% { opacity: 1; transform: scale(1); }
   50% { opacity: 0.6; transform: scale(0.96); }
