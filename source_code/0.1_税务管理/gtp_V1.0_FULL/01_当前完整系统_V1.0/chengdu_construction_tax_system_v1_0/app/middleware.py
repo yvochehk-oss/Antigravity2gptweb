@@ -32,7 +32,7 @@ PUBLIC_EXACT_PATHS = frozenset(
     }
 )
 
-PUBLIC_PREFIXES = ("/static",)
+PUBLIC_PREFIXES = ("/static", "/assets", "/ui")
 
 API_PREFIXES = (
     "/api",
