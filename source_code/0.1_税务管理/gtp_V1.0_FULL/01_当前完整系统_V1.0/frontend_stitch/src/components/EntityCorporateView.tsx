@@ -4,7 +4,56 @@ import * as api from '../api';
 import type { LegalEntityOperatingProjection, LegalEntityProjectionContribution } from '../api';
 import type { DataStatus, EntityTaxLedgerRecord } from '../types';
 
-const ENTITY_OPTIONS = ['A08', 'B01', 'B02', 'B03', 'A01', 'A02', 'A03', 'A04', 'A05', 'A06', 'A07'];
+export interface LegalEntityOption {
+  code: string;
+  name: string;
+}
+
+export const LEGAL_ENTITY_OPTIONS: LegalEntityOption[] = [
+  { code: 'A08', name: '四川锐宝建设工程有限公司' },
+  { code: 'A01', name: '中镌（湖北）建筑有限公司' },
+  { code: 'A02', name: '四川中恒腾鸣建筑工程有限公司' },
+  { code: 'A03', name: '四川屹明汇建设工程有限公司' },
+  { code: 'A05', name: '四川帆亿通信科技有限公司' },
+  { code: 'A06', name: '四川裕合荣建筑工程有限公司' },
+  { code: 'A07', name: '四川铁安电力工程有限公司' },
+  { code: 'A09', name: '四川顺程源建筑工程有限公司' },
+  { code: 'A10', name: '四川鼎新源建筑工程有限公司' },
+  { code: 'A11', name: '成都巨邦建设工程有限公司' },
+  { code: 'B01', name: '四川乾润和贸易有限公司' },
+  { code: 'B02', name: '四川兴誉诚商贸有限公司' },
+  { code: 'B03', name: '四川坤珀贸易有限公司' },
+  { code: 'B04', name: '四川矗佳商贸有限公司' },
+  { code: 'B05', name: '广元玖硕商贸有限公司' },
+  { code: 'B06', name: '广州采云广告有限公司' },
+  { code: 'B07', name: '成都恒创嘉泰贸易有限公司' },
+  { code: 'B08', name: '成都鑫晨鼎升商贸有限公司' },
+  { code: 'B09', name: '格尔木青泽贸易有限公司' },
+  { code: 'B10', name: '重庆朗德乾润商贸有限公司' },
+  { code: 'C01', name: '四川本盛劳务有限公司' },
+  { code: 'C02', name: '四川灏琅建筑劳务有限公司' },
+  { code: 'D01', name: '四川乾润和机械设备租赁有限公司' },
+  { code: 'D02', name: '四川乾诺机械租赁有限公司' },
+  { code: 'D03', name: '四川惠润农业设备有限公司' },
+];
+
+export const YEAR_OPTIONS = ['2023', '2024', '2025', '2026', '2027', '2028'];
+export const MONTH_OPTIONS = [
+  { value: '01', label: '01月' },
+  { value: '02', label: '02月' },
+  { value: '03', label: '03月' },
+  { value: '04', label: '04月' },
+  { value: '05', label: '05月' },
+  { value: '06', label: '06月' },
+  { value: '07', label: '07月' },
+  { value: '08', label: '08月' },
+  { value: '09', label: '09月' },
+  { value: '10', label: '10月' },
+  { value: '11', label: '11月' },
+  { value: '12', label: '12月' },
+];
+
+const ENTITY_OPTIONS = LEGAL_ENTITY_OPTIONS.map(item => item.code);
 
 function currentPeriod(): string {
   const now = new Date();
@@ -80,6 +129,11 @@ function ContributionRow({ item }: ContributionRowProps) {
 export function EntityCorporateView() {
   const [entityCode, setEntityCode] = useState('A08');
   const [period, setPeriod] = useState(currentPeriod);
+  const [selectedYear, selectedMonth] = useMemo(() => {
+    const parts = period.split('-');
+    return [parts[0] || '2026', parts[1] || '09'];
+  }, [period]);
+
   const [projection, setProjection] = useState<LegalEntityOperatingProjection | null>(null);
   const [projectionStatus, setProjectionStatus] = useState<DataStatus>('LOADING');
   const [projectionMessage, setProjectionMessage] = useState('正在读取法人经营 Projection…');
@@ -163,6 +217,12 @@ export function EntityCorporateView() {
   }, []);
 
   const statutoryRecord = statutoryRecords.length === 1 ? statutoryRecords[0] : null;
+  const activeEntity = useMemo(
+    () => LEGAL_ENTITY_OPTIONS.find(item => item.code === entityCode),
+    [entityCode],
+  );
+  const activeEntityName = activeEntity ? activeEntity.name : entityCode;
+
   const contributionRows = useMemo(() => {
     if (!projection) return [];
     const rows = [...projection.projectContributions];
@@ -178,30 +238,59 @@ export function EntityCorporateView() {
             <Landmark className="h-6 w-6 text-[#4cd7f6]" />
             <h2 className="text-[28px] font-bold tracking-tight text-[#dae2fd]">法人经营画像</h2>
           </div>
-          <p className="mt-1 text-[13px] text-[#c4c5d5]">经营 Projection 与正式 VAT 双域并列展示，禁止将管理投影冒充法人申报结果。</p>
+          <p className="mt-1 text-[13px] text-[#c4c5d5]">
+            【{entityCode} · {activeEntityName}】经营 Projection 与正式 VAT 双域并列展示，禁止将管理投影冒充法人申报结果。
+          </p>
         </div>
         <div className="flex flex-wrap items-end gap-3 rounded-xl border border-[#444653]/30 bg-[#171f33]/50 p-3">
-          <label className="flex min-w-[160px] flex-col gap-1 text-[11px] text-[#8e909f]">
+          <label className="flex min-w-[220px] max-w-[320px] flex-col gap-1 text-[11px] text-[#8e909f]">
             法人主体
             <select
               aria-label="法人主体"
               value={entityCode}
               onChange={event => setEntityCode(event.target.value)}
-              className="rounded-lg border border-[#444653]/40 bg-[#0b1326] px-3 py-2 text-[13px] text-[#dae2fd]"
+              className="rounded-lg border border-[#444653]/40 bg-[#0b1326] px-3 py-2 text-[13px] text-[#dae2fd] truncate focus:outline-none focus:border-[#4cd7f6]"
             >
-              {ENTITY_OPTIONS.map(code => <option key={code} value={code}>{code}</option>)}
+              {LEGAL_ENTITY_OPTIONS.map(item => (
+                <option key={item.code} value={item.code}>
+                  {item.code} · {item.name}
+                </option>
+              ))}
             </select>
           </label>
-          <label className="flex min-w-[160px] flex-col gap-1 text-[11px] text-[#8e909f]">
-            期间
+          <div className="flex flex-col gap-1 text-[11px] text-[#8e909f]">
+            <span>所属期间</span>
+            <div className="flex items-center gap-2">
+              <select
+                aria-label="所属年份"
+                value={selectedYear}
+                onChange={event => setPeriod(`${event.target.value}-${selectedMonth}`)}
+                className="rounded-lg border border-[#444653]/40 bg-[#0b1326] px-2.5 py-2 text-[13px] text-[#dae2fd] focus:outline-none focus:border-[#4cd7f6]"
+              >
+                {YEAR_OPTIONS.map(year => (
+                  <option key={year} value={year}>{year}年</option>
+                ))}
+              </select>
+              <select
+                aria-label="所属月份"
+                value={selectedMonth}
+                onChange={event => setPeriod(`${selectedYear}-${event.target.value}`)}
+                className="rounded-lg border border-[#444653]/40 bg-[#0b1326] px-2.5 py-2 text-[13px] text-[#dae2fd] focus:outline-none focus:border-[#4cd7f6]"
+              >
+                {MONTH_OPTIONS.map(month => (
+                  <option key={month.value} value={month.value}>{month.label}</option>
+                ))}
+              </select>
+            </div>
+            {/* 隐藏兼容字段：确保自动化测试与老调用方通过 aria-label='期间' 仍能完整兼容 */}
             <input
+              type="text"
               aria-label="期间"
-              type="month"
               value={period}
               onChange={event => setPeriod(event.target.value)}
-              className="rounded-lg border border-[#444653]/40 bg-[#0b1326] px-3 py-2 text-[13px] text-[#dae2fd]"
+              className="sr-only"
             />
-          </label>
+          </div>
         </div>
       </div>
 
@@ -214,7 +303,12 @@ export function EntityCorporateView() {
             </div>
             <p className="mt-1 text-[12px] font-semibold text-[#c4b5fd]">LEGAL_ENTITY_PROJECTION · 管理/经营投影，非申报口径</p>
           </div>
-          <span className="rounded-full border border-[#8b5cf6]/30 px-2.5 py-1 text-[10px] text-[#c4b5fd]">{entityCode} · {period}</span>
+          <span className="rounded-full border border-[#8b5cf6]/30 px-2.5 py-1 text-[10px] text-[#c4b5fd]">
+            <span>{entityCode} · {period}</span>
+            {activeEntityName && activeEntityName !== entityCode && (
+              <span className="ml-1 text-[#e9d5ff]">（{activeEntityName}）</span>
+            )}
+          </span>
         </div>
 
         <StatusLine status={projectionStatus} message={projectionMessage} />
