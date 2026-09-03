@@ -35,10 +35,10 @@ export function RiskCenterView({
   const pageTitle = (
     <header data-page-title="risk-center" className="w-full">
       <div className="flex items-start gap-2.5">
-        <ShieldAlert className="mt-1 h-7 w-7 flex-shrink-0 text-[#EF4444]" />
+        <ShieldAlert className="mt-1 h-7 w-7 flex-shrink-0 text-[var(--color-danger)]" />
         <div>
-          <h2 className="text-[28px] font-bold tracking-tight text-[#dae2fd]">风控中心</h2>
-          <p className="mt-1 text-[14px] text-[#c4c5d5]">
+          <h2 className="text-[28px] font-bold tracking-tight text-[var(--color-text-primary)]">风控中心</h2>
+          <p className="mt-1 text-[14px] text-[var(--color-text-secondary)]">
             动态监测大额跨期暂估、跨区施工预缴核销（偏差阈值 ≥{crossRegionThreshold}%）、四流一致性比对及工程造价超概算（止付阈值 ≥{budgetStopPayThreshold}%）。
           </p>
         </div>
@@ -63,9 +63,9 @@ export function RiskCenterView({
     return (
       <div className="space-y-6">
         {pageTitle}
-        <div className="rounded-xl border border-[#10B981]/30 bg-[#10B981]/5 p-5" role="status" aria-live="polite">
-          <p className="font-semibold text-[#dae2fd]">暂无已识别风险事件</p>
-          <p className="mt-1 text-[13px] leading-relaxed text-[#c4c5d5]">{statusMessage}</p>
+        <div className="surface-card rounded-xl border border-[var(--color-success)]/30 p-5" role="status" aria-live="polite">
+          <p className="font-semibold text-[var(--color-text-primary)]">暂无已识别风险事件</p>
+          <p className="mt-1 text-[13px] leading-relaxed text-[var(--color-text-secondary)]">{statusMessage}</p>
         </div>
       </div>
     );
@@ -75,20 +75,20 @@ export function RiskCenterView({
     <div className="space-y-6">
       {pageTitle}
 
-      <div data-page-controls="risk-center" className="glass-panel flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#444653]/30 p-3.5">
-        <span className="text-[12px] font-semibold text-[#c4c5d5]">风险等级筛选</span>
+      <div data-page-controls="risk-center" className="surface-card flex flex-wrap items-center justify-between gap-3 rounded-xl p-3.5">
+        <span className="text-[12px] font-semibold text-[var(--color-text-secondary)]">风险等级筛选</span>
         <div className="flex flex-wrap items-center gap-2">
           {(['全部', '高危', '中度', '轻度'] as const).map(level => (
             <button
               key={level}
               type="button"
               onClick={() => setActiveFilter(level)}
-              className={`cursor-pointer rounded-lg px-3 py-1.5 text-[12px] font-semibold transition-all ${
+              className={`cursor-pointer rounded-lg px-3 py-1.5 text-[12px] font-semibold transition-colors ${
                 activeFilter === level
                   ? level === '高危'
-                    ? 'bg-[#EF4444] text-white shadow-[0_0_12px_#EF4444]'
-                    : 'border border-[#4cd7f6]/40 bg-[#1e40af] text-[#dde1ff]'
-                  : 'bg-[#171f33] text-[#8e909f] hover:text-[#dae2fd]'
+                    ? 'border border-[var(--color-danger)]/40 bg-[var(--color-danger)]/15 text-[var(--color-danger)]'
+                    : 'border border-[var(--color-brand)]/40 bg-[var(--color-brand-muted)] text-[var(--color-brand)]'
+                  : 'border border-transparent bg-[var(--color-surface-2)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]'
               }`}
             >
               {level}
@@ -108,38 +108,38 @@ export function RiskCenterView({
           return (
             <div
               key={risk.id}
-              className={`glass-panel flex flex-col justify-between gap-4 rounded-xl p-5 transition-all ${isHigh ? 'glow-red border-[#EF4444]/60 bg-[#171f33]/90' : 'glow-amber border-[#F59E0B]/50'}`}
+              className="surface-card flex flex-col justify-between gap-4 rounded-xl p-5"
             >
               <div>
                 <div className="mb-3 flex items-start justify-between gap-2">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className={`rounded px-2 py-0.5 text-[11px] font-bold ${isHigh ? 'animate-pulse border border-[#EF4444]/40 bg-[#EF4444]/20 text-[#ffb4ab]' : 'border border-[#F59E0B]/40 bg-[#F59E0B]/20 text-[#ffa583]'}`}>
+                    <span className={`rounded border px-2 py-0.5 text-[11px] font-bold ${isHigh ? 'border-[var(--color-danger)]/40 bg-[var(--color-danger)]/15 text-[var(--color-danger)]' : 'border-[var(--color-warning)]/40 bg-[var(--color-warning)]/15 text-[var(--color-warning)]'}`}>
                       {risk.severity}风险 · {risk.riskType}
                     </span>
-                    <span className="flex items-center gap-1 text-[11px] font-mono-num text-[#8e909f]"><Clock className="h-3 w-3" />{risk.triggerTime}</span>
+                    <span className="flex items-center gap-1 text-[11px] font-mono-num text-[var(--color-text-muted)]"><Clock className="h-3 w-3" />{risk.triggerTime}</span>
                   </div>
-                  <span className="rounded border border-[#444653]/30 bg-[#131b2e] px-2.5 py-1 text-[12px] font-bold text-[#dae2fd]">{risk.status}</span>
+                  <span className="rounded border border-[var(--color-border)] bg-[var(--color-surface-2)] px-2.5 py-1 text-[12px] font-bold text-[var(--color-text-primary)]">{risk.status}</span>
                 </div>
 
-                <h4 className="text-[16px] font-bold text-[#dae2fd]">{risk.projectName}</h4>
-                <p className="mt-0.5 text-[13px] font-medium text-[#4cd7f6]">涉税关联主体：{risk.entityName}</p>
+                <h4 className="text-[16px] font-bold text-[var(--color-text-primary)]">{risk.projectName}</h4>
+                <p className="mt-0.5 text-[13px] font-medium text-[var(--color-brand)]">涉税关联主体：{risk.entityName}</p>
 
-                <div className="my-3 rounded-lg border border-[#444653]/30 bg-[#0b1326]/70 p-3 text-[12px] leading-relaxed text-[#dae2fd]">
-                  <p className="mb-1 font-semibold text-[#ffa583]">风险触发诱因：</p>
+                <div className="my-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-2)] p-3 text-[12px] leading-relaxed text-[var(--color-text-primary)]">
+                  <p className={`mb-1 font-semibold ${isHigh ? 'text-[var(--color-danger)]' : 'text-[var(--color-warning)]'}`}>风险触发诱因：</p>
                   {risk.description}
                 </div>
 
-                <div className="rounded-lg border border-[#4cd7f6]/20 bg-[#1e40af]/15 p-3 text-[12px] text-[#c4c5d5]">
-                  <p className="mb-1 flex items-center gap-1 font-semibold text-[#4cd7f6]"><Sparkles className="h-3.5 w-3.5" /><span>智能审计处置建议：</span></p>
+                <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-2)] p-3 text-[12px] text-[var(--color-text-secondary)]">
+                  <p className="mb-1 flex items-center gap-1 font-semibold text-[var(--color-brand)]"><Sparkles className="h-3.5 w-3.5" /><span>智能审计处置建议：</span></p>
                   {risk.auditSuggestions}
                 </div>
               </div>
 
-              <div className="flex items-center justify-between border-t border-[#444653]/30 pt-3 text-[12px]">
-                <div className="flex items-center gap-1.5 text-[#8e909f]"><UserCheck className="h-4 w-4 text-[#4cd7f6]" /><span>责任专员：<strong className="text-[#dae2fd]">{risk.handler}</strong></span></div>
+              <div className="flex items-center justify-between border-t border-[var(--color-border)] pt-3 text-[12px]">
+                <div className="flex items-center gap-1.5 text-[var(--color-text-muted)]"><UserCheck className="h-4 w-4 text-[var(--color-brand)]" /><span>责任专员：<strong className="text-[var(--color-text-primary)]">{risk.handler}</strong></span></div>
                 <div className="flex items-center gap-2">
-                  <button onClick={() => onAskAiAboutRisk(risk.entityName)} className="cursor-pointer rounded-lg border border-[#4cd7f6]/40 bg-[#03b5d3]/15 px-3 py-1.5 text-[12px] font-semibold text-[#4cd7f6] hover:bg-[#03b5d3]/25">呼叫智能助手协助取证</button>
-                  {!isResolved && <button onClick={() => onResolveRisk(risk.id)} className="cursor-pointer rounded-lg bg-[#10B981] px-3 py-1.5 text-[12px] font-bold text-[#0b1326] transition-colors hover:bg-[#10B981]/80">完成闭环整改</button>}
+                  <button onClick={() => onAskAiAboutRisk(risk.entityName)} className="cursor-pointer rounded-lg border border-[var(--color-brand)]/40 bg-[var(--color-brand-muted)] px-3 py-1.5 text-[12px] font-semibold text-[var(--color-brand)] transition-colors hover:bg-[var(--color-surface-2)]">呼叫智能助手协助取证</button>
+                  {!isResolved && <button onClick={() => onResolveRisk(risk.id)} className="cursor-pointer rounded-lg border border-[var(--color-success)]/40 bg-[var(--color-success)]/15 px-3 py-1.5 text-[12px] font-bold text-[var(--color-success)] transition-colors hover:bg-[var(--color-success)]/20">完成闭环整改</button>}
                 </div>
               </div>
             </div>
