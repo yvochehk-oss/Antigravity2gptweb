@@ -187,3 +187,17 @@ def test_repair_filename_classifications(test_db):
     assert misclassified.document_type == "tax_payment_record"
     assert misclassified.tax_category == "stamp_duty"
     assert user_customized.document_type == "custom_type"  # Preserved!
+
+
+def test_bank_slip_ebnk_not_treated_as_external_counterparty():
+    from app.services.metadata import infer_from_filename
+
+    fn = "BANK_CYCQ-MAIN-2023-02_EBNK20230320863445_电子回单盖章原件.jpg"
+    res = infer_from_filename(fn)
+    assert res["counterparty_code"] != "EBNK20230320863445"
+    assert "EBNK" not in res["counterparty_code"]
+
+    fn2 = "BANK_TF-B01-DF_EBNK20240920194827_达峰合金高强抗震钢采购银行支付回单.pdf"
+    res2 = infer_from_filename(fn2)
+    assert "EBNK" not in res2["counterparty_code"]
+

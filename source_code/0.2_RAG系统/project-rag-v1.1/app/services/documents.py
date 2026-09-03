@@ -210,7 +210,16 @@ def register_bytes(
             logger.error(f"Failed to queue parsing for {d.id}: {e}")
 
     # Auto-register external party if counterparty is system-external
-    if d.counterparty_code and not is_canonical_entity_code(d.counterparty_code):
+    if (
+        d.counterparty_code
+        and not is_canonical_entity_code(d.counterparty_code)
+        and not d.counterparty_code.upper().startswith("EBNK")
+        and not d.counterparty_code.upper().startswith("BANK")
+        and (
+            d.counterparty_code.upper().startswith("EXT-")
+            or bool(re.match(r"^E[A-D0](?:0[1-9]|[1-9]\d)?$", d.counterparty_code, re.IGNORECASE))
+        )
+    ):
         kind = "partner"
         cp_upper = d.counterparty_code.upper()
         if "CRANE" in cp_upper or d.business_category == "equipment":
