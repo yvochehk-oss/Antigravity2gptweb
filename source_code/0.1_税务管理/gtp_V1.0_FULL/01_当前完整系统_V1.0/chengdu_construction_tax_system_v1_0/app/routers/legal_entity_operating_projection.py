@@ -10,6 +10,11 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from ..db import SessionLocal
 from ..dependencies import require_role
+from ..services.formal_vat_statutory import (
+    FormalVatStatutoryResourceIntegrityError,
+    FormalVatStatutoryResourceNotFoundError,
+    get_formal_vat_statutory_resource,
+)
 from ..services.legal_entity_fact_periods import (
     LegalEntityNotFoundError,
     get_legal_entity_fact_periods,
@@ -84,6 +89,70 @@ def legal_entity_fact_periods(
         raise HTTPException(
             status_code=503,
             detail="法人凭证期间数据源暂时不可用，请稍后重试。",
+        ) from None
+    finally:
+        db.close()
+
+
+@router.get(
+    "/api/v3/legal-entities/{entity_code}/statutory-vat",
+    summary="V3 法人 Formal VAT Statutory Resource（只读）",
+)
+def legal_entity_formal_vat_statutory(
+    entity_code: str = Path(..., min_length=1, max_length=64),
+    period: str = Query(..., min_length=7, max_length=7),
+    _user=_reader_dependency,
+) -> dict[str, Any]:
+    """Read one official VAT ledger materialization for one legal entity/month.
+
+    This endpoint never rebuilds VAT and never falls back to invoice facts or a
+    management projection.  Missing or inconsistent statutory materialization
+    therefore fails closed.
+    """
+    if not _PERIOD_RE.fullmatch(period):
+        raise HTTPException(status_code=422, detail="period 必须为 YYYY-MM 格式")
+
+    wanted_entity = entity_code.strip()
+    if not wanted_entity:
+        raise HTTPException(status_code=422, detail="entity_code 不能为空")
+
+    db = SessionLocal()
+    try:
+        return get_formal_vat_statutory_resource(db, wanted_entity, period)
+    except LegalEntityNotFoundError:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "code": "LEGAL_ENTITY_NOT_FOUND",
+                "detail": "未找到有效的内部法人主体",
+            },
+        ) from None
+    except FormalVatStatutoryResourceNotFoundError:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "code": "FORMAL_VAT_STATUTORY_RESOURCE_NOT_FOUND",
+                "detail": "该法人及期间尚无正式 VAT 法定资源；读取端点不会现场重算。",
+            },
+        ) from None
+    except FormalVatStatutoryResourceIntegrityError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "FORMAL_VAT_STATUTORY_RESOURCE_INVALID",
+                "detail": str(exc),
+            },
+        ) from exc
+    except SQLAlchemyError:
+        db.rollback()
+        _LOGGER.exception(
+            "formal VAT statutory read database failure: entity=%s period=%s",
+            wanted_entity,
+            period,
+        )
+        raise HTTPException(
+            status_code=503,
+            detail="Formal VAT 法定资源数据源暂时不可用，请稍后重试。",
         ) from None
     finally:
         db.close()
