@@ -4,7 +4,82 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{% block title %}{{ title or "锐宝智能资料管理系统" }}{% endblock %}</title>
+  <link rel="stylesheet" href="/static/fonts/index.css">
   <link rel="stylesheet" href="/static/style.css">
+  <style>
+    :root {
+      --color-bg: #0b1326;
+      --color-surface: #1a2540;
+      --color-surface-2: #1e2d4d;
+      --color-border: #2a3a5c;
+      --color-brand: #3b82f6;
+      --color-brand-hover: #2563eb;
+      --color-brand-muted: rgba(59, 130, 246, 0.15);
+      --color-text-primary: #e8eef7;
+      --color-text-secondary: #8899b4;
+      --color-text-muted: #5a6a82;
+      --color-success: #22c55e;
+      --color-warning: #f59e0b;
+      --color-danger: #ef4444;
+      --color-info: #3b82f6;
+      --font-ui: "HarmonyOS Sans SC", "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "Segoe UI", Arial, sans-serif;
+
+      /* 兼容现有 RAG 样式变量：只做视觉令牌映射，不改变模板契约。 */
+      --bg-primary: var(--color-bg);
+      --bg-secondary: var(--color-bg);
+      --bg-card: var(--color-surface);
+      --bg-card-elevated: var(--color-surface-2);
+      --bg-hover: var(--color-surface-2);
+      --border-subtle: var(--color-border);
+      --border-cyan: var(--color-border);
+      --border-cyan-bright: var(--color-border);
+      --accent-cyan: var(--color-brand);
+      --accent-cyan-hover: var(--color-brand-hover);
+      --accent-blue: var(--color-brand);
+      --accent-emerald: var(--color-success);
+      --accent-amber: var(--color-warning);
+      --accent-rose: var(--color-danger);
+      --accent-purple: var(--color-brand);
+      --text-primary: var(--color-text-primary);
+      --text-secondary: var(--color-text-secondary);
+      --text-muted: var(--color-text-muted);
+      --text-bright: var(--color-text-primary);
+    }
+
+    body { font-family: var(--font-ui); }
+    #sidebar { background: var(--color-surface); border-right-color: var(--color-border); }
+    #top-header { background: var(--color-bg); border-bottom-color: var(--color-border); }
+    .brand-icon {
+      background: var(--color-brand-muted);
+      border-color: var(--color-border);
+      box-shadow: none;
+      color: var(--color-brand);
+    }
+    .brand-text h1 { color: var(--color-text-primary); }
+    .brand-text p { color: var(--color-text-secondary); }
+    .nav-item.active {
+      background: var(--color-brand-muted);
+      color: var(--color-text-primary);
+      border-color: var(--color-brand);
+      box-shadow: none;
+    }
+    .nav-item:hover { text-shadow: none; }
+    .engine-tag.ok { box-shadow: none; }
+    .btn-primary {
+      background: var(--color-brand);
+      border-color: var(--color-brand);
+      box-shadow: none;
+    }
+    .btn-primary:hover {
+      background: var(--color-brand-hover);
+      border-color: var(--color-brand-hover);
+      box-shadow: none;
+      transform: none;
+    }
+    a:hover { text-shadow: none; }
+    .rag-logout-form { display: inline; margin: 0; }
+    .rag-logout-button { cursor: pointer; }
+  </style>
 </head>
 <body>
   <!-- 侧边导航栏 (Sidebar) -->
@@ -112,9 +187,5 @@
   </div>
 
   {% block scripts %}{% endblock %}
-  <style>
-.rag-logout-form { display: inline; margin: 0; }
-    .rag-logout-button { cursor: pointer; }
-  </style>
 </body>
 </html>
