@@ -119,27 +119,29 @@ export function Sidebar({ currentTab, onSelectTab, unresolvedRiskCount, aiModelS
                     disabled={item.disabled}
                     aria-current={isActive ? 'page' : undefined}
                     onClick={() => { if (!item.disabled) onSelectTab(item.id); }}
-                    className={`group flex w-full items-center justify-between rounded-[var(--radius-base)] border px-2.5 py-2.5 text-[var(--font-sm)] font-medium transition-colors duration-150 ${
+                    className={`group flex w-full items-center justify-between rounded-[var(--radius-base)] border px-2.5 py-2.5 font-medium transition-colors duration-150 ${
+                      isIntelligentDecision ? 'ai-decision-nav text-[15px] font-semibold' : 'text-[var(--font-sm)]'
+                    } ${
                       item.disabled
                         ? 'cursor-not-allowed border-transparent bg-[var(--color-surface)]/45 text-[var(--color-text-muted)] opacity-75'
                         : isActive
                           ? 'cursor-pointer border-[var(--color-brand)]/35 bg-[var(--color-brand-muted)] font-semibold text-[var(--color-brand)]'
                           : isIntelligentDecision
-                            ? 'cursor-pointer border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text-primary)] hover:border-[var(--color-brand)]/35 hover:bg-[var(--color-surface-2)]'
+                            ? 'cursor-pointer border-[var(--color-brand)]/45 bg-[var(--color-surface)] text-[var(--color-text-primary)] hover:border-[var(--color-brand)]/75 hover:bg-[var(--color-brand-muted)]'
                             : 'cursor-pointer border-transparent text-[var(--color-text-secondary)] hover:bg-[var(--color-surface)] hover:text-[var(--color-text-primary)]'
                     }`}
                   >
                     <div className="flex min-w-0 items-center gap-2.5">
                       <Icon
-                        className={`h-4 w-4 flex-shrink-0 transition-colors ${
+                        className={`${isIntelligentDecision ? 'h-[18px] w-[18px]' : 'h-4 w-4'} flex-shrink-0 transition-colors ${
                           isActive
                             ? 'text-[var(--color-brand)]'
                             : isIntelligentDecision
-                              ? 'text-[var(--color-text-primary)]'
+                              ? 'text-[var(--color-brand)]'
                               : 'text-[var(--color-text-muted)] group-hover:text-[var(--color-text-secondary)]'
                         }`}
                       />
-                      <span className={`truncate ${isIntelligentDecision ? 'font-semibold' : ''}`}>{item.label}</span>
+                      <span className={`truncate ${isIntelligentDecision ? 'font-semibold tracking-[0.01em]' : ''}`}>{item.label}</span>
                     </div>
                     <div className="flex flex-shrink-0 items-center gap-1">
                       {showBadge && (
