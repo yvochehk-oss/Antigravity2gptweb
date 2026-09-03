@@ -1,9 +1,9 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { LegalEntityOperatingProjection } from '../api';
 import type { EntityTaxLedgerRecord } from '../types';
 import { fetchEntityTaxLedger, fetchLegalEntityOperatingProjection } from '../api';
-import { fetchLegalEntities } from '../legalEntityApi';
+import { fetchLegalEntities, fetchLegalEntityFactPeriods } from '../legalEntityApi';
 import { EntityCorporateView } from './EntityCorporateView';
 
 vi.mock('../api', () => ({
@@ -13,9 +13,53 @@ vi.mock('../api', () => ({
 
 vi.mock('../legalEntityApi', () => ({
   fetchLegalEntities: vi.fn(),
+  fetchLegalEntityFactPeriods: vi.fn(),
 }));
 
-function projection(entityCode: string, period: string, revenue = 1000): LegalEntityOperatingProjection {
+const LEGAL_ENTITY_FIXTURES = [
+  ['A08', '四川锐宝建设工程有限公司'],
+  ['A01', '中镌（湖北）建筑有限公司'],
+  ['A02', '四川中恒腾鸣建筑工程有限公司'],
+  ['A03', '四川屹明汇建设工程有限公司'],
+  ['A05', '四川帆亿通信科技有限公司'],
+  ['A06', '四川裕合荣建筑工程有限公司'],
+  ['A07', '四川铁安电力工程有限公司'],
+  ['A09', '四川顺程源建筑工程有限公司'],
+  ['A10', '四川鼎新源建筑工程有限公司'],
+  ['A11', '成都巨邦建设工程有限公司'],
+  ['B01', '四川乾润和贸易有限公司'],
+  ['B02', '四川兴誉诚商贸有限公司'],
+  ['B03', '四川坤珀贸易有限公司'],
+  ['B04', '四川矗佳商贸有限公司'],
+  ['B05', '广元玖硕商贸有限公司'],
+  ['B06', '广州采云广告有限公司'],
+  ['B07', '成都恒创嘉泰贸易有限公司'],
+  ['B08', '成都鑫晨鼎升商贸有限公司'],
+  ['B09', '格尔木青泽贸易有限公司'],
+  ['B10', '重庆朗德乾润商贸有限公司'],
+  ['C01', '四川本盛劳务有限公司'],
+  ['C02', '四川灏琅建筑劳务有限公司'],
+  ['D01', '四川乾润和机械设备租赁有限公司'],
+  ['D02', '四川乾诺机械租赁有限公司'],
+  ['D03', '四川惠润农业设备有限公司'],
+] as const;
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
+function projection(
+  entityCode: string,
+  period: string,
+  revenue = 1000,
+  status: 'READY' | 'DEGRADED' = 'READY',
+): LegalEntityOperatingProjection {
   const contribution = {
     projectId: 1,
     projectCode: 'P-001',
@@ -34,7 +78,7 @@ function projection(entityCode: string, period: string, revenue = 1000): LegalEn
     factIds: [11, 12],
   };
   return {
-    status: 'READY',
+    status,
     scope: 'LEGAL_ENTITY_PROJECTION',
     isFilingBasis: false,
     entityCode,
@@ -73,7 +117,7 @@ function projection(entityCode: string, period: string, revenue = 1000): LegalEn
     },
     factCount: 2,
     factIds: [11, 12],
-    dataGaps: [],
+    dataGaps: status === 'DEGRADED' ? ['INPUT_VAT_DEDUCTIBILITY_NEEDS_REVIEW'] : [],
     sourceOfTruth: 'analytics_canonical_facts_current',
     officialVatLedger: 'entity_vat_ledgers',
     limitations: [],
@@ -122,67 +166,247 @@ beforeEach(() => {
   vi.mocked(fetchLegalEntities).mockResolvedValue({
     status: 'READY',
     sourceOfTruth: 'parties+internal_entities',
-    total: 2,
-    items: [
-      { partyId: 8, canonicalCode: 'A08', legalName: '四川锐宝建设工程有限公司' },
-      { partyId: 31, canonicalCode: 'B01', legalName: '四川乾润和贸易有限公司' },
-    ],
+    items: LEGAL_ENTITY_FIXTURES.map(([canonicalCode, legalName], index) => ({
+      partyId: index + 1,
+      canonicalCode,
+      legalName,
+    })),
+    total: LEGAL_ENTITY_FIXTURES.length,
   });
-  vi.mocked(fetchLegalEntityOperatingProjection).mockImplementation(async (entityCode, period = '') => projection(entityCode, period));
-  vi.mocked(fetchEntityTaxLedger).mockResolvedValue({ status: 'READY', message: '', items: [] });
+  vi.mocked(fetchLegalEntityFactPeriods).mockImplementation(async entityCode => ({
+    status: 'READY',
+    entityCode,
+    sourceOfTruth: 'analytics_canonical_facts_current',
+    factType: 'invoice',
+    totalFactCount: 24,
+    unperiodizedFactCount: 0,
+    periods: [
+      { period: '2026-03', factCount: 12, isPrimary: true },
+      { period: '2025-08', factCount: 6, isPrimary: false },
+      { period: '2024-07', factCount: 4, isPrimary: false },
+      { period: '2023-07', factCount: 2, isPrimary: false },
+    ],
+  }));
+  vi.mocked(fetchLegalEntityOperatingProjection).mockImplementation(async (entityCode, period = '') => (
+    projection(entityCode, period, 1000)
+  ));
+  vi.mocked(fetchEntityTaxLedger).mockResolvedValue({
+    status: 'READY',
+    message: '',
+    items: [],
+  });
 });
 
 describe('EntityCorporateView legal-entity dual-scope workspace', () => {
-  it('T2 loads legal entity names from Party SSOT and drives downstream queries from the selected canonical code', async () => {
+  it('renders Projection and Statutory as distinct scopes and never invents CIT or after-tax profit', async () => {
     render(<EntityCorporateView />);
 
-    expect(fetchLegalEntities).toHaveBeenCalledTimes(1);
-    const entitySelect = await screen.findByLabelText('法人主体');
-    await waitFor(() => expect(entitySelect).toHaveValue('A08'));
-    expect(entitySelect.querySelectorAll('option')).toHaveLength(2);
-    expect(screen.getByRole('option', { name: 'A08 · 四川锐宝建设工程有限公司' })).toBeInTheDocument();
-    expect(screen.getByRole('option', { name: 'B01 · 四川乾润和贸易有限公司' })).toBeInTheDocument();
-
-    fireEvent.change(entitySelect, { target: { value: 'B01' } });
-    await waitFor(() => expect(fetchLegalEntityOperatingProjection).toHaveBeenLastCalledWith('B01', expect.any(String), expect.any(AbortSignal)));
-    expect(screen.getByText(/【B01 · 四川乾润和贸易有限公司】/)).toBeInTheDocument();
-    expect(await screen.findByText('B01 项目贡献')).toBeInTheDocument();
-  });
-
-  it('keeps Projection and Statutory as distinct scopes and never invents CIT or after-tax profit', async () => {
-    render(<EntityCorporateView />);
     expect(await screen.findByText('LEGAL_ENTITY_PROJECTION · 管理/经营投影，非申报口径')).toBeInTheDocument();
     expect(screen.getByText('LEGAL_ENTITY_STATUTORY · 法人申报口径')).toBeInTheDocument();
     expect(screen.getByText('CIT / 税后利润：NOT AVAILABLE（等待确定性 CIT 引擎接入）')).toBeInTheDocument();
     expect(screen.getByText('项目穿透贡献 (Project Contributions)')).toBeInTheDocument();
+    expect(await screen.findByText('A08 项目贡献')).toBeInTheDocument();
   });
 
-  it('keeps the selected period synchronized with year/month selectors', async () => {
+  it('shows explicit DEGRADED notices without merging Projection into statutory VAT', async () => {
+    vi.mocked(fetchLegalEntityOperatingProjection).mockImplementation(async (entityCode, period = '') => (
+      projection(entityCode, period, 1000, 'DEGRADED')
+    ));
+    vi.mocked(fetchEntityTaxLedger).mockResolvedValue({
+      status: 'DEGRADED',
+      message: '正式 VAT 需要复核',
+      items: [],
+    });
+
+    render(<EntityCorporateView />);
+
+    await waitFor(() => expect(screen.getAllByText(/DEGRADED/).length).toBeGreaterThanOrEqual(2));
+    expect(screen.getByText(/INPUT_VAT_DEDUCTIBILITY_NEEDS_REVIEW/)).toBeInTheDocument();
+    expect(screen.getByText(/正式 VAT 需要复核/)).toBeInTheDocument();
+  });
+
+  it('aborts stale Projection and Statutory requests on rapid legal-entity switching', async () => {
+    const oldProjection = deferred<LegalEntityOperatingProjection>();
+    const oldLedger = deferred<{ status: 'READY'; message: string; items: EntityTaxLedgerRecord[] }>();
+    let oldProjectionSignal: AbortSignal | undefined;
+    let oldLedgerSignal: AbortSignal | undefined;
+
+    vi.mocked(fetchLegalEntityOperatingProjection)
+      .mockImplementationOnce((_entityCode, _period, signal) => {
+        oldProjectionSignal = signal;
+        return oldProjection.promise;
+      })
+      .mockImplementationOnce(async (entityCode, period = '') => projection(entityCode, period, 2200));
+    vi.mocked(fetchEntityTaxLedger)
+      .mockImplementationOnce(signal => {
+        oldLedgerSignal = signal;
+        return oldLedger.promise;
+      })
+      .mockImplementationOnce(async () => ({ status: 'READY', message: '', items: [] }));
+
+    render(<EntityCorporateView />);
+    await waitFor(() => {
+      expect(oldProjectionSignal).toBeDefined();
+      expect(oldLedgerSignal).toBeDefined();
+      expect(screen.getByLabelText('法人主体')).toHaveValue('A08');
+    });
+
+    fireEvent.change(screen.getByLabelText('法人主体'), { target: { value: 'B01' } });
+
+    expect(oldProjectionSignal?.aborted).toBe(true);
+    expect(oldLedgerSignal?.aborted).toBe(true);
+    await waitFor(() => expect(fetchLegalEntityOperatingProjection).toHaveBeenLastCalledWith('B01', expect.any(String), expect.any(AbortSignal)));
+    expect(await screen.findByText('B01 项目贡献')).toBeInTheDocument();
+
+    await act(async () => {
+      oldProjection.resolve(projection('A08', '2026-09', 9900));
+      oldLedger.resolve({ status: 'READY', message: '', items: [statutoryRecord('A08', '2026-09', 999)] });
+      await Promise.all([oldProjection.promise, oldLedger.promise]);
+      await Promise.resolve();
+    });
+
+    expect(screen.queryByText('A08 项目贡献')).not.toBeInTheDocument();
+    expect(screen.getByText('B01 项目贡献')).toBeInTheDocument();
+  });
+
+  it('aborts stale requests when the month period changes and keeps only the newest period', async () => {
+    const oldProjection = deferred<LegalEntityOperatingProjection>();
+    const oldLedger = deferred<{ status: 'READY'; message: string; items: EntityTaxLedgerRecord[] }>();
+    let oldProjectionSignal: AbortSignal | undefined;
+    let oldLedgerSignal: AbortSignal | undefined;
+
+    vi.mocked(fetchLegalEntityOperatingProjection)
+      .mockImplementationOnce((_entityCode, _period, signal) => {
+        oldProjectionSignal = signal;
+        return oldProjection.promise;
+      })
+      .mockImplementationOnce(async (entityCode, period = '') => projection(entityCode, period, 3300));
+    vi.mocked(fetchEntityTaxLedger)
+      .mockImplementationOnce(signal => {
+        oldLedgerSignal = signal;
+        return oldLedger.promise;
+      })
+      .mockImplementationOnce(async () => ({
+        status: 'READY',
+        message: '',
+        items: [statutoryRecord('A08', '2026-03', 109)],
+      }));
+
+    render(<EntityCorporateView />);
+    await waitFor(() => expect(oldProjectionSignal).toBeDefined());
+
+    fireEvent.click(await screen.findByRole('button', { name: '2026年03月 · 12笔 (主力数据)' }));
+
+    expect(oldProjectionSignal?.aborted).toBe(true);
+    expect(oldLedgerSignal?.aborted).toBe(true);
+    await waitFor(() => expect(fetchLegalEntityOperatingProjection).toHaveBeenLastCalledWith('A08', '2026-03', expect.any(AbortSignal)));
+    expect(await screen.findByText('A08 项目贡献')).toBeInTheDocument();
+    expect(screen.getByText('A08 · 2026-03')).toBeInTheDocument();
+
+    await act(async () => {
+      oldProjection.resolve(projection('A08', '2026-09', 8800));
+      oldLedger.resolve({ status: 'READY', message: '', items: [statutoryRecord('A08', '2026-09', 999)] });
+      await Promise.all([oldProjection.promise, oldLedger.promise]);
+      await Promise.resolve();
+    });
+
+    expect(screen.getByText('A08 · 2026-03')).toBeInTheDocument();
+  });
+
+  it('shows statutory VAT only for the selected legal entity and selected period', async () => {
+    vi.mocked(fetchEntityTaxLedger).mockResolvedValue({
+      status: 'READY',
+      message: '',
+      items: [
+        statutoryRecord('A08', '2026-03', 109),
+        statutoryRecord('B01', '2026-03', 999),
+        statutoryRecord('A08', '2026-08', 888),
+      ],
+    });
+
+    render(<EntityCorporateView />);
+    fireEvent.click(await screen.findByRole('button', { name: '2026年03月 · 12笔 (主力数据)' }));
+
+    await waitFor(() => expect(fetchEntityTaxLedger).toHaveBeenCalledTimes(2));
+    expect(screen.getByText('¥109')).toBeInTheDocument();
+    expect(screen.queryByText('¥999')).not.toBeInTheDocument();
+    expect(screen.queryByText('¥888')).not.toBeInTheDocument();
+  });
+
+  it('T_UI_1: renders complete 25 legal entity names and synchronizes title, badge and API query upon selection', async () => {
+    render(<EntityCorporateView />);
+
+    const entitySelect = screen.getByLabelText('法人主体');
+    await waitFor(() => expect(entitySelect).toHaveValue('A08'));
+    expect(entitySelect.querySelectorAll('option')).toHaveLength(25);
+    expect(screen.getByRole('option', { name: 'A08 · 四川锐宝建设工程有限公司' })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'B01 · 四川乾润和贸易有限公司' })).toBeInTheDocument();
+
+    fireEvent.change(entitySelect, { target: { value: 'B01' } });
+
+    await waitFor(() =>
+      expect(fetchLegalEntityOperatingProjection).toHaveBeenLastCalledWith(
+        'B01',
+        expect.any(String),
+        expect.any(AbortSignal),
+      ),
+    );
+    expect(screen.getByText(/【B01 · 四川乾润和贸易有限公司】/)).toBeInTheDocument();
+    expect(screen.getByText(/（四川乾润和贸易有限公司）/)).toBeInTheDocument();
+  });
+
+  it('T_UI_2: changes visible year and month selects independently without state drift', async () => {
     render(<EntityCorporateView />);
     await waitFor(() => expect(screen.getByLabelText('法人主体')).toHaveValue('A08'));
+
     fireEvent.change(screen.getByLabelText('所属年份'), { target: { value: '2027' } });
     fireEvent.change(screen.getByLabelText('所属月份'), { target: { value: '02' } });
-    await waitFor(() => expect(fetchLegalEntityOperatingProjection).toHaveBeenLastCalledWith('A08', '2027-02', expect.any(AbortSignal)));
+
+    await waitFor(() =>
+      expect(fetchLegalEntityOperatingProjection).toHaveBeenLastCalledWith(
+        'A08',
+        '2027-02',
+        expect.any(AbortSignal),
+      ),
+    );
     expect(screen.getByLabelText('所属年份')).toHaveValue('2027');
     expect(screen.getByLabelText('所属月份')).toHaveValue('02');
   });
 
-  it('shows statutory VAT only for the selected legal entity and period', async () => {
+  it('T_UI_3: renders API-driven fact-period recommendations and synchronizes visible period controls on click', async () => {
+    render(<EntityCorporateView />);
+
+    const quickBtn = await screen.findByRole('button', { name: '2026年03月 · 12笔 (主力数据)' });
+    expect(fetchLegalEntityFactPeriods).toHaveBeenCalledWith('A08', expect.any(AbortSignal));
+    expect(screen.getByRole('button', { name: '2025年08月 · 6笔' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '2024年07月 · 4笔' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '2023年07月 · 2笔' })).toBeInTheDocument();
+    fireEvent.click(quickBtn);
+
+    await waitFor(() =>
+      expect(fetchLegalEntityOperatingProjection).toHaveBeenLastCalledWith(
+        'A08',
+        '2026-03',
+        expect.any(AbortSignal),
+      ),
+    );
+    expect(screen.getByLabelText('所属年份')).toHaveValue('2026');
+    expect(screen.getByLabelText('所属月份')).toHaveValue('03');
+  });
+
+  it('T_UI_4: displays fail-closed formal VAT empty guidance note and never falls back to Projection figures', async () => {
     vi.mocked(fetchEntityTaxLedger).mockResolvedValue({
       status: 'READY',
       message: '',
-      items: [statutoryRecord('A08', '2026-10', 109), statutoryRecord('B01', '2026-10', 999)],
+      items: [],
     });
-    render(<EntityCorporateView />);
-    await waitFor(() => expect(screen.getByLabelText('法人主体')).toHaveValue('A08'));
-    fireEvent.change(screen.getByLabelText('期间'), { target: { value: '2026-10' } });
-    await waitFor(() => expect(screen.getByText('¥109')).toBeInTheDocument());
-    expect(screen.queryByText('¥999')).not.toBeInTheDocument();
-  });
 
-  it('displays fail-closed formal VAT empty guidance and never leaks Projection VAT figures', async () => {
     render(<EntityCorporateView />);
-    expect(await screen.findByText(/上方【正式 VAT】是纳税申报口径/)).toBeInTheDocument();
+
+    expect(await screen.findByText('LEGAL_ENTITY_PROJECTION · 管理/经营投影，非申报口径')).toBeInTheDocument();
+    expect(screen.getByText(/上方【正式 VAT】是纳税申报口径/)).toBeInTheDocument();
+    expect(screen.getByText(/当前期间未归档正式台账，故显示为“—”/)).toBeInTheDocument();
+
     const statutorySection = screen.getByRole('region', { name: '正式 VAT' });
     expect(within(statutorySection).getAllByText('—')).toHaveLength(6);
     expect(statutorySection).not.toHaveTextContent('¥90');
