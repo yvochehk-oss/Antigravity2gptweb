@@ -63,8 +63,18 @@ def _aggregate_facts_for_entity(
     internal_codes: set[str],
     project_meta: dict[int, dict[str, str]] | None = None,
     period: str | None = None,
+    through_period: str | None = None,
 ) -> dict[str, Any]:
-    """Pure aggregation core used by the DB adapter and regression tests."""
+    """Pure aggregation core used by the DB adapter and regression tests.
+
+    ``period`` selects one exact invoice month. ``through_period`` selects all
+    recognizable invoice months up to and including the requested month. They
+    are intentionally mutually exclusive so current-period and cumulative
+    projections cannot silently use different inclusion semantics.
+    """
+    if period and through_period:
+        raise ValueError("period and through_period are mutually exclusive")
+
     wanted = _code(entity_code)
     projects = project_meta or {}
     buckets: dict[int | None, dict[str, Any]] = {}
@@ -91,12 +101,14 @@ def _aggregate_facts_for_entity(
         if wanted not in {seller, buyer}:
             continue
 
-        if period:
+        if period or through_period:
             fact_period = _invoice_period(payload)
             if not fact_period:
                 data_gaps.add("CANONICAL_INVOICE_PERIOD_MISSING")
                 continue
-            if fact_period != period:
+            if period and fact_period != period:
+                continue
+            if through_period and fact_period > through_period:
                 continue
 
         net = _decimal(payload.get("net_amount"))
@@ -171,7 +183,7 @@ def _aggregate_facts_for_entity(
         "scope": _SCOPE,
         "is_filing_basis": False,
         "entity_code": wanted,
-        "period": period or "",
+        "period": period or through_period or "",
         "revenue": revenue,
         "book_cost_projection": book_cost,
         "accounting_profit_projection": revenue - book_cost,
@@ -236,13 +248,33 @@ def aggregate_legal_entity_scope(
             )
         ).mappings().all()
     ]
-    return _aggregate_facts_for_entity(
+    projection = _aggregate_facts_for_entity(
         facts,
         entity_code=wanted,
         internal_codes=internal_codes,
         project_meta=project_meta,
         period=period,
     )
+    if period:
+        cumulative = _aggregate_facts_for_entity(
+            facts,
+            entity_code=wanted,
+            internal_codes=internal_codes,
+            project_meta=project_meta,
+            through_period=period,
+        )
+        projection["cumulative"] = {
+            "revenue": cumulative["revenue"],
+            "book_cost_projection": cumulative["book_cost_projection"],
+            "accounting_profit_projection": cumulative["accounting_profit_projection"],
+            "output_vat": cumulative["output_vat"],
+            "input_vat": cumulative["input_vat"],
+            "fact_count": cumulative["fact_count"],
+        }
+        if cumulative["status"] == "DEGRADED":
+            projection["status"] = "DEGRADED"
+            projection["data_gaps"] = sorted(set(projection["data_gaps"]) | set(cumulative["data_gaps"]))
+    return projection
 
 
 __all__ = ["aggregate_legal_entity_scope"]
