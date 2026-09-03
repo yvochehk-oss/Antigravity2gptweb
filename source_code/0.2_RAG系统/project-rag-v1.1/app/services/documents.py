@@ -159,8 +159,8 @@ def register_bytes(
         parse_status="UPLOADED",
         # Metadata with priority: explicit > inferred
         document_type=metadata.get("document_type") or inferred.get("document_type", "other"),
-        entity_code=metadata.get("entity_code") or inferred.get("entity_code", ""),
-        counterparty_code=counterparty_code,
+        entity_code=(metadata.get("entity_code") or inferred.get("entity_code", "") or "")[:16],
+        counterparty_code=(counterparty_code or "")[:16],
         business_category=metadata.get("business_category") or inferred.get("business_category", ""),
         tax_category=metadata.get("tax_category") or inferred.get("tax_category", ""),
         # 税务金额字段
@@ -386,8 +386,8 @@ def register_local_path(
         parse_status="UPLOADED",
         # Metadata with priority: explicit > inferred
         document_type=metadata.get("document_type") or inferred.get("document_type", "other"),
-        entity_code=metadata.get("entity_code") or inferred.get("entity_code", ""),
-        counterparty_code=counterparty_code,
+        entity_code=(metadata.get("entity_code") or inferred.get("entity_code", "") or "")[:16],
+        counterparty_code=(counterparty_code or "")[:16],
         business_category=metadata.get("business_category") or inferred.get("business_category", ""),
         tax_category=metadata.get("tax_category") or inferred.get("tax_category", ""),
         tax_vat_rate=metadata.get("tax_vat_rate", 0.0) or 0.0,

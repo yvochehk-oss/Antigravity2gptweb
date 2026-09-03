@@ -23,7 +23,7 @@ from ..config import (
 from ..db import SessionLocal
 from ..logging_config import get_logger
 from ..models import MountConfig
-from ..services.scanner import sync_all_mounts
+from ..services.scanner import sync_all_mounts, sync_single_mount
 from ..services.storage import (
     PathTraversalError,
     StorageError,
@@ -123,6 +123,20 @@ def trigger_scan(
     db: Session = Depends(get_db),
 ):
     results = sync_all_mounts(db)
+    return results
+
+@router.post("/api/v1/mounts/{mount_id}/scan")
+def trigger_single_scan(
+    mount_id: int,
+    principal=Depends(require_web_or_service_role("admin", "operator")),
+    db: Session = Depends(get_db),
+):
+    mount = db.get(MountConfig, mount_id)
+    if not mount:
+        raise HTTPException(404, "指定的挂载点不存在")
+    if not mount.active:
+        raise HTTPException(400, "该挂载点已停用，无法扫描")
+    results = sync_single_mount(db, mount)
     return results
 
 @router.get("/api/v1/mounts/fs")

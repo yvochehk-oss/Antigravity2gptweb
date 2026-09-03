@@ -293,7 +293,7 @@ def _is_web_mutation_route(path: str, method: str) -> bool:
         return True
     if len(segments) == 3 and segments[0] == "documents" and segments[2] == "parse":
         return True
-    if len(segments) == 5 and segments[:3] == ["api", "v1", "mounts"] and segments[4] == "delete":
+    if len(segments) == 5 and segments[:3] == ["api", "v1", "mounts"] and segments[4] in {"delete", "scan"}:
         return True
     if (
         len(segments) >= 4

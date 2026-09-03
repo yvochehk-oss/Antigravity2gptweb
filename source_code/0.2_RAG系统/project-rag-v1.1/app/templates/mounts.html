@@ -25,7 +25,12 @@
         <td style="padding: 12px; font-family: var(--font-mono, monospace); color: var(--color-brand);">{{ mount.path }}</td>
         <td style="padding: 12px;">{% if mount.active %}<span class="badge badge-emerald">已启用</span>{% else %}<span class="badge badge-muted">已停用</span>{% endif %}</td>
         <td style="padding: 12px;">{{ mount.last_scan_at.strftime('%Y-%m-%d %H:%M:%S') if mount.last_scan_at else '从未扫描' }}</td>
-        <td style="padding: 12px;"><form method="POST" action="/api/v1/mounts/{{ mount.id }}/delete" style="display:inline;"><button type="submit" class="btn btn-sm btn-secondary" onclick="return confirm('确定移除该挂载点吗？')">移除</button></form></td>
+        <td style="padding: 12px;">
+          <div style="display: flex; gap: 8px; align-items: center;">
+            <button type="button" class="btn btn-sm btn-primary" onclick="triggerSingleScan({{ mount.id }}, this)" title="仅扫描此挂载目录下的新增或改变文件">🔍 扫描此目录</button>
+            <form method="POST" action="/api/v1/mounts/{{ mount.id }}/delete" style="display:inline;"><button type="submit" class="btn btn-sm btn-secondary" onclick="return confirm('确定移除该挂载点吗？')">移除</button></form>
+          </div>
+        </td>
       </tr>
       {% else %}<tr><td colspan="4" style="padding: 24px; text-align: center; color: var(--color-text-muted);">尚未挂载任何目录，请点击下方按钮选择。</td></tr>{% endfor %}
     </tbody>
@@ -66,7 +71,39 @@ function renderList(data) {
   if (!data.items || data.items.length === 0) { list.innerHTML = '<div style="padding:20px;color:var(--color-text-muted);text-align:center;font-size:13px;">（空目录）</div>'; return; }
   data.items.forEach(item => { const row = document.createElement('div'); row.style.cssText = 'display:flex;align-items:center;padding:8px 10px;border-radius:6px;cursor:pointer;gap:10px;transition:background 0.1s;user-select:none;'; const icon = document.createElement('span'); icon.textContent = item.name === '..' ? '⬆️' : '📁'; icon.style.cssText = 'font-size:16px;flex-shrink:0;'; const nameEl = document.createElement('span'); nameEl.textContent = item.name === '..' ? '返回上级目录' : item.name; nameEl.style.cssText = 'font-size:14px;flex:1;'; row.appendChild(icon); row.appendChild(nameEl); row.addEventListener('mouseover', () => { if (pickerSelectedPath !== item.path) row.style.background = 'var(--color-brand-muted)'; }); row.addEventListener('mouseout', () => { if (pickerSelectedPath !== item.path) row.style.background = ''; }); row.addEventListener('click', () => { if (item.name === '..') { browseTo(item.path); return; } pickerSelectedPath = item.path; document.getElementById('picker-selected-label').textContent = item.path; document.getElementById('picker-confirm').disabled = false; list.querySelectorAll('div').forEach(r => r.style.background = ''); row.style.background = 'var(--color-brand-muted)'; }); row.addEventListener('dblclick', () => { if (item.name !== '..') browseTo(item.path); }); list.appendChild(row); });
 }
-async function triggerScan() { const btn = document.getElementById('btn-scan'); btn.disabled = true; btn.innerHTML = '<span>⏳</span> 扫描中...'; try { const res = await fetch('/api/v1/mounts/scan', { method: 'POST' }); const data = await res.json(); alert(`扫描完成！\n\n- 新建项目: ${data.projects_created} 个\n- 扫描文件: ${data.scanned} 份\n- 成功增量入库: ${data.added} 份\n- 失败跳过: ${data.errors} 份`); window.location.reload(); } catch (err) { alert('扫描失败: ' + err); btn.disabled = false; btn.innerHTML = '<span>🚀</span> 一键全局扫描'; } }
+async function triggerSingleScan(mountId, btn) {
+  const origHtml = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<span>⏳</span> 扫描中…';
+  try {
+    const res = await fetch(`/api/v1/mounts/${mountId}/scan`, { method: 'POST' });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || '扫描失败');
+    alert(`该目录增量扫描完成！\n\n- 扫描文件: ${data.scanned} 份\n- 成功增量入库: ${data.added} 份\n- 检测并更新变更: ${data.updated || 0} 份\n- 未变动跳过: ${data.unchanged || 0} 份\n- 异常错误: ${data.errors} 份`);
+    window.location.reload();
+  } catch (err) {
+    alert('扫描失败: ' + err);
+    btn.disabled = false;
+    btn.innerHTML = origHtml;
+  }
+}
+
+async function triggerScan() {
+  const btn = document.getElementById('btn-scan');
+  btn.disabled = true;
+  btn.innerHTML = '<span>⏳</span> 全局扫描中...';
+  try {
+    const res = await fetch('/api/v1/mounts/scan', { method: 'POST' });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || '扫描失败');
+    alert(`全局增量扫描完成！\n\n- 扫描文件: ${data.scanned} 份\n- 成功增量入库: ${data.added} 份\n- 检测并更新变更: ${data.updated || 0} 份\n- 未变动跳过: ${data.unchanged || 0} 份\n- 异常错误: ${data.errors} 份\n- 新建项目: ${data.projects_created} 个`);
+    window.location.reload();
+  } catch (err) {
+    alert('扫描失败: ' + err);
+    btn.disabled = false;
+    btn.innerHTML = '<span>🚀</span> 一键全局扫描';
+  }
+}
 document.getElementById('picker-modal').addEventListener('click', function(e) { if (e.target === this) closePicker(); });
 </script>
 {% endblock %}
