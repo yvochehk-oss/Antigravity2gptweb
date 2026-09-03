@@ -2,7 +2,6 @@ import { useState } from 'react';
 import {
   Search,
   Download,
-  Database,
   CheckCircle2,
   ArrowUpDown,
   ArrowUp,
@@ -24,14 +23,14 @@ type SortField =
   | null;
 type SortOrder = 'asc' | 'desc';
 
-export const TAX_LEDGER_EMPTY_MESSAGE = '接口正常、指定期间暂无已生成台账。请先完成 RAG 凭证同步/结构化入库，再由受控确定性重建生成。';
+export const TAX_LEDGER_EMPTY_MESSAGE = '接口正常、指定期间暂无已生成台账。请确认底层事实数据（Canonical Facts）已就绪，再由受控确定性重建生成。';
 
 interface TaxLedgerViewProps {
   records: EntityTaxLedgerRecord[];
   dataStatus: DataStatus;
   dataStatusMessage: string;
   onRetry?: () => void;
-  onOpenNewRecordModal: () => void;
+  onOpenNewRecordModal?: () => void;
   onOpenExportModal: () => void;
   onAskAiAboutRisk: (entityName: string) => void;
   onRebuildTaxLedger: (period: string) => Promise<void>;
@@ -135,7 +134,7 @@ export function TaxLedgerView({
   const handleRebuild = () => {
     if (!/^(?:\d{4})-(?:0[1-9]|1[0-2])$/.test(rebuildPeriod) || isRebuilding) return;
     const confirmed = window.confirm(
-      `将对 ${rebuildPeriod} 执行受控确定性台账生成/重建。该操作会原子替换该期间汇总；请确认已完成 RAG 凭证同步/结构化入库。继续吗？`,
+      `将对 ${rebuildPeriod} 执行受控确定性台账生成/重建。该操作会原子替换该期间汇总；请确认底层事实数据已归集就绪。继续吗？`,
     );
     if (confirmed) void onRebuildTaxLedger(rebuildPeriod);
   };
@@ -188,14 +187,6 @@ export function TaxLedgerView({
         <div className="flex items-center gap-3">
           <button
             type="button"
-            onClick={onOpenNewRecordModal}
-            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#03b5d3]/20 hover:bg-[#03b5d3]/30 text-[#4cd7f6] text-[13px] font-semibold border border-[#4cd7f6]/40 transition-all cursor-pointer"
-          >
-            <Database className="w-4 h-4" />
-            <span>RAG 凭证同步与智能查账</span>
-          </button>
-          <button
-            type="button"
             onClick={onOpenExportModal}
             className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#1e40af] hover:bg-[#1e40af]/80 text-[#dde1ff] text-[13px] font-semibold border-t border-[#4cd7f6]/30 transition-all cursor-pointer"
           >
@@ -222,7 +213,7 @@ export function TaxLedgerView({
       <div className="glass-panel rounded-xl p-4 flex flex-wrap items-center justify-between gap-4 border border-[#4cd7f6]/20">
         <div>
           <p className="font-semibold text-[#dae2fd]">受控确定性台账生成/重建</p>
-          <p className="text-[12px] text-[#c4c5d5] mt-1 leading-relaxed">请先完成 RAG 凭证同步/结构化入库；确认后将原子替换所选期间汇总。</p>
+          <p className="text-[12px] text-[#c4c5d5] mt-1 leading-relaxed">请确认底层事实数据已归集就绪；确认后将原子替换所选期间汇总。</p>
         </div>
         <div className="flex flex-wrap items-center gap-2.5">
           <select

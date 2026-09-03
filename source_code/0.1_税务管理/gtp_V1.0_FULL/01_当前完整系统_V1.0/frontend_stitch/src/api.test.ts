@@ -648,7 +648,6 @@ test('TaxLedgerView keeps a successful empty ledger actionable and preserves Tax
   assert.match(app, /dataStatusMessage=\{taxLedgerStatusMessage\}/);
   assert.match(ledgerView, /if \(dataStatus !== 'READY'\)/);
   assert.match(ledgerView, /message=\{dataStatusMessage\}/);
-  assert.match(ledgerView, /onClick=\{onOpenNewRecordModal\}/);
   assert.match(ledgerView, /TAX_LEDGER_EMPTY_MESSAGE/);
   assert.match(ledgerView, /tax-ledger-rebuild-year/);
   assert.match(ledgerView, /tax-ledger-rebuild-month/);
@@ -660,7 +659,7 @@ test('TaxLedgerView keeps a successful empty ledger actionable and preserves Tax
   assert.match(app, /已保留当前页面最后可信数据/);
   assert.equal(ledgerView.includes("dataStatus === 'READY' ? 'UNAVAILABLE'"), false);
   assert.match(TAX_LEDGER_EMPTY_MESSAGE, /接口正常、指定期间暂无已生成台账/);
-  assert.match(TAX_LEDGER_EMPTY_MESSAGE, /RAG 凭证同步\/结构化入库/);
+  assert.match(TAX_LEDGER_EMPTY_MESSAGE, /底层事实数据（Canonical Facts）已就绪/);
   assert.match(TAX_LEDGER_EMPTY_MESSAGE, /受控确定性重建生成/);
 });
 
