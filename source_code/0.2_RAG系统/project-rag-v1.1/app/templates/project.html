@@ -72,47 +72,37 @@
     flex-wrap: wrap;
   }
   .filter-pill {
-    background: rgba(255, 255, 255, 0.04);
-    border: 1px solid var(--border-color);
-    color: var(--text-secondary);
+    background: var(--color-surface-2);
+    border: 1px solid var(--color-border);
+    color: var(--color-text-secondary);
     padding: 4px 12px;
     border-radius: 20px;
     font-size: 12px;
     cursor: pointer;
-    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
     display: inline-flex;
     align-items: center;
     gap: 5px;
     user-select: none;
   }
   .filter-pill:hover {
-    background: rgba(255, 255, 255, 0.09);
-    color: #fff;
-    border-color: rgba(255, 255, 255, 0.2);
+    background: var(--color-brand-muted);
+    color: var(--color-text-primary);
+    border-color: var(--color-brand);
   }
-  .filter-pill.active {
-    background: rgba(3, 181, 211, 0.2);
-    border-color: #4cd7f6;
-    color: #4cd7f6;
-    font-weight: 600;
-    box-shadow: 0 0 10px rgba(76, 215, 246, 0.25);
-  }
-  .filter-pill.active[data-scope="external"] {
-    background: rgba(168, 85, 247, 0.2);
-    border-color: #a855f7;
-    color: #c084fc;
-    box-shadow: 0 0 10px rgba(168, 85, 247, 0.25);
-  }
+  .filter-pill.active,
+  .filter-pill.active[data-scope="external"],
   .filter-pill.active[data-scope="internal"] {
-    background: rgba(59, 130, 246, 0.2);
-    border-color: #3b82f6;
-    color: #60a5fa;
-    box-shadow: 0 0 10px rgba(59, 130, 246, 0.25);
+    background: var(--color-brand-muted);
+    border-color: var(--color-brand);
+    color: var(--color-brand);
+    font-weight: 600;
+    box-shadow: none;
   }
   .filter-pill .pill-count {
     font-size: 10px;
-    opacity: 0.75;
-    background: rgba(0, 0, 0, 0.25);
+    opacity: 0.85;
+    background: var(--color-bg);
     padding: 1px 6px;
     border-radius: 10px;
   }
@@ -133,7 +123,7 @@
   </div>
 
   <!-- 顶部快速分类与主体筛选面板 -->
-  <div style="background: rgba(11, 19, 38, 0.65); border: 1px solid var(--border-color); border-radius: 10px; padding: 14px 18px; margin-bottom: 16px; display: flex; flex-direction: column; gap: 12px;">
+  <div style="background: var(--color-surface-2); border: 1px solid var(--color-border); border-radius: 10px; padding: 14px 18px; margin-bottom: 16px; display: flex; flex-direction: column; gap: 12px;">
     <!-- 第一排：单据类型与业务环节筛选 -->
     <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
       <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
@@ -193,7 +183,7 @@
 
       <div style="display: flex; align-items: center; gap: 8px;">
         <span class="filter-group-title" style="margin-right: 0;">年份:</span>
-        <select id="yearFilter" onchange="applyFilters()" class="form-select" style="padding: 3px 8px; font-size: 11px; border-radius: 6px; width: 92px; background: rgba(11, 19, 38, 0.8);">
+        <select id="yearFilter" onchange="applyFilters()" class="form-select" style="padding: 3px 8px; font-size: 11px; border-radius: 6px; width: 92px; background: var(--color-surface);">
           <option value="all">全部年份</option>
           <option value="2026">2026年</option>
           <option value="2025">2025年</option>
@@ -202,7 +192,7 @@
         </select>
 
         <span class="filter-group-title" style="margin-right: 0; margin-left: 4px;">月份:</span>
-        <select id="monthFilter" onchange="applyFilters()" class="form-select" style="padding: 3px 8px; font-size: 11px; border-radius: 6px; width: 88px; background: rgba(11, 19, 38, 0.8);">
+        <select id="monthFilter" onchange="applyFilters()" class="form-select" style="padding: 3px 8px; font-size: 11px; border-radius: 6px; width: 88px; background: var(--color-surface);">
           <option value="all">全部月份</option>
           <option value="01">1月</option>
           <option value="02">2月</option>
@@ -241,7 +231,7 @@
 
       <div style="display: flex; align-items: center; gap: 12px;">
         <div style="font-size: 12px; color: var(--text-muted);">
-          当前筛选结果: <b id="visibleDocCount" style="color: var(--accent-cyan);">{{ documents|length }}</b> / {{ documents|length }} 份
+          当前筛选结果: <b id="visibleDocCount" style="color: var(--color-brand);">{{ documents|length }}</b> / {{ documents|length }} 份
         </div>
         <button type="button" class="btn btn-secondary btn-sm" onclick="resetAllFilters()" style="font-size: 11px; padding: 3px 8px;">
           🔄 重置
@@ -264,7 +254,7 @@
           <!-- 系统内单位 -->
           {% for ent in project_entity_summary.internal_entities %}
           <button type="button" class="filter-pill" data-entity="{{ ent.entity_code }}" onclick="setEntityFilter('{{ ent.entity_code }}', this)">
-            <span style="color: var(--accent-cyan); font-weight: 700;">🔹 {{ ent.entity_code }}</span> · {{ ent.short_name or ent.name }}
+            <span style="color: var(--color-brand); font-weight: 700;">🔹 {{ ent.entity_code }}</span> · {{ ent.short_name or ent.name }}
             <span class="pill-count" id="count-ent-{{ ent.entity_code }}">0</span>
           </button>
           {% endfor %}
@@ -272,7 +262,7 @@
           <!-- 系统外合作单位 -->
           {% for ent in project_entity_summary.external_entities %}
           <button type="button" class="filter-pill" data-entity="{{ ent.entity_code }}" onclick="setEntityFilter('{{ ent.entity_code }}', this)">
-            <span style="color: #c084fc; font-weight: 700;">🌐 {{ ent.entity_code }}</span> · {{ ent.short_name or ent.name }}
+            <span style="color: var(--color-brand); font-weight: 700;">🌐 {{ ent.entity_code }}</span> · {{ ent.short_name or ent.name }}
             <span class="pill-count" id="count-ent-{{ ent.entity_code }}">0</span>
           </button>
           {% endfor %}
@@ -416,7 +406,7 @@ function sortProjectTable(colIndex, type) {
   document.querySelectorAll('.sort-icon-p').forEach((el, idx) => {
     if (idx === colIndex) {
       el.textContent = currentDir === 'asc' ? '↑' : '↓';
-      el.style.color = 'var(--accent-cyan)';
+      el.style.color = 'var(--color-brand)';
     } else {
       el.textContent = '↕';
       el.style.color = 'inherit';
@@ -537,11 +527,9 @@ function updateFilterCounts() {
     const cpCode = (row.getAttribute('data-cp') || '').toUpperCase();
     const entCode = (row.getAttribute('data-entity') || '').toUpperCase();
 
-    // 1. Type classification
     const typeCat = classifyDoc(docType, filename);
     if (counts[typeCat] !== undefined) counts[typeCat]++;
 
-    // 2. Business category
     if (docCat.includes('construct') || docCat.includes('main') || docCat.includes('总包')) {
       counts.construction++;
     } else if (docCat.includes('material') || docCat.includes('材料')) {
@@ -554,14 +542,12 @@ function updateFilterCounts() {
       counts.subcontract++;
     }
 
-    // 3. Scope
     if (isExt) {
       counts.external++;
     } else {
       counts.internal++;
     }
 
-    // 4. Entity specific counts
     if (cpCode) entCounts[cpCode] = (entCounts[cpCode] || 0) + 1;
     if (entCode && entCode !== cpCode) entCounts[entCode] = (entCounts[entCode] || 0) + 1;
   });
@@ -604,14 +590,12 @@ function applyFilters() {
     const cp = (row.getAttribute('data-cp') || '').toLowerCase();
     const entity = (row.getAttribute('data-entity') || '').toLowerCase();
 
-    // 1. Type filter
     let matchType = true;
     if (currentSelectedType !== 'all') {
       const cat = classifyDoc(docType, filename);
       matchType = (cat === currentSelectedType);
     }
 
-    // 2. Category filter
     let matchCat = true;
     if (currentSelectedCategory !== 'all') {
       if (currentSelectedCategory === 'construction') {
@@ -629,7 +613,6 @@ function applyFilters() {
       }
     }
 
-    // 3. Scope filter
     let matchScope = true;
     if (currentSelectedScope === 'internal') {
       matchScope = !isExt;
@@ -637,14 +620,12 @@ function applyFilters() {
       matchScope = isExt;
     }
 
-    // 4. Specific Entity filter
     let matchEntity = true;
     if (currentSelectedEntity !== 'all') {
       const entUpper = currentSelectedEntity.toLowerCase();
       matchEntity = (entity === entUpper || cp === entUpper);
     }
 
-    // 5. Time filter (pure year and month matching)
     let matchTime = true;
     if (yearVal !== 'all' || monthVal !== 'all') {
       if (!docPeriod) {
@@ -663,7 +644,6 @@ function applyFilters() {
       }
     }
 
-    // 6. Search query
     let matchQuery = true;
     if (query) {
       const rowText = row.innerText.toLowerCase();
@@ -709,7 +689,7 @@ setTimeout(updateFilterCounts, 100);
       <tbody>
         {% for j in jobs %}
         <tr>
-          <td class="font-mono" style="color: var(--accent-cyan);">#{{ j.id }}</td>
+          <td class="font-mono" style="color: var(--color-brand);">#{{ j.id }}</td>
           <td class="font-mono">
             <a href="/documents/{{ j.document_id }}">资料 #{{ j.document_id }}</a>
           </td>
@@ -745,7 +725,7 @@ setTimeout(updateFilterCounts, 100);
 <div id="modal-upload" class="modal-overlay">
   <div class="glass-panel-elevated modal-content">
     <div class="modal-header">
-      <h3 style="color: #fff; font-size: 16px;">📤 上传工程资料文件</h3>
+      <h3 style="color: var(--color-text-primary); font-size: 16px;">📤 上传工程资料文件</h3>
       <button class="modal-close" onclick="document.getElementById('modal-upload').classList.remove('active')">&times;</button>
     </div>
     <form method="post" action="/projects/{{ project.id }}/upload" enctype="multipart/form-data">
@@ -814,7 +794,7 @@ setTimeout(updateFilterCounts, 100);
 <div id="modal-import-folder" class="modal-overlay">
   <div class="glass-panel-elevated modal-content">
     <div class="modal-header">
-      <h3 style="color: #fff; font-size: 16px;">📁 批量扫描本机资料目录</h3>
+      <h3 style="color: var(--color-text-primary); font-size: 16px;">📁 批量扫描本机资料目录</h3>
       <button class="modal-close" onclick="document.getElementById('modal-import-folder').classList.remove('active')">&times;</button>
     </div>
     <form id="import-folder-form" onsubmit="submitImportFolder(event)">
@@ -830,7 +810,7 @@ setTimeout(updateFilterCounts, 100);
           <input type="checkbox" name="recursive" id="chk-rec" value="true" checked>
           <label for="chk-rec" style="font-size: 13px; color: var(--text-secondary);">递归扫描所有子文件夹</label>
         </div>
-        <div style="font-size: 11px; color: var(--text-muted); background: rgba(11,19,38,0.6); padding: 10px; border-radius: 6px; line-height: 1.6;">
+        <div style="font-size: 11px; color: var(--text-muted); background: var(--color-surface-2); padding: 10px; border-radius: 6px; line-height: 1.6; border: 1px solid var(--color-border);">
           ℹ️ <b>SHA256 幂等扫描</b>：已入库文件将直接跳过，不会生成冗余重复记录。<br>
           扫描前会自动安全清理历史重复记录，并对凭证/发票强类型进行元数据纠偏。
         </div>
@@ -852,7 +832,7 @@ setTimeout(updateFilterCounts, 100);
 <div id="modal-dir-picker" class="modal-overlay" style="z-index: 9999;">
   <div class="glass-panel-elevated modal-content" style="width: 600px; max-height: 80vh; display: flex; flex-direction: column;">
     <div class="modal-header">
-      <h3 style="color: #fff; font-size: 16px;">📂 选择文件夹</h3>
+      <h3 style="color: var(--color-text-primary); font-size: 16px;">📂 选择文件夹</h3>
       <button class="modal-close" onclick="document.getElementById('modal-dir-picker').classList.remove('active')">&times;</button>
     </div>
     <div style="margin-bottom: 12px; display: flex; gap: 8px;">
@@ -860,7 +840,7 @@ setTimeout(updateFilterCounts, 100);
       <button type="button" class="btn btn-secondary" onclick="goUpDir()">⬆️ 返回上级</button>
       <button type="button" class="btn btn-secondary" onclick="loadDir('/Volumes')">🌐 局域网/外挂盘</button>
     </div>
-    <div id="dir-picker-list" style="flex: 1; overflow-y: auto; background: rgba(0,0,0,0.3); border: 1px solid var(--border-color); border-radius: 6px; padding: 6px; min-height: 300px;">
+    <div id="dir-picker-list" style="flex: 1; overflow-y: auto; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 6px; padding: 6px; min-height: 300px;">
       <!-- Dir list items go here -->
     </div>
     <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 14px;">
@@ -872,17 +852,17 @@ setTimeout(updateFilterCounts, 100);
 
 <!-- 删除项目高危确认弹窗 (Modal) -->
 <div id="modal-delete-project" class="modal-overlay" style="z-index: 10000;">
-  <div class="glass-panel-elevated modal-content" style="max-width: 520px; border: 1px solid rgba(239, 68, 68, 0.4); box-shadow: 0 10px 40px rgba(239, 68, 68, 0.25);">
+  <div class="glass-panel-elevated modal-content" style="max-width: 520px; border: 1px solid rgba(239, 68, 68, 0.4); box-shadow: none;">
     <div class="modal-header" style="border-bottom: 1px solid rgba(239, 68, 68, 0.2); padding-bottom: 12px;">
-      <h3 style="color: #f87171; font-size: 16px; display: flex; align-items: center; gap: 8px; margin: 0;">
+      <h3 style="color: var(--color-danger); font-size: 16px; display: flex; align-items: center; gap: 8px; margin: 0;">
         <span>⚠️ 危险操作：彻底删除工程项目</span>
       </h3>
       <button class="modal-close" onclick="document.getElementById('modal-delete-project').classList.remove('active')">&times;</button>
     </div>
     
     <div style="padding: 16px 0; display: flex; flex-direction: column; gap: 14px;">
-      <div style="background: rgba(239, 68, 68, 0.08); border-left: 3px solid #ef4444; padding: 12px 14px; border-radius: 4px; font-size: 13px; line-height: 1.6; color: #fca5a5;">
-        <strong style="color: #f87171;">此操作具有毁灭性且不可撤销！</strong><br>
+      <div style="background: rgba(239, 68, 68, 0.08); border-left: 3px solid var(--color-danger); padding: 12px 14px; border-radius: 4px; font-size: 13px; line-height: 1.6; color: #fca5a5;">
+        <strong style="color: var(--color-danger);">此操作具有毁灭性且不可撤销！</strong><br>
         • 将永久销毁数据库中项目 <b>{{ project.name }} ({{ project.project_code }})</b> 的档案与数据；<br>
         • 将级联删除数据库中的全部 <b>{{ documents|length }}</b> 份文档记录与解析切片；<br>
         • 将彻底清除数据库中该项目的所有 <b>HNSW 向量索引</b> 与检索审计日志；<br>
@@ -891,7 +871,7 @@ setTimeout(updateFilterCounts, 100);
       </div>
 
       <div>
-        <label style="font-size: 13px; font-weight: 600; color: #fff; display: block; margin-bottom: 8px;">
+        <label style="font-size: 13px; font-weight: 600; color: var(--color-text-primary); display: block; margin-bottom: 8px;">
           请输入当前账号登录密码以确认身份：
         </label>
         <input 
@@ -900,17 +880,17 @@ setTimeout(updateFilterCounts, 100);
           id="delete-project-password" 
           placeholder="请输入密码进行安全验证" 
           autocomplete="current-password"
-          style="width: 100%; border-color: rgba(239, 68, 68, 0.4); background: rgba(0, 0, 0, 0.4); color: #fff; font-size: 14px; padding: 10px 12px;"
+          style="width: 100%; border-color: rgba(239, 68, 68, 0.4); background: var(--color-surface); color: var(--color-text-primary); font-size: 14px; padding: 10px 12px;"
           onkeydown="if(event.key==='Enter'){event.preventDefault();submitDeleteProject();}"
         >
-        <div id="delete-project-error" style="color: #f87171; font-size: 12px; margin-top: 6px; display: none;"></div>
+        <div id="delete-project-error" style="color: var(--color-danger); font-size: 12px; margin-top: 6px; display: none;"></div>
       </div>
 
       <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 10px;">
         <button type="button" class="btn btn-secondary" onclick="document.getElementById('modal-delete-project').classList.remove('active')">
           取消
         </button>
-        <button type="button" id="btn-submit-delete-project" class="btn" onclick="submitDeleteProject()" style="background: #ef4444; color: #fff; border: 1px solid #dc2626; font-weight: 600; padding: 8px 20px;">
+        <button type="button" id="btn-submit-delete-project" class="btn" onclick="submitDeleteProject()" style="background: var(--color-danger); color: #fff; border: 1px solid var(--color-danger); font-weight: 600; padding: 8px 20px;">
           确认彻底删除
         </button>
       </div>
@@ -1001,7 +981,7 @@ async function loadDir(path = '') {
     const data = await res.json();
     
     if (data.error) {
-      listEl.innerHTML = `<div style="padding: 10px; color: #ef4444; text-align: center;">${data.error}</div>`;
+      listEl.innerHTML = `<div style="padding: 10px; color: var(--color-danger); text-align: center;">${data.error}</div>`;
       return;
     }
     
@@ -1015,7 +995,7 @@ async function loadDir(path = '') {
       data.dirs.forEach(d => {
         const item = document.createElement('div');
         item.style.cssText = 'padding: 8px 10px; cursor: pointer; border-radius: 4px; display: flex; align-items: center; gap: 8px; color: var(--text-primary); transition: background 0.2s;';
-        item.onmouseover = () => item.style.background = 'rgba(76, 215, 246, 0.1)';
+        item.onmouseover = () => item.style.background = 'var(--color-brand-muted)';
         item.onmouseout = () => item.style.background = 'transparent';
         item.innerHTML = `<span>📁</span> <span>${d.name}</span>`;
         item.onclick = () => loadDir(d.path);
@@ -1023,7 +1003,7 @@ async function loadDir(path = '') {
       });
     }
   } catch (err) {
-    listEl.innerHTML = `<div style="padding: 10px; color: #ef4444; text-align: center;">网络错误</div>`;
+    listEl.innerHTML = `<div style="padding: 10px; color: var(--color-danger); text-align: center;">网络错误</div>`;
   }
 }
 
@@ -1063,9 +1043,9 @@ async function submitImportFolder(e) {
   btn.disabled = true;
   btn.innerText = '正在扫描并自愈...';
   resDiv.style.display = 'block';
-  resDiv.style.background = 'rgba(76, 215, 246, 0.1)';
-  resDiv.style.border = '1px solid rgba(76, 215, 246, 0.3)';
-  resDiv.style.color = 'var(--text-primary)';
+  resDiv.style.background = 'var(--color-brand-muted)';
+  resDiv.style.border = '1px solid var(--color-border)';
+  resDiv.style.color = 'var(--color-text-primary)';
   resDiv.innerHTML = '⏳ 正在进行 SHA256 幂等扫描并执行自愈清理，请稍候...';
 
   try {
@@ -1095,18 +1075,18 @@ async function submitImportFolder(e) {
       msg += `<br>⚠️ 失败 ${data.failed} 个文件，请查看服务日志。`;
     }
 
-    resDiv.style.background = 'rgba(16, 185, 129, 0.15)';
-    resDiv.style.border = '1px solid rgba(16, 185, 129, 0.4)';
-    resDiv.style.color = '#34d399';
+    resDiv.style.background = 'rgba(34, 197, 94, 0.12)';
+    resDiv.style.border = '1px solid rgba(34, 197, 94, 0.35)';
+    resDiv.style.color = 'var(--color-success)';
     resDiv.innerHTML = msg;
 
     setTimeout(() => {
       window.location.reload();
     }, 2000);
   } catch (err) {
-    resDiv.style.background = 'rgba(239, 68, 68, 0.15)';
-    resDiv.style.border = '1px solid rgba(239, 68, 68, 0.4)';
-    resDiv.style.color = '#f87171';
+    resDiv.style.background = 'rgba(239, 68, 68, 0.12)';
+    resDiv.style.border = '1px solid rgba(239, 68, 68, 0.35)';
+    resDiv.style.color = 'var(--color-danger)';
     resDiv.innerHTML = `❌ 错误：${err.message || '操作失败'}`;
     btn.disabled = false;
     btn.innerText = '开始扫描并入队';
@@ -1123,9 +1103,9 @@ async function repairProjectDocuments() {
   btn.disabled = true;
   btn.innerText = '正在执行自愈...';
   resDiv.style.display = 'block';
-  resDiv.style.background = 'rgba(76, 215, 246, 0.1)';
-  resDiv.style.border = '1px solid rgba(76, 215, 246, 0.3)';
-  resDiv.style.color = 'var(--text-primary)';
+  resDiv.style.background = 'var(--color-brand-muted)';
+  resDiv.style.border = '1px solid var(--color-border)';
+  resDiv.style.color = 'var(--color-text-primary)';
   resDiv.innerHTML = '⏳ 正在清理历史重复记录并纠正元数据分类...';
 
   try {
@@ -1140,23 +1120,40 @@ async function repairProjectDocuments() {
       throw new Error(data.detail || '自愈修复失败');
     }
 
-    resDiv.style.background = 'rgba(16, 185, 129, 0.15)';
-    resDiv.style.border = '1px solid rgba(16, 185, 129, 0.4)';
-    resDiv.style.color = '#34d399';
+    resDiv.style.background = 'rgba(34, 197, 94, 0.12)';
+    resDiv.style.border = '1px solid rgba(34, 197, 94, 0.35)';
+    resDiv.style.color = 'var(--color-success)';
     resDiv.innerHTML = `✅ ${data.message || '自愈完成！'}`;
 
     setTimeout(() => {
       window.location.reload();
     }, 1800);
   } catch (err) {
-    resDiv.style.background = 'rgba(239, 68, 68, 0.15)';
-    resDiv.style.border = '1px solid rgba(239, 68, 68, 0.4)';
-    resDiv.style.color = '#f87171';
+    resDiv.style.background = 'rgba(239, 68, 68, 0.12)';
+    resDiv.style.border = '1px solid rgba(239, 68, 68, 0.35)';
+    resDiv.style.color = 'var(--color-danger)';
     resDiv.innerHTML = `❌ 错误：${err.message || '操作失败'}`;
     btn.disabled = false;
     btn.innerText = '🔧 修复已有重复/分类';
   }
 }
 </script>
+
+<style>
+  .glass-panel,
+  .glass-panel-elevated {
+    background: var(--color-surface) !important;
+    border-color: var(--color-border) !important;
+    box-shadow: none !important;
+    backdrop-filter: none !important;
+  }
+  .glass-panel-elevated { background: var(--color-surface-2) !important; }
+  .glow-cyan, .glow-emerald, .glow-amber, .glow-rose { box-shadow: none !important; }
+  .modal-content { background: var(--color-surface) !important; border-color: var(--color-border) !important; box-shadow: none !important; }
+  .form-input, .form-select { background: var(--color-surface-2) !important; border-color: var(--color-border) !important; color: var(--color-text-primary) !important; box-shadow: none !important; }
+  .form-input:focus, .form-select:focus { border-color: var(--color-brand) !important; box-shadow: 0 0 0 2px var(--color-brand-muted) !important; }
+  .table-container { border-color: var(--color-border) !important; }
+  .project-code, .badge-cyan { color: var(--color-brand) !important; border-color: var(--color-border) !important; background: var(--color-brand-muted) !important; }
+</style>
 
 {% endblock %}
