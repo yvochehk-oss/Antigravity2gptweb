@@ -46,8 +46,8 @@ describe('AiDecisionCenterView workspace boundaries', () => {
 
   it('keeps the page title independent from the workspace controls', () => {
     const { container } = render(<AiDecisionCenterView projects={projects} dataStatus="READY" selectedProjectId="1" />);
-    const title = container.querySelector('[data-page-title="ai-decision"]');
-    const controls = container.querySelector('[data-page-controls="ai-decision"]');
+    const title = container.querySelector<HTMLElement>('[data-page-title="ai-decision"]');
+    const controls = container.querySelector<HTMLElement>('[data-page-controls="ai-decision"]');
     expect(title).toBeInTheDocument();
     expect(controls).toBeInTheDocument();
     expect(title?.parentElement).toBe(controls?.parentElement);
