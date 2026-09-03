@@ -56,17 +56,35 @@ def _canonical_payload(entity_code: str, period: str) -> dict[str, object]:
     }
 
 
-def test_legacy_entity_tax_ledger_route_is_physically_replaced(seeded_app):
-    from app.main import app
+def test_legacy_entity_tax_ledger_route_is_replaced_before_app_include(seeded_app):
+    from app.routers import collections_router
 
     matching = [
         route
-        for route in app.router.routes
+        for route in collections_router.routes
         if getattr(route, "path", "") == "/api/entity-tax-ledger"
         and "GET" in (getattr(route, "methods", None) or set())
     ]
     assert len(matching) == 1
     assert matching[0].name == "fvat3_legacy_entity_tax_ledger_proxy"
+
+
+def test_legacy_rebuild_routes_are_replaced_before_app_include(seeded_app):
+    from app.routers import tax_router
+
+    expected = {
+        "/api/tax-ledger/rebuild": "fvat3_retired_tax_ledger_rebuild_1",
+        "/tax-ledger/rebuild": "fvat3_retired_tax_ledger_rebuild_2",
+    }
+    for path, route_name in expected.items():
+        matching = [
+            route
+            for route in tax_router.routes
+            if getattr(route, "path", "") == path
+            and "POST" in (getattr(route, "methods", None) or set())
+        ]
+        assert len(matching) == 1
+        assert matching[0].name == route_name
 
 
 def test_legacy_entity_tax_ledger_delegates_only_to_formal_statutory(

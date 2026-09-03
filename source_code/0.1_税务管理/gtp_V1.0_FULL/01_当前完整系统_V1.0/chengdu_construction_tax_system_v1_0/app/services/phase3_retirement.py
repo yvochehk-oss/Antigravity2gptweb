@@ -1,9 +1,8 @@
 """Phase 3 retirement guard for legacy Tax/RAG and VAT bypass channels.
 
-Canonical Facts remain the durable business-fact write boundary.  FVAT-3 also
-retires the pre-statutory TaxLedger rebuild routes and replaces the legacy
-entity-tax-ledger HTTP collection with a single-scope compatibility proxy to
-the Canonical Formal VAT statutory resource.
+Canonical Facts remain the durable business-fact write boundary. FVAT-3 is
+installed at the source-router level before ``app.include_router()`` so modern
+FastAPI included-router wrappers cannot preserve an older statutory bypass.
 """
 from __future__ import annotations
 
@@ -11,7 +10,7 @@ from collections.abc import Iterable
 import re
 from typing import Any
 
-from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request
 from sqlalchemy.exc import SQLAlchemyError
 
 from ..db import SessionLocal
@@ -47,9 +46,19 @@ _CANONICAL_FORMAL_VAT_REBUILD_TEMPLATE = (
 )
 _PERIOD_RE = re.compile(r"^\d{4}-(?:0[1-9]|1[0-2])$")
 _reader_dependency = Depends(require_role("admin", "operator"))
+_FVAT3_PREINCLUDE_STATE: dict[str, object] = {
+    "source_of_truth": "formal_vat_statutory",
+    "removed_legacy_writers": 0,
+    "removed_legacy_readers": 0,
+    "legacy_read_proxy": _LEGACY_ENTITY_TAX_LEDGER_PATH,
+    "canonical_read_template": _CANONICAL_FORMAL_VAT_READ_TEMPLATE,
+    "canonical_rebuild_template": _CANONICAL_FORMAL_VAT_REBUILD_TEMPLATE,
+    "install_mode": "pre_include_router",
+}
 
 
 def _remove_routes(app: FastAPI, paths: Iterable[str], method: str = "POST") -> int:
+    """Remove top-level routes used by the older Phase-3 RAG retirement guard."""
     targets = set(paths)
     method = method.upper()
     kept = []
@@ -65,6 +74,37 @@ def _remove_routes(app: FastAPI, paths: Iterable[str], method: str = "POST") -> 
             continue
         kept.append(route)
     app.router.routes[:] = kept
+    return removed
+
+
+def _remove_router_routes(
+    router: APIRouter,
+    paths: Iterable[str],
+    *,
+    method: str,
+) -> int:
+    """Remove routes from a source APIRouter before FastAPI includes it.
+
+    Modern FastAPI may retain included routers as wrapper objects at the app
+    level. Mutating the source APIRouter before ``include_router`` avoids
+    wrapper/candidate-cache ambiguity and guarantees that the legacy endpoint
+    is never copied into the effective application route tree.
+    """
+    targets = set(paths)
+    wanted_method = method.upper()
+    kept = []
+    removed = 0
+    for route in router.routes:
+        route_path = getattr(route, "path", "")
+        methods = {
+            str(item).upper()
+            for item in (getattr(route, "methods", None) or set())
+        }
+        if route_path in targets and wanted_method in methods:
+            removed += 1
+            continue
+        kept.append(route)
+    router.routes[:] = kept
     return removed
 
 
@@ -102,13 +142,7 @@ def _legacy_entity_tax_ledger_proxy(
     page_size: int = Query(default=50, ge=1, le=100),
     _user=_reader_dependency,
 ) -> dict[str, Any]:
-    """Proxy the legacy read URL to the one canonical statutory VAT resource.
-
-    The old collection semantics are intentionally not reproduced.  A formal
-    VAT resource is one legal entity and one tax period, so legacy callers must
-    provide that same scope.  Pagination arguments remain accepted only so old
-    clients do not fail before the scope migration error can be explained.
-    """
+    """Proxy the legacy read URL to the one canonical statutory VAT resource."""
     del page, page_size, _user
     if project_id is not None:
         raise HTTPException(
@@ -135,7 +169,11 @@ def _legacy_entity_tax_ledger_proxy(
 
     legacy_entity = str(entity or "").strip()
     canonical_entity = str(entity_code or "").strip()
-    if legacy_entity and canonical_entity and legacy_entity.casefold() != canonical_entity.casefold():
+    if (
+        legacy_entity
+        and canonical_entity
+        and legacy_entity.casefold() != canonical_entity.casefold()
+    ):
         raise HTTPException(
             status_code=422,
             detail={
@@ -192,13 +230,58 @@ def _legacy_entity_tax_ledger_proxy(
         db.close()
 
 
-def install_phase3_retirement(app: FastAPI) -> dict[str, object]:
-    """Replace every retired legacy boundary with a fail-closed cutover route."""
-    removed = _remove_routes(app, _RETIRED_POST_PATHS)
-    removed_formal_vat_writers = _remove_routes(app, _FORMAL_VAT_RETIRED_POST_PATHS)
-    removed_legacy_formal_vat_readers = _remove_routes(
-        app, (_LEGACY_ENTITY_TAX_LEDGER_PATH,), method="GET"
+def install_formal_vat_router_cutover(
+    *,
+    collections_router: APIRouter,
+    tax_router: APIRouter,
+) -> dict[str, object]:
+    """Install FVAT-3 on source routers before they are included in the app."""
+    removed_readers = _remove_router_routes(
+        collections_router,
+        (_LEGACY_ENTITY_TAX_LEDGER_PATH,),
+        method="GET",
     )
+    removed_writers = _remove_router_routes(
+        tax_router,
+        _FORMAL_VAT_RETIRED_POST_PATHS,
+        method="POST",
+    )
+
+    collections_router.add_api_route(
+        _LEGACY_ENTITY_TAX_LEDGER_PATH,
+        _legacy_entity_tax_ledger_proxy,
+        methods=["GET"],
+        response_model=None,
+        name="fvat3_legacy_entity_tax_ledger_proxy",
+        summary="Legacy 法人 VAT URL -> Canonical Formal VAT Statutory Resource",
+        tags=["deprecated"],
+    )
+    for index, path in enumerate(_FORMAL_VAT_RETIRED_POST_PATHS, start=1):
+        tax_router.add_api_route(
+            path,
+            _formal_vat_legacy_rebuild_gone,
+            methods=["POST"],
+            status_code=410,
+            name=f"fvat3_retired_tax_ledger_rebuild_{index}",
+            tags=["deprecated"],
+        )
+
+    _FVAT3_PREINCLUDE_STATE.update(
+        {
+            "removed_legacy_writers": removed_writers,
+            "removed_legacy_readers": removed_readers,
+        }
+    )
+    return dict(_FVAT3_PREINCLUDE_STATE)
+
+
+def install_phase3_retirement(app: FastAPI) -> dict[str, object]:
+    """Install the remaining app-level Phase-3 retirement boundaries.
+
+    FVAT-3 routes are already replaced on their source APIRouters before
+    ``include_router``. They are deliberately not removed/re-added here.
+    """
+    removed = _remove_routes(app, _RETIRED_POST_PATHS)
 
     for index, path in enumerate(_RETIRED_POST_PATHS, start=1):
         app.add_api_route(
@@ -210,40 +293,21 @@ def install_phase3_retirement(app: FastAPI) -> dict[str, object]:
             tags=["deprecated"],
         )
 
-    for index, path in enumerate(_FORMAL_VAT_RETIRED_POST_PATHS, start=1):
-        app.add_api_route(
-            path,
-            _formal_vat_legacy_rebuild_gone,
-            methods=["POST"],
-            status_code=410,
-            name=f"fvat3_retired_tax_ledger_rebuild_{index}",
-            tags=["deprecated"],
-        )
-
-    app.add_api_route(
-        _LEGACY_ENTITY_TAX_LEDGER_PATH,
-        _legacy_entity_tax_ledger_proxy,
-        methods=["GET"],
-        response_model=None,
-        name="fvat3_legacy_entity_tax_ledger_proxy",
-        summary="Legacy 法人 VAT URL -> Canonical Formal VAT Statutory Resource",
-        tags=["deprecated"],
-    )
-
+    formal_vat_state = dict(_FVAT3_PREINCLUDE_STATE)
     return {
         "phase": 3,
         "source_of_truth": "canonical_facts",
-        "removed_legacy_writers": removed + removed_formal_vat_writers,
-        "retired_paths": list(_RETIRED_POST_PATHS) + list(_FORMAL_VAT_RETIRED_POST_PATHS),
-        "formal_vat": {
-            "source_of_truth": "formal_vat_statutory",
-            "removed_legacy_writers": removed_formal_vat_writers,
-            "removed_legacy_readers": removed_legacy_formal_vat_readers,
-            "legacy_read_proxy": _LEGACY_ENTITY_TAX_LEDGER_PATH,
-            "canonical_read_template": _CANONICAL_FORMAL_VAT_READ_TEMPLATE,
-            "canonical_rebuild_template": _CANONICAL_FORMAL_VAT_REBUILD_TEMPLATE,
-        },
+        "removed_legacy_writers": (
+            removed + int(formal_vat_state["removed_legacy_writers"])
+        ),
+        "retired_paths": (
+            list(_RETIRED_POST_PATHS) + list(_FORMAL_VAT_RETIRED_POST_PATHS)
+        ),
+        "formal_vat": formal_vat_state,
     }
 
 
-__all__ = ["install_phase3_retirement"]
+__all__ = [
+    "install_formal_vat_router_cutover",
+    "install_phase3_retirement",
+]

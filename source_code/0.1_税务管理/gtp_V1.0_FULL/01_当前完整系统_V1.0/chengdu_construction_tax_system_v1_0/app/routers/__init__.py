@@ -20,7 +20,15 @@ from .tasks import router as tasks_router
 from .tax import router as tax_router
 from .users import router as users_router
 from .v3_canonical import router as v3_canonical_router
+from ..services.phase3_retirement import install_formal_vat_router_cutover
 from ..user_center.router import router as user_center_router
+
+# FVAT-3 must replace the source APIRouter routes before FastAPI wraps/copies
+# them through app.include_router(). Post-include route surgery is not relied on.
+_FVAT3_ROUTER_CUTOVER = install_formal_vat_router_cutover(
+    collections_router=collections_router,
+    tax_router=tax_router,
+)
 
 ALL_ROUTERS = [
     auth_router,
