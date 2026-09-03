@@ -54,7 +54,7 @@ export function Header({
   }, []);
 
   return (
-    <header className="fixed top-0 right-0 left-0 md:left-48 z-30 flex h-14 items-center justify-between gap-4 border-b border-[var(--color-border)] bg-[var(--color-bg)] px-4 md:px-6">
+    <header className="fixed top-0 right-0 left-0 md:left-[var(--sidebar-width)] z-30 flex h-14 items-center justify-between gap-4 border-b border-[var(--color-border)] bg-[var(--color-bg)] px-4 md:px-6">
       {/* 左侧：移动端菜单 + 实时监管胶囊 + 全局检索栏 */}
       <div className="flex min-w-0 flex-1 items-center gap-3 sm:gap-4">
         <button
