@@ -63,7 +63,7 @@ beforeEach(() => {
   apiMocks.fetchJson.mockResolvedValue({ status: 'READY' }); apiMocks.postJson.mockResolvedValue({ recommended: {}, scenarios: [] });
   apiMocks.fetchProjectTaxAnalysis.mockResolvedValue({ status: 'READY', message: '', item: projectAnalysis });
   apiMocks.fetchProjectCounterparties.mockResolvedValue({ status: 'EMPTY', message: '', items: [], total: 0 });
-  legalEntityApiMocks.fetchLegalEntityStatutoryVatCollection.mockResolvedValue({ items: [statutoryRecord()], status: 'READY', message: '' });
+  legalEntityApiMocks.fetchLegalEntityStatutoryVatCollection.mockResolvedValue({ items: [statutoryRecord()], status: 'READY', message: '', period: '2026-08' });
   legalEntityApiMocks.rebuildLegalEntityStatutoryVatCollection.mockResolvedValue({ status: 'READY', period: '2026-08', rowCount: 1, failedCount: 0, message: '' });
 });
 
@@ -78,7 +78,7 @@ describe('Phase 2 dual-domain invariants T1-T10', () => {
 
   it('T2 project failure never disables the statutory entity domain', async () => {
     apiMocks.fetchConfiguredProjects.mockRejectedValueOnce(new Error('project unavailable'));
-    vi.mocked(fetchLegalEntityStatutoryVatCollection).mockResolvedValueOnce({ items: [statutoryRecord('法人 A')], status: 'READY', message: '' });
+    vi.mocked(fetchLegalEntityStatutoryVatCollection).mockResolvedValueOnce({ items: [statutoryRecord('法人 A')], status: 'READY', message: '', period: '2026-08' });
     render(<App />);
     await waitFor(() => expect(screen.getByTestId('project-status')).toHaveTextContent('UNAVAILABLE'));
     await waitFor(() => expect(screen.getByTestId('entity-status')).toHaveTextContent('READY'));
@@ -89,12 +89,12 @@ describe('Phase 2 dual-domain invariants T1-T10', () => {
 
   it('T3 abort race keeps the newest entity response', async () => {
     const stale = deferred<any>(); let staleSignal: AbortSignal | undefined;
-    vi.mocked(fetchLegalEntityStatutoryVatCollection).mockImplementationOnce((signal?: AbortSignal) => { staleSignal = signal; return stale.promise; }).mockResolvedValueOnce({ items: [statutoryRecord('新法人数据')], status: 'READY', message: '' });
+    vi.mocked(fetchLegalEntityStatutoryVatCollection).mockImplementationOnce((signal?: AbortSignal) => { staleSignal = signal; return stale.promise; }).mockResolvedValueOnce({ items: [statutoryRecord('新法人数据')], status: 'READY', message: '', period: '2026-08' });
     render(<StrictMode><App /></StrictMode>);
     await waitFor(() => expect(vi.mocked(fetchLegalEntityStatutoryVatCollection).mock.calls.length).toBeGreaterThanOrEqual(2));
     expect(staleSignal?.aborted).toBe(true); fireEvent.click(screen.getByTestId('nav-tax-ledger'));
     expect(await screen.findByText('新法人数据')).toBeInTheDocument();
-    await act(async () => { stale.resolve({ items: [statutoryRecord('旧法人数据')], status: 'READY', message: '' }); await stale.promise; });
+    await act(async () => { stale.resolve({ items: [statutoryRecord('旧法人数据')], status: 'READY', message: '', period: '2026-08' }); await stale.promise; });
     expect(screen.queryByText('旧法人数据')).not.toBeInTheDocument();
   });
 
