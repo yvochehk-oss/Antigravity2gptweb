@@ -502,6 +502,17 @@ def rebuild_formal_vat_statutory_resource(
         )
     db.flush()
 
+    stable_snapshot = _source_snapshot(
+        db,
+        entity_code=wanted,
+        reporting_party_id=party_id,
+        tax_period=tax_period,
+    )
+    if _canonical_hash(stable_snapshot) != input_hash:
+        raise FormalVatRebuildBlockedError(
+            "VAT source snapshot changed during rebuild; transaction must be retried"
+        )
+
     result_payload = {
         "reporting_party_id": party_id,
         "tax_period": tax_period.isoformat(),
