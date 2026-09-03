@@ -68,7 +68,7 @@ function ProjectionKpi({ label, value, cumulative }: { label: string; value: num
     <div className="surface-card rounded-xl p-3.5">
       <div className="text-[11px] text-secondary">{label}</div>
       <div className="mt-1 text-[17px] font-bold text-primary font-mono-num">{formatAmount(value)}</div>
-      {cumulative !== undefined && <div className="mt-1 text-[11px] font-semibold text-secondary font-mono-num">累计：{formatAmount(cumulative)}</div>}
+      {cumulative !== undefined && <div className="mt-1.5 text-[14px] font-bold text-[var(--color-warning)] font-mono-num">累计：{formatAmount(cumulative)}</div>}
     </div>
   );
 }
