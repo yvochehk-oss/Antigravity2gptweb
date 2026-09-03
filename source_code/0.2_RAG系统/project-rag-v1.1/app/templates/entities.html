@@ -149,6 +149,46 @@
 .filter-role-btn[data-role="labor"].btn-primary { background: rgba(168, 85, 247, 0.28) !important; }
 .filter-role-btn[data-role="equipment"]:hover,
 .filter-role-btn[data-role="equipment"].btn-primary { background: rgba(249, 115, 22, 0.28) !important; }
+/* 统一标签宽度与排版 */
+.entity-scope-badge {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 90px !important;
+  text-align: center !important;
+  white-space: nowrap !important;
+  box-sizing: border-box !important;
+}
+
+.entity-role-badge {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 76px !important;
+  text-align: center !important;
+  white-space: nowrap !important;
+  box-sizing: border-box !important;
+}
+
+.entity-branch-badge {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 50px !important;
+  text-align: center !important;
+  white-space: nowrap !important;
+  box-sizing: border-box !important;
+}
+
+.entity-code-badge {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 56px !important;
+  text-align: center !important;
+  white-space: nowrap !important;
+  box-sizing: border-box !important;
+}
 </style>
 
 <div class="toolbar" style="margin-bottom: 20px;">
@@ -186,18 +226,18 @@
 <div class="glass-panel" style="padding: 0; overflow: hidden; margin-bottom: 30px;">
   <table id="entity-table" class="table" style="width: 100%; border-collapse: collapse; text-align: left; font-size: 13px;">
     <thead><tr style="border-bottom: 1px solid var(--border-subtle); color: var(--text-muted); font-weight: 600; user-select: none;">
-      <th style="padding: 14px 16px; width: 110px; cursor: pointer;" onclick="sortTable(0)" title="点击按主体代码排序">代码 <span class="ent-sort-icon" id="e-sort-0">↕</span></th>
-      <th style="padding: 14px 16px; width: 130px; cursor: pointer;" onclick="sortTable(1)" title="点击按来源属性排序">来源属性 <span class="ent-sort-icon" id="e-sort-1">↕</span></th>
-      <th style="padding: 14px 16px; width: 140px; cursor: pointer;" onclick="sortTable(2)" title="点击按业务角色排序">业务角色 <span class="ent-sort-icon" id="e-sort-2">↕</span></th>
+      <th style="padding: 14px 16px; width: 90px; cursor: pointer;" onclick="sortTable(0)" title="点击按主体代码排序">代码 <span class="ent-sort-icon" id="e-sort-0">↕</span></th>
+      <th style="padding: 14px 16px; width: 120px; cursor: pointer;" onclick="sortTable(1)" title="点击按来源属性排序">来源属性 <span class="ent-sort-icon" id="e-sort-1">↕</span></th>
+      <th style="padding: 14px 16px; width: 170px; cursor: pointer;" onclick="sortTable(2)" title="点击按业务角色排序">业务角色 <span class="ent-sort-icon" id="e-sort-2">↕</span></th>
       <th style="padding: 14px 16px; min-width: 280px; cursor: pointer;" onclick="sortTable(3)" title="点击按单位全称排序">单位全称 (点击查看参与项目与往来详情) <span class="ent-sort-icon" id="e-sort-3">↕</span></th>
       <th style="padding: 14px 16px;">业务说明 / 往来定位</th><th style="padding: 14px 16px; width: 120px; text-align: center;">操作</th>
     </tr></thead>
     <tbody>
       {% for entity in entities %}
       <tr class="entity-row" data-scope="{% if entity.is_external %}external{% else %}internal{% endif %}" data-role="{{ entity.business_role }}" style="border-bottom: 1px solid var(--border-subtle); transition: background 0.15s;">
-        <td style="padding: 14px 16px;"><a href="/entities/{{ entity.entity_code }}" class="project-code font-mono" style="font-weight: 700; text-decoration: none; display: inline-block;">{{ entity.entity_code }}</a></td>
-        <td style="padding: 14px 16px;">{% if entity.is_external %}<span class="badge badge-purple" style="font-size: 11px;">系统外单位</span>{% else %}<span class="badge badge-cyan" style="font-size: 11px;">系统内关联</span>{% endif %}</td>
-        <td style="padding: 14px 16px;"><div style="display: flex; align-items: center; gap: 6px;"><span class="badge {{ entity.business_role_badge }}" style="font-size: 11px;">{{ entity.business_role_label }}</span>{% if not entity.legal_entity %}<span class="badge badge-amber" style="font-size: 10px;">分公司</span>{% endif %}</div></td>
+        <td style="padding: 14px 16px;"><a href="/entities/{{ entity.entity_code }}" class="project-code font-mono entity-code-badge" style="font-weight: 700; text-decoration: none;">{{ entity.entity_code }}</a></td>
+        <td style="padding: 14px 16px;">{% if entity.is_external %}<span class="badge badge-purple entity-scope-badge" style="font-size: 11px;">系统外单位</span>{% else %}<span class="badge badge-cyan entity-scope-badge" style="font-size: 11px;">系统内关联</span>{% endif %}</td>
+        <td style="padding: 14px 16px;"><div style="display: flex; align-items: center; gap: 6px; flex-wrap: nowrap; white-space: nowrap;"><span class="badge {{ entity.business_role_badge }} entity-role-badge" style="font-size: 11px;">{{ entity.business_role_label }}</span>{% if not entity.legal_entity %}<span class="badge badge-amber entity-branch-badge" style="font-size: 10px;">分公司</span>{% endif %}</div></td>
         <td style="padding: 14px 16px;"><a href="/entities/{{ entity.entity_code }}" style="font-weight: 600; font-size: 14px; color: #ffffff !important; text-decoration: none; display: flex; align-items: center; gap: 6px;"><span>🏢</span><span>{{ entity.name }}</span></a>{% if entity.parent_entity_code %}<div style="font-size: 11px; color: var(--text-muted); margin-top: 3px;">上级法人: <a href="/entities/{{ entity.parent_entity_code }}" class="font-mono" style="color: var(--text-secondary); text-decoration: underline;">{{ entity.parent_entity_code }}</a></div>{% endif %}</td>
         <td style="padding: 14px 16px; font-size: 12px; color: var(--text-muted); line-height: 1.4;">{{ entity.note or entity.business_role_description }}</td>
         <td style="padding: 14px 16px; text-align: center;"><a href="/entities/{{ entity.entity_code }}" class="btn btn-sm btn-secondary" style="font-size: 11px; padding: 4px 10px;">穿透详情 ➔</a></td>
