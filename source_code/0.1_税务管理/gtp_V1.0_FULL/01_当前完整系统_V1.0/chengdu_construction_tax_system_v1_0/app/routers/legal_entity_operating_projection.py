@@ -10,6 +10,10 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from ..db import SessionLocal
 from ..dependencies import require_role
+from ..services.legal_entity_fact_periods import (
+    LegalEntityNotFoundError,
+    get_legal_entity_fact_periods,
+)
 from ..services.legal_entity_master_data import list_legal_entities
 from ..services.legal_entity_scope import aggregate_legal_entity_scope
 
@@ -48,6 +52,38 @@ def legal_entity_master_data(
         raise HTTPException(
             status_code=503,
             detail="法人 Master Data 数据源暂时不可用，请稍后重试。",
+        ) from None
+    finally:
+        db.close()
+
+
+@router.get(
+    "/api/v3/legal-entities/{entity_code}/fact-periods",
+    summary="V3 法人 Canonical invoice 事实期间",
+)
+def legal_entity_fact_periods(
+    entity_code: str = Path(..., min_length=1, max_length=64),
+    _user=_reader_dependency,
+) -> dict[str, Any]:
+    """Expose actual invoice periods for one active V3 legal entity."""
+    wanted_entity = entity_code.strip()
+    if not wanted_entity:
+        raise HTTPException(status_code=422, detail="entity_code 不能为空")
+
+    db = SessionLocal()
+    try:
+        return get_legal_entity_fact_periods(db, wanted_entity)
+    except LegalEntityNotFoundError:
+        raise HTTPException(status_code=404, detail="未找到有效的内部法人主体") from None
+    except SQLAlchemyError:
+        db.rollback()
+        _LOGGER.exception(
+            "legal entity fact periods database failure: entity=%s",
+            wanted_entity,
+        )
+        raise HTTPException(
+            status_code=503,
+            detail="法人凭证期间数据源暂时不可用，请稍后重试。",
         ) from None
     finally:
         db.close()
