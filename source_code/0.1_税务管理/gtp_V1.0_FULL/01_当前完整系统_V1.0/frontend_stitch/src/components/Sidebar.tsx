@@ -68,6 +68,7 @@ export function Sidebar({ currentTab, onSelectTab, unresolvedRiskCount, aiModelS
     UNAVAILABLE: { text: '#F87171', dot: '#F87171' },
   }[aiModelStatus.state];
   const modelStatusText = `模型服务：${dataStatusLabel(aiModelStatus.state)}`;
+  const modelStatusTitle = `${modelStatusText}（${aiModelStatus.message}）`;
 
   return (
     <nav className={containerClasses} aria-label="业务域导航">
@@ -112,7 +113,7 @@ export function Sidebar({ currentTab, onSelectTab, unresolvedRiskCount, aiModelS
         <div className="mb-1.5 flex items-center justify-between">
           <div className="flex items-center gap-1.5">
             <div className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-md border border-[#10B981]/30 bg-[#10B981]/15"><ShieldCheck className="h-3 w-3 text-[#10B981]" /></div>
-            <p className="flex items-center gap-1 truncate text-[11px] font-semibold" style={{ color: statusStyles.text }} title={modelStatusText}><span className="inline-block h-1.5 w-1.5 rounded-full" style={{ backgroundColor: statusStyles.dot }} />{modelStatusText}</p>
+            <p className="flex items-center gap-1 truncate text-[11px] font-semibold" style={{ color: statusStyles.text }} title={modelStatusTitle}><span className="inline-block h-1.5 w-1.5 rounded-full" style={{ backgroundColor: statusStyles.dot }} />{modelStatusText}</p>
           </div>
           <a href="/ai-models" className="rounded border border-[#3b82f6]/30 bg-[#1e293b] px-1.5 py-0.5 text-[10px] text-[#93c5fd] hover:bg-[#334155]" title="查看与配置智能模型端点">模型管理</a>
         </div>
