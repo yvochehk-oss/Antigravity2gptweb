@@ -13,9 +13,10 @@ from app.services.formal_vat_statutory import (
     FormalVatStatutoryResourceNotFoundError,
     get_formal_vat_statutory_resource,
 )
+from app.v3_fact_models import Fact, InvoiceFact
 from app.v3_party_models import InternalEntity, Party
 from app.v3_period_models import CalculationRun, TaxPeriodState
-from app.v3_vat_ledger_models import EntityVatLedger
+from app.v3_vat_ledger_models import EntityVatLedger, OutputVatEvent
 from app.v3_vat_review_models import VatOutputPeriodAssertion
 
 
@@ -66,6 +67,48 @@ def _create_official_vat_resource(session: Session, *, code: str, period: date):
         completed_at=completed,
     )
     session.add(run)
+    session.flush()
+
+    identity = f"pytest:{code}:{period.isoformat()}"
+    fact = Fact(
+        fact_type="INVOICE",
+        business_identity_key=identity,
+        version_no=1,
+        is_current=True,
+        validation_status="VALID",
+    )
+    session.add(fact)
+    session.flush()
+    session.add(
+        InvoiceFact(
+            fact_id=fact.id,
+            seller_party_id=party.id,
+            buyer_party_id=None,
+            invoice_identity_key=identity,
+            invoice_identity_version="V1",
+            invoice_number=f"PYTEST-{code}-{period:%Y%m}",
+            invoice_date=period,
+            invoice_status="VALID",
+            vat_amount=Decimal("130.00"),
+        )
+    )
+    session.flush()
+    session.add(
+        OutputVatEvent(
+            invoice_fact_id=fact.id,
+            reporting_party_id=party.id,
+            output_vat_period=period,
+            vat_amount=Decimal("130.00"),
+            event_type="OUTPUT",
+            event_status="CONFIRMED",
+            evidence_type="MANUAL_REVIEW",
+            confidence="HIGH",
+            source_system="pytest",
+            external_event_id=f"{identity}:output-vat",
+            reviewed_by="pytest",
+            reviewed_at=completed,
+        )
+    )
     session.flush()
 
     session.add(
