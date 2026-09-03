@@ -428,108 +428,108 @@ export function NewTaxRecordModal({
   const totalImported = syncResults.reduce((sum, result) => sum + result.totalImported, 0);
   const totalPending = syncResults.reduce((sum, result) => sum + result.totalPending, 0);
   const resultTone = operation === 'success' || operation === 'running'
-    ? 'border-[#10B981]/40 bg-[#10B981]/10 text-[#b6f4d8]'
+    ? 'border-[var(--color-success)]/30 bg-[var(--color-success)]/10 text-[var(--color-success)]'
     : operation === 'pending' || operation === 'partial'
-      ? 'border-[#F59E0B]/40 bg-[#F59E0B]/10 text-[#ffd0a8]'
-      : 'border-[#EF4444]/40 bg-[#EF4444]/10 text-[#ffb4ab]';
+      ? 'border-[var(--color-warning)]/30 bg-[var(--color-warning)]/10 text-[var(--color-warning)]'
+      : 'border-[var(--color-danger)]/30 bg-[var(--color-danger)]/10 text-[var(--color-danger)]';
 
   return (
-    <div className="fixed inset-0 bg-black/75 backdrop-blur-md z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="rag-sync-title">
-      <div className="bg-[#131b2e] border border-[#4cd7f6]/40 rounded-2xl max-w-2xl w-full p-6 shadow-2xl text-[#dae2fd] max-h-[92vh] overflow-y-auto">
-        <div className="flex justify-between items-start pb-4 border-b border-[#444653]/30">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" role="dialog" aria-modal="true" aria-labelledby="rag-sync-title">
+      <div className="surface-card max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-xl p-6 text-[var(--color-text-primary)] shadow-2xl">
+        <div className="flex items-start justify-between border-b border-[var(--color-border)] pb-4">
           <div className="flex items-center gap-2">
-            <Database className="w-5 h-5 text-[#4cd7f6]" />
+            <Database className="h-5 w-5 text-[var(--color-brand)]" />
             <div>
               <h3 id="rag-sync-title" className="text-[18px] font-bold">RAG 凭证同步</h3>
-              <p className="text-[12px] text-[#8e909f] mt-0.5">当前展示 Tax 服务返回的确定性税务台账；RAG 凭证同步用于补充原始凭证、证据和待复核信息。</p>
+              <p className="mt-0.5 text-[12px] text-[var(--color-text-secondary)]">当前展示 Tax 服务返回的确定性税务台账；RAG 凭证同步用于补充原始凭证、证据和待复核信息。</p>
             </div>
           </div>
-          <button type="button" onClick={onClose} disabled={busy} className="text-[#8e909f] hover:text-[#dae2fd] disabled:opacity-40" aria-label="关闭"><X className="w-5 h-5" /></button>
+          <button type="button" onClick={onClose} disabled={busy} className="rounded-lg p-1.5 text-[var(--color-text-muted)] hover:bg-[var(--color-surface-2)] hover:text-[var(--color-text-primary)] disabled:opacity-40" aria-label="关闭"><X className="h-5 w-5" /></button>
         </div>
 
-        <label className="block mt-5 text-[12px] text-[#c4c5d5]">
+        <label className="mt-5 block text-[12px] text-[var(--color-text-secondary)]">
           Tax 项目
-          <select aria-label="选择 Tax 项目" value={selectedTaxProjectId} onChange={event => handleProjectChange(event.target.value)} disabled={busy || projects.length === 0} className="mt-1.5 w-full bg-[#131b2e] border border-[#444653]/50 rounded-lg px-3 py-2 text-[13px] text-[#dae2fd] focus:border-[#4cd7f6] focus:outline-none disabled:opacity-50">
+          <select aria-label="选择 Tax 项目" value={selectedTaxProjectId} onChange={event => handleProjectChange(event.target.value)} disabled={busy || projects.length === 0} className="mt-1.5 w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 py-2 text-[13px] text-[var(--color-text-primary)] focus:border-[var(--color-brand)] focus:outline-none disabled:opacity-50">
             <option value="">请选择 Tax 项目</option>
             {projects.map(project => <option key={project.numericId} value={project.numericId}>{projectLabel(project)}</option>)}
           </select>
         </label>
-        <p className="text-[12px] text-[#8e909f] mt-2">当前项目：{activeProjectCode || (activeProjectId ? `Tax 项目 #${activeProjectId}` : '未选择项目')} · {activeProjectName || '未提供项目名称'}</p>
+        <p className="mt-2 text-[12px] text-[var(--color-text-muted)]">当前项目：{activeProjectCode || (activeProjectId ? `Tax 项目 #${activeProjectId}` : '未选择项目')} · {activeProjectName || '未提供项目名称'}</p>
 
-        {(statusLoading || mappingLoading) && <div className="mt-4 rounded-xl border border-[#4cd7f6]/30 bg-[#03b5d3]/5 p-3 flex items-center gap-2" role="status"><Loader2 className="w-4 h-4 animate-spin text-[#4cd7f6]" />正在读取真实 RAG 状态和当前项目映射…</div>}
+        {(statusLoading || mappingLoading) && <div className="surface-card mt-4 flex items-center gap-2 rounded-xl p-3 text-[var(--color-text-secondary)]" role="status"><Loader2 className="h-4 w-4 animate-spin text-[var(--color-brand)]" />正在读取真实 RAG 状态和当前项目映射…</div>}
 
-        {statusError && <div className="mt-4 rounded-xl border border-[#EF4444]/40 bg-[#EF4444]/10 p-3" role="alert"><p className="font-semibold text-[#ffb4ab]"><XCircle className="inline-block w-4 h-4 mr-1 align-[-2px]" />{operationErrorTitle('status')}</p><p className="text-[12px] mt-1">{statusError}</p><button type="button" onClick={requestStatusRetry} disabled={busy} className="mt-2 inline-flex items-center gap-1 rounded-lg bg-[#222a3d] px-2.5 py-1.5 text-[12px] disabled:opacity-40"><RefreshCw className="w-3.5 h-3.5" />重新读取 RAG 状态</button></div>}
-        {mappingError && <div className="mt-4 rounded-xl border border-[#EF4444]/40 bg-[#EF4444]/10 p-3" role="alert"><p className="font-semibold text-[#ffb4ab]"><XCircle className="inline-block w-4 h-4 mr-1 align-[-2px]" />{operationErrorTitle('mapping')}</p><p className="text-[12px] mt-1">{mappingError}</p><button type="button" onClick={requestMappingRetry} disabled={busy} className="mt-2 inline-flex items-center gap-1 rounded-lg bg-[#222a3d] px-2.5 py-1.5 text-[12px] disabled:opacity-40"><RefreshCw className="w-3.5 h-3.5" />重新读取当前项目映射</button></div>}
-        {saveError && <div className="mt-4 rounded-xl border border-[#EF4444]/40 bg-[#EF4444]/10 p-3" role="alert"><p className="font-semibold text-[#ffb4ab]"><XCircle className="inline-block w-4 h-4 mr-1 align-[-2px]" />{operationErrorTitle('save')}</p><p className="text-[12px] mt-1">{saveError}</p></div>}
-        {syncError && <div className="mt-4 rounded-xl border border-[#EF4444]/40 bg-[#EF4444]/10 p-3" role="alert"><p className="font-semibold text-[#ffb4ab]"><XCircle className="inline-block w-4 h-4 mr-1 align-[-2px]" />{operationErrorTitle('sync')}</p><p className="text-[12px] mt-1">{syncError}</p></div>}
+        {statusError && <div className="mt-4 rounded-xl border border-[var(--color-danger)]/30 bg-[var(--color-danger)]/10 p-3" role="alert"><p className="font-semibold text-[var(--color-danger)]"><XCircle className="mr-1 inline-block h-4 w-4 align-[-2px]" />{operationErrorTitle('status')}</p><p className="mt-1 text-[12px]">{statusError}</p><button type="button" onClick={requestStatusRetry} disabled={busy} className="mt-2 inline-flex items-center gap-1 rounded-lg bg-[var(--color-surface-2)] px-2.5 py-1.5 text-[12px] disabled:opacity-40"><RefreshCw className="h-3.5 w-3.5" />重新读取 RAG 状态</button></div>}
+        {mappingError && <div className="mt-4 rounded-xl border border-[var(--color-danger)]/30 bg-[var(--color-danger)]/10 p-3" role="alert"><p className="font-semibold text-[var(--color-danger)]"><XCircle className="mr-1 inline-block h-4 w-4 align-[-2px]" />{operationErrorTitle('mapping')}</p><p className="mt-1 text-[12px]">{mappingError}</p><button type="button" onClick={requestMappingRetry} disabled={busy} className="mt-2 inline-flex items-center gap-1 rounded-lg bg-[var(--color-surface-2)] px-2.5 py-1.5 text-[12px] disabled:opacity-40"><RefreshCw className="h-3.5 w-3.5" />重新读取当前项目映射</button></div>}
+        {saveError && <div className="mt-4 rounded-xl border border-[var(--color-danger)]/30 bg-[var(--color-danger)]/10 p-3" role="alert"><p className="font-semibold text-[var(--color-danger)]"><XCircle className="mr-1 inline-block h-4 w-4 align-[-2px]" />{operationErrorTitle('save')}</p><p className="mt-1 text-[12px]">{saveError}</p></div>}
+        {syncError && <div className="mt-4 rounded-xl border border-[var(--color-danger)]/30 bg-[var(--color-danger)]/10 p-3" role="alert"><p className="font-semibold text-[var(--color-danger)]"><XCircle className="mr-1 inline-block h-4 w-4 align-[-2px]" />{operationErrorTitle('sync')}</p><p className="mt-1 text-[12px]">{syncError}</p></div>}
 
-        {serviceConnected && <div className="mt-4 rounded-xl border border-[#10B981]/30 bg-[#10B981]/5 p-3 flex items-start gap-2"><CheckCircle2 className="w-5 h-5 text-[#10B981] flex-shrink-0" /><div className="text-[12px]"><p className="font-semibold text-[#b6f4d8]">RAG 服务已连接</p><p className="text-[#c4c5d5] mt-1">版本：{ragStatus?.ragVersion || '后端未提供'} · LLM 抽取：{ragStatus?.llmExtraction ? '已启用' : '未启用'} · 候选项目：{candidates.length}</p><p className="text-[11px] text-[#8e909f] mt-1">候选仅来自 /rag-sync/status 的真实响应；页面不显示、不接收 API key。</p></div></div>}
+        {serviceConnected && <div className="mt-4 flex items-start gap-2 rounded-xl border border-[var(--color-success)]/30 bg-[var(--color-success)]/10 p-3"><CheckCircle2 className="h-5 w-5 flex-shrink-0 text-[var(--color-success)]" /><div className="text-[12px]"><p className="font-semibold text-[var(--color-success)]">RAG 服务已连接</p><p className="mt-1 text-[var(--color-text-secondary)]">版本：{ragStatus?.ragVersion || '后端未提供'} · LLM 抽取：{ragStatus?.llmExtraction ? '已启用' : '未启用'} · 候选项目：{candidates.length}</p><p className="mt-1 text-[11px] text-[var(--color-text-muted)]">候选仅来自 /rag-sync/status 的真实响应；页面不显示、不接收 API key。</p></div></div>}
 
-        {statusOk && candidates.length === 0 && <div className="mt-4 rounded-xl border border-[#F59E0B]/30 bg-[#F59E0B]/5 p-3 text-[12px] text-[#ffd0a8]">RAG 状态可读取，但未返回真实项目候选。保存、重新配置和同步均已安全禁用，当前映射不会被覆盖。</div>}
+        {statusOk && candidates.length === 0 && <div className="mt-4 rounded-xl border border-[var(--color-warning)]/30 bg-[var(--color-warning)]/10 p-3 text-[12px] text-[var(--color-warning)]">RAG 状态可读取，但未返回真实项目候选。保存、重新配置和同步均已安全禁用，当前映射不会被覆盖。</div>}
 
         {statusOk && !mappingError && !mappingLoading && (currentMapping ? isEditingMapping : true) && (
-          <div className="mt-4 rounded-xl border border-[#F59E0B]/30 bg-[#F59E0B]/5 p-4">
-            <div className="flex items-start gap-2"><AlertTriangle className="w-5 h-5 text-[#F59E0B] flex-shrink-0" /><div className="min-w-0 flex-1"><p className="font-semibold">{currentMapping ? '重新配置 Tax ↔ RAG 项目映射' : '尚未配置 Tax ↔ RAG 项目映射'}</p><p className="text-[12px] text-[#c4c5d5] mt-1.5">系统只展示 RAG 后端真实返回的候选，不会根据名称、编号或顺序自动猜测映射。</p>
-              {candidates.length > 0 && <><label className="block text-[12px] text-[#c4c5d5] mt-3">RAG 项目候选<select aria-label="选择 RAG 项目" value={selectedRagProjectId} onChange={event => { setSelectedRagProjectId(event.target.value); setPendingMappingCandidate(null); setSaveError(''); }} disabled={busy} className="mt-1.5 w-full bg-[#131b2e] border border-[#444653]/50 rounded-lg px-3 py-2 text-[13px] text-[#dae2fd] disabled:opacity-50"><option value="">请选择后端返回的真实 RAG 项目</option>{candidates.map(candidate => <option key={candidate.id} value={candidate.id}>{candidateLabel(candidate)} · ID {candidate.id}</option>)}</select></label>{selectedCandidate && <div className="mt-2 text-[12px] text-[#c4c5d5]">准备保存：{candidateLabel(selectedCandidate)} · ID {selectedCandidate.id}{selectedCandidateWarning && <p className="mt-1 text-[#ffd0a8]">{selectedCandidateWarning}</p>}</div>}
-                {!pendingMappingCandidate ? <button type="button" onClick={() => { if (activeProjectId && selectedCandidate && mappingChanged(currentMapping, selectedCandidate)) setPendingMappingCandidate(selectedCandidate); else setSaveError('请选择与当前映射不同的真实 RAG 候选；当前映射未改变。'); }} disabled={!canSave} className="mt-3 inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-[#1e40af] text-[12px] font-semibold disabled:opacity-40"><Save className="w-3.5 h-3.5" />准备保存映射</button> : <div className="mt-3 rounded-lg border border-[#EF4444]/50 bg-[#EF4444]/10 p-3" role="alert"><p className="font-semibold text-[#ffb4ab]">请二次确认覆盖映射</p><p className="text-[12px] mt-1.5">将当前 Tax 项目映射到 {candidateLabel(pendingMappingCandidate)}（ID {pendingMappingCandidate.id}）。确认后只覆盖映射，不会自动同步凭证。</p><div className="mt-2 flex gap-2"><button type="button" onClick={() => setPendingMappingCandidate(null)} disabled={busy} className="px-3 py-1.5 rounded-lg bg-[#222a3d] text-[12px] disabled:opacity-40">取消确认</button><button type="button" onClick={() => void handleConfirmSaveMapping()} disabled={busy} className="px-3 py-1.5 rounded-lg bg-[#EF4444] text-white text-[12px] font-bold disabled:opacity-40">{operation === 'saving' ? '保存中…' : '确认覆盖保存'}</button></div></div>}
+          <div className="mt-4 rounded-xl border border-[var(--color-warning)]/30 bg-[var(--color-warning)]/10 p-4">
+            <div className="flex items-start gap-2"><AlertTriangle className="h-5 w-5 flex-shrink-0 text-[var(--color-warning)]" /><div className="min-w-0 flex-1"><p className="font-semibold">{currentMapping ? '重新配置 Tax ↔ RAG 项目映射' : '尚未配置 Tax ↔ RAG 项目映射'}</p><p className="mt-1.5 text-[12px] text-[var(--color-text-secondary)]">系统只展示 RAG 后端真实返回的候选，不会根据名称、编号或顺序自动猜测映射。</p>
+              {candidates.length > 0 && <><label className="mt-3 block text-[12px] text-[var(--color-text-secondary)]">RAG 项目候选<select aria-label="选择 RAG 项目" value={selectedRagProjectId} onChange={event => { setSelectedRagProjectId(event.target.value); setPendingMappingCandidate(null); setSaveError(''); }} disabled={busy} className="mt-1.5 w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 py-2 text-[13px] text-[var(--color-text-primary)] disabled:opacity-50"><option value="">请选择后端返回的真实 RAG 项目</option>{candidates.map(candidate => <option key={candidate.id} value={candidate.id}>{candidateLabel(candidate)} · ID {candidate.id}</option>)}</select></label>{selectedCandidate && <div className="mt-2 text-[12px] text-[var(--color-text-secondary)]">准备保存：{candidateLabel(selectedCandidate)} · ID {selectedCandidate.id}{selectedCandidateWarning && <p className="mt-1 text-[var(--color-warning)]">{selectedCandidateWarning}</p>}</div>}
+                {!pendingMappingCandidate ? <button type="button" onClick={() => { if (activeProjectId && selectedCandidate && mappingChanged(currentMapping, selectedCandidate)) setPendingMappingCandidate(selectedCandidate); else setSaveError('请选择与当前映射不同的真实 RAG 候选；当前映射未改变。'); }} disabled={!canSave} className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-[var(--color-brand)] px-4 py-2 text-[12px] font-semibold text-white hover:bg-[var(--color-brand-hover)] disabled:opacity-40"><Save className="h-3.5 w-3.5" />准备保存映射</button> : <div className="mt-3 rounded-lg border border-[var(--color-danger)]/30 bg-[var(--color-danger)]/10 p-3" role="alert"><p className="font-semibold text-[var(--color-danger)]">请二次确认覆盖映射</p><p className="mt-1.5 text-[12px]">将当前 Tax 项目映射到 {candidateLabel(pendingMappingCandidate)}（ID {pendingMappingCandidate.id}）。确认后只覆盖映射，不会自动同步凭证。</p><div className="mt-2 flex gap-2"><button type="button" onClick={() => setPendingMappingCandidate(null)} disabled={busy} className="rounded-lg bg-[var(--color-surface-2)] px-3 py-1.5 text-[12px] disabled:opacity-40">取消确认</button><button type="button" onClick={() => void handleConfirmSaveMapping()} disabled={busy} className="rounded-lg bg-[var(--color-danger)] px-3 py-1.5 text-[12px] font-bold text-white disabled:opacity-40">{operation === 'saving' ? '保存中…' : '确认覆盖保存'}</button></div></div>}
               </>}
-              {currentMapping && <button type="button" onClick={cancelMappingEdit} disabled={busy} className="ml-2 mt-3 px-4 py-2 rounded-lg bg-[#222a3d] text-[12px] disabled:opacity-40">取消并保留当前映射</button>}
+              {currentMapping && <button type="button" onClick={cancelMappingEdit} disabled={busy} className="ml-2 mt-3 rounded-lg bg-[var(--color-surface-2)] px-4 py-2 text-[12px] disabled:opacity-40">取消并保留当前映射</button>}
             </div></div>
           </div>
         )}
 
-        {statusOk && !mappingError && !mappingLoading && currentMapping && !isEditingMapping && <div className="mt-4 rounded-xl border border-[#4cd7f6]/30 bg-[#03b5d3]/5 p-4"><div className="flex items-start justify-between gap-3"><div><p className="font-semibold text-[#4cd7f6]">当前已映射 RAG 知识空间</p><p className="text-[13px] mt-1">{currentMapping.ragProjectCode || `RAG 项目 #${currentMapping.ragProjectId}`} · {mappingCandidate?.name || 'RAG 后端未返回名称'} · ID {currentMapping.ragProjectId}</p><p className="text-[11px] text-[#8e909f] mt-1">映射已由当前项目的 project-map 接口读取确认。</p></div><button type="button" onClick={beginMappingEdit} disabled={!statusOk || candidates.length === 0 || busy} className="px-3 py-1.5 rounded-lg bg-[#222a3d] text-[12px] disabled:opacity-40">重新配置映射</button></div>{mappingNotice && <p className="mt-2 text-[12px] text-[#b6f4d8]" role="status"><CheckCircle2 className="inline-block w-3.5 h-3.5 mr-1" />{mappingNotice}</p>}{!mappingCandidate && <p className="mt-2 text-[12px] text-[#ffd0a8]">当前映射不在最新 RAG 候选列表中，已禁用同步，请先重新确认映射。</p>}</div>}
+        {statusOk && !mappingError && !mappingLoading && currentMapping && !isEditingMapping && <div className="surface-card mt-4 rounded-xl p-4"><div className="flex items-start justify-between gap-3"><div><p className="font-semibold text-[var(--color-brand)]">当前已映射 RAG 知识空间</p><p className="mt-1 text-[13px]">{currentMapping.ragProjectCode || `RAG 项目 #${currentMapping.ragProjectId}`} · {mappingCandidate?.name || 'RAG 后端未返回名称'} · ID {currentMapping.ragProjectId}</p><p className="mt-1 text-[11px] text-[var(--color-text-muted)]">映射已由当前项目的 project-map 接口读取确认。</p></div><button type="button" onClick={beginMappingEdit} disabled={!statusOk || candidates.length === 0 || busy} className="rounded-lg bg-[var(--color-surface-2)] px-3 py-1.5 text-[12px] disabled:opacity-40">重新配置映射</button></div>{mappingNotice && <p className="mt-2 text-[12px] text-[var(--color-success)]" role="status"><CheckCircle2 className="mr-1 inline-block h-3.5 w-3.5" />{mappingNotice}</p>}{!mappingCandidate && <p className="mt-2 text-[12px] text-[var(--color-warning)]">当前映射不在最新 RAG 候选列表中，已禁用同步，请先重新确认映射。</p>}</div>}
 
-        {statusOk && !mappingError && !mappingLoading && currentMapping && !isEditingMapping && <div className="mt-4 rounded-xl border border-[#444653]/40 bg-[#0b1326]/50 p-4"><p className="font-semibold text-[14px]">选择同步类型</p><div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-3">{SYNC_OPTIONS.map(option => { const checked = selectedTypes.includes(option.type); return <label key={option.type} className={`flex items-start gap-2.5 rounded-lg border p-3 ${checked ? 'border-[#4cd7f6]/60 bg-[#03b5d3]/10' : 'border-[#444653]/40 bg-[#131b2e]'}`}><input type="checkbox" checked={checked} onChange={() => toggleType(option.type)} disabled={busy || !canSync} className="mt-0.5 accent-[#4cd7f6]" /><span><span className="block text-[13px] font-semibold">{option.label}</span><span className="block text-[11px] text-[#8e909f] mt-0.5">{option.description}</span></span></label>; })}</div><div className="mt-3 flex justify-end"><button type="button" onClick={() => void handleSync()} disabled={!canSync} className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-[#03b5d3] text-[#001f26] text-[12px] font-bold disabled:opacity-40">{operation === 'syncing' && <Loader2 className="w-3.5 h-3.5 animate-spin" />}{operation === 'syncing' ? '同步执行中…' : selectedTypes.length > 1 ? '开始批量同步' : '开始单类同步'}</button></div></div>}
+        {statusOk && !mappingError && !mappingLoading && currentMapping && !isEditingMapping && <div className="surface-card mt-4 rounded-xl p-4"><p className="text-[14px] font-semibold">选择同步类型</p><div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">{SYNC_OPTIONS.map(option => { const checked = selectedTypes.includes(option.type); return <label key={option.type} className={`flex items-start gap-2.5 rounded-lg border p-3 ${checked ? 'border-[var(--color-brand)]/60 bg-[var(--color-brand-muted)]' : 'border-[var(--color-border)] bg-[var(--color-surface-2)]'}`}><input type="checkbox" checked={checked} onChange={() => toggleType(option.type)} disabled={busy || !canSync} className="mt-0.5 accent-[var(--color-brand)]" /><span><span className="block text-[13px] font-semibold">{option.label}</span><span className="mt-0.5 block text-[11px] text-[var(--color-text-muted)]">{option.description}</span></span></label>; })}</div><div className="mt-3 flex justify-end"><button type="button" onClick={() => void handleSync()} disabled={!canSync} className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--color-brand)] px-4 py-2 text-[12px] font-bold text-white hover:bg-[var(--color-brand-hover)] disabled:opacity-40">{operation === 'syncing' && <Loader2 className="h-3.5 w-3.5 animate-spin" />}{operation === 'syncing' ? '同步执行中…' : selectedTypes.length > 1 ? '开始批量同步' : '开始单类同步'}</button></div></div>}
 
-        {activeProjectId && <div className="mt-4 rounded-xl border border-[#F59E0B]/35 bg-[#F59E0B]/5 p-4">
-          <div className="flex items-start justify-between gap-3"><div><p className="font-semibold text-[14px] text-[#ffd0a8]">待复核合同</p><p className="text-[12px] text-[#c4c5d5] mt-1">只有管理员二次确认后，系统才会按 Tax 保存的抽取结果创建缺失交易方主数据并导入合同。</p></div><button type="button" onClick={() => void reloadPendingContracts()} disabled={pendingContractsLoading || busy} className="px-2.5 py-1.5 rounded-lg bg-[#222a3d] text-[12px] disabled:opacity-40">{pendingContractsLoading ? '读取中…' : '刷新'}</button></div>
-          {pendingContractsError && <p className="mt-2 text-[12px] text-[#ffb4ab]" role="alert">{pendingContractsError}</p>}
-          {!pendingContractsLoading && !pendingContractsError && pendingContracts.length === 0 && <p className="mt-2 text-[12px] text-[#8e909f]">当前项目没有待复核合同。</p>}
+        {activeProjectId && <div className="mt-4 rounded-xl border border-[var(--color-warning)]/30 bg-[var(--color-warning)]/10 p-4">
+          <div className="flex items-start justify-between gap-3"><div><p className="text-[14px] font-semibold text-[var(--color-warning)]">待复核合同</p><p className="mt-1 text-[12px] text-[var(--color-text-secondary)]">只有管理员二次确认后，系统才会按 Tax 保存的抽取结果创建缺失交易方主数据并导入合同。</p></div><button type="button" onClick={() => void reloadPendingContracts()} disabled={pendingContractsLoading || busy} className="rounded-lg bg-[var(--color-surface-2)] px-2.5 py-1.5 text-[12px] disabled:opacity-40">{pendingContractsLoading ? '读取中…' : '刷新'}</button></div>
+          {pendingContractsError && <p className="mt-2 text-[12px] text-[var(--color-danger)]" role="alert">{pendingContractsError}</p>}
+          {!pendingContractsLoading && !pendingContractsError && pendingContracts.length === 0 && <p className="mt-2 text-[12px] text-[var(--color-text-muted)]">当前项目没有待复核合同。</p>}
           <div className="mt-3 space-y-3">{pendingContracts.map(item => {
             const hasAnyParty = Boolean(item.partyA.name || item.partyA.taxId || item.partyB.name || item.partyB.taxId);
             return (
-              <div key={item.id} className="rounded-lg border border-[#F59E0B]/25 bg-[#131b2e] p-3 text-[12px]">
+              <div key={item.id} className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-2)] p-3 text-[12px]">
                 <div className="flex justify-between gap-3">
                   <div className="min-w-0">
-                    <p className="font-semibold break-all">{item.filename}</p>
-                    <p className="text-[#8e909f] mt-1">来源 chunk #{item.sourceChunkId}{item.pageStart ? ` · 第 ${item.pageStart} 页` : ''} · 置信度 {(item.confidence * 100).toFixed(1)}%</p>
+                    <p className="break-all font-semibold">{item.filename}</p>
+                    <p className="mt-1 text-[var(--color-text-muted)]">来源 chunk #{item.sourceChunkId}{item.pageStart ? ` · 第 ${item.pageStart} 页` : ''} · 置信度 {(item.confidence * 100).toFixed(1)}%</p>
                   </div>
                 </div>
-                <p className="mt-2 text-[#ffd0a8]">{item.reason}</p>
+                <p className="mt-2 text-[var(--color-warning)]">{item.reason}</p>
                 {!hasAnyParty && (
-                  <p className="mt-2 text-[11px] text-[#fca5a5] bg-[#7f1d1d]/30 border border-[#f87171]/40 rounded px-2.5 py-1.5">
+                  <p className="mt-2 rounded border border-[var(--color-warning)]/30 bg-[var(--color-warning)]/10 px-2.5 py-1.5 text-[11px] text-[var(--color-warning)]">
                     ℹ️ 此文件为附件/扫描件（无甲乙双方主体与税号信息），无法作为独立合同台账入库，请点击【忽略此记录】。
                   </p>
                 )}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2 text-[#c4c5d5]">
-                  <p><span className="text-[#8e909f]">甲方：</span>{item.partyA.name || '未提供名称'}<br /><span className="text-[#8e909f]">税号：</span>{item.partyA.taxId || '未提供'}</p>
-                  <p><span className="text-[#8e909f]">乙方：</span>{item.partyB.name || '未提供名称'}<br /><span className="text-[#8e909f]">税号：</span>{item.partyB.taxId || '未提供'}</p>
+                <div className="mt-2 grid grid-cols-1 gap-2 text-[var(--color-text-secondary)] sm:grid-cols-2">
+                  <p><span className="text-[var(--color-text-muted)]">甲方：</span>{item.partyA.name || '未提供名称'}<br /><span className="text-[var(--color-text-muted)]">税号：</span>{item.partyA.taxId || '未提供'}</p>
+                  <p><span className="text-[var(--color-text-muted)]">乙方：</span>{item.partyB.name || '未提供名称'}<br /><span className="text-[var(--color-text-muted)]">税号：</span>{item.partyB.taxId || '未提供'}</p>
                 </div>
                 {confirmPendingId === item.id ? (
-                  <div className="mt-3 rounded-lg border border-[#EF4444]/50 bg-[#EF4444]/10 p-3">
-                    <p className="font-semibold text-[#ffb4ab]">旧手工创建入口已停用</p>
-                    <p className="mt-1 text-[#c4c5d5]">该记录只能继续复核或忽略；交易方身份与合同事实统一由 Canonical Facts 自动归一化。</p>
+                  <div className="mt-3 rounded-lg border border-[var(--color-danger)]/30 bg-[var(--color-danger)]/10 p-3">
+                    <p className="font-semibold text-[var(--color-danger)]">旧手工创建入口已停用</p>
+                    <p className="mt-1 text-[var(--color-text-secondary)]">该记录只能继续复核或忽略；交易方身份与合同事实统一由 Canonical Facts 自动归一化。</p>
                     <div className="mt-2 flex gap-2">
-                      <button type="button" onClick={() => setConfirmPendingId(null)} disabled={busy} className="px-3 py-1.5 rounded-lg bg-[#222a3d] text-[12px] disabled:opacity-40">取消</button>
-                      <span className="px-3 py-1.5 rounded-lg bg-[#334155]/50 text-[#cbd5e1] text-[12px]">已停用</span>
+                      <button type="button" onClick={() => setConfirmPendingId(null)} disabled={busy} className="rounded-lg bg-[var(--color-surface-2)] px-3 py-1.5 text-[12px] disabled:opacity-40">取消</button>
+                      <span className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 py-1.5 text-[12px] text-[var(--color-text-secondary)]">已停用</span>
                     </div>
                   </div>
                 ) : confirmRejectPendingId === item.id ? (
-                  <div className="mt-3 rounded-lg border border-[#64748b]/50 bg-[#334155]/20 p-3">
-                    <p className="font-semibold text-[#cbd5e1]">确认忽略此待复核记录？</p>
-                    <p className="mt-1 text-[#94a3b8]">忽略后此记录将标记为 rejected，不再提示待复核，也不会录入合同台账。</p>
+                  <div className="surface-card mt-3 rounded-lg p-3">
+                    <p className="font-semibold text-[var(--color-text-primary)]">确认忽略此待复核记录？</p>
+                    <p className="mt-1 text-[var(--color-text-secondary)]">忽略后此记录将标记为 rejected，不再提示待复核，也不会录入合同台账。</p>
                     <div className="mt-2 flex gap-2">
-                      <button type="button" onClick={() => setConfirmRejectPendingId(null)} disabled={busy} className="px-3 py-1.5 rounded-lg bg-[#222a3d] text-[12px] disabled:opacity-40">取消</button>
-                      <button type="button" onClick={() => void handleRejectPendingContract(item.id)} disabled={busy} className="px-3 py-1.5 rounded-lg bg-[#475569] text-white font-bold text-[12px] disabled:opacity-40">{rejectingPendingId === item.id ? '处理中…' : '确认忽略'}</button>
+                      <button type="button" onClick={() => setConfirmRejectPendingId(null)} disabled={busy} className="rounded-lg bg-[var(--color-surface-2)] px-3 py-1.5 text-[12px] disabled:opacity-40">取消</button>
+                      <button type="button" onClick={() => void handleRejectPendingContract(item.id)} disabled={busy} className="rounded-lg bg-[var(--color-brand)] px-3 py-1.5 text-[12px] font-bold text-white disabled:opacity-40">{rejectingPendingId === item.id ? '处理中…' : '确认忽略'}</button>
                     </div>
                   </div>
                 ) : (
                   <div className="mt-3 flex flex-wrap gap-2">
                     {hasAnyParty && (
-                      <span className="px-3 py-1.5 rounded-lg border border-[#10B981]/30 bg-[#10B981]/10 text-[#b6f4d8] text-[12px]">Canonical Facts 自动直通，无需手工创建交易方</span>
+                      <span className="rounded-lg border border-[var(--color-success)]/30 bg-[var(--color-success)]/10 px-3 py-1.5 text-[12px] text-[var(--color-success)]">Canonical Facts 自动直通，无需手工创建交易方</span>
                     )}
-                    <button type="button" onClick={() => { setConfirmRejectPendingId(item.id); setConfirmPendingId(null); }} disabled={busy} className={`px-3 py-1.5 rounded-lg text-[12px] disabled:opacity-40 transition-colors ${!hasAnyParty ? 'bg-[#3b82f6] text-white font-bold hover:bg-[#2563eb]' : 'bg-[#222a3d] border border-[#444653]/60 text-[#c4c5d5] hover:text-white'}`}>忽略此记录</button>
+                    <button type="button" onClick={() => { setConfirmRejectPendingId(item.id); setConfirmPendingId(null); }} disabled={busy} className={`rounded-lg px-3 py-1.5 text-[12px] transition-colors disabled:opacity-40 ${!hasAnyParty ? 'bg-[var(--color-brand)] font-bold text-white hover:bg-[var(--color-brand-hover)]' : 'border border-[var(--color-border)] bg-[var(--color-surface-2)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]'}`}>忽略此记录</button>
                   </div>
                 )}
               </div>
@@ -537,9 +537,9 @@ export function NewTaxRecordModal({
           })}</div>
         </div>}
 
-        {syncResults.length > 0 && <div className={`mt-4 rounded-xl border p-4 ${resultTone}`} role="status"><p className="font-semibold">同步结果：{statusLabel(operation === 'pending' ? 'PENDING_REVIEW' : operation === 'partial' ? 'PARTIAL' : operation === 'success' ? 'SUCCESS' : operation === 'running' ? 'RUNNING' : 'FAILED')}</p><div className="grid grid-cols-3 gap-2 mt-3 text-[12px]"><div><span className="block opacity-70">抽取</span><strong>{totalExtracted}</strong></div><div><span className="block opacity-70">已导入</span><strong>{totalImported}</strong></div><div><span className="block opacity-70">待复核</span><strong>{totalPending}</strong></div></div><div className="mt-3 space-y-2">{syncResults.map(result => <div key={`${result.syncType}-${result.syncLogId}`} className="rounded-lg border border-current/20 bg-black/10 p-2.5 text-[12px]"><div className="flex justify-between gap-2"><span>{SYNC_OPTIONS.find(option => option.type === result.syncType)?.label || result.syncType}</span><span>{statusLabel(result.status)}</span></div>{result.errors.length > 0 && <ul className="mt-1.5 list-disc list-inside">{result.errors.map((item, index) => <li key={`${result.syncLogId}-${index}`}>{item}</li>)}</ul>}</div>)}</div></div>}
+        {syncResults.length > 0 && <div className={`mt-4 rounded-xl border p-4 ${resultTone}`} role="status"><p className="font-semibold">同步结果：{statusLabel(operation === 'pending' ? 'PENDING_REVIEW' : operation === 'partial' ? 'PARTIAL' : operation === 'success' ? 'SUCCESS' : operation === 'running' ? 'RUNNING' : 'FAILED')}</p><div className="mt-3 grid grid-cols-3 gap-2 text-[12px]"><div><span className="block opacity-70">抽取</span><strong>{totalExtracted}</strong></div><div><span className="block opacity-70">已导入</span><strong>{totalImported}</strong></div><div><span className="block opacity-70">待复核</span><strong>{totalPending}</strong></div></div><div className="mt-3 space-y-2">{syncResults.map(result => <div key={`${result.syncType}-${result.syncLogId}`} className="rounded-lg border border-current/20 bg-[var(--color-surface-2)] p-2.5 text-[12px]"><div className="flex justify-between gap-2"><span>{SYNC_OPTIONS.find(option => option.type === result.syncType)?.label || result.syncType}</span><span>{statusLabel(result.status)}</span></div>{result.errors.length > 0 && <ul className="mt-1.5 list-inside list-disc">{result.errors.map((item, index) => <li key={`${result.syncLogId}-${index}`}>{item}</li>)}</ul>}</div>)}</div></div>}
 
-        <div className="flex justify-end mt-5 pt-4 border-t border-[#444653]/30"><button type="button" onClick={onClose} disabled={busy} className="px-4 py-2 rounded-lg bg-[#222a3d] text-[#dae2fd] disabled:opacity-40">关闭</button></div>
+        <div className="mt-5 flex justify-end border-t border-[var(--color-border)] pt-4"><button type="button" onClick={onClose} disabled={busy} className="rounded-lg bg-[var(--color-surface-2)] px-4 py-2 text-[var(--color-text-primary)] disabled:opacity-40">关闭</button></div>
       </div>
     </div>
   );
