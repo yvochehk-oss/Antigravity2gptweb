@@ -28,19 +28,19 @@ function formatAmount(value: number): string {
 
 function StatutoryKpi({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-xl border border-[#4cd7f6]/20 bg-[#03b5d3]/5 p-4">
-      <p className="text-[11px] text-[#8e909f]">{label}</p>
-      <p className="mt-2 break-all text-[19px] font-bold text-[#dde1ff]">{value}</p>
+    <div className="surface-card rounded-xl border border-default p-4">
+      <p className="text-[11px] text-secondary">{label}</p>
+      <p className="mt-2 break-all text-[19px] font-bold text-primary">{value}</p>
     </div>
   );
 }
 
 function ProjectKpi({ label, value, note }: { label: string; value: string; note: string }) {
   return (
-    <div className="glass-panel rounded-xl border border-[#8b5cf6]/20 p-4">
-      <p className="text-[11px] text-[#8e909f]">{label}</p>
-      <p className="mt-2 break-all text-[19px] font-bold text-[#dae2fd]">{value}</p>
-      <p className="mt-2 text-[10px] leading-relaxed text-[#8e909f]">{note}</p>
+    <div className="surface-card rounded-xl border border-default p-4">
+      <p className="text-[11px] text-secondary">{label}</p>
+      <p className="mt-2 break-all text-[19px] font-bold text-primary">{value}</p>
+      <p className="mt-2 text-[10px] leading-relaxed text-secondary">{note}</p>
     </div>
   );
 }
@@ -82,39 +82,39 @@ export function DashboardView({
     <div className="space-y-6">
       <header data-page-title="dashboard" className="w-full">
         <div className="flex items-start gap-2.5">
-          <LayoutDashboard className="mt-1 h-7 w-7 flex-shrink-0 text-[#4cd7f6]" />
+          <LayoutDashboard className="mt-1 h-7 w-7 flex-shrink-0 text-brand" />
           <div>
-            <h2 className="text-[28px] font-bold tracking-tight text-[#dae2fd]">集团经营总览</h2>
-            <p className="mt-1 text-[14px] text-[#c4c5d5]">法人法定申报事实与项目工程管理口径分区展示，禁止跨域混算。</p>
+            <h2 className="text-[28px] font-bold tracking-tight text-primary">集团经营总览</h2>
+            <p className="mt-1 text-[14px] text-secondary">法人法定申报事实与项目工程管理口径分区展示，禁止跨域混算。</p>
           </div>
         </div>
       </header>
 
-      <div data-page-controls="dashboard" className="glass-panel flex flex-wrap items-center justify-end gap-3 rounded-xl border border-[#444653]/30 p-3.5">
+      <div data-page-controls="dashboard" className="surface-card flex flex-wrap items-center justify-end gap-3 rounded-xl border border-default p-3.5">
         <button
           type="button"
           onClick={onOpenExportModal}
           disabled={projects.length === 0 && taxLedgerRecords.length === 0}
-          className="flex items-center gap-2 rounded-lg border-t border-[#4cd7f6]/40 bg-[#1e40af] px-4 py-2 text-[13px] font-semibold text-[#dde1ff] transition-colors hover:bg-[#1e40af]/80 disabled:cursor-not-allowed disabled:opacity-40"
+          className="flex items-center gap-2 rounded-lg border border-[var(--color-brand)] bg-[var(--color-brand)] px-4 py-2 text-[13px] font-semibold text-white transition-colors hover:bg-[var(--color-brand-hover)] disabled:cursor-not-allowed disabled:opacity-40"
         >
-          <Download className="h-4 w-4 text-[#4cd7f6]" />
+          <Download className="h-4 w-4" />
           <span>导出当前真实数据</span>
         </button>
       </div>
 
-      <section aria-label="法人主体法定税务总览" className="space-y-4 rounded-2xl border border-[#4cd7f6]/30 bg-[#03b5d3]/5 p-5">
+      <section aria-label="法人主体法定税务总览" className="surface-card space-y-4 rounded-2xl border border-default p-5">
         <div className="flex flex-col justify-between gap-3 md:flex-row md:items-center">
           <div>
-            <div className="flex items-center gap-2 text-[#4cd7f6]">
+            <div className="flex items-center gap-2 text-brand">
               <Landmark className="h-5 w-5" />
-              <h3 className="text-[17px] font-bold text-[#dae2fd]">法人主体法定申报增值税总览</h3>
+              <h3 className="text-[17px] font-bold text-primary">法人主体法定申报增值税总览</h3>
             </div>
-            <p className="mt-1 text-[12px] font-semibold text-[#4cd7f6]">法人法定申报 · 法定申报口径</p>
+            <p className="mt-1 text-[12px] font-semibold text-secondary">法人法定申报 · 法定申报口径</p>
           </div>
           <button
             type="button"
             onClick={() => onOpenEntityCorporate(entityCodes[0])}
-            className="rounded-lg border border-[#4cd7f6]/30 bg-[#03b5d3]/10 px-3 py-2 text-[12px] font-semibold text-[#4cd7f6] hover:bg-[#03b5d3]/20"
+            className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 py-2 text-[12px] font-semibold text-primary transition-colors hover:border-[var(--color-brand)] hover:text-brand"
           >
             进入法人经营画像
           </button>
@@ -131,16 +131,16 @@ export function DashboardView({
           <StatutoryKpi label="本期法定应纳税额合计" value={hasStatutoryData ? formatAmount(totalVatPayableAfterPrepayment) : '—'} />
           <StatutoryKpi label="期末留抵税额合计" value={hasStatutoryData ? formatAmount(totalClosingInputCredit) : '—'} />
         </div>
-        <p className="text-[11px] leading-relaxed text-[#8e909f]">权威来源：法人增值税法定台账。本区域不展示项目增值税管理净头寸。</p>
+        <p className="text-[11px] leading-relaxed text-secondary">权威来源：法人增值税法定台账。本区域不展示项目增值税管理净头寸。</p>
       </section>
 
-      <section aria-label="项目工程管理口径总览" className="space-y-4 rounded-2xl border border-[#8b5cf6]/30 bg-[#8b5cf6]/5 p-5">
+      <section aria-label="项目工程管理口径总览" className="surface-card space-y-4 rounded-2xl border border-default p-5">
         <div>
-          <div className="flex items-center gap-2 text-[#c4b5fd]">
+          <div className="flex items-center gap-2 text-brand">
             <Building2 className="h-5 w-5" />
-            <h3 className="text-[17px] font-bold text-[#dae2fd]">项目工程管理边界总览</h3>
+            <h3 className="text-[17px] font-bold text-primary">项目工程管理边界总览</h3>
           </div>
-          <p className="mt-1 text-[12px] font-semibold text-[#c4b5fd]">项目管理边界 · 项目管理／测算口径</p>
+          <p className="mt-1 text-[12px] font-semibold text-secondary">项目管理边界 · 项目管理／测算口径</p>
         </div>
 
         {dataStatus !== 'READY' && (
@@ -158,32 +158,32 @@ export function DashboardView({
           />
         </div>
 
-        <div className="rounded-xl border border-[#444653]/30 bg-[#171f33]/45 p-4">
+        <div className="rounded-xl border border-default bg-[var(--color-surface-2)] p-4">
           <div className="mb-3 flex items-center justify-between">
-            <h4 className="flex items-center gap-2 text-[14px] font-bold text-[#dae2fd]">
-              <Building2 className="h-4 w-4 text-[#c4b5fd]" />
+            <h4 className="flex items-center gap-2 text-[14px] font-bold text-primary">
+              <Building2 className="h-4 w-4 text-brand" />
               项目工程列表
             </h4>
-            <span className="text-[10px] text-[#8e909f]">点击进入项目管理边界详情</span>
+            <span className="text-[10px] text-secondary">点击进入项目管理边界详情</span>
           </div>
           <div className="space-y-2">
             {projects.length === 0 ? (
-              <p className="rounded-lg border border-[#444653]/20 px-3 py-5 text-center text-[12px] text-[#8e909f]">当前没有已加载项目。</p>
+              <p className="rounded-lg border border-default px-3 py-5 text-center text-[12px] text-secondary">当前没有已加载项目。</p>
             ) : projects.map(project => (
               <button
                 type="button"
                 key={project.id}
                 onClick={() => onSelectProject(project.id)}
-                className="w-full rounded-lg border border-[#444653]/30 bg-[#131b2e]/70 p-3 text-left transition-colors hover:border-[#8b5cf6]/50"
+                className="w-full rounded-lg border border-default bg-[var(--color-surface)] p-3 text-left transition-colors hover:border-[var(--color-brand)]"
               >
                 <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-center">
                   <div className="min-w-0">
-                    <p className="truncate font-semibold text-[#dae2fd]">{project.name}</p>
-                    <p className="mt-1 text-[11px] text-[#8e909f]">{project.projectCode || '未提供项目编码'} · {project.location}</p>
+                    <p className="truncate font-semibold text-primary">{project.name}</p>
+                    <p className="mt-1 text-[11px] text-secondary">{project.projectCode || '未提供项目编码'} · {project.location}</p>
                   </div>
-                  <div className="flex flex-shrink-0 items-center gap-3 text-[11px] text-[#c4c5d5]">
+                  <div className="flex flex-shrink-0 items-center gap-3 text-[11px] text-secondary">
                     <span>进度 {project.progressPercent.toFixed(1)}%</span>
-                    <ExternalLink className="h-3.5 w-3.5 text-[#c4b5fd]" />
+                    <ExternalLink className="h-3.5 w-3.5 text-brand" />
                   </div>
                 </div>
               </button>
@@ -196,26 +196,26 @@ export function DashboardView({
         <button
           type="button"
           onClick={onOpenRiskCenter}
-          className="glass-panel rounded-xl border border-[#EF4444]/30 p-5 text-left transition-colors hover:bg-[#EF4444]/5"
+          className="surface-card rounded-xl border border-default p-5 text-left transition-colors hover:border-[var(--color-danger)]"
         >
-          <div className="flex items-center gap-2 text-[#EF4444]"><ShieldAlert className="h-4 w-4" /><h3 className="font-semibold text-[#dae2fd]">风险中心</h3></div>
-          <p className="mt-3 text-[13px] leading-relaxed text-[#c4c5d5]">{hasRiskData ? `未闭环风险事件：${unresolvedRiskCount} 条` : '未闭环风险事件：—'}</p>
-          <p className="mt-2 text-[11px] leading-relaxed text-[#c4c5d5]">{riskStatusMessage}</p>
-          <span className="mt-3 inline-block rounded border border-[#EF4444]/30 px-2 py-1 text-[10px] font-bold text-[#EF4444]">{dataStatusLabel(riskStatus)}</span>
+          <div className="flex items-center gap-2 text-[var(--color-danger)]"><ShieldAlert className="h-4 w-4" /><h3 className="font-semibold text-primary">风险中心</h3></div>
+          <p className="mt-3 text-[13px] leading-relaxed text-secondary">{hasRiskData ? `未闭环风险事件：${unresolvedRiskCount} 条` : '未闭环风险事件：—'}</p>
+          <p className="mt-2 text-[11px] leading-relaxed text-secondary">{riskStatusMessage}</p>
+          <span className="mt-3 inline-block rounded border border-[var(--color-danger)] px-2 py-1 text-[10px] font-bold text-[var(--color-danger)]">{dataStatusLabel(riskStatus)}</span>
         </button>
 
-        <div className="glass-panel rounded-xl border border-[#444653]/30 p-5">
-          <div className="flex items-center gap-2 text-[#4cd7f6]"><Database className="h-4 w-4" /><h3 className="font-semibold text-[#dae2fd]">数据源健康状态</h3></div>
+        <div className="surface-card rounded-xl border border-default p-5">
+          <div className="flex items-center gap-2 text-brand"><Database className="h-4 w-4" /><h3 className="font-semibold text-primary">数据源健康状态</h3></div>
           <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <div className="rounded-lg border border-[#444653]/25 bg-[#131b2e]/70 p-3">
-              <p className="text-[11px] text-[#8e909f]">法人法定申报增值税</p>
-              <p className="mt-1 text-[13px] font-semibold text-[#dae2fd]">{dataStatusLabel(taxLedgerStatus)}</p>
-              <p className="mt-1 text-[10px] text-[#8e909f]">法人增值税法定台账</p>
+            <div className="rounded-lg border border-default bg-[var(--color-surface-2)] p-3">
+              <p className="text-[11px] text-secondary">法人法定申报增值税</p>
+              <p className="mt-1 text-[13px] font-semibold text-primary">{dataStatusLabel(taxLedgerStatus)}</p>
+              <p className="mt-1 text-[10px] text-secondary">法人增值税法定台账</p>
             </div>
-            <div className="rounded-lg border border-[#444653]/25 bg-[#131b2e]/70 p-3">
-              <p className="text-[11px] text-[#8e909f]">项目管理边界</p>
-              <p className="mt-1 text-[13px] font-semibold text-[#dae2fd]">{dataStatusLabel(dataStatus)}</p>
-              <p className="mt-1 text-[10px] text-[#8e909f]">项目真实接口／规范经营投影</p>
+            <div className="rounded-lg border border-default bg-[var(--color-surface-2)] p-3">
+              <p className="text-[11px] text-secondary">项目管理边界</p>
+              <p className="mt-1 text-[13px] font-semibold text-primary">{dataStatusLabel(dataStatus)}</p>
+              <p className="mt-1 text-[10px] text-secondary">项目真实接口／规范经营投影</p>
             </div>
           </div>
         </div>
