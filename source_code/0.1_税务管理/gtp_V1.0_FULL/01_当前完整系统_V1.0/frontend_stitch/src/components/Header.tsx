@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react';
-import { 
-  Search, 
-  Bell, 
-  Settings, 
-  Sparkles, 
-  Menu, 
+import {
+  Search,
+  Bell,
+  Settings,
+  Sparkles,
+  Menu,
   Radio,
   User as UserIcon,
 } from 'lucide-react';
@@ -54,90 +54,86 @@ export function Header({
   }, []);
 
   return (
-    <header className="fixed top-0 right-0 left-0 md:left-48 h-16 bg-[#0b1326]/80 backdrop-blur-md border-b border-[#444653]/30 z-30 flex items-center justify-between px-4 md:px-6 gap-4">
-      {/* 左侧：移动端菜单 + 实时监管胶囊 + 全局检索栏 (向左移) */}
-      <div className="flex items-center gap-3 sm:gap-4 flex-1 min-w-0">
-        <button 
+    <header className="fixed top-0 right-0 left-0 md:left-48 z-30 flex h-14 items-center justify-between gap-4 border-b border-[var(--color-border)] bg-[var(--color-bg)] px-4 md:px-6">
+      {/* 左侧：移动端菜单 + 实时监管胶囊 + 全局检索栏 */}
+      <div className="flex min-w-0 flex-1 items-center gap-3 sm:gap-4">
+        <button
           onClick={onToggleMobileMenu}
-          className="md:hidden p-2 rounded-lg text-[#dae2fd] hover:bg-[#222a3d] flex-shrink-0"
+          className="flex-shrink-0 rounded-lg p-2 text-[var(--color-text-primary)] transition-colors hover:bg-[var(--color-surface-2)] md:hidden"
           title="打开导航菜单"
         >
-          <Menu className="w-5 h-5" />
+          <Menu className="h-5 w-5" />
         </button>
 
-        <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#03b5d3]/10 border border-[#4cd7f6]/20 text-[11px] text-[#4cd7f6] flex-shrink-0">
-          <Radio className="w-3 h-3 text-[#4cd7f6] animate-pulse" />
+        <div className="hidden flex-shrink-0 items-center gap-1.5 rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] px-2.5 py-1 text-[var(--font-xs)] text-[var(--color-text-secondary)] sm:flex">
+          <Radio className="h-3 w-3 text-[var(--color-brand)] animate-slow-pulse" />
           <span>实时监管中 · 四流核验{settings.autoFourFlowsMatch ? '已激活' : '抽查模式'}</span>
         </div>
 
-        {/* 全局检索栏 (左移至此处) */}
-        <div className="relative group flex-1 max-w-xs md:max-w-sm lg:max-w-md min-w-[180px]">
-          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[#8e909f] group-focus-within:text-[#4cd7f6] transition-colors" />
+        <div className="group relative min-w-[180px] max-w-xs flex-1 md:max-w-sm lg:max-w-md">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-text-muted)] transition-colors group-focus-within:text-[var(--color-brand)]" />
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => onSearchChange(e.target.value)}
             placeholder="搜索工程项目、税务凭证、发票号码..."
-            className="w-full bg-[#131b2e] border-b border-[#444653]/50 focus:border-[#4cd7f6] text-[12px] font-mono-num text-[#dae2fd] pl-9 pr-3 py-1.5 rounded-t focus:outline-none focus:bg-[#171f33] transition-all placeholder:text-[#8e909f]"
+            className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] py-1.5 pl-9 pr-3 text-[var(--font-xs)] font-mono-num text-[var(--color-text-primary)] transition-colors placeholder:text-[var(--color-text-muted)] focus:border-[var(--color-brand)] focus:bg-[var(--color-surface-2)] focus:outline-none"
           />
         </div>
       </div>
 
-      {/* 右侧：快捷工具、用户头像与AI助手 */}
-      <div className="flex items-center gap-1.5 sm:gap-3 flex-shrink-0">
-
-        {/* AI助手唤醒按钮 */}
+      {/* 右侧：快捷工具、用户头像与智能助手 */}
+      <div className="flex flex-shrink-0 items-center gap-1.5 sm:gap-3">
         <button
           onClick={onToggleAi}
-          className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-[12px] font-semibold border transition-all cursor-pointer ${
+          className={`flex cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[var(--font-xs)] font-semibold transition-colors sm:px-3 ${
             isAiOpen
-              ? 'bg-[#03b5d3]/20 border-[#4cd7f6] text-[#4cd7f6] shadow-[0_0_12px_rgba(76,215,246,0.3)]'
-              : 'bg-[#171f33] border-[#444653]/50 text-[#dae2fd] hover:border-[#4cd7f6]/50 hover:text-[#4cd7f6]'
+              ? 'border-[var(--color-brand)] bg-[var(--color-brand-muted)] text-[var(--color-brand)]'
+              : 'border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text-primary)] hover:border-[var(--color-brand)] hover:text-[var(--color-brand)]'
           }`}
           title="切换智能风控助手"
         >
-          <Sparkles className="w-3.5 h-3.5 text-[#4cd7f6] animate-slow-pulse" />
+          <Sparkles className="h-3.5 w-3.5 text-[var(--color-brand)] animate-slow-pulse" />
           <span className="hidden sm:inline">锐宝智能助手</span>
-          <span className="sm:hidden text-[11px]">AI助手</span>
+          <span className="sm:hidden text-[var(--font-xs)]">智能助手</span>
         </button>
 
-        {/* 预警通知 */}
         <div className="relative">
           <button
             onClick={() => setShowNotificationList(!showNotificationList)}
-            className="p-2 rounded-full text-[#c4c5d5] hover:text-[#dae2fd] hover:bg-[#222a3d] transition-colors relative cursor-pointer"
+            className="relative cursor-pointer rounded-full p-2 text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-surface-2)] hover:text-[var(--color-text-primary)]"
             title="预警通知"
             aria-expanded={showNotificationList}
           >
-            <Bell className="w-4 h-4" />
+            <Bell className="h-4 w-4" />
             {hasUnreadRisks && (
               <span
-                className="absolute top-1 right-1 w-2 h-2 rounded-full bg-[#EF4444] shadow-[0_0_6px_#EF4444]"
+                className="absolute right-1 top-1 h-2 w-2 rounded-full bg-[var(--color-danger)]"
                 aria-label={`${unresolvedRiskCount} 条未闭环风险`}
               />
             )}
           </button>
 
           {showNotificationList && (
-            <div className="absolute right-0 mt-2 w-[calc(100vw-2rem)] max-w-xs sm:w-80 bg-[#171f33] border border-[#4cd7f6]/30 rounded-xl shadow-2xl p-4 z-50">
-              <div className="flex items-center justify-between pb-2 border-b border-[#444653]/30">
-                <span className="text-[13px] font-bold text-[#dae2fd]">实时涉税与成本预警</span>
-                <span className="text-[11px] text-[#4cd7f6] cursor-pointer hover:underline" onClick={() => setShowNotificationList(false)}>全部已读</span>
+            <div className="absolute right-0 z-50 mt-2 w-[calc(100vw-2rem)] max-w-xs rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4 shadow-[var(--shadow-elevated)] sm:w-80">
+              <div className="flex items-center justify-between border-b border-[var(--color-border)] pb-2">
+                <span className="text-[var(--font-sm)] font-bold text-[var(--color-text-primary)]">实时涉税与成本预警</span>
+                <span className="cursor-pointer text-[var(--font-xs)] text-[var(--color-brand)] hover:underline" onClick={() => setShowNotificationList(false)}>全部已读</span>
               </div>
-              <div className="mt-2 space-y-2 text-[12px]" role="status" aria-live="polite">
+              <div className="mt-2 space-y-2 text-[var(--font-xs)]" role="status" aria-live="polite">
                 {riskStatus === 'READY' ? (
-                  <div className="p-2.5 rounded-lg bg-[#10B981]/10 border border-[#10B981]/30">
-                    <p className="font-semibold text-[#10B981]">
+                  <div className="rounded-lg border border-[var(--color-success)]/30 bg-[var(--color-success)]/10 p-2.5">
+                    <p className="font-semibold text-[var(--color-success)]">
                       {unresolvedRiskCount > 0 ? `当前有 ${unresolvedRiskCount} 条未闭环风险` : '当前没有未闭环风险'}
                     </p>
-                    <p className="text-[11px] text-[#c4c5d5] mt-1">
+                    <p className="mt-1 text-[var(--font-xs)] text-[var(--color-text-secondary)]">
                       进入“风控预警中心”查看后端返回的风险详情与处置状态。
                     </p>
                   </div>
                 ) : (
-                  <div className="p-2.5 rounded-lg bg-[#F59E0B]/10 border border-[#F59E0B]/30">
-                    <p className="font-semibold text-[#F59E0B]">风险集合 {riskStatus}</p>
-                    <p className="text-[11px] text-[#c4c5d5] mt-1">
+                  <div className="rounded-lg border border-[var(--color-warning)]/30 bg-[var(--color-warning)]/10 p-2.5">
+                    <p className="font-semibold text-[var(--color-warning)]">风险集合 {riskStatus}</p>
+                    <p className="mt-1 text-[var(--font-xs)] text-[var(--color-text-secondary)]">
                       当前 Tax 后端未提供风险集合接口，页面未加载本地演示预警。
                     </p>
                   </div>
@@ -147,20 +143,18 @@ export function Header({
           )}
         </div>
 
-        {/* 系统设置 */}
         <button
           onClick={() => setShowSettingsModal(true)}
-          className="p-2 rounded-full text-[#c4c5d5] hover:text-[#dae2fd] hover:bg-[#222a3d] transition-colors cursor-pointer relative group"
+          className="group relative cursor-pointer rounded-full p-2 text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-surface-2)] hover:text-[var(--color-text-primary)]"
           title="系统运行参数与风控阈值配置"
         >
-          <Settings className="w-4 h-4 group-hover:rotate-45 transition-transform" />
+          <Settings className="h-4 w-4 transition-transform group-hover:rotate-45" />
           <span className="sr-only">系统参数设置</span>
         </button>
 
-        {/* 用户个人中心与头像入口 */}
         <button
           onClick={() => setShowProfileModal(true)}
-          className="flex items-center gap-2 pl-2 pr-2.5 py-1 rounded-full bg-[#131b2e] border border-[#444653]/40 hover:border-[#a78bfa]/60 transition-all cursor-pointer group"
+          className="group flex cursor-pointer items-center gap-2 rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] py-1 pl-2 pr-2.5 transition-colors hover:border-[var(--color-brand)] hover:bg-[var(--color-surface-2)]"
           title="个人中心与账号安全"
         >
           <img
@@ -169,21 +163,19 @@ export function Header({
             onError={(e) => {
               (e.target as HTMLImageElement).src = 'https://api.dicebear.com/7.x/bottts/svg?seed=admin';
             }}
-            className="w-6 h-6 rounded-full object-cover border border-[#a78bfa]/40 bg-[#0b1326]"
+            className="h-6 w-6 rounded-full border border-[var(--color-border)] bg-[var(--color-bg)] object-cover"
           />
-          <span className="text-[12px] font-medium text-[#dae2fd] group-hover:text-[#dde1ff] hidden sm:inline max-w-[80px] truncate">
+          <span className="hidden max-w-[80px] truncate text-[var(--font-xs)] font-medium text-[var(--color-text-primary)] sm:inline">
             {userProfile?.nickname || '管理员'}
           </span>
         </button>
 
-        {/* 个人中心弹窗 */}
         <UserProfileModal
           isOpen={showProfileModal}
           onClose={() => setShowProfileModal(false)}
           onProfileUpdated={(updated) => setUserProfile(updated)}
         />
 
-        {/* 交互式系统设置弹窗 */}
         <SettingsModal
           isOpen={showSettingsModal}
           onClose={() => setShowSettingsModal(false)}
