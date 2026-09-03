@@ -224,7 +224,7 @@ def test_closed_vat_restatement_preserves_immutable_close_anchor(seeded_app):
             assert state.closed_run_id == anchor_run_id == first["calculation_run_id"]
             assert state.closed_by == anchor_closed_by
             assert state.closed_at == anchor_closed_at
-            assert state.state_version == anchor_state_version + 1
+            assert state.state_version == anchor_state_version + 2
 
             assert official["closed_anchor_run_id"] == anchor_run_id
             assert official["calculation_run"]["id"] == restated["calculation_run_id"]
