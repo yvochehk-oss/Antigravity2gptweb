@@ -16,6 +16,7 @@ from app.services.formal_vat_statutory import (
 from app.v3_party_models import InternalEntity, Party
 from app.v3_period_models import CalculationRun, TaxPeriodState
 from app.v3_vat_ledger_models import EntityVatLedger
+from app.v3_vat_review_models import VatOutputPeriodAssertion
 
 
 def _login(client: TestClient) -> None:
@@ -51,6 +52,7 @@ def _create_official_vat_resource(session: Session, *, code: str, period: date):
     session.add(entity)
     session.flush()
 
+    completed = datetime.now(timezone.utc)
     run = CalculationRun(
         reporting_party_id=party.id,
         tax_type="VAT",
@@ -61,9 +63,22 @@ def _create_official_vat_resource(session: Session, *, code: str, period: date):
         input_snapshot_sha256="a" * 64,
         result_sha256="b" * 64,
         created_by="pytest",
-        completed_at=datetime.now(timezone.utc),
+        completed_at=completed,
     )
     session.add(run)
+    session.flush()
+
+    session.add(
+        VatOutputPeriodAssertion(
+            reporting_party_id=party.id,
+            tax_period=period,
+            asserted_output_vat_total=Decimal("130.00"),
+            source="pytest reviewed complete output VAT total",
+            reviewed=True,
+            reviewed_by="pytest",
+            reviewed_at=completed,
+        )
+    )
     session.flush()
 
     ledger = EntityVatLedger(
