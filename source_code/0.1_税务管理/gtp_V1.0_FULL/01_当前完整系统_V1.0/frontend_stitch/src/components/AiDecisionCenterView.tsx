@@ -45,16 +45,16 @@ export function AiDecisionCenterView({
     <div className="space-y-6">
       <header data-page-title="ai-decision" className="w-full">
         <div className="flex items-start gap-2.5">
-          <BrainCircuit className="mt-1 h-7 w-7 flex-shrink-0 text-[#a78bfa]" />
+          <BrainCircuit className="mt-1 h-7 w-7 flex-shrink-0 text-brand" />
           <div>
-            <h2 className="text-[28px] font-bold tracking-tight text-[#dae2fd]">智能财税决策中心</h2>
-            <p className="mt-1 text-[13px] text-[#8e909f]">综合体检工作区解释真实事实；项目筹划沙盘仅承载用户假设下的模拟方案。</p>
+            <h2 className="text-[28px] font-bold tracking-tight text-primary">智能财税决策中心</h2>
+            <p className="mt-1 text-[13px] text-secondary">综合体检工作区解释真实事实；项目筹划沙盘仅承载用户假设下的模拟方案。</p>
           </div>
         </div>
       </header>
 
-      <div data-page-controls="ai-decision" className="glass-panel rounded-xl border border-[#444653]/30 p-3.5">
-        <div role="tablist" aria-label="智能财税决策中心工作区" className="flex w-fit flex-wrap gap-2 rounded-xl border border-[#444653]/40 bg-[#131b2e] p-1">
+      <div data-page-controls="ai-decision" className="surface-card rounded-xl p-3.5">
+        <div role="tablist" aria-label="智能财税决策中心工作区" className="flex w-fit flex-wrap gap-2 rounded-xl border border-default bg-surface p-1">
           <button
             id="ai-decision-review-tab"
             type="button"
@@ -62,7 +62,7 @@ export function AiDecisionCenterView({
             aria-selected={activeTab === 'review'}
             aria-controls="ai-decision-review-panel"
             onClick={() => setActiveTab('review')}
-            className={`rounded-lg px-4 py-2 text-[13px] font-semibold ${activeTab === 'review' ? 'bg-[#1e40af] text-[#dde1ff]' : 'text-[#8e909f]'}`}
+            className={`rounded-lg px-4 py-2 text-[13px] font-semibold transition-colors ${activeTab === 'review' ? 'bg-[var(--color-brand)] text-white' : 'text-secondary hover:bg-surface-2 hover:text-primary'}`}
           >
             综合体检与辅助研判
           </button>
@@ -73,7 +73,7 @@ export function AiDecisionCenterView({
             aria-selected={activeTab === 'planning'}
             aria-controls="ai-decision-planning-panel"
             onClick={() => setActiveTab('planning')}
-            className={`rounded-lg px-4 py-2 text-[13px] font-semibold ${activeTab === 'planning' ? 'bg-[#6d28d9] text-[#f5f3ff]' : 'text-[#8e909f]'}`}
+            className={`rounded-lg px-4 py-2 text-[13px] font-semibold transition-colors ${activeTab === 'planning' ? 'bg-[var(--color-brand)] text-white' : 'text-secondary hover:bg-surface-2 hover:text-primary'}`}
           >
             项目筹划沙盘
           </button>
@@ -89,14 +89,14 @@ export function AiDecisionCenterView({
         className="space-y-5"
       >
         {isCanonicalReview ? (
-          <div className="rounded-xl border border-[#10B981]/40 bg-[#10B981]/10 px-4 py-3" role="status">
-            <p className="text-[13px] font-bold text-[#6ee7b7]">基于规范事实</p>
-            <p className="mt-1 text-[12px] text-[#a7f3d0]">后端智能审查已明确确认当前结果基于规范事实数据源。</p>
+          <div className="rounded-xl border border-[var(--color-success)]/30 bg-[var(--color-success)]/5 px-4 py-3" role="status">
+            <p className="text-[13px] font-bold text-[var(--color-success)]">基于规范事实</p>
+            <p className="mt-1 text-[12px] text-secondary">后端智能审查已明确确认当前结果基于规范事实数据源。</p>
           </div>
         ) : (
-          <div className="rounded-xl border border-[#F59E0B]/40 bg-[#F59E0B]/10 px-4 py-3" role="status">
-            <p className="text-[13px] font-bold text-[#F59E0B]">降级运行：当前智能审查上下文尚未确认使用规范事实模式</p>
-            <p className="mt-1 text-[12px] text-[#fcd34d]">仅当后端审查结果明确返回规范事实数据源时，才标记为“基于规范事实”。</p>
+          <div className="rounded-xl border border-[var(--color-warning)]/30 bg-[var(--color-warning)]/5 px-4 py-3" role="status">
+            <p className="text-[13px] font-bold text-[var(--color-warning)]">降级运行：当前智能审查上下文尚未确认使用规范事实模式</p>
+            <p className="mt-1 text-[12px] text-secondary">仅当后端审查结果明确返回规范事实数据源时，才标记为“基于规范事实”。</p>
           </div>
         )}
 
@@ -111,9 +111,9 @@ export function AiDecisionCenterView({
         hidden={activeTab !== 'planning'}
         className="space-y-5"
       >
-        <div className="rounded-xl border border-[#F59E0B]/50 bg-[#F59E0B]/10 px-4 py-3" role="note">
-          <p className="text-[13px] font-bold text-[#F59E0B]">模拟方案 · 非申报依据</p>
-          <p className="mt-1 text-[12px] text-[#fcd34d]">本视图基于用户输入假设，不代表项目真实经营结果，不属于法人法定申报依据。</p>
+        <div className="rounded-xl border border-[var(--color-warning)]/30 bg-[var(--color-warning)]/5 px-4 py-3" role="note">
+          <p className="text-[13px] font-bold text-[var(--color-warning)]">模拟方案 · 非申报依据</p>
+          <p className="mt-1 text-[12px] text-secondary">本视图基于用户输入假设，不代表项目真实经营结果，不属于法人法定申报依据。</p>
         </div>
 
         <TaxPlanningView
