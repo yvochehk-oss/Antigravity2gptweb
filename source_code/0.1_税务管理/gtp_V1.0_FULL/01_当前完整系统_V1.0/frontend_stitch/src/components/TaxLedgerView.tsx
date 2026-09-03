@@ -192,64 +192,71 @@ export function TaxLedgerView({
     <div className="space-y-6">
       {pageTitle}
 
-      <div data-page-controls="tax-ledger" className="surface-card flex flex-wrap items-center justify-end gap-3 rounded-xl p-3.5">
-        <button
-          type="button"
-          onClick={onOpenExportModal}
-          className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-[var(--color-brand)] bg-[var(--color-brand)] px-3.5 py-2 text-[13px] font-semibold text-white transition-colors hover:bg-[var(--color-brand-hover)]"
-        >
-          <Download className="h-4 w-4" />
-          <span>导出全量台账</span>
-        </button>
-      </div>
-
-      <div className="surface-card rounded-xl px-4 py-3" role="note">
-        <p className="text-[13px] font-semibold text-brand">法人法定申报口径</p>
-        <p className="mt-1 text-[12px] text-secondary">本页只展示法人增值税法定事实与计算运行状态，不展示营业收入、真实成本、预计利润或企业所得税经营指标。</p>
-      </div>
-
-      {records.length === 0 && (
-        <div className="rounded-xl border border-[var(--color-success)]/30 bg-[var(--color-success)]/5 p-4" role="status" aria-live="polite">
-          <div className="flex items-start gap-3">
-            <CheckCircle2 className="mt-0.5 h-5 w-5 flex-shrink-0 text-[var(--color-success)]" />
-            <p className="text-[13px] leading-relaxed text-secondary">{TAX_LEDGER_EMPTY_MESSAGE}</p>
-          </div>
-        </div>
-      )}
-
-      <div className="surface-card flex flex-wrap items-center justify-between gap-4 rounded-xl p-4">
+      {/* 操作控制卡片：台账生成与导出操作整合在一排，对齐规整 */}
+      <div data-page-controls="tax-ledger" className="surface-card flex flex-wrap items-center justify-between gap-4 rounded-xl p-4">
         <div>
-          <p className="font-semibold text-primary">受控确定性台账生成／重建</p>
+          <div className="flex items-center gap-2">
+            <span className="inline-block h-2 w-2 rounded-full bg-brand" />
+            <p className="text-[14px] font-bold text-primary">受控确定性台账生成／重建</p>
+          </div>
           <p className="mt-1 text-[12px] leading-relaxed text-secondary">请确认底层事实数据已归集就绪；确认后将原子替换所选期间汇总。</p>
         </div>
-        <div className="flex flex-wrap items-center gap-2.5">
-          <select
-            id="tax-ledger-rebuild-year"
-            value={rebuildYear}
-            onChange={event => setRebuildYear(event.target.value)}
-            disabled={isRebuilding}
-            className="rounded-lg border border-default bg-surface px-2.5 py-1.5 text-[13px] text-primary focus:border-[var(--color-brand)] focus:outline-none"
-          >
-            {YEAR_OPTIONS.map(year => <option key={year} value={year}>{year}年</option>)}
-          </select>
-          <select
-            id="tax-ledger-rebuild-month"
-            value={rebuildMonth}
-            onChange={event => setRebuildMonth(event.target.value)}
-            disabled={isRebuilding}
-            className="rounded-lg border border-default bg-surface px-2.5 py-1.5 text-[13px] text-primary focus:border-[var(--color-brand)] focus:outline-none"
-          >
-            {MONTH_OPTIONS.map(month => <option key={month.value} value={month.value}>{month.label}</option>)}
-          </select>
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-2">
+            <select
+              id="tax-ledger-rebuild-year"
+              value={rebuildYear}
+              onChange={event => setRebuildYear(event.target.value)}
+              disabled={isRebuilding}
+              className="rounded-lg border border-default bg-surface px-3 py-1.5 text-[13px] text-primary focus:border-[var(--color-brand)] focus:outline-none"
+            >
+              {YEAR_OPTIONS.map(year => <option key={year} value={year}>{year}年</option>)}
+            </select>
+            <select
+              id="tax-ledger-rebuild-month"
+              value={rebuildMonth}
+              onChange={event => setRebuildMonth(event.target.value)}
+              disabled={isRebuilding}
+              className="rounded-lg border border-default bg-surface px-3 py-1.5 text-[13px] text-primary focus:border-[var(--color-brand)] focus:outline-none"
+            >
+              {MONTH_OPTIONS.map(month => <option key={month.value} value={month.value}>{month.label}</option>)}
+            </select>
+            <button
+              type="button"
+              onClick={handleRebuild}
+              disabled={isRebuilding}
+              className="flex cursor-pointer items-center gap-1.5 rounded-lg bg-[var(--color-brand)] px-4 py-1.5 text-[13px] font-semibold text-white transition-colors hover:bg-[var(--color-brand-hover)] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <span>{isRebuilding ? '生成中…' : `生成 ${rebuildPeriod} 台账`}</span>
+            </button>
+          </div>
+          <div className="hidden h-5 w-[1px] bg-default sm:block" />
           <button
             type="button"
-            onClick={handleRebuild}
-            disabled={isRebuilding}
-            className="rounded-lg bg-[var(--color-brand)] px-3.5 py-1.5 text-[13px] font-semibold text-white transition-colors hover:bg-[var(--color-brand-hover)] disabled:opacity-50"
+            onClick={onOpenExportModal}
+            className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-default bg-surface px-3.5 py-1.5 text-[13px] font-medium text-secondary transition-colors hover:border-[var(--color-brand)] hover:text-primary"
           >
-            {isRebuilding ? '生成中…' : `生成 ${rebuildPeriod} 台账`}
+            <Download className="h-4 w-4 text-secondary" />
+            <span>导出全量台账</span>
           </button>
         </div>
+      </div>
+
+      {/* 申报口径说明与数据状态通知条 */}
+      <div className="space-y-3">
+        <div className="surface-card rounded-xl px-4 py-3" role="note">
+          <p className="text-[13px] font-semibold text-brand">法人法定申报口径</p>
+          <p className="mt-1 text-[12px] leading-relaxed text-secondary">本页只展示法人增值税法定事实与计算运行状态，不展示营业收入、真实成本、预计利润或企业所得税经营指标。</p>
+        </div>
+
+        {records.length === 0 && (
+          <div className="rounded-xl border border-[var(--color-success)]/30 bg-[var(--color-success)]/5 p-4" role="status" aria-live="polite">
+            <div className="flex items-start gap-3">
+              <CheckCircle2 className="mt-0.5 h-5 w-5 flex-shrink-0 text-[var(--color-success)]" />
+              <p className="text-[13px] leading-relaxed text-secondary">{TAX_LEDGER_EMPTY_MESSAGE}</p>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-8">
