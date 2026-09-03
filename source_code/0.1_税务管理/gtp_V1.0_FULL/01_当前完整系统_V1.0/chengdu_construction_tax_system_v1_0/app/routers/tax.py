@@ -110,7 +110,7 @@ def api_tax_ledger_rebuild(
             requested_period,
             str(exc),
         )
-        raise HTTPException(status_code=422, detail="税务台账输入或税务规则无效") from exc
+        raise HTTPException(status_code=422, detail=f"税务台账输入或税务规则无效: {exc}") from exc
     except SQLAlchemyError as exc:
         db.rollback()
         _LOGGER.exception("tax ledger rebuild database failure: period=%s", requested_period)
