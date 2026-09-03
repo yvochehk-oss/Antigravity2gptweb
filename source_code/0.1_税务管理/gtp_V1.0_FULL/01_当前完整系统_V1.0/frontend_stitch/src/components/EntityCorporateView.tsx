@@ -37,7 +37,12 @@ export const LEGAL_ENTITY_OPTIONS: LegalEntityOption[] = [
   { code: 'D03', name: '四川惠润农业设备有限公司' },
 ];
 
-export const YEAR_OPTIONS = ['2023', '2024', '2025', '2026', '2027', '2028'];
+const currentYearNum = new Date().getFullYear();
+export const YEAR_OPTIONS: string[] = [];
+for (let y = 2023; y <= Math.max(2028, currentYearNum + 2); y += 1) {
+  YEAR_OPTIONS.push(String(y));
+}
+
 export const MONTH_OPTIONS = [
   { value: '01', label: '01月' },
   { value: '02', label: '02月' },
@@ -53,8 +58,6 @@ export const MONTH_OPTIONS = [
   { value: '12', label: '12月' },
 ];
 
-const ENTITY_OPTIONS = LEGAL_ENTITY_OPTIONS.map(item => item.code);
-
 function currentPeriod(): string {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
@@ -63,6 +66,22 @@ function currentPeriod(): string {
 function formatAmount(value: number | null | undefined): string {
   if (value === null || value === undefined || !Number.isFinite(value)) return '—';
   return `¥${value.toLocaleString('zh-CN', { maximumFractionDigits: 2 })}`;
+}
+
+function translateDataGap(gap: string): string {
+  switch (gap) {
+    case 'INPUT_VAT_DEDUCTIBILITY_NEEDS_REVIEW':
+      return '进项税额合规性待确认（发票进项需经税务抵扣核准，目前记入“待确认进项 VAT”审慎管理，未冒进计入可抵扣）';
+    case 'INPUT_VAT_ACCOUNTING_IDENTITY_FAILED':
+      return '进项税勾稽平衡校验异常';
+    case 'CANONICAL_INVOICE_PERIOD_MISSING':
+      return '部分凭证缺少所属期间标记';
+    default:
+      if (gap.startsWith('ENTITY_NOT_IN_INTERNAL_SCOPE:')) {
+        return `主体 ${gap.split(':')[1]} 不在系统内部合并范围内`;
+      }
+      return gap;
+  }
 }
 
 function errorMessage(error: unknown): string {
@@ -159,7 +178,7 @@ export function EntityCorporateView() {
         setProjectionStatus(result.status);
         setProjectionMessage(
           result.status === 'DEGRADED'
-            ? `Projection 存在数据缺口：${result.dataGaps.join('、') || '后端标记为 DEGRADED'}`
+            ? `Projection 存在数据缺口：${result.dataGaps.map(gap => `${translateDataGap(gap)} [${gap}]`).join('；') || '后端标记为 DEGRADED'}`
             : '',
         );
       })
@@ -383,6 +402,13 @@ export function EntityCorporateView() {
           <StatutoryKpi label="实际应纳 VAT" value={statutoryRecord?.vatPayableAfterPrepayment} />
           <StatutoryKpi label="期末留抵" value={statutoryRecord?.closingInputCredit} />
         </div>
+
+        {!statutoryRecord && (
+          <div className="rounded-xl border border-[#444653]/30 bg-[#171f33]/60 p-3 text-[12px] text-[#8e909f] leading-relaxed">
+            <span className="font-semibold text-[#dae2fd]">提示：</span>
+            上方【正式 VAT】是纳税申报口径（存储于 <code className="text-[#4cd7f6]">entity_vat_ledgers</code>），由财务核对进销凭证后在【法人法定税务】模块执行“受控确定性生成”后正式入账。当前期间未归档正式台账，故显示为“—”，并不影响上方的经营 Projection 与项目穿透分析。
+          </div>
+        )}
       </section>
 
       <section aria-label="项目穿透贡献" className="space-y-3 rounded-2xl border border-[#444653]/30 bg-[#171f33]/40 p-4">

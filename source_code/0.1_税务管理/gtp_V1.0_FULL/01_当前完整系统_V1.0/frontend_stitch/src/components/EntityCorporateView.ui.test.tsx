@@ -278,4 +278,87 @@ describe('EntityCorporateView legal-entity dual-scope workspace', () => {
     expect(screen.queryByText('¥999')).not.toBeInTheDocument();
     expect(screen.queryByText('¥888')).not.toBeInTheDocument();
   });
+
+  it('T_UI_1: renders complete 25 legal entity names and synchronizes title, badge and API query upon selection', async () => {
+    render(<EntityCorporateView />);
+
+    expect(screen.getByLabelText('法人主体')).toHaveValue('A08');
+    expect(
+      screen.getByRole('option', {
+        name: 'A08 · 四川锐宝建设工程有限公司',
+      }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('option', {
+        name: 'B01 · 四川乾润和贸易有限公司',
+      }),
+    ).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('法人主体'), { target: { value: 'B01' } });
+
+    await waitFor(() =>
+      expect(fetchLegalEntityOperatingProjection).toHaveBeenLastCalledWith(
+        'B01',
+        expect.any(String),
+        expect.any(AbortSignal),
+      ),
+    );
+    expect(screen.getByText(/【B01 · 四川乾润和贸易有限公司】/)).toBeInTheDocument();
+    expect(screen.getByText(/（四川乾润和贸易有限公司）/)).toBeInTheDocument();
+  });
+
+  it('T_UI_2: changes visible year and month selects independently without state drift', async () => {
+    render(<EntityCorporateView />);
+
+    fireEvent.change(screen.getByLabelText('所属年份'), { target: { value: '2027' } });
+    fireEvent.change(screen.getByLabelText('所属月份'), { target: { value: '02' } });
+
+    await waitFor(() =>
+      expect(fetchLegalEntityOperatingProjection).toHaveBeenLastCalledWith(
+        'A08',
+        '2027-02',
+        expect.any(AbortSignal),
+      ),
+    );
+    expect(screen.getByLabelText('所属年份')).toHaveValue('2027');
+    expect(screen.getByLabelText('所属月份')).toHaveValue('02');
+  });
+
+  it('T_UI_3: clicking recommended quick period pill synchronizes year select, month select, and API query simultaneously', async () => {
+    render(<EntityCorporateView />);
+
+    const quickBtn = screen.getByRole('button', { name: '2026年03月 (主力数据)' });
+    expect(quickBtn).toBeInTheDocument();
+    fireEvent.click(quickBtn);
+
+    await waitFor(() =>
+      expect(fetchLegalEntityOperatingProjection).toHaveBeenLastCalledWith(
+        'A08',
+        '2026-03',
+        expect.any(AbortSignal),
+      ),
+    );
+    expect(screen.getByLabelText('所属年份')).toHaveValue('2026');
+    expect(screen.getByLabelText('所属月份')).toHaveValue('03');
+  });
+
+  it('T_UI_4: displays fail-closed formal VAT empty guidance note and never falls back to Projection figures', async () => {
+    vi.mocked(fetchEntityTaxLedger).mockResolvedValue({
+      status: 'READY',
+      message: '',
+      items: [],
+    });
+
+    render(<EntityCorporateView />);
+
+    // Projection has values, but Statutory must show dashes
+    expect(await screen.findByText('LEGAL_ENTITY_PROJECTION · 管理/经营投影，非申报口径')).toBeInTheDocument();
+    expect(screen.getByText(/上方【正式 VAT】是纳税申报口径/)).toBeInTheDocument();
+    expect(screen.getByText(/当前期间未归档正式台账，故显示为“—”/)).toBeInTheDocument();
+
+    // Verify statutory KPIs remain dashes '—'
+    const statutorySection = screen.getByRole('region', { name: '正式 VAT' });
+    expect(statutorySection).toHaveTextContent('—');
+    expect(statutorySection).not.toHaveTextContent('¥10,000,000');
+  });
 });
