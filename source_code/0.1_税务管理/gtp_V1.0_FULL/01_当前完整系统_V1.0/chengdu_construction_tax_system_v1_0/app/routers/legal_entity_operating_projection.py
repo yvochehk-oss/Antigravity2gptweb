@@ -1,4 +1,4 @@
-"""Read-only HTTP exposure for the legal-entity operating projection."""
+"""Read-only HTTP exposure for legal-entity V3 read models."""
 from __future__ import annotations
 
 import logging
@@ -10,12 +10,47 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from ..db import SessionLocal
 from ..dependencies import require_role
+from ..services.legal_entity_master_data import list_legal_entities
 from ..services.legal_entity_scope import aggregate_legal_entity_scope
 
 router = APIRouter(tags=["collections"])
 _LOGGER = logging.getLogger(__name__)
 _PERIOD_RE = re.compile(r"^\d{4}-(?:0[1-9]|1[0-2])$")
 _reader_dependency = Depends(require_role("admin", "operator"))
+
+
+@router.get(
+    "/api/v3/legal-entities",
+    summary="V3 法人 Master Data（Party SSOT）",
+)
+def legal_entity_master_data(
+    active: bool = Query(default=True),
+    legal_entity: bool = Query(default=True),
+    _user=_reader_dependency,
+) -> dict[str, Any]:
+    """Expose legal entities from parties + internal_entities only."""
+    db = SessionLocal()
+    try:
+        items = list_legal_entities(db, active=active, legal_entity=legal_entity)
+        return {
+            "status": "READY",
+            "source_of_truth": "parties+internal_entities",
+            "items": items,
+            "total": len(items),
+        }
+    except SQLAlchemyError:
+        db.rollback()
+        _LOGGER.exception(
+            "legal entity master data database failure: active=%s legal_entity=%s",
+            active,
+            legal_entity,
+        )
+        raise HTTPException(
+            status_code=503,
+            detail="法人 Master Data 数据源暂时不可用，请稍后重试。",
+        ) from None
+    finally:
+        db.close()
 
 
 @router.get(
