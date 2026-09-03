@@ -209,40 +209,92 @@
   animation: radar-sweep 6s linear infinite;
 }
 
-/* 智能财税决策中心：仅强化导航入口，不改变交互/ARIA 契约。 */
+/* 智能财税决策中心：增强整字、图标、背景与边框联动变色，不改变交互/ARIA 契约。 */
 @keyframes ai-decision-pulse {
   0%, 100% {
-    border-color: rgba(59, 130, 246, 0.42);
-    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.00), inset 0 0 0 1px rgba(59, 130, 246, 0.08);
+    border-color: rgba(96, 165, 250, 0.52);
+    background-color: rgba(59, 130, 246, 0.12);
+    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0), inset 0 0 0 1px rgba(96, 165, 250, 0.10);
+  }
+  25% {
+    border-color: rgba(56, 189, 248, 0.78);
+    background-color: rgba(56, 189, 248, 0.14);
+    box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.08), 0 0 16px rgba(56, 189, 248, 0.24), inset 0 0 0 1px rgba(56, 189, 248, 0.16);
   }
   50% {
-    border-color: rgba(59, 130, 246, 0.78);
-    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.10), 0 0 18px rgba(59, 130, 246, 0.24), inset 0 0 0 1px rgba(59, 130, 246, 0.14);
+    border-color: rgba(255, 255, 255, 0.78);
+    background-color: rgba(96, 165, 250, 0.16);
+    box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.10), 0 0 22px rgba(96, 165, 250, 0.34), inset 0 0 0 1px rgba(255, 255, 255, 0.16);
+  }
+  75% {
+    border-color: rgba(251, 191, 36, 0.68);
+    background-color: rgba(59, 130, 246, 0.13);
+    box-shadow: 0 0 0 2px rgba(251, 191, 36, 0.06), 0 0 18px rgba(251, 191, 36, 0.18), inset 0 0 0 1px rgba(251, 191, 36, 0.12);
+  }
+}
+
+@keyframes ai-decision-text-color {
+  0%, 100% {
+    color: #ffffff;
+    text-shadow: 0 0 5px rgba(255, 255, 255, 0.62), 0 0 12px rgba(96, 165, 250, 0.42);
+  }
+  25% {
+    color: #60a5fa;
+    text-shadow: 0 0 6px rgba(96, 165, 250, 0.85), 0 0 16px rgba(59, 130, 246, 0.48);
+  }
+  50% {
+    color: #38bdf8;
+    text-shadow: 0 0 7px rgba(56, 189, 248, 0.92), 0 0 18px rgba(56, 189, 248, 0.48);
+  }
+  75% {
+    color: #fde68a;
+    text-shadow: 0 0 6px rgba(253, 230, 138, 0.82), 0 0 14px rgba(251, 191, 36, 0.34);
+  }
+}
+
+@keyframes ai-decision-icon-color {
+  0%, 100% {
+    color: #ffffff;
+    filter: drop-shadow(0 0 4px rgba(255, 255, 255, 0.72)) drop-shadow(0 0 8px rgba(96, 165, 250, 0.42));
+  }
+  25% {
+    color: #60a5fa;
+    filter: drop-shadow(0 0 5px rgba(96, 165, 250, 0.86)) drop-shadow(0 0 10px rgba(59, 130, 246, 0.46));
+  }
+  50% {
+    color: #38bdf8;
+    filter: drop-shadow(0 0 6px rgba(56, 189, 248, 0.92)) drop-shadow(0 0 12px rgba(56, 189, 248, 0.46));
+  }
+  75% {
+    color: #fde68a;
+    filter: drop-shadow(0 0 5px rgba(253, 230, 138, 0.84)) drop-shadow(0 0 9px rgba(251, 191, 36, 0.32));
   }
 }
 
 @keyframes ai-decision-shimmer {
-  0% { transform: translateX(-160%) skewX(-18deg); opacity: 0; }
-  18% { opacity: 0.7; }
-  42%, 100% { transform: translateX(260%) skewX(-18deg); opacity: 0; }
+  0% { transform: translateX(-170%) skewX(-20deg); opacity: 0; }
+  12% { opacity: 0.92; }
+  34% { transform: translateX(310%) skewX(-20deg); opacity: 0; }
+  100% { transform: translateX(310%) skewX(-20deg); opacity: 0; }
 }
 
 .ai-decision-nav {
   position: relative;
   isolation: isolate;
   overflow: hidden;
-  animation: ai-decision-pulse 2.4s ease-in-out infinite;
+  animation: ai-decision-pulse 2.1s ease-in-out infinite;
 }
 
 .ai-decision-nav::after {
   content: '';
   position: absolute;
-  inset: -1px auto -1px -35%;
+  inset: -2px auto -2px -38%;
   z-index: 0;
-  width: 28%;
+  width: 34%;
   pointer-events: none;
-  background: linear-gradient(90deg, transparent, rgba(232, 238, 247, 0.22), transparent);
-  animation: ai-decision-shimmer 3.2s ease-in-out infinite;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.48), rgba(96, 165, 250, 0.32), transparent);
+  filter: blur(0.5px);
+  animation: ai-decision-shimmer 2.6s ease-in-out infinite;
 }
 
 .ai-decision-nav > * {
@@ -250,18 +302,37 @@
   z-index: 1;
 }
 
+.ai-decision-nav > div:first-child > span {
+  animation: ai-decision-text-color 2.1s ease-in-out infinite;
+  will-change: color, text-shadow;
+}
+
+.ai-decision-nav > div:first-child > svg {
+  animation: ai-decision-icon-color 2.1s ease-in-out infinite;
+  will-change: color, filter;
+}
+
 .ai-decision-nav:hover {
-  border-color: rgba(59, 130, 246, 0.75);
-  background-color: var(--color-brand-muted);
+  border-color: rgba(96, 165, 250, 0.92);
+  background-color: rgba(59, 130, 246, 0.20);
 }
 
 .ai-decision-nav[aria-current='page'] {
-  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.10), 0 0 20px rgba(59, 130, 246, 0.18);
+  box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.14), 0 0 24px rgba(59, 130, 246, 0.28);
 }
 
 @media (prefers-reduced-motion: reduce) {
   .ai-decision-nav,
-  .ai-decision-nav::after {
+  .ai-decision-nav::after,
+  .ai-decision-nav > div:first-child > span,
+  .ai-decision-nav > div:first-child > svg {
     animation: none;
+  }
+
+  .ai-decision-nav > div:first-child > span,
+  .ai-decision-nav > div:first-child > svg {
+    color: var(--color-brand);
+    text-shadow: none;
+    filter: none;
   }
 }
