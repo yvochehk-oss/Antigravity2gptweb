@@ -1634,24 +1634,33 @@ function projectionContribution(value: unknown, payload: unknown): LegalEntityPr
   };
 }
 
-function projectionCumulative(value: unknown, payload: unknown): LegalEntityOperatingCumulative {
-  const data = projectionRecord(value);
+function projectionCumulative(
+  value: unknown,
+  payload: unknown,
+  allowTopLevelFallback = false,
+): LegalEntityOperatingCumulative {
+  const explicit = projectionRecord(value);
+  const data = explicit ?? (allowTopLevelFallback ? projectionRecord(payload) : null);
   if (!data) throw new ApiError('法人经营 Projection 缺少累计口径。', 502, payload);
-  const factCount = projectionNumber(data.fact_count, 'cumulative.fact_count', payload);
+  const prefix = explicit ? 'cumulative.' : '';
+  const factCount = projectionNumber(data.fact_count, `${prefix}fact_count`, payload);
   if (!Number.isInteger(factCount) || factCount < 0) {
     throw new ApiError('法人经营 Projection 累计事实数必须是非负整数。', 502, payload);
   }
   return {
-    revenue: projectionNumber(data.revenue, 'cumulative.revenue', payload),
-    bookCostProjection: projectionNumber(data.book_cost_projection, 'cumulative.book_cost_projection', payload),
-    accountingProfitProjection: projectionNumber(data.accounting_profit_projection, 'cumulative.accounting_profit_projection', payload),
-    outputVat: projectionNumber(data.output_vat, 'cumulative.output_vat', payload),
-    inputVat: projectionNumber(data.input_vat, 'cumulative.input_vat', payload),
+    revenue: projectionNumber(data.revenue, `${prefix}revenue`, payload),
+    bookCostProjection: projectionNumber(data.book_cost_projection, `${prefix}book_cost_projection`, payload),
+    accountingProfitProjection: projectionNumber(data.accounting_profit_projection, `${prefix}accounting_profit_projection`, payload),
+    outputVat: projectionNumber(data.output_vat, `${prefix}output_vat`, payload),
+    inputVat: projectionNumber(data.input_vat, `${prefix}input_vat`, payload),
     factCount,
   };
 }
 
-function parseLegalEntityOperatingProjection(payload: unknown): LegalEntityOperatingProjection {
+function parseLegalEntityOperatingProjection(
+  payload: unknown,
+  options: { allowCumulativeFallback?: boolean } = {},
+): LegalEntityOperatingProjection {
   const data = projectionRecord(payload);
   if (!data) throw new ApiError('法人经营 Projection 接口返回格式不完整。', 502, payload);
   const status = String(data.status ?? '');
@@ -1700,7 +1709,11 @@ function parseLegalEntityOperatingProjection(payload: unknown): LegalEntityOpera
     nonProjectContribution,
     factCount: projectionNumber(data.fact_count, 'fact_count', payload),
     factIds,
-    cumulative: projectionCumulative(data.cumulative, payload),
+    cumulative: projectionCumulative(
+      data.cumulative,
+      payload,
+      options.allowCumulativeFallback === true,
+    ),
     dataGaps: Array.isArray(data.data_gaps) ? data.data_gaps.map(String) : [],
     sourceOfTruth: 'analytics_canonical_facts_current',
     officialVatLedger: 'entity_vat_ledgers',
@@ -1716,20 +1729,24 @@ export async function fetchLegalEntityOperatingProjection(
 ): Promise<LegalEntityOperatingProjection> {
   const normalizedEntityCode = entityCode.trim().toUpperCase();
   if (!normalizedEntityCode) throw new ApiError('缺少法人主体编码。', 400);
-  if (!period || !/^\d{4}-(?:0[1-9]|1[0-2])$/.test(period)) {
-    throw new ApiError('法人经营 Projection 双口径查询必须提供 YYYY-MM 期间。', 400);
+  if (period && !/^\d{4}-(?:0[1-9]|1[0-2])$/.test(period)) {
+    throw new ApiError('法人经营 Projection 期间必须使用 YYYY-MM 格式。', 400);
   }
   const query = new URLSearchParams();
-  query.set('period', period);
+  if (period) query.set('period', period);
+  const queryString = query.toString();
+  const suffix = queryString ? `?${queryString}` : '';
   const payload = await fetchJson<unknown>(
-    `/api/legal-entities/${encodeURIComponent(normalizedEntityCode)}/operating-projection?${query.toString()}`,
+    `/api/legal-entities/${encodeURIComponent(normalizedEntityCode)}/operating-projection${suffix}`,
     { signal },
   );
-  const projection = parseLegalEntityOperatingProjection(payload);
+  const projection = parseLegalEntityOperatingProjection(payload, {
+    allowCumulativeFallback: !period,
+  });
   if (projection.entityCode !== normalizedEntityCode) {
     throw new ApiError('法人经营 Projection 返回的主体与请求不一致。', 502, payload);
   }
-  if (period !== projection.period) {
+  if ((period ?? '') !== projection.period) {
     throw new ApiError('法人经营 Projection 返回的期间与请求不一致。', 502, payload);
   }
   return projection;
