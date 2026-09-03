@@ -71,7 +71,7 @@ function StatutoryKpi({ label, value }: { label: string; value: number | undefin
   return <div className="rounded-xl border border-[#4cd7f6]/20 bg-[#03b5d3]/5 p-3.5"><div className="text-[11px] text-[#8e909f]">{label}</div><div className="mt-1 text-[17px] font-bold text-[#dde1ff] font-mono-num">{formatAmount(value)}</div></div>;
 }
 
-function ContributionRow({ item }: { item: LegalEntityProjectionContribution }) {
+function ContributionRow({ item }: { item: LegalEntityProjectionContribution; key?: string }) {
   return (
     <tr className="border-t border-[#444653]/20">
       <td className="px-3 py-2.5"><div className="font-semibold text-[#dae2fd]">{item.projectName || '非项目归属'}</div><div className="text-[11px] text-[#8e909f]">{item.projectCode || '—'}</div></td>
