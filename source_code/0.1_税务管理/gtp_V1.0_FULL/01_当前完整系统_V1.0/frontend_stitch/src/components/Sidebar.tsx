@@ -59,8 +59,8 @@ export function Sidebar({ currentTab, onSelectTab, unresolvedRiskCount, aiModelS
   ];
 
   const containerClasses = isMobile
-    ? 'flex h-full w-full flex-col bg-[var(--color-bg)] text-[var(--color-text-primary)]'
-    : 'fixed left-0 top-0 z-40 hidden h-screen w-[var(--sidebar-width)] flex-col border-r border-[var(--color-border)] bg-[var(--color-bg)] md:flex';
+    ? 'flex h-full w-full flex-col bg-[var(--color-surface)] text-[var(--color-text-primary)]'
+    : 'fixed left-0 top-0 z-40 hidden h-screen w-[var(--sidebar-width)] flex-col border-r border-[var(--color-border)] bg-[var(--color-surface)] md:flex';
   const statusClass = {
     LOADING: 'text-[var(--color-warning)]',
     READY: 'text-[var(--color-success)]',
@@ -84,8 +84,8 @@ export function Sidebar({ currentTab, onSelectTab, unresolvedRiskCount, aiModelS
             <ShieldCheck className="h-4 w-4 text-[var(--color-brand)]" />
           </div>
           <div className="min-w-0 flex-1">
-            <h1 className="truncate text-[var(--font-sm)] font-bold tracking-tight text-[var(--color-text-primary)]">锐宝财税智控</h1>
-            <p className="truncate text-[var(--font-xs)] font-medium text-[var(--color-text-secondary)]">风控管控中枢</p>
+            <h1 className="truncate text-[13.5px] font-bold tracking-tight text-[var(--color-text-primary)]">锐宝财税智控</h1>
+            <p className="truncate text-[10px] font-semibold text-[var(--color-text-secondary)]">风控管控中枢</p>
           </div>
         </div>
         {isMobile && onCloseMobile && (
@@ -103,7 +103,7 @@ export function Sidebar({ currentTab, onSelectTab, unresolvedRiskCount, aiModelS
       <div className="scrollbar-hide flex flex-1 flex-col overflow-y-auto px-2 py-3">
         {navGroups.map((group, groupIndex) => (
           <section key={group.label} className={groupIndex === 0 ? '' : 'mt-3'} aria-labelledby={`nav-group-${groupIndex}`}>
-            <h2 id={`nav-group-${groupIndex}`} className="px-2 pb-1.5 text-[var(--font-xs)] font-semibold tracking-wide text-[var(--color-text-muted)]">
+            <h2 id={`nav-group-${groupIndex}`} className="px-2 pb-1.5 text-[10px] font-semibold tracking-wide text-[var(--color-text-muted)]">
               {group.label}
             </h2>
             <div className="flex flex-col gap-1">
@@ -120,7 +120,7 @@ export function Sidebar({ currentTab, onSelectTab, unresolvedRiskCount, aiModelS
                     aria-current={isActive ? 'page' : undefined}
                     onClick={() => { if (!item.disabled) onSelectTab(item.id); }}
                     className={`group flex w-full items-center justify-between rounded-[var(--radius-base)] border px-2.5 py-2.5 font-medium transition-colors duration-150 ${
-                      isIntelligentDecision ? 'ai-decision-nav text-[15px] font-semibold' : 'text-[var(--font-sm)]'
+                      isIntelligentDecision ? 'ai-decision-nav text-[15px] font-semibold' : 'text-[13px]'
                     } ${
                       item.disabled
                         ? 'cursor-not-allowed border-transparent bg-[var(--color-surface)]/45 text-[var(--color-text-muted)] opacity-75'
@@ -128,7 +128,7 @@ export function Sidebar({ currentTab, onSelectTab, unresolvedRiskCount, aiModelS
                           ? 'cursor-pointer border-[var(--color-brand)]/35 bg-[var(--color-brand-muted)] font-semibold text-[var(--color-brand)]'
                           : isIntelligentDecision
                             ? 'cursor-pointer border-[var(--color-brand)]/45 bg-[var(--color-surface)] text-[var(--color-text-primary)] hover:border-[var(--color-brand)]/75 hover:bg-[var(--color-brand-muted)]'
-                            : 'cursor-pointer border-transparent text-[var(--color-text-secondary)] hover:bg-[var(--color-surface)] hover:text-[var(--color-text-primary)]'
+                            : 'cursor-pointer border-transparent text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-2)] hover:text-[var(--color-text-primary)]'
                     }`}
                   >
                     <div className="flex min-w-0 items-center gap-2.5">
@@ -159,7 +159,7 @@ export function Sidebar({ currentTab, onSelectTab, unresolvedRiskCount, aiModelS
         ))}
       </div>
 
-      <div className="border-t border-[var(--color-border)] bg-[var(--color-surface)]/45 p-3">
+      <div className="border-t border-[var(--color-border)] bg-[var(--color-surface-2)]/45 p-3">
         <div className="mb-1.5 flex items-center justify-between gap-2">
           <div className="flex min-w-0 items-center gap-1.5">
             <div className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-[var(--radius-sm)] border border-[var(--color-success)]/30 bg-[var(--color-success)]/10">
