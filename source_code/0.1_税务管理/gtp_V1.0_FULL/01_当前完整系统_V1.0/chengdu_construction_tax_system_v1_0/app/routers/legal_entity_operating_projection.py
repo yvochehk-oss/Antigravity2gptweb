@@ -1,4 +1,4 @@
-"""Read-only HTTP exposure for legal-entity V3 read models."""
+"""HTTP exposure for legal-entity V3 read models and statutory commands."""
 from __future__ import annotations
 
 import logging
@@ -10,6 +10,10 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from ..db import SessionLocal
 from ..dependencies import require_role
+from ..services.formal_vat_rebuild import (
+    FormalVatRebuildBlockedError,
+    rebuild_formal_vat_statutory_resource,
+)
 from ..services.formal_vat_statutory import (
     FormalVatStatutoryResourceIntegrityError,
     FormalVatStatutoryResourceNotFoundError,
@@ -26,6 +30,7 @@ router = APIRouter(tags=["collections"])
 _LOGGER = logging.getLogger(__name__)
 _PERIOD_RE = re.compile(r"^\d{4}-(?:0[1-9]|1[0-2])$")
 _reader_dependency = Depends(require_role("admin", "operator"))
+_writer_dependency = Depends(require_role("admin"))
 
 
 @router.get(
@@ -153,6 +158,82 @@ def legal_entity_formal_vat_statutory(
         raise HTTPException(
             status_code=503,
             detail="Formal VAT 法定资源数据源暂时不可用，请稍后重试。",
+        ) from None
+    finally:
+        db.close()
+
+
+@router.post(
+    "/api/v3/legal-entities/{entity_code}/statutory-vat/rebuild",
+    summary="V3 法人 Formal VAT Statutory Resource 确定性重建",
+)
+def legal_entity_formal_vat_rebuild(
+    entity_code: str = Path(..., min_length=1, max_length=64),
+    period: str = Query(..., min_length=7, max_length=7),
+    restatement: bool = Query(default=False),
+    _user=_writer_dependency,
+) -> dict[str, Any]:
+    """Atomically rebuild one legal-entity/month and converge to the read resource."""
+    if not _PERIOD_RE.fullmatch(period):
+        raise HTTPException(status_code=422, detail="period 必须为 YYYY-MM 格式")
+
+    wanted_entity = entity_code.strip()
+    if not wanted_entity:
+        raise HTTPException(status_code=422, detail="entity_code 不能为空")
+
+    actor = str(
+        getattr(_user, "username", None)
+        or getattr(_user, "display_name", None)
+        or "api-admin"
+    )
+    db = SessionLocal()
+    try:
+        result = rebuild_formal_vat_statutory_resource(
+            db,
+            entity_code=wanted_entity,
+            period=period,
+            created_by=actor,
+            allow_restatement=restatement,
+        )
+        db.commit()
+        return result
+    except LegalEntityNotFoundError:
+        db.rollback()
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "code": "LEGAL_ENTITY_NOT_FOUND",
+                "detail": "未找到有效的内部法人主体",
+            },
+        ) from None
+    except FormalVatRebuildBlockedError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "FORMAL_VAT_REBUILD_BLOCKED",
+                "detail": str(exc),
+            },
+        ) from exc
+    except FormalVatStatutoryResourceIntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "FORMAL_VAT_STATUTORY_RESOURCE_INVALID",
+                "detail": str(exc),
+            },
+        ) from exc
+    except SQLAlchemyError:
+        db.rollback()
+        _LOGGER.exception(
+            "formal VAT statutory rebuild database failure: entity=%s period=%s",
+            wanted_entity,
+            period,
+        )
+        raise HTTPException(
+            status_code=503,
+            detail="Formal VAT 法定资源重建暂时不可用，请稍后重试。",
         ) from None
     finally:
         db.close()
