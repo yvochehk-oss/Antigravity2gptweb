@@ -381,13 +381,13 @@ export default function App() {
       {isMobileMenuOpen && (
         <div className="fixed inset-0 z-50 md:hidden flex">
           <div className="fixed inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setIsMobileMenuOpen(false)} />
-          <div className="relative w-64 h-full bg-[#0b1326] z-10 flex flex-col shadow-2xl">
+          <div className="relative w-[var(--sidebar-width)] h-full bg-[var(--color-surface)] z-10 flex flex-col shadow-2xl">
             <Sidebar isMobile onCloseMobile={() => setIsMobileMenuOpen(false)} currentTab={currentTab} onSelectTab={handleSelectTab} unresolvedRiskCount={unresolvedRiskCount} aiModelStatus={aiModelStatus} />
           </div>
         </div>
       )}
 
-      <div className="flex-1 flex flex-col md:ml-48 min-w-0 h-full overflow-hidden relative">
+      <div className="flex-1 flex flex-col md:ml-[var(--sidebar-width)] min-w-0 h-full overflow-hidden relative">
         <Header
           onToggleAi={() => setIsAiOpen(open => !open)}
           isAiOpen={isAiOpen}
