@@ -306,7 +306,7 @@
             data-status="{{ d.parse_status }}">
           <td style="width: 450px; max-width: 450px; white-space: normal; word-break: break-all;">
             <div style="font-weight: 600; line-height: 1.4; margin-bottom: 4px;">
-              <a href="/documents/{{ d.id }}" style="display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; text-overflow: ellipsis;" title="{{ d.filename }}">{{ d.filename }}</a>
+              <a href="/documents/{{ d.id }}" class="doc-filename-link" style="color: #ffffff; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; text-overflow: ellipsis;" title="{{ d.filename }}">{{ d.filename }}</a>
             </div>
             <div style="display: flex; align-items: center; gap: 6px;">
               {% if d.duplicate_of_id %}
@@ -1154,6 +1154,18 @@ async function repairProjectDocuments() {
   .form-input:focus, .form-select:focus { border-color: var(--color-brand) !important; box-shadow: 0 0 0 2px var(--color-brand-muted) !important; }
   .table-container { border-color: var(--color-border) !important; }
   .project-code, .badge-cyan { color: var(--color-brand) !important; border-color: var(--color-border) !important; background: var(--color-brand-muted) !important; }
+  .doc-filename-link,
+  #projectDocsTable td a[href^="/documents/"] {
+    color: #ffffff !important;
+    text-decoration: none;
+    transition: color 0.15s ease, opacity 0.15s ease;
+  }
+  .doc-filename-link:hover,
+  #projectDocsTable td a[href^="/documents/"]:hover {
+    color: #ffffff !important;
+    opacity: 0.85;
+    text-decoration: underline;
+  }
 </style>
 
 {% endblock %}

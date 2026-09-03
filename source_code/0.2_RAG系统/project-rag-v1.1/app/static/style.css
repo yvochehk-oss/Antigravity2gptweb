@@ -96,6 +96,18 @@ a:hover {
   text-shadow: 0 0 8px rgba(76, 215, 246, 0.4);
 }
 
+.doc-filename-link {
+  color: #ffffff !important;
+  text-decoration: none;
+  transition: color 0.15s ease, opacity 0.15s ease;
+}
+
+.doc-filename-link:hover {
+  color: #ffffff !important;
+  opacity: 0.85;
+  text-decoration: underline;
+}
+
 /* 玻璃拟态卡片 */
 .glass-panel {
   background-color: var(--bg-card);
