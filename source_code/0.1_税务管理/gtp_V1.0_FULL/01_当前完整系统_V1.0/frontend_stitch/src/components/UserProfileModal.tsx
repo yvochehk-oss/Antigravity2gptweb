@@ -313,97 +313,97 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({ isOpen, onCl
 
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fade-in">
-      <div className="bg-[#0e1628] border border-[#444653]/40 rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden text-[#dae2fd]">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 animate-fade-in">
+      <div className="surface-card w-full max-w-lg overflow-hidden rounded-xl text-[var(--color-text-primary)] shadow-2xl">
         
         {/* 顶部 Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-[#444653]/30 bg-[#131b2e]/60">
+        <div className="flex items-center justify-between border-b border-[var(--color-border)] bg-[var(--color-surface-2)] px-6 py-4">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-[#8b5cf6]/20 border border-[#a78bfa]/40 flex items-center justify-center text-[#a78bfa]">
-              <ShieldCheck className="w-4 h-4" />
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-brand)]">
+              <ShieldCheck className="h-4 w-4" />
             </div>
             <div>
-              <h3 className="font-bold text-[15px] text-[#dde1ff]">个人中心与安全设置</h3>
-              <p className="text-[11px] text-[#8e909f]">独立用户数据库 · 头像与安全绑定</p>
+              <h3 className="text-[15px] font-bold text-[var(--color-text-primary)]">个人中心与安全设置</h3>
+              <p className="text-[11px] text-[var(--color-text-muted)]">独立用户数据库 · 头像与安全绑定</p>
             </div>
           </div>
           <button 
             onClick={onClose}
-            className="w-8 h-8 rounded-lg hover:bg-[#444653]/30 flex items-center justify-center text-[#8e909f] hover:text-[#dae2fd] transition"
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--color-text-muted)] transition hover:bg-[var(--color-surface)] hover:text-[var(--color-text-primary)]"
           >
-            <X className="w-4 h-4" />
+            <X className="h-4 w-4" />
           </button>
         </div>
 
         {/* 提示消息 */}
         {msg && (
-          <div className={`px-6 py-2.5 text-[12px] flex items-center gap-2 border-b ${
-            msg.type === 'success' ? 'bg-[#10b981]/15 text-[#34d399] border-[#10b981]/30' :
-            msg.type === 'error' ? 'bg-[#ef4444]/15 text-[#f87171] border-[#ef4444]/30' :
-            'bg-[#4cd7f6]/15 text-[#4cd7f6] border-[#4cd7f6]/30'
+          <div className={`flex items-center gap-2 border-b px-6 py-2.5 text-[12px] ${
+            msg.type === 'success' ? 'border-[var(--color-success)]/30 bg-[var(--color-success)]/10 text-[var(--color-success)]' :
+            msg.type === 'error' ? 'border-[var(--color-danger)]/30 bg-[var(--color-danger)]/10 text-[var(--color-danger)]' :
+            'border-[var(--color-brand)]/30 bg-[var(--color-brand-muted)] text-[var(--color-brand)]'
           }`}>
-            {msg.type === 'success' && <CheckCircle className="w-3.5 h-3.5 shrink-0" />}
-            {msg.type === 'error' && <AlertCircle className="w-3.5 h-3.5 shrink-0" />}
-            {msg.type === 'info' && <RefreshCw className="w-3.5 h-3.5 shrink-0 animate-spin" />}
+            {msg.type === 'success' && <CheckCircle className="h-3.5 w-3.5 shrink-0" />}
+            {msg.type === 'error' && <AlertCircle className="h-3.5 w-3.5 shrink-0" />}
+            {msg.type === 'info' && <RefreshCw className="h-3.5 w-3.5 shrink-0 animate-spin" />}
             <span>{msg.text}</span>
           </div>
         )}
 
         {/* Tab 导航 */}
-        <div className="flex border-b border-[#444653]/30 bg-[#0b1326]/40 text-[13px]">
+        <div className="flex border-b border-[var(--color-border)] bg-[var(--color-surface)] text-[13px]">
           <button
             onClick={() => { setActiveTab('profile'); setMsg(null); }}
-            className={`flex-1 py-3 font-medium flex items-center justify-center gap-1.5 transition border-b-2 ${
+            className={`flex flex-1 items-center justify-center gap-1.5 border-b-2 py-3 font-medium transition ${
               activeTab === 'profile' 
-                ? 'border-[#a78bfa] text-[#dde1ff] bg-[#8b5cf6]/10' 
-                : 'border-transparent text-[#8e909f] hover:text-[#dae2fd]'
+                ? 'border-[var(--color-brand)] bg-[var(--color-brand-muted)] text-[var(--color-text-primary)]' 
+                : 'border-transparent text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]'
             }`}
           >
-            <User className="w-4 h-4" /> 基本资料与头像
+            <User className="h-4 w-4" /> 基本资料与头像
           </button>
           <button
             onClick={() => { setActiveTab('security'); setMsg(null); }}
-            className={`flex-1 py-3 font-medium flex items-center justify-center gap-1.5 transition border-b-2 ${
+            className={`flex flex-1 items-center justify-center gap-1.5 border-b-2 py-3 font-medium transition ${
               activeTab === 'security' 
-                ? 'border-[#4cd7f6] text-[#dde1ff] bg-[#03b5d3]/10' 
-                : 'border-transparent text-[#8e909f] hover:text-[#dae2fd]'
+                ? 'border-[var(--color-brand)] bg-[var(--color-brand-muted)] text-[var(--color-text-primary)]' 
+                : 'border-transparent text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]'
             }`}
           >
-            <Mail className="w-4 h-4" /> 邮箱/手机绑定
+            <Mail className="h-4 w-4" /> 邮箱/手机绑定
           </button>
           <button
             onClick={() => { setActiveTab('password'); setMsg(null); }}
-            className={`flex-1 py-3 font-medium flex items-center justify-center gap-1.5 transition border-b-2 ${
+            className={`flex flex-1 items-center justify-center gap-1.5 border-b-2 py-3 font-medium transition ${
               activeTab === 'password' 
-                ? 'border-[#ef4444] text-[#dde1ff] bg-[#ef4444]/10' 
-                : 'border-transparent text-[#8e909f] hover:text-[#dae2fd]'
+                ? 'border-[var(--color-brand)] bg-[var(--color-brand-muted)] text-[var(--color-text-primary)]' 
+                : 'border-transparent text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]'
             }`}
           >
-            <Lock className="w-4 h-4" /> 验证码改密
+            <Lock className="h-4 w-4" /> 验证码改密
           </button>
         </div>
 
         {/* Tab 内容区 */}
-        <div className="p-6 space-y-5">
+        <div className="space-y-5 p-6">
           {/* TAB 1: 基本资料与头像 */}
           {activeTab === 'profile' && (
             <div className="space-y-4">
               {/* 头像展示与上传 */}
-              <div className="flex items-center gap-4 bg-[#131b2e] p-4 rounded-xl border border-[#444653]/30">
-                <div className="relative group">
+              <div className="surface-card flex items-center gap-4 rounded-xl p-4">
+                <div className="group relative">
                   <img
                     src={profile?.avatar_url || '/static/avatars/default.png'}
                     alt="头像"
                     onError={(e) => {
                       (e.target as HTMLImageElement).src = 'https://api.dicebear.com/7.x/bottts/svg?seed=' + (profile?.username || 'admin');
                     }}
-                    className="w-16 h-16 rounded-full object-cover border-2 border-[#a78bfa]/50 shadow-md bg-[#0b1326]"
+                    className="h-16 w-16 rounded-full border-2 border-[var(--color-border)] bg-[var(--color-surface-2)] object-cover shadow-md"
                   />
                   <button
                     onClick={() => fileInputRef.current?.click()}
-                    className="absolute inset-0 bg-black/60 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition cursor-pointer text-white text-[11px]"
+                    className="absolute inset-0 flex cursor-pointer items-center justify-center rounded-full bg-black/60 text-[11px] text-white opacity-0 transition group-hover:opacity-100"
                   >
-                    <Camera className="w-5 h-5" />
+                    <Camera className="h-5 w-5" />
                   </button>
                   <input
                     ref={fileInputRef}
@@ -413,38 +413,38 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({ isOpen, onCl
                     className="hidden"
                   />
                 </div>
-                <div className="flex-1 min-w-0">
+                <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
-                    <span className="font-bold text-[15px] text-[#dde1ff]">{profile?.nickname || profile?.username}</span>
-                    <span className="text-[10px] bg-[#8b5cf6]/20 border border-[#a78bfa]/30 text-[#a78bfa] px-1.5 py-0.5 rounded">
+                    <span className="text-[15px] font-bold text-[var(--color-text-primary)]">{profile?.nickname || profile?.username}</span>
+                    <span className="rounded border border-[var(--color-border)] bg-[var(--color-surface-2)] px-1.5 py-0.5 text-[10px] text-[var(--color-text-secondary)]">
                       {profile?.role === 'admin' ? '系统管理员' : '操作员'}
                     </span>
                   </div>
-                  <p className="text-[11px] text-[#8e909f] mt-1">账号：{profile?.username}</p>
+                  <p className="mt-1 text-[11px] text-[var(--color-text-muted)]">账号：{profile?.username}</p>
                   <button
                     onClick={() => fileInputRef.current?.click()}
-                    className="mt-2 text-[11px] text-[#4cd7f6] hover:underline flex items-center gap-1 cursor-pointer"
+                    className="mt-2 flex cursor-pointer items-center gap-1 text-[11px] text-[var(--color-brand)] hover:underline"
                   >
-                    <Camera className="w-3 h-3" /> 更换本地头像图片
+                    <Camera className="h-3 w-3" /> 更换本地头像图片
                   </button>
                 </div>
               </div>
 
               {/* 昵称修改 */}
               <div className="space-y-1.5">
-                <label className="text-[12px] text-[#8e909f]">用户昵称</label>
+                <label className="text-[12px] text-[var(--color-text-muted)]">用户昵称</label>
                 <div className="flex gap-2">
                   <input
                     type="text"
                     value={nickname}
                     onChange={(e) => setNickname(e.target.value)}
                     placeholder="输入新的显示昵称"
-                    className="flex-1 h-9 bg-[#131b2e] border border-[#444653]/50 rounded-lg px-3 text-[13px] text-[#dae2fd] focus:border-[#a78bfa] outline-none"
+                    className="h-9 flex-1 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 text-[13px] text-[var(--color-text-primary)] outline-none focus:border-[var(--color-brand)]"
                   />
                   <button
                     onClick={handleSaveNickname}
                     disabled={savingNickname}
-                    className="h-9 px-4 rounded-lg bg-[#8b5cf6] hover:bg-[#8b5cf6]/80 text-white font-medium text-[12px] transition cursor-pointer disabled:opacity-50"
+                    className="h-9 cursor-pointer rounded-lg bg-[var(--color-brand)] px-4 text-[12px] font-medium text-white transition hover:bg-[var(--color-brand-hover)] disabled:opacity-50"
                   >
                     {savingNickname ? '保存中…' : '保存昵称'}
                   </button>
@@ -452,16 +452,16 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({ isOpen, onCl
               </div>
 
               {/* 快捷安全入口卡片 */}
-              <div className="pt-2 border-t border-[#444653]/20 grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-2 gap-3 border-t border-[var(--color-border)] pt-2">
                 <button
                   type="button"
                   onClick={() => { setActiveTab('security'); setMsg(null); }}
-                  className="bg-[#131b2e] hover:bg-[#1a233a] p-3 rounded-xl border border-[#444653]/30 text-left transition cursor-pointer group"
+                  className="surface-card group cursor-pointer rounded-xl p-3 text-left transition hover:bg-[var(--color-surface-2)]"
                 >
-                  <div className="flex items-center gap-1.5 text-[12px] text-[#4cd7f6] font-semibold">
-                    <Mail className="w-3.5 h-3.5" /> 邮箱/手机绑定
+                  <div className="flex items-center gap-1.5 text-[12px] font-semibold text-[var(--color-brand)]">
+                    <Mail className="h-3.5 w-3.5" /> 邮箱/手机绑定
                   </div>
-                  <p className="text-[11px] text-[#8e909f] mt-1 group-hover:text-[#dae2fd]">
+                  <p className="mt-1 text-[11px] text-[var(--color-text-muted)] group-hover:text-[var(--color-text-primary)]">
                     {profile?.email ? `已绑: ${profile.email}` : '未绑定邮箱'}
                   </p>
                 </button>
@@ -469,12 +469,12 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({ isOpen, onCl
                 <button
                   type="button"
                   onClick={() => { setActiveTab('password'); setMsg(null); }}
-                  className="bg-[#131b2e] hover:bg-[#1a233a] p-3 rounded-xl border border-[#444653]/30 text-left transition cursor-pointer group"
+                  className="surface-card group cursor-pointer rounded-xl p-3 text-left transition hover:bg-[var(--color-surface-2)]"
                 >
-                  <div className="flex items-center gap-1.5 text-[12px] text-[#f87171] font-semibold">
-                    <Lock className="w-3.5 h-3.5" /> 验证码改密
+                  <div className="flex items-center gap-1.5 text-[12px] font-semibold text-[var(--color-brand)]">
+                    <Lock className="h-3.5 w-3.5" /> 验证码改密
                   </div>
-                  <p className="text-[11px] text-[#8e909f] mt-1 group-hover:text-[#dae2fd]">
+                  <p className="mt-1 text-[11px] text-[var(--color-text-muted)] group-hover:text-[var(--color-text-primary)]">
                     通过邮箱/短信改密
                   </p>
                 </button>
@@ -488,28 +488,28 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({ isOpen, onCl
             <div className="space-y-4">
               {/* 当前绑定状态卡片 */}
               <div className="grid grid-cols-2 gap-3">
-                <div className="bg-[#131b2e] p-3 rounded-xl border border-[#444653]/30">
-                  <div className="flex items-center gap-1.5 text-[12px] text-[#8e909f]">
-                    <Mail className="w-3.5 h-3.5 text-[#4cd7f6]" /> 电子邮箱
+                <div className="surface-card rounded-xl p-3">
+                  <div className="flex items-center gap-1.5 text-[12px] text-[var(--color-text-muted)]">
+                    <Mail className="h-3.5 w-3.5 text-[var(--color-brand)]" /> 电子邮箱
                   </div>
-                  <p className="text-[13px] font-semibold text-[#dde1ff] mt-1 truncate">
+                  <p className="mt-1 truncate text-[13px] font-semibold text-[var(--color-text-primary)]">
                     {profile?.email || '未绑定'}
                   </p>
-                  <span className={`text-[10px] inline-block mt-1 px-1.5 py-0.5 rounded ${
-                    profile?.email_verified ? 'bg-[#10b981]/20 text-[#34d399]' : 'bg-[#444653]/30 text-[#8e909f]'
+                  <span className={`mt-1 inline-block rounded px-1.5 py-0.5 text-[10px] ${
+                    profile?.email_verified ? 'bg-[var(--color-success)]/10 text-[var(--color-success)]' : 'bg-[var(--color-surface-2)] text-[var(--color-text-muted)]'
                   }`}>
                     {profile?.email_verified ? '✓ 已验证' : '未验证'}
                   </span>
                 </div>
-                <div className="bg-[#131b2e] p-3 rounded-xl border border-[#444653]/30">
-                  <div className="flex items-center gap-1.5 text-[12px] text-[#8e909f]">
-                    <Smartphone className="w-3.5 h-3.5 text-[#38bdf8]" /> 手机号码
+                <div className="surface-card rounded-xl p-3">
+                  <div className="flex items-center gap-1.5 text-[12px] text-[var(--color-text-muted)]">
+                    <Smartphone className="h-3.5 w-3.5 text-[var(--color-brand)]" /> 手机号码
                   </div>
-                  <p className="text-[13px] font-semibold text-[#dde1ff] mt-1 truncate">
+                  <p className="mt-1 truncate text-[13px] font-semibold text-[var(--color-text-primary)]">
                     {profile?.phone || '未绑定'}
                   </p>
-                  <span className={`text-[10px] inline-block mt-1 px-1.5 py-0.5 rounded ${
-                    profile?.phone_verified ? 'bg-[#10b981]/20 text-[#34d399]' : 'bg-[#444653]/30 text-[#8e909f]'
+                  <span className={`mt-1 inline-block rounded px-1.5 py-0.5 text-[10px] ${
+                    profile?.phone_verified ? 'bg-[var(--color-success)]/10 text-[var(--color-success)]' : 'bg-[var(--color-surface-2)] text-[var(--color-text-muted)]'
                   }`}>
                     {profile?.phone_verified ? '✓ 已验证' : '未验证'}
                   </span>
@@ -517,25 +517,25 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({ isOpen, onCl
               </div>
 
               {/* 绑定/换绑表单 */}
-              <div className="bg-[#131b2e] p-4 rounded-xl border border-[#444653]/30 space-y-3">
+              <div className="surface-card space-y-3 rounded-xl p-4">
                 <div className="flex gap-4 text-[12px]">
-                  <label className="flex items-center gap-1.5 cursor-pointer">
+                  <label className="flex cursor-pointer items-center gap-1.5">
                     <input
                       type="radio"
                       name="bindChannel"
                       checked={bindChannel === 'email'}
                       onChange={() => setBindChannel('email')}
-                      className="accent-[#4cd7f6]"
+                      className="accent-[var(--color-brand)]"
                     />
                     <span>绑定邮箱</span>
                   </label>
-                  <label className="flex items-center gap-1.5 cursor-pointer">
+                  <label className="flex cursor-pointer items-center gap-1.5">
                     <input
                       type="radio"
                       name="bindChannel"
                       checked={bindChannel === 'sms'}
                       onChange={() => setBindChannel('sms')}
-                      className="accent-[#4cd7f6]"
+                      className="accent-[var(--color-brand)]"
                     />
                     <span>绑定手机号</span>
                   </label>
@@ -547,7 +547,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({ isOpen, onCl
                     value={bindTarget}
                     onChange={(e) => setBindTarget(e.target.value)}
                     placeholder={bindChannel === 'email' ? '请输入电子邮箱 (如 user@company.com)' : '请输入11位手机号码'}
-                    className="w-full h-9 bg-[#0b1326] border border-[#444653]/50 rounded-lg px-3 text-[13px] text-[#dae2fd] focus:border-[#4cd7f6] outline-none"
+                    className="h-9 w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 text-[13px] text-[var(--color-text-primary)] outline-none focus:border-[var(--color-brand)]"
                   />
                 </div>
 
@@ -558,12 +558,12 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({ isOpen, onCl
                     value={bindCode}
                     onChange={(e) => setBindCode(e.target.value.replace(/\D/g, ''))}
                     placeholder="输入6位验证码"
-                    className="flex-1 h-9 bg-[#0b1326] border border-[#444653]/50 rounded-lg px-3 text-[13px] text-[#dae2fd] tracking-widest focus:border-[#4cd7f6] outline-none"
+                    className="h-9 flex-1 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 text-[13px] tracking-widest text-[var(--color-text-primary)] outline-none focus:border-[var(--color-brand)]"
                   />
                   <button
                     onClick={handleSendBindCode}
                     disabled={bindCountdown > 0}
-                    className="h-9 px-3 rounded-lg bg-[#03b5d3]/20 border border-[#4cd7f6]/40 hover:bg-[#03b5d3]/30 text-[#4cd7f6] font-medium text-[11px] transition cursor-pointer disabled:opacity-50 whitespace-nowrap"
+                    className="h-9 cursor-pointer whitespace-nowrap rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 text-[11px] font-medium text-[var(--color-brand)] transition hover:bg-[var(--color-surface)] disabled:opacity-50"
                   >
                     {bindCountdown > 0 ? `${bindCountdown}s 后重试` : '获取验证码'}
                   </button>
@@ -572,9 +572,9 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({ isOpen, onCl
                 <button
                   onClick={handleBindSubmit}
                   disabled={bindLoading || !bindTarget || bindCode.length !== 6}
-                  className="w-full h-9 rounded-lg bg-[#0ea5e9] hover:bg-[#0ea5e9]/80 disabled:opacity-50 text-white font-bold text-[12px] transition cursor-pointer shadow-md flex items-center justify-center gap-1.5"
+                  className="flex h-9 w-full cursor-pointer items-center justify-center gap-1.5 rounded-lg bg-[var(--color-brand)] text-[12px] font-bold text-white transition hover:bg-[var(--color-brand-hover)] disabled:opacity-50"
                 >
-                  <KeyRound className="w-3.5 h-3.5" />
+                  <KeyRound className="h-3.5 w-3.5" />
                   {bindLoading ? '正在验证绑定…' : '确认绑定'}
                 </button>
               </div>
@@ -584,8 +584,8 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({ isOpen, onCl
           {/* TAB 3: 验证码改密 */}
           {activeTab === 'password' && (
             <div className="space-y-4">
-              <div className="bg-[#131b2e] p-4 rounded-xl border border-[#444653]/30 space-y-3">
-                <div className="text-[12px] text-[#8e909f] mb-1">
+              <div className="surface-card space-y-3 rounded-xl p-4">
+                <div className="mb-1 text-[12px] text-[var(--color-text-muted)]">
                   修改登录密码需向您绑定的账号发送 6 位安全验证码：
                 </div>
 
@@ -598,7 +598,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({ isOpen, onCl
                       checked={pwdChannel === 'email'}
                       disabled={!profile?.email}
                       onChange={() => setPwdChannel('email')}
-                      className="accent-[#ef4444]"
+                      className="accent-[var(--color-brand)]"
                     />
                     <span>邮箱验证码 ({profile?.email ? profile.email : '未绑定'})</span>
                   </label>
@@ -609,7 +609,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({ isOpen, onCl
                       checked={pwdChannel === 'sms'}
                       disabled={!profile?.phone}
                       onChange={() => setPwdChannel('sms')}
-                      className="accent-[#ef4444]"
+                      className="accent-[var(--color-brand)]"
                     />
                     <span>手机验证码 ({profile?.phone ? profile.phone : '未绑定'})</span>
                   </label>
@@ -623,12 +623,12 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({ isOpen, onCl
                     value={pwdCode}
                     onChange={(e) => setPwdCode(e.target.value.replace(/\D/g, ''))}
                     placeholder="输入6位动态验证码"
-                    className="flex-1 h-9 bg-[#0b1326] border border-[#444653]/50 rounded-lg px-3 text-[13px] text-[#dae2fd] tracking-widest focus:border-[#ef4444] outline-none"
+                    className="h-9 flex-1 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 text-[13px] tracking-widest text-[var(--color-text-primary)] outline-none focus:border-[var(--color-brand)]"
                   />
                   <button
                     onClick={handleSendPwdCode}
                     disabled={pwdCountdown > 0 || (pwdChannel === 'email' ? !profile?.email : !profile?.phone)}
-                    className="h-9 px-3 rounded-lg bg-[#ef4444]/20 border border-[#f87171]/40 hover:bg-[#ef4444]/30 text-[#f87171] font-medium text-[11px] transition cursor-pointer disabled:opacity-50 whitespace-nowrap"
+                    className="h-9 cursor-pointer whitespace-nowrap rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 text-[11px] font-medium text-[var(--color-brand)] transition hover:bg-[var(--color-surface)] disabled:opacity-50"
                   >
                     {pwdCountdown > 0 ? `${pwdCountdown}s 后重发` : '获取改密验证码'}
                   </button>
@@ -641,23 +641,23 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({ isOpen, onCl
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
                     placeholder="输入新密码 (至少6位)"
-                    className="w-full h-9 bg-[#0b1326] border border-[#444653]/50 rounded-lg px-3 text-[13px] text-[#dae2fd] focus:border-[#ef4444] outline-none"
+                    className="h-9 w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 text-[13px] text-[var(--color-text-primary)] outline-none focus:border-[var(--color-brand)]"
                   />
                   <input
                     type="password"
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
                     placeholder="再次确认新密码"
-                    className="w-full h-9 bg-[#0b1326] border border-[#444653]/50 rounded-lg px-3 text-[13px] text-[#dae2fd] focus:border-[#ef4444] outline-none"
+                    className="h-9 w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 text-[13px] text-[var(--color-text-primary)] outline-none focus:border-[var(--color-brand)]"
                   />
                 </div>
 
                 <button
                   onClick={handleChangePassword}
                   disabled={pwdLoading || pwdCode.length !== 6 || !newPassword || newPassword !== confirmPassword}
-                  className="w-full h-9 rounded-lg bg-[#ef4444] hover:bg-[#ef4444]/80 disabled:opacity-50 text-white font-bold text-[12px] transition cursor-pointer shadow-md flex items-center justify-center gap-1.5"
+                  className="flex h-9 w-full cursor-pointer items-center justify-center gap-1.5 rounded-lg bg-[var(--color-brand)] text-[12px] font-bold text-white transition hover:bg-[var(--color-brand-hover)] disabled:opacity-50"
                 >
-                  <Lock className="w-3.5 h-3.5" />
+                  <Lock className="h-3.5 w-3.5" />
                   {pwdLoading ? '正在修改密码…' : '验证并更改登录密码'}
                 </button>
               </div>
