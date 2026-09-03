@@ -208,3 +208,60 @@
 .animate-radar-sweep {
   animation: radar-sweep 6s linear infinite;
 }
+
+/* 智能财税决策中心：仅强化导航入口，不改变交互/ARIA 契约。 */
+@keyframes ai-decision-pulse {
+  0%, 100% {
+    border-color: rgba(59, 130, 246, 0.42);
+    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.00), inset 0 0 0 1px rgba(59, 130, 246, 0.08);
+  }
+  50% {
+    border-color: rgba(59, 130, 246, 0.78);
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.10), 0 0 18px rgba(59, 130, 246, 0.24), inset 0 0 0 1px rgba(59, 130, 246, 0.14);
+  }
+}
+
+@keyframes ai-decision-shimmer {
+  0% { transform: translateX(-160%) skewX(-18deg); opacity: 0; }
+  18% { opacity: 0.7; }
+  42%, 100% { transform: translateX(260%) skewX(-18deg); opacity: 0; }
+}
+
+.ai-decision-nav {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  animation: ai-decision-pulse 2.4s ease-in-out infinite;
+}
+
+.ai-decision-nav::after {
+  content: '';
+  position: absolute;
+  inset: -1px auto -1px -35%;
+  z-index: 0;
+  width: 28%;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent, rgba(232, 238, 247, 0.22), transparent);
+  animation: ai-decision-shimmer 3.2s ease-in-out infinite;
+}
+
+.ai-decision-nav > * {
+  position: relative;
+  z-index: 1;
+}
+
+.ai-decision-nav:hover {
+  border-color: rgba(59, 130, 246, 0.75);
+  background-color: var(--color-brand-muted);
+}
+
+.ai-decision-nav[aria-current='page'] {
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.10), 0 0 20px rgba(59, 130, 246, 0.18);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ai-decision-nav,
+  .ai-decision-nav::after {
+    animation: none;
+  }
+}
