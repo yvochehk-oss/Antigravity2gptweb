@@ -268,7 +268,7 @@ function ragSettingsBody(input: { url: string; approvePrivate: boolean }): Recor
   if (url.length > 300) throw new ApiError('RAG 服务地址不能超过 300 个字符。', 400);
   return {
     url,
-    approve_private: input.approvePrivate === true,
+    approved_private: input.approvePrivate === true,
   };
 }
 
@@ -1544,6 +1544,15 @@ export interface LegalEntityProjectionContribution {
   factIds: number[];
 }
 
+export interface LegalEntityOperatingCumulative {
+  revenue: number;
+  bookCostProjection: number;
+  accountingProfitProjection: number;
+  outputVat: number;
+  inputVat: number;
+  factCount: number;
+}
+
 export interface LegalEntityOperatingProjection {
   status: Extract<DataStatus, 'READY' | 'DEGRADED'>;
   scope: 'LEGAL_ENTITY_PROJECTION';
@@ -1567,6 +1576,7 @@ export interface LegalEntityOperatingProjection {
   nonProjectContribution: LegalEntityProjectionContribution;
   factCount: number;
   factIds: number[];
+  cumulative: LegalEntityOperatingCumulative;
   dataGaps: string[];
   sourceOfTruth: 'analytics_canonical_facts_current';
   officialVatLedger: 'entity_vat_ledgers';
@@ -1624,6 +1634,23 @@ function projectionContribution(value: unknown, payload: unknown): LegalEntityPr
   };
 }
 
+function projectionCumulative(value: unknown, payload: unknown): LegalEntityOperatingCumulative {
+  const data = projectionRecord(value);
+  if (!data) throw new ApiError('法人经营 Projection 缺少累计口径。', 502, payload);
+  const factCount = projectionNumber(data.fact_count, 'cumulative.fact_count', payload);
+  if (!Number.isInteger(factCount) || factCount < 0) {
+    throw new ApiError('法人经营 Projection 累计事实数必须是非负整数。', 502, payload);
+  }
+  return {
+    revenue: projectionNumber(data.revenue, 'cumulative.revenue', payload),
+    bookCostProjection: projectionNumber(data.book_cost_projection, 'cumulative.book_cost_projection', payload),
+    accountingProfitProjection: projectionNumber(data.accounting_profit_projection, 'cumulative.accounting_profit_projection', payload),
+    outputVat: projectionNumber(data.output_vat, 'cumulative.output_vat', payload),
+    inputVat: projectionNumber(data.input_vat, 'cumulative.input_vat', payload),
+    factCount,
+  };
+}
+
 function parseLegalEntityOperatingProjection(payload: unknown): LegalEntityOperatingProjection {
   const data = projectionRecord(payload);
   if (!data) throw new ApiError('法人经营 Projection 接口返回格式不完整。', 502, payload);
@@ -1673,6 +1700,7 @@ function parseLegalEntityOperatingProjection(payload: unknown): LegalEntityOpera
     nonProjectContribution,
     factCount: projectionNumber(data.fact_count, 'fact_count', payload),
     factIds,
+    cumulative: projectionCumulative(data.cumulative, payload),
     dataGaps: Array.isArray(data.data_gaps) ? data.data_gaps.map(String) : [],
     sourceOfTruth: 'analytics_canonical_facts_current',
     officialVatLedger: 'entity_vat_ledgers',
@@ -1688,22 +1716,20 @@ export async function fetchLegalEntityOperatingProjection(
 ): Promise<LegalEntityOperatingProjection> {
   const normalizedEntityCode = entityCode.trim().toUpperCase();
   if (!normalizedEntityCode) throw new ApiError('缺少法人主体编码。', 400);
-  if (period && !/^\d{4}-(?:0[1-9]|1[0-2])$/.test(period)) {
-    throw new ApiError('法人经营 Projection 期间必须使用 YYYY-MM 格式。', 400);
+  if (!period || !/^\d{4}-(?:0[1-9]|1[0-2])$/.test(period)) {
+    throw new ApiError('法人经营 Projection 双口径查询必须提供 YYYY-MM 期间。', 400);
   }
   const query = new URLSearchParams();
-  if (period) query.set('period', period);
-  const queryString = query.toString();
-  const suffix = queryString ? `?${queryString}` : '';
+  query.set('period', period);
   const payload = await fetchJson<unknown>(
-    `/api/legal-entities/${encodeURIComponent(normalizedEntityCode)}/operating-projection${suffix}`,
+    `/api/legal-entities/${encodeURIComponent(normalizedEntityCode)}/operating-projection?${query.toString()}`,
     { signal },
   );
   const projection = parseLegalEntityOperatingProjection(payload);
   if (projection.entityCode !== normalizedEntityCode) {
     throw new ApiError('法人经营 Projection 返回的主体与请求不一致。', 502, payload);
   }
-  if ((period ?? '') !== projection.period) {
+  if (period !== projection.period) {
     throw new ApiError('法人经营 Projection 返回的期间与请求不一致。', 502, payload);
   }
   return projection;
