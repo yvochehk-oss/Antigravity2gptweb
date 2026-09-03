@@ -80,8 +80,8 @@ describe('EntityCorporateView legal-entity dual-scope workspace', () => {
   it('keeps the title independent from entity and period controls', async () => {
     const { container } = render(<EntityCorporateView />);
     await waitFor(() => expect(screen.getByLabelText('法人主体')).toHaveValue('A08'));
-    const title = container.querySelector('[data-page-title="entity-profile"]');
-    const controls = container.querySelector('[data-page-controls="entity-profile"]');
+    const title = container.querySelector<HTMLElement>('[data-page-title="entity-profile"]');
+    const controls = container.querySelector<HTMLElement>('[data-page-controls="entity-profile"]');
     expect(title).toBeInTheDocument();
     expect(controls).toBeInTheDocument();
     expect(title?.parentElement).toBe(controls?.parentElement);
