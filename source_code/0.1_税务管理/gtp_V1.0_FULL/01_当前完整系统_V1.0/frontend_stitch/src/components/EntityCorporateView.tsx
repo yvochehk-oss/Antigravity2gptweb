@@ -291,6 +291,30 @@ export function EntityCorporateView() {
               className="sr-only"
             />
           </div>
+          <div className="flex flex-col gap-1 text-[11px] text-[#8e909f]">
+            <span>含数据事实期间推荐</span>
+            <div className="flex flex-wrap items-center gap-1.5">
+              {[
+                { label: '2026年03月 (主力数据)', val: '2026-03' },
+                { label: '2025年08月', val: '2025-08' },
+                { label: '2024年07月', val: '2024-07' },
+                { label: '2023年07月', val: '2023-07' },
+              ].map(item => (
+                <button
+                  key={item.val}
+                  type="button"
+                  onClick={() => setPeriod(item.val)}
+                  className={`rounded px-2 py-1 text-[11px] transition-colors border ${
+                    period === item.val
+                      ? 'border-[#4cd7f6] bg-[#4cd7f6]/20 text-[#4cd7f6] font-semibold'
+                      : 'border-[#444653]/40 bg-[#0b1326] text-[#c4c5d5] hover:border-[#4cd7f6]/50'
+                  }`}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
       </div>
 
