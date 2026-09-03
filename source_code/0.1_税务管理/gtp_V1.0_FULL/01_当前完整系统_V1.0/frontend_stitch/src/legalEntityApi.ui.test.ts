@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   fetchLegalEntityStatutoryVat,
@@ -178,9 +179,12 @@ describe('Formal VAT frontend canonical contract', () => {
   });
 
   it('runtime VAT consumers no longer import or invoke the legacy entity-tax-ledger client', () => {
-    const app = readFileSync(new URL('./App.tsx', import.meta.url), 'utf8');
-    const entityView = readFileSync(new URL('./components/EntityCorporateView.tsx', import.meta.url), 'utf8');
-    const adapter = readFileSync(new URL('./legalEntityApi.ts', import.meta.url), 'utf8');
+    const app = readFileSync(fileURLToPath(new URL('./App.tsx', import.meta.url)), 'utf8');
+    const entityView = readFileSync(
+      fileURLToPath(new URL('./components/EntityCorporateView.tsx', import.meta.url)),
+      'utf8',
+    );
+    const adapter = readFileSync(fileURLToPath(new URL('./legalEntityApi.ts', import.meta.url)), 'utf8');
 
     expect(app).toMatch(/fetchLegalEntityStatutoryVatCollection/);
     expect(app).not.toMatch(/\bfetchEntityTaxLedger\b/);
