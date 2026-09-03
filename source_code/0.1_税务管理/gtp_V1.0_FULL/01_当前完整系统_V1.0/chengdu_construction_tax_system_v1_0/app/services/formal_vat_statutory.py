@@ -1,10 +1,14 @@
 """Formal VAT statutory read model backed only by the official V3 VAT ledger.
 
-This module is intentionally a read boundary.  It never derives VAT from invoice
-facts and never repairs/rebuilds missing materializations.  The sole official
+This module is intentionally a read boundary. It never derives VAT from invoice
+facts and never repairs/rebuilds missing materializations. The sole official
 resource for one legal entity + one month is:
 
     TaxPeriodState.current_run_id -> SUCCEEDED CalculationRun -> EntityVatLedger
+
+For CLOSED periods, ``closed_run_id`` is an immutable first-close anchor. A later
+restatement advances only ``current_run_id``; every RESTATEMENT must supersede the
+previous current run and the chain must eventually reach the immutable anchor.
 
 Any broken or missing link fails closed so callers cannot accidentally treat a
 projection or a live fact aggregation as statutory VAT.
@@ -26,6 +30,7 @@ _SOURCE_OF_TRUTH = (
     "tax_period_states.current_run_id->calculation_runs->entity_vat_ledgers"
 )
 _RESOURCE_TYPE = "FORMAL_VAT_STATUTORY_V1"
+_MAX_RESTATEMENT_CHAIN_DEPTH = 100
 
 
 class FormalVatStatutoryResourceNotFoundError(LookupError):
@@ -67,6 +72,69 @@ def _money(value: Any) -> str:
     return f"{Decimal(str(value)):.2f}"
 
 
+def _load_run(db, run_id: int):
+    return db.execute(
+        text(
+            "SELECT id, reporting_party_id, tax_type, tax_period, run_kind, "
+            "run_status, supersedes_run_id "
+            "FROM calculation_runs WHERE id = :run_id"
+        ),
+        {"run_id": int(run_id)},
+    ).mappings().one_or_none()
+
+
+def _validate_closed_restatement_chain(
+    db,
+    *,
+    current_run_id: int,
+    closed_run_id: int,
+    reporting_party_id: int,
+    tax_period: date,
+) -> None:
+    """Ensure the latest CLOSED-period run legally descends from the close anchor."""
+    if current_run_id == closed_run_id:
+        return
+
+    expected_period = tax_period.isoformat()
+    seen: set[int] = set()
+    run_id = int(current_run_id)
+
+    for _depth in range(_MAX_RESTATEMENT_CHAIN_DEPTH):
+        if run_id in seen:
+            raise FormalVatStatutoryResourceIntegrityError(
+                "closed VAT restatement chain contains a cycle"
+            )
+        seen.add(run_id)
+
+        run = _load_run(db, run_id)
+        if run is None:
+            raise FormalVatStatutoryResourceIntegrityError(
+                "closed VAT restatement chain references a missing calculation run"
+            )
+        if (
+            int(run["reporting_party_id"]) != reporting_party_id
+            or run["tax_type"] != "VAT"
+            or _iso_date(run["tax_period"]) != expected_period
+            or run["run_status"] != "SUCCEEDED"
+        ):
+            raise FormalVatStatutoryResourceIntegrityError(
+                "closed VAT restatement chain contains an invalid run scope or status"
+            )
+
+        if run_id == closed_run_id:
+            return
+
+        if run["run_kind"] != "RESTATEMENT" or run["supersedes_run_id"] is None:
+            raise FormalVatStatutoryResourceIntegrityError(
+                "closed VAT current run is not a legal RESTATEMENT chain"
+            )
+        run_id = int(run["supersedes_run_id"])
+
+    raise FormalVatStatutoryResourceIntegrityError(
+        "closed VAT restatement chain exceeds the allowed depth"
+    )
+
+
 def get_formal_vat_statutory_resource(
     db,
     entity_code: str,
@@ -98,12 +166,12 @@ def get_formal_vat_statutory_resource(
         text(
             "SELECT "
             "tps.state AS period_state, tps.state_version, "
-            "tps.current_run_id, tps.closed_run_id, "
+            "tps.current_run_id, tps.closed_run_id, tps.closed_by, tps.closed_at, "
             "cr.id AS calculation_run_id, "
             "cr.reporting_party_id AS run_party_id, cr.tax_type AS run_tax_type, "
             "cr.tax_period AS run_tax_period, cr.run_kind, cr.run_status, "
-            "cr.ruleset_version, cr.input_snapshot_sha256, cr.result_sha256, "
-            "cr.completed_at, "
+            "cr.supersedes_run_id, cr.ruleset_version, "
+            "cr.input_snapshot_sha256, cr.result_sha256, cr.completed_at, "
             "evl.id AS ledger_id, evl.reporting_party_id AS ledger_party_id, "
             "evl.tax_period AS ledger_tax_period, evl.opening_input_credit, "
             "evl.output_vat, evl.input_vat, evl.tax_prepayment, "
@@ -131,12 +199,25 @@ def get_formal_vat_statutory_resource(
 
     row = rows[0]
     current_run_id = int(row["current_run_id"])
-    if row["period_state"] == "CLOSED" and row["closed_run_id"] != current_run_id:
+    expected_period = tax_period.isoformat()
+
+    if row["period_state"] == "CLOSED":
+        if row["closed_run_id"] is None or not str(row["closed_by"] or "").strip() or row["closed_at"] is None:
+            raise FormalVatStatutoryResourceIntegrityError(
+                "closed VAT period has no immutable close anchor metadata"
+            )
+        _validate_closed_restatement_chain(
+            db,
+            current_run_id=current_run_id,
+            closed_run_id=int(row["closed_run_id"]),
+            reporting_party_id=party_id,
+            tax_period=tax_period,
+        )
+    elif row["closed_run_id"] is not None:
         raise FormalVatStatutoryResourceIntegrityError(
-            "closed VAT period does not pin the current official run"
+            "open VAT period unexpectedly contains a closed_run_id anchor"
         )
 
-    expected_period = tax_period.isoformat()
     if row["calculation_run_id"] != current_run_id:
         raise FormalVatStatutoryResourceIntegrityError(
             "official VAT current_run_id does not resolve to a calculation run"
@@ -187,10 +268,18 @@ def get_formal_vat_statutory_resource(
         "tax_period": expected_period,
         "period_state": row["period_state"],
         "state_version": int(row["state_version"]),
+        "closed_anchor_run_id": (
+            int(row["closed_run_id"]) if row["closed_run_id"] is not None else None
+        ),
         "calculation_run": {
             "id": current_run_id,
             "run_kind": row["run_kind"],
             "run_status": row["run_status"],
+            "supersedes_run_id": (
+                int(row["supersedes_run_id"])
+                if row["supersedes_run_id"] is not None
+                else None
+            ),
             "ruleset_version": row["ruleset_version"],
             "input_snapshot_sha256": input_snapshot_sha256,
             "result_sha256": result_sha256,

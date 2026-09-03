@@ -6,9 +6,13 @@ A successful rebuild must converge to the same official pointer chain:
 
     TaxPeriodState.current_run_id -> SUCCEEDED CalculationRun -> EntityVatLedger
 
-The service is PostgreSQL-oriented, fail-closed, and transaction-local.  It does
-not commit.  Callers own commit/rollback so the materialization and the pointer
-move remain atomic.
+For CLOSED periods, ``closed_run_id`` is immutable first-close metadata. A legal
+restatement advances only ``current_run_id`` to a RESTATEMENT run whose
+``supersedes_run_id`` is the previous current run.
+
+The service is PostgreSQL-oriented, fail-closed, and transaction-local. It does
+not commit. Callers own commit/rollback so the materialization and pointer move
+remain atomic.
 """
 from __future__ import annotations
 
@@ -419,12 +423,14 @@ def rebuild_formal_vat_statutory_resource(
                 "resource": current,
             }
 
-    now = datetime.now(timezone.utc)
-    run_kind = "RESTATEMENT" if state is not None and state.state == "CLOSED" else "STANDARD"
-    supersedes_run_id = state.current_run_id if run_kind == "RESTATEMENT" else None
     actor = str(created_by or "").strip()
     if not actor:
         raise ValueError("created_by is required")
+
+    now = datetime.now(timezone.utc)
+    is_closed_restatement = bool(state is not None and state.state == "CLOSED")
+    run_kind = "RESTATEMENT" if is_closed_restatement else "STANDARD"
+    supersedes_run_id = state.current_run_id if is_closed_restatement else None
 
     run = CalculationRun(
         reporting_party_id=party_id,
@@ -502,6 +508,9 @@ def rebuild_formal_vat_statutory_resource(
         )
     db.flush()
 
+    # Re-read the exact source set after materialization but before the official
+    # pointer moves. Any concurrent source mutation invalidates the rebuild and
+    # leaves the caller to roll the whole transaction back.
     stable_snapshot = _source_snapshot(
         db,
         entity_code=wanted,
@@ -541,10 +550,11 @@ def rebuild_formal_vat_statutory_resource(
         )
         db.add(state)
     elif state.state == "CLOSED":
+        # Database invariant: closed_run_id / closed_by / closed_at are the
+        # immutable first-close anchor. A legal restatement may advance only
+        # current_run_id, and the trigger verifies that the new RESTATEMENT
+        # supersedes OLD.current_run_id.
         state.current_run_id = run.id
-        state.closed_run_id = run.id
-        state.closed_by = actor
-        state.closed_at = now
         state.state_version = int(state.state_version) + 1
         state.updated_at = now
     else:
@@ -563,6 +573,15 @@ def rebuild_formal_vat_statutory_resource(
         raise FormalVatStatutoryResourceIntegrityError(
             "rebuild did not converge to the official VAT statutory resource"
         )
+    if is_closed_restatement:
+        if official["closed_anchor_run_id"] != int(state.closed_run_id):
+            raise FormalVatStatutoryResourceIntegrityError(
+                "closed VAT restatement changed the immutable close anchor"
+            )
+        if official["calculation_run"]["supersedes_run_id"] != int(supersedes_run_id):
+            raise FormalVatStatutoryResourceIntegrityError(
+                "closed VAT restatement does not supersede the previous current run"
+            )
 
     return {
         "status": "BUILT",

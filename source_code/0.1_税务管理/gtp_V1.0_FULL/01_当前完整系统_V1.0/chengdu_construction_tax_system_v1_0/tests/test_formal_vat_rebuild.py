@@ -163,7 +163,7 @@ def test_formal_vat_rebuild_converges_and_second_run_is_no_change(seeded_app):
             tx.rollback()
 
 
-def test_closed_vat_restatement_repins_current_and_closed_run(seeded_app):
+def test_closed_vat_restatement_preserves_immutable_close_anchor(seeded_app):
     with engine.connect() as conn:
         tx = conn.begin()
         session = Session(bind=conn, expire_on_commit=False)
@@ -192,6 +192,11 @@ def test_closed_vat_restatement_repins_current_and_closed_run(seeded_app):
             state.closed_at = closed_at
             session.flush()
 
+            anchor_run_id = int(state.closed_run_id)
+            anchor_closed_by = state.closed_by
+            anchor_closed_at = state.closed_at
+            anchor_state_version = int(state.state_version)
+
             event.vat_amount = Decimal("140.00")
             assertion.asserted_output_vat_total = Decimal("140.00")
             session.flush()
@@ -205,14 +210,26 @@ def test_closed_vat_restatement_repins_current_and_closed_run(seeded_app):
             )
             session.refresh(state)
             official = get_formal_vat_statutory_resource(session, "FVR2", "2026-04")
+            restated_run = session.get(CalculationRun, restated["calculation_run_id"])
 
             assert restated["status"] == "BUILT"
             assert restated["run_kind"] == "RESTATEMENT"
             assert restated["calculation_run_id"] != first["calculation_run_id"]
+            assert restated_run is not None
+            assert restated_run.run_kind == "RESTATEMENT"
+            assert restated_run.supersedes_run_id == first["calculation_run_id"]
+
             assert state.state == "CLOSED"
             assert state.current_run_id == restated["calculation_run_id"]
-            assert state.closed_run_id == restated["calculation_run_id"]
+            assert state.closed_run_id == anchor_run_id == first["calculation_run_id"]
+            assert state.closed_by == anchor_closed_by
+            assert state.closed_at == anchor_closed_at
+            assert state.state_version == anchor_state_version + 1
+
+            assert official["closed_anchor_run_id"] == anchor_run_id
             assert official["calculation_run"]["id"] == restated["calculation_run_id"]
+            assert official["calculation_run"]["run_kind"] == "RESTATEMENT"
+            assert official["calculation_run"]["supersedes_run_id"] == first["calculation_run_id"]
             assert official["vat_ledger"]["output_vat"] == "140.00"
             assert official["vat_ledger"]["vat_payable_after_prepayment"] == "130.00"
         finally:
