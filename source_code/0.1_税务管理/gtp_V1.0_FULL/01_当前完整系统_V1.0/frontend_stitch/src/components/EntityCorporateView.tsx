@@ -403,7 +403,7 @@ export function EntityCorporateView() {
           <StatutoryKpi label="期末留抵" value={statutoryRecord?.closingInputCredit} />
         </div>
 
-        {!statutoryRecord && (
+        {statutoryStatus === 'READY' && statutoryRecords.length === 0 && (
           <div className="rounded-xl border border-[#444653]/30 bg-[#171f33]/60 p-3 text-[12px] text-[#8e909f] leading-relaxed">
             <span className="font-semibold text-[#dae2fd]">提示：</span>
             上方【正式 VAT】是纳税申报口径（存储于 <code className="text-[#4cd7f6]">entity_vat_ledgers</code>），由财务核对进销凭证后在【法人法定税务】模块执行“受控确定性生成”后正式入账。当前期间未归档正式台账，故显示为“—”，并不影响上方的经营 Projection 与项目穿透分析。

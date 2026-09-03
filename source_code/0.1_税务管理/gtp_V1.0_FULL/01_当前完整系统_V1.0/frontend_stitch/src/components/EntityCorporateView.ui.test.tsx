@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { LegalEntityOperatingProjection } from '../api';
 import type { EntityTaxLedgerRecord } from '../types';
@@ -282,7 +282,9 @@ describe('EntityCorporateView legal-entity dual-scope workspace', () => {
   it('T_UI_1: renders complete 25 legal entity names and synchronizes title, badge and API query upon selection', async () => {
     render(<EntityCorporateView />);
 
-    expect(screen.getByLabelText('法人主体')).toHaveValue('A08');
+    const entitySelect = screen.getByLabelText('法人主体');
+    expect(entitySelect).toHaveValue('A08');
+    expect(entitySelect.querySelectorAll('option')).toHaveLength(25);
     expect(
       screen.getByRole('option', {
         name: 'A08 · 四川锐宝建设工程有限公司',
@@ -294,7 +296,7 @@ describe('EntityCorporateView legal-entity dual-scope workspace', () => {
       }),
     ).toBeInTheDocument();
 
-    fireEvent.change(screen.getByLabelText('法人主体'), { target: { value: 'B01' } });
+    fireEvent.change(entitySelect, { target: { value: 'B01' } });
 
     await waitFor(() =>
       expect(fetchLegalEntityOperatingProjection).toHaveBeenLastCalledWith(
@@ -351,14 +353,15 @@ describe('EntityCorporateView legal-entity dual-scope workspace', () => {
 
     render(<EntityCorporateView />);
 
-    // Projection has values, but Statutory must show dashes
+    // Projection has values (mock has outputVat 90, inputVat 36), but Statutory must strictly show 6 dashes
     expect(await screen.findByText('LEGAL_ENTITY_PROJECTION · 管理/经营投影，非申报口径')).toBeInTheDocument();
     expect(screen.getByText(/上方【正式 VAT】是纳税申报口径/)).toBeInTheDocument();
     expect(screen.getByText(/当前期间未归档正式台账，故显示为“—”/)).toBeInTheDocument();
 
-    // Verify statutory KPIs remain dashes '—'
+    // Verify statutory KPIs strictly have 6 dashes '—' and do not leak Projection amounts
     const statutorySection = screen.getByRole('region', { name: '正式 VAT' });
-    expect(statutorySection).toHaveTextContent('—');
-    expect(statutorySection).not.toHaveTextContent('¥10,000,000');
+    expect(within(statutorySection).getAllByText('—')).toHaveLength(6);
+    expect(statutorySection).not.toHaveTextContent('¥90');
+    expect(statutorySection).not.toHaveTextContent('¥36');
   });
 });
