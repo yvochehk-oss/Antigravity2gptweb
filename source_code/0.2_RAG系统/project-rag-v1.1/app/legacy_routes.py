@@ -1307,7 +1307,10 @@ def api_fs_list_dirs(
     }
 
 @app.post("/api/v1/documents/import-folder")
-def api_import_folder(body: FolderImportRequest):
+def api_import_folder(
+    body: FolderImportRequest,
+    principal: TaxPrincipal = Depends(require_web_or_service_role("admin", "operator")),
+):
     """Idempotently import a folder and self-heal historical document drift."""
     with get_db() as db:
         pid = _resolve_project(db, body.project_id, body.project_code)
@@ -1321,7 +1324,7 @@ def api_import_folder(body: FolderImportRequest):
 
         try:
             rows = scan_folder(db, project, body.path, body.recursive, body.auto_parse)
-        except ValueError as exc:
+        except (ValueError, StorageError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
         skipped_duplicates = sum(1 for row in rows if row.get("skipped_duplicate"))

@@ -88,6 +88,7 @@ WEB_AUTH_DYNAMIC_GET_ROOTS = frozenset({"/projects", "/documents", "/entities"})
 WEB_AUTH_MUTATION_EXACT_PATHS = frozenset({
     "/projects",
     "/api/v1/fs/list-dirs",
+    "/api/v1/documents/import-folder",
     "/api/v1/regulations/verify",
     "/api/v1/regulations/save-custom",
     "/api/v1/regulations/ai-parse-url",
@@ -307,9 +308,12 @@ def _is_web_mutation_route(path: str, method: str) -> bool:
         len(segments) >= 4
         and segments[:3] == ["api", "v1", "projects"]
         and segments[3].isdigit()
-        and (len(segments) == 4 or segments[4] == "delete")
     ):
-        return True
+        if len(segments) == 4 or segments[4] == "delete":
+            return True
+        if len(segments) == 6 and segments[4:6] == ["documents", "repair"]:
+            return True
+        return False
     if len(segments) >= 3 and segments[:3] == ["api", "v1", "users"]:
         return True
     return False

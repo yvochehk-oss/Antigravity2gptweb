@@ -1061,7 +1061,12 @@ async function submitImportFolder(e) {
       })
     });
 
-    const data = await res.json();
+    let data = {};
+    try {
+      data = await res.json();
+    } catch (_) {
+      data = { detail: `HTTP ${res.status}: ${res.statusText || '服务响应异常'}` };
+    }
     if (!res.ok) {
       throw new Error(data.detail || '扫描导入失败');
     }

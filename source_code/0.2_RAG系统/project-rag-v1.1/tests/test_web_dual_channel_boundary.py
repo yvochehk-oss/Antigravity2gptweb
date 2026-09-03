@@ -59,6 +59,8 @@ def _app() -> FastAPI:
         "/api/v1/regulations/batch-import-dir",
         "/api/v1/regulations/pkulaw-sync",
         "/api/v1/mounts/scan",
+        "/api/v1/documents/import-folder",
+        "/api/v1/projects/7/documents/repair",
     ):
         app.add_api_route(path, write, methods=["POST"])
     for path in ("/api/v1/mounts", "/api/v1/mounts/7/delete"):
@@ -106,6 +108,8 @@ def test_compatibility_get_supports_cookie_or_service_key(path):
         "/api/v1/regulations/batch-import-dir",
         "/api/v1/regulations/pkulaw-sync",
         "/api/v1/mounts/scan",
+        "/api/v1/documents/import-folder",
+        "/api/v1/projects/7/documents/repair",
     ],
 )
 def test_dual_mutation_accepts_service_key_or_same_origin_cookie(path):
