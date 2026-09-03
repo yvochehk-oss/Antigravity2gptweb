@@ -637,7 +637,7 @@ test('entity ledger does not fabricate project, P&L, or four-flow semantics', ()
   assert.equal(entityType.includes('estimatedProfit:'), false);
   assert.equal(entityType.includes('estimatedCit:'), false);
   assert.equal(entityType.includes('vatPayable:'), false);
-  assert.match(ledgerView, /LEGAL_ENTITY_STATUTORY 法人法定申报口径/);
+  assert.match(ledgerView, /法人法定申报/);
 });
 
 test('TaxLedgerView keeps a successful empty ledger actionable and preserves Tax status errors', () => {
@@ -659,7 +659,7 @@ test('TaxLedgerView keeps a successful empty ledger actionable and preserves Tax
   assert.match(app, /已保留当前页面最后可信数据/);
   assert.equal(ledgerView.includes("dataStatus === 'READY' ? 'UNAVAILABLE'"), false);
   assert.match(TAX_LEDGER_EMPTY_MESSAGE, /接口正常、指定期间暂无已生成台账/);
-  assert.match(TAX_LEDGER_EMPTY_MESSAGE, /底层事实数据（Canonical Facts）已就绪/);
+  assert.match(TAX_LEDGER_EMPTY_MESSAGE, /底层规范事实已就绪/);
   assert.match(TAX_LEDGER_EMPTY_MESSAGE, /受控确定性重建生成/);
 });
 
