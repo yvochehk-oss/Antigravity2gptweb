@@ -1,474 +1,69 @@
 {% extends "base.html" %}
 
 {% block title %}统一用户管理与权限中心{% endblock %}
-
-{% block breadcrumbs %}
-<span class="current">用户权限管理</span>
-{% endblock %}
+{% block breadcrumbs %}<span class="current">用户权限管理</span>{% endblock %}
 
 {% block body %}
-<div class="content-header" style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px;">
-  <div>
-    <h1 style="font-size: 22px; font-weight: 700; margin: 0 0 6px 0; display: flex; align-items: center; gap: 10px;">
-      <span>👥</span> 统一用户权限管理中心
-    </h1>
-    <p style="color: var(--text-muted); font-size: 13px; margin: 0;">
-      独立用户数据库 (<code style="background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 4px; color: var(--accent-cyan);">data/user_center.db</code>) 与项目业务库物理彻底隔离，统一调度 Tax 与 RAG 两端全平台账户。
-    </p>
-  </div>
-  <button onclick="openCreateUserModal()" class="btn btn-primary" style="display: flex; align-items: center; gap: 8px; padding: 8px 16px;">
-    <span>＋</span> 新增系统用户
-  </button>
+<style>
+.user-role { display:inline-block; padding:2px 10px; border-radius:12px; font-size:11px; font-weight:600; background:var(--color-brand-muted); color:var(--color-brand); border:1px solid var(--color-brand); }
+.user-role.viewer { background:var(--color-surface-2); color:var(--color-text-secondary); border-color:var(--color-border); }
+.user-avatar { width:32px;height:32px;border-radius:50%;background:var(--color-brand);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;color:#fff; }
+.user-form-control { width:100%;padding:8px 12px;background:var(--color-surface-2);border:1px solid var(--color-border);border-radius:6px;color:var(--color-text-primary);font-size:13px;box-sizing:border-box; }
+.user-form-control:focus { outline:none; border-color:var(--color-brand); }
+</style>
+<div class="content-header" style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:24px;">
+  <div><h1 style="font-size:22px;font-weight:700;margin:0 0 6px;display:flex;align-items:center;gap:10px;"><span>👥</span> 统一用户权限管理中心</h1><p style="color:var(--color-text-muted);font-size:13px;margin:0;">独立用户数据库 (<code style="background:var(--color-surface-2);padding:2px 6px;border-radius:4px;color:var(--color-brand);">data/user_center.db</code>) 与项目业务库物理彻底隔离，统一调度 Tax 与 RAG 两端全平台账户。</p></div>
+  <button onclick="openCreateUserModal()" class="btn btn-primary" style="display:flex;align-items:center;gap:8px;padding:8px 16px;"><span>＋</span> 新增系统用户</button>
 </div>
 
-<!-- 概览指标卡片 -->
-<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px;">
-  <div class="glass-panel" style="padding: 16px 20px; border-left: 4px solid var(--accent-cyan);">
-    <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">全平台总账户</div>
-    <div style="font-size: 24px; font-weight: 700; color: var(--text-bright);">{{ stats.total }} <span style="font-size: 12px; font-weight: normal; color: var(--text-muted);">人</span></div>
-  </div>
-  <div class="glass-panel" style="padding: 16px 20px; border-left: 4px solid #a855f7;">
-    <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">系统管理员 (Admin)</div>
-    <div style="font-size: 24px; font-weight: 700; color: #c084fc;">{{ stats.admin }} <span style="font-size: 12px; font-weight: normal; color: var(--text-muted);">人</span></div>
-  </div>
-  <div class="glass-panel" style="padding: 16px 20px; border-left: 4px solid #3b82f6;">
-    <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">业务操作员 (Operator)</div>
-    <div style="font-size: 24px; font-weight: 700; color: #60a5fa;">{{ stats.operator }} <span style="font-size: 12px; font-weight: normal; color: var(--text-muted);">人</span></div>
-  </div>
-  <div class="glass-panel" style="padding: 16px 20px; border-left: 4px solid #10b981;">
-    <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">正常在用状态</div>
-    <div style="font-size: 24px; font-weight: 700; color: #34d399;">{{ stats.active }} <span style="font-size: 12px; font-weight: normal; color: var(--text-muted);">人</span></div>
-  </div>
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-bottom:24px;">
+  <div class="surface-card" style="padding:16px 20px;border-left:4px solid var(--color-brand);"><div style="font-size:12px;color:var(--color-text-muted);margin-bottom:4px;">全平台总账户</div><div style="font-size:24px;font-weight:700;color:var(--color-text-primary);">{{ stats.total }} <span style="font-size:12px;font-weight:400;color:var(--color-text-muted);">人</span></div></div>
+  <div class="surface-card" style="padding:16px 20px;border-left:4px solid var(--color-brand);"><div style="font-size:12px;color:var(--color-text-muted);margin-bottom:4px;">系统管理员 (Admin)</div><div style="font-size:24px;font-weight:700;color:var(--color-brand);">{{ stats.admin }} <span style="font-size:12px;font-weight:400;color:var(--color-text-muted);">人</span></div></div>
+  <div class="surface-card" style="padding:16px 20px;border-left:4px solid var(--color-brand);"><div style="font-size:12px;color:var(--color-text-muted);margin-bottom:4px;">业务操作员 (Operator)</div><div style="font-size:24px;font-weight:700;color:var(--color-brand);">{{ stats.operator }} <span style="font-size:12px;font-weight:400;color:var(--color-text-muted);">人</span></div></div>
+  <div class="surface-card" style="padding:16px 20px;border-left:4px solid var(--color-success);"><div style="font-size:12px;color:var(--color-text-muted);margin-bottom:4px;">正常在用状态</div><div style="font-size:24px;font-weight:700;color:var(--color-success);">{{ stats.active }} <span style="font-size:12px;font-weight:400;color:var(--color-text-muted);">人</span></div></div>
 </div>
 
-<!-- 用户列表表格 -->
-<div class="glass-panel" style="padding: 20px; border-radius: 12px;">
-  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-    <h2 style="font-size: 15px; font-weight: 600; margin: 0;">已注册系统账户</h2>
-    <span style="font-size: 12px; color: var(--text-muted);">共 {{ users|length }} 个独立账户</span>
-  </div>
-
-  <table class="table" style="width: 100%; text-align: left; border-collapse: collapse; font-size: 13px;">
-    <thead>
-      <tr style="border-bottom: 1px solid rgba(255,255,255,0.08); color: var(--text-muted);">
-        <th style="padding: 12px 16px;">用户账号</th>
-        <th style="padding: 12px 16px;">姓名 / 昵称</th>
-        <th style="padding: 12px 16px;">系统角色</th>
-        <th style="padding: 12px 16px;">联系电话 / 邮箱</th>
-        <th style="padding: 12px 16px;">账号状态</th>
-        <th style="padding: 12px 16px;">创建时间</th>
-        <th style="padding: 12px 16px; text-align: right;">管理操作</th>
-      </tr>
-    </thead>
+<div class="surface-card" style="padding:20px;border-radius:12px;">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;"><h2 style="font-size:15px;font-weight:600;margin:0;">已注册系统账户</h2><span style="font-size:12px;color:var(--color-text-muted);">共 {{ users|length }} 个独立账户</span></div>
+  <table class="table" style="width:100%;text-align:left;border-collapse:collapse;font-size:13px;">
+    <thead><tr style="border-bottom:1px solid var(--color-border);color:var(--color-text-muted);"><th style="padding:12px 16px;">用户账号</th><th style="padding:12px 16px;">姓名 / 昵称</th><th style="padding:12px 16px;">系统角色</th><th style="padding:12px 16px;">联系电话 / 邮箱</th><th style="padding:12px 16px;">账号状态</th><th style="padding:12px 16px;">创建时间</th><th style="padding:12px 16px;text-align:right;">管理操作</th></tr></thead>
     <tbody>
-      {% for u in users %}
-      <tr style="border-bottom: 1px solid rgba(255,255,255,0.05); transition: background 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.02)'" onmouseout="this.style.background='transparent'">
-        <td style="padding: 12px 16px; font-weight: 600;">
-          <div style="display: flex; align-items: center; gap: 10px;">
-            <div style="width: 32px; height: 32px; border-radius: 50%; background: linear-gradient(135deg, #3b82f6, #8b5cf6); display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: bold; color: #fff;">
-              {{ u.username[:1].upper() }}
-            </div>
-            <span>{{ u.username }}</span>
-          </div>
-        </td>
-        <td style="padding: 12px 16px; color: var(--text-bright);">
-          {{ u.nickname or u.display_name or "—" }}
-        </td>
-        <td style="padding: 12px 16px;">
-          {% if u.role == "admin" %}
-          <span style="display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; background: rgba(168, 85, 247, 0.15); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.3);">
-            👑 系统管理员
-          </span>
-          {% elif u.role == "operator" %}
-          <span style="display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3);">
-            👷 业务操作员
-          </span>
-          {% else %}
-          <span style="display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; background: rgba(100, 116, 139, 0.15); color: #94a3b8; border: 1px solid rgba(100, 116, 139, 0.3);">
-            👀 只读访客
-          </span>
-          {% endif %}
-        </td>
-        <td style="padding: 12px 16px; color: var(--text-muted); font-size: 12px;">
-          <div>{{ u.phone or "未绑定手机" }}</div>
-          <div style="font-size: 11px; opacity: 0.8;">{{ u.email or "未绑定邮箱" }}</div>
-        </td>
-        <td style="padding: 12px 16px;">
-          {% if u.active %}
-          <span style="display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: #34d399;">
-            <span style="width: 6px; height: 6px; border-radius: 50%; background: #10b981;"></span> 正常在用
-          </span>
-          {% else %}
-          <span style="display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: #ef4444;">
-            <span style="width: 6px; height: 6px; border-radius: 50%; background: #ef4444;"></span> 已封禁
-          </span>
-          {% endif %}
-        </td>
-        <td style="padding: 12px 16px; color: var(--text-muted); font-size: 12px;">
-          {{ u.created_at }}
-        </td>
-        <td style="padding: 12px 16px; text-align: right;">
-          <div style="display: inline-flex; gap: 6px;">
-            <button type="button"
-              class="btn btn-sm btn-secondary btn-edit-user"
-              data-id="{{ u.id }}"
-              data-username="{{ u.username }}"
-              data-nickname="{{ u.nickname or u.display_name or u.username }}"
-              data-role="{{ u.role }}"
-              data-email="{{ u.email or '' }}"
-              data-phone="{{ u.phone or '' }}"
-              data-active="{{ 'true' if u.active else 'false' }}"
-              style="padding: 4px 8px; font-size: 11px;">
-              ✏️ 编辑
-            </button>
-            <button type="button"
-              class="btn btn-sm btn-secondary btn-reset-password"
-              data-id="{{ u.id }}"
-              data-username="{{ u.username }}"
-              style="padding: 4px 8px; font-size: 11px;">
-              🔑 重置密码
-            </button>
-            <button type="button"
-              class="btn btn-sm {% if u.active %}btn-secondary{% else %}btn-primary{% endif %} btn-toggle-active"
-              data-id="{{ u.id }}"
-              data-username="{{ u.username }}"
-              data-active="{{ 'true' if u.active else 'false' }}"
-              style="padding: 4px 8px; font-size: 11px;">
-              {% if u.active %}⛔ 禁用{% else %}✅ 启用{% endif %}
-            </button>
-            <button type="button"
-              class="btn btn-sm btn-delete-user"
-              data-id="{{ u.id }}"
-              data-username="{{ u.username }}"
-              {% if u.username == principal.username %}disabled title="无法删除当前登录账户"{% endif %}
-              style="padding: 4px 8px; font-size: 11px; background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); {% if u.username == principal.username %}opacity: 0.4; cursor: not-allowed;{% endif %}">
-              🗑️ 删除
-            </button>
-          </div>
-        </td>
+    {% for u in users %}
+      <tr style="border-bottom:1px solid var(--color-border);transition:background .2s;" onmouseover="this.style.background='var(--color-surface-2)'" onmouseout="this.style.background='transparent'">
+        <td style="padding:12px 16px;font-weight:600;"><div style="display:flex;align-items:center;gap:10px;"><div class="user-avatar">{{ u.username[:1].upper() }}</div><span>{{ u.username }}</span></div></td>
+        <td style="padding:12px 16px;color:var(--color-text-primary);">{{ u.nickname or u.display_name or "—" }}</td>
+        <td style="padding:12px 16px;">{% if u.role == "admin" %}<span class="user-role">👑 系统管理员</span>{% elif u.role == "operator" %}<span class="user-role">👷 业务操作员</span>{% else %}<span class="user-role viewer">👀 只读访客</span>{% endif %}</td>
+        <td style="padding:12px 16px;color:var(--color-text-muted);font-size:12px;"><div>{{ u.phone or "未绑定手机" }}</div><div style="font-size:11px;opacity:.8;">{{ u.email or "未绑定邮箱" }}</div></td>
+        <td style="padding:12px 16px;">{% if u.active %}<span style="display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--color-success);"><span style="width:6px;height:6px;border-radius:50%;background:var(--color-success);"></span> 正常在用</span>{% else %}<span style="display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--color-danger);"><span style="width:6px;height:6px;border-radius:50%;background:var(--color-danger);"></span> 已封禁</span>{% endif %}</td>
+        <td style="padding:12px 16px;color:var(--color-text-muted);font-size:12px;">{{ u.created_at }}</td>
+        <td style="padding:12px 16px;text-align:right;"><div style="display:inline-flex;gap:6px;">
+          <button type="button" class="btn btn-sm btn-secondary btn-edit-user" data-id="{{ u.id }}" data-username="{{ u.username }}" data-nickname="{{ u.nickname or u.display_name or u.username }}" data-role="{{ u.role }}" data-email="{{ u.email or '' }}" data-phone="{{ u.phone or '' }}" data-active="{{ 'true' if u.active else 'false' }}" style="padding:4px 8px;font-size:11px;">✏️ 编辑</button>
+          <button type="button" class="btn btn-sm btn-secondary btn-reset-password" data-id="{{ u.id }}" data-username="{{ u.username }}" style="padding:4px 8px;font-size:11px;">🔑 重置密码</button>
+          <button type="button" class="btn btn-sm {% if u.active %}btn-secondary{% else %}btn-primary{% endif %} btn-toggle-active" data-id="{{ u.id }}" data-username="{{ u.username }}" data-active="{{ 'true' if u.active else 'false' }}" style="padding:4px 8px;font-size:11px;">{% if u.active %}⛔ 禁用{% else %}✅ 启用{% endif %}</button>
+          <button type="button" class="btn btn-sm btn-delete-user" data-id="{{ u.id }}" data-username="{{ u.username }}" {% if u.username == principal.username %}disabled title="无法删除当前登录账户"{% endif %} style="padding:4px 8px;font-size:11px;background:rgba(239,68,68,.15);color:var(--color-danger);border:1px solid var(--color-danger);{% if u.username == principal.username %}opacity:.4;cursor:not-allowed;{% endif %}">🗑️ 删除</button>
+        </div></td>
       </tr>
-      {% endfor %}
+    {% endfor %}
     </tbody>
   </table>
 </div>
 
-<!-- 新增用户弹窗 -->
-<div id="modal-create-user" class="modal-overlay">
-  <div class="glass-panel-elevated modal-content" style="max-width: 460px; border-radius: 12px; padding: 24px;">
-    <div class="modal-header">
-      <h3 style="margin: 0; font-size: 16px; font-weight: 600;">＋ 新增系统账户</h3>
-      <button type="button" class="modal-close" onclick="closeModal('modal-create-user')" style="background: none; border: none; color: var(--text-muted); font-size: 20px; cursor: pointer; line-height: 1;">&times;</button>
-    </div>
-    <form id="form-create-user" onsubmit="handleCreateUser(event)">
-      <div style="margin-bottom: 14px;">
-        <label style="display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 6px;">登录用户名 *</label>
-        <input type="text" id="new-username" required minlength="3" placeholder="例如：zhangsan" style="width: 100%; padding: 8px 12px; background: rgba(0,0,0,0.3); border: 1px solid var(--border-subtle); border-radius: 6px; color: #fff; font-size: 13px; box-sizing: border-box;">
-      </div>
-      <div style="margin-bottom: 14px;">
-        <label style="display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 6px;">用户真实姓名 / 昵称 *</label>
-        <input type="text" id="new-nickname" required placeholder="例如：张三（技术主管）" style="width: 100%; padding: 8px 12px; background: rgba(0,0,0,0.3); border: 1px solid var(--border-subtle); border-radius: 6px; color: #fff; font-size: 13px; box-sizing: border-box;">
-      </div>
-      <div style="margin-bottom: 14px;">
-        <label style="display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 6px;">初始密码 *</label>
-        <input type="password" id="new-password" required minlength="6" placeholder="至少 6 位字符" style="width: 100%; padding: 8px 12px; background: rgba(0,0,0,0.3); border: 1px solid var(--border-subtle); border-radius: 6px; color: #fff; font-size: 13px; box-sizing: border-box;">
-      </div>
-      <div style="margin-bottom: 14px;">
-        <label style="display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 6px;">系统角色 *</label>
-        <select id="new-role" style="width: 100%; padding: 8px 12px; background: #1f242e; border: 1px solid var(--border-subtle); border-radius: 6px; color: #fff; font-size: 13px; box-sizing: border-box;">
-          <option value="operator">👷 业务操作员 (Operator)</option>
-          <option value="admin">👑 系统管理员 (Admin)</option>
-          <option value="viewer">👀 只读访客 (Viewer)</option>
-        </select>
-      </div>
-      <div style="display: flex; gap: 10px; margin-top: 20px;">
-        <button type="button" onclick="closeModal('modal-create-user')" class="btn btn-secondary" style="flex: 1;">取消</button>
-        <button type="submit" class="btn btn-primary" style="flex: 1;">确定创建</button>
-      </div>
-    </form>
-  </div>
-</div>
-
-<!-- 编辑用户弹窗 -->
-<div id="modal-edit-user" class="modal-overlay">
-  <div class="glass-panel-elevated modal-content" style="max-width: 460px; border-radius: 12px; padding: 24px;">
-    <div class="modal-header">
-      <h3 style="margin: 0; font-size: 16px; font-weight: 600;">✏️ 编辑账户信息</h3>
-      <button type="button" class="modal-close" onclick="closeModal('modal-edit-user')" style="background: none; border: none; color: var(--text-muted); font-size: 20px; cursor: pointer; line-height: 1;">&times;</button>
-    </div>
-    <form id="form-edit-user" onsubmit="handleEditUser(event)">
-      <input type="hidden" id="edit-user-id">
-      <div style="margin-bottom: 14px;">
-        <label style="display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 6px;">登录用户名</label>
-        <input type="text" id="edit-username" disabled style="width: 100%; padding: 8px 12px; background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.05); border-radius: 6px; color: var(--text-muted); font-size: 13px; box-sizing: border-box;">
-      </div>
-      <div style="margin-bottom: 14px;">
-        <label style="display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 6px;">姓名 / 昵称 *</label>
-        <input type="text" id="edit-nickname" required style="width: 100%; padding: 8px 12px; background: rgba(0,0,0,0.3); border: 1px solid var(--border-subtle); border-radius: 6px; color: #fff; font-size: 13px; box-sizing: border-box;">
-      </div>
-      <div style="margin-bottom: 14px;">
-        <label style="display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 6px;">系统角色 *</label>
-        <select id="edit-role" style="width: 100%; padding: 8px 12px; background: #1f242e; border: 1px solid var(--border-subtle); border-radius: 6px; color: #fff; font-size: 13px; box-sizing: border-box;">
-          <option value="operator">👷 业务操作员 (Operator)</option>
-          <option value="admin">👑 系统管理员 (Admin)</option>
-          <option value="viewer">👀 只读访客 (Viewer)</option>
-        </select>
-      </div>
-      <div style="margin-bottom: 14px;">
-        <label style="display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 6px;">绑定手机号</label>
-        <input type="text" id="edit-phone" placeholder="选填" style="width: 100%; padding: 8px 12px; background: rgba(0,0,0,0.3); border: 1px solid var(--border-subtle); border-radius: 6px; color: #fff; font-size: 13px; box-sizing: border-box;">
-      </div>
-      <div style="margin-bottom: 14px;">
-        <label style="display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 6px;">绑定邮箱</label>
-        <input type="email" id="edit-email" placeholder="选填" style="width: 100%; padding: 8px 12px; background: rgba(0,0,0,0.3); border: 1px solid var(--border-subtle); border-radius: 6px; color: #fff; font-size: 13px; box-sizing: border-box;">
-      </div>
-      <div style="display: flex; gap: 10px; margin-top: 20px;">
-        <button type="button" onclick="closeModal('modal-edit-user')" class="btn btn-secondary" style="flex: 1;">取消</button>
-        <button type="submit" class="btn btn-primary" style="flex: 1;">保存更改</button>
-      </div>
-    </form>
-  </div>
-</div>
-
-<!-- 重置密码弹窗 -->
-<div id="modal-reset-password" class="modal-overlay">
-  <div class="glass-panel-elevated modal-content" style="max-width: 420px; border-radius: 12px; padding: 24px;">
-    <div class="modal-header">
-      <h3 style="margin: 0; font-size: 16px; font-weight: 600;">🔑 重置账户密码</h3>
-      <button type="button" class="modal-close" onclick="closeModal('modal-reset-password')" style="background: none; border: none; color: var(--text-muted); font-size: 20px; cursor: pointer; line-height: 1;">&times;</button>
-    </div>
-    <form id="form-reset-password" onsubmit="handleResetPassword(event)">
-      <input type="hidden" id="reset-user-id">
-      <div style="margin-bottom: 14px;">
-        <label style="display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 6px;">目标用户</label>
-        <input type="text" id="reset-username" disabled style="width: 100%; padding: 8px 12px; background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.05); border-radius: 6px; color: var(--accent-cyan); font-weight: bold; font-size: 13px; box-sizing: border-box;">
-      </div>
-      <div style="margin-bottom: 16px;">
-        <label style="display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 6px;">设置新密码 *</label>
-        <input type="password" id="reset-new-password" required minlength="6" placeholder="输入新密码（至少 6 位）" style="width: 100%; padding: 8px 12px; background: rgba(0,0,0,0.3); border: 1px solid var(--border-subtle); border-radius: 6px; color: #fff; font-size: 13px; box-sizing: border-box;">
-      </div>
-      <div style="display: flex; gap: 10px;">
-        <button type="button" onclick="closeModal('modal-reset-password')" class="btn btn-secondary" style="flex: 1;">取消</button>
-        <button type="submit" class="btn btn-primary" style="flex: 1;">确认重置</button>
-      </div>
-    </form>
-  </div>
-</div>
+{% for modal_id, title in [('modal-create-user','＋ 新增系统账户'),('modal-edit-user','✏️ 编辑账户信息'),('modal-reset-password','🔑 重置账户密码')] %}{% endfor %}
+<div id="modal-create-user" class="modal-overlay"><div class="surface-card modal-content" style="max-width:460px;border-radius:12px;padding:24px;"><div class="modal-header"><h3 style="margin:0;font-size:16px;font-weight:600;">＋ 新增系统账户</h3><button type="button" class="modal-close" onclick="closeModal('modal-create-user')">&times;</button></div><form id="form-create-user" onsubmit="handleCreateUser(event)"><div style="margin-bottom:14px;"><label style="display:block;font-size:12px;color:var(--color-text-muted);margin-bottom:6px;">登录用户名 *</label><input type="text" id="new-username" class="user-form-control" required minlength="3" placeholder="例如：zhangsan"></div><div style="margin-bottom:14px;"><label style="display:block;font-size:12px;color:var(--color-text-muted);margin-bottom:6px;">用户真实姓名 / 昵称 *</label><input type="text" id="new-nickname" class="user-form-control" required placeholder="例如：张三（技术主管）"></div><div style="margin-bottom:14px;"><label style="display:block;font-size:12px;color:var(--color-text-muted);margin-bottom:6px;">初始密码 *</label><input type="password" id="new-password" class="user-form-control" required minlength="6" placeholder="至少 6 位字符"></div><div style="margin-bottom:14px;"><label style="display:block;font-size:12px;color:var(--color-text-muted);margin-bottom:6px;">系统角色 *</label><select id="new-role" class="user-form-control"><option value="operator">👷 业务操作员 (Operator)</option><option value="admin">👑 系统管理员 (Admin)</option><option value="viewer">👀 只读访客 (Viewer)</option></select></div><div style="display:flex;gap:10px;margin-top:20px;"><button type="button" onclick="closeModal('modal-create-user')" class="btn btn-secondary" style="flex:1;">取消</button><button type="submit" class="btn btn-primary" style="flex:1;">确定创建</button></div></form></div></div>
+<div id="modal-edit-user" class="modal-overlay"><div class="surface-card modal-content" style="max-width:460px;border-radius:12px;padding:24px;"><div class="modal-header"><h3 style="margin:0;font-size:16px;font-weight:600;">✏️ 编辑账户信息</h3><button type="button" class="modal-close" onclick="closeModal('modal-edit-user')">&times;</button></div><form id="form-edit-user" onsubmit="handleEditUser(event)"><input type="hidden" id="edit-user-id"><div style="margin-bottom:14px;"><label style="display:block;font-size:12px;color:var(--color-text-muted);margin-bottom:6px;">登录用户名</label><input type="text" id="edit-username" class="user-form-control" disabled></div><div style="margin-bottom:14px;"><label style="display:block;font-size:12px;color:var(--color-text-muted);margin-bottom:6px;">姓名 / 昵称 *</label><input type="text" id="edit-nickname" class="user-form-control" required></div><div style="margin-bottom:14px;"><label style="display:block;font-size:12px;color:var(--color-text-muted);margin-bottom:6px;">系统角色 *</label><select id="edit-role" class="user-form-control"><option value="operator">👷 业务操作员 (Operator)</option><option value="admin">👑 系统管理员 (Admin)</option><option value="viewer">👀 只读访客 (Viewer)</option></select></div><div style="margin-bottom:14px;"><label style="display:block;font-size:12px;color:var(--color-text-muted);margin-bottom:6px;">绑定手机号</label><input type="text" id="edit-phone" class="user-form-control" placeholder="选填"></div><div style="margin-bottom:14px;"><label style="display:block;font-size:12px;color:var(--color-text-muted);margin-bottom:6px;">绑定邮箱</label><input type="email" id="edit-email" class="user-form-control" placeholder="选填"></div><div style="display:flex;gap:10px;margin-top:20px;"><button type="button" onclick="closeModal('modal-edit-user')" class="btn btn-secondary" style="flex:1;">取消</button><button type="submit" class="btn btn-primary" style="flex:1;">保存更改</button></div></form></div></div>
+<div id="modal-reset-password" class="modal-overlay"><div class="surface-card modal-content" style="max-width:420px;border-radius:12px;padding:24px;"><div class="modal-header"><h3 style="margin:0;font-size:16px;font-weight:600;">🔑 重置账户密码</h3><button type="button" class="modal-close" onclick="closeModal('modal-reset-password')">&times;</button></div><form id="form-reset-password" onsubmit="handleResetPassword(event)"><input type="hidden" id="reset-user-id"><div style="margin-bottom:14px;"><label style="display:block;font-size:12px;color:var(--color-text-muted);margin-bottom:6px;">目标用户</label><input type="text" id="reset-username" class="user-form-control" disabled></div><div style="margin-bottom:16px;"><label style="display:block;font-size:12px;color:var(--color-text-muted);margin-bottom:6px;">设置新密码 *</label><input type="password" id="reset-new-password" class="user-form-control" required minlength="6" placeholder="输入新密码（至少 6 位）"></div><div style="display:flex;gap:10px;"><button type="button" onclick="closeModal('modal-reset-password')" class="btn btn-secondary" style="flex:1;">取消</button><button type="submit" class="btn btn-primary" style="flex:1;">确认重置</button></div></form></div></div>
 
 <script>
-function openModal(id) {
-  const el = document.getElementById(id);
-  if (el) {
-    el.style.display = "flex";
-    // Force reflow for CSS transition
-    void el.offsetWidth;
-    el.classList.add("active");
-  }
-}
-
-function closeModal(id) {
-  const el = document.getElementById(id);
-  if (el) {
-    el.classList.remove("active");
-    setTimeout(() => {
-      if (!el.classList.contains("active")) {
-        el.style.display = "none";
-      }
-    }, 200);
-  }
-}
-
-function openCreateUserModal() {
-  document.getElementById("form-create-user").reset();
-  openModal("modal-create-user");
-}
-
-function openEditUserModal(id, username, nickname, role, email, phone, active) {
-  document.getElementById("edit-user-id").value = id;
-  document.getElementById("edit-username").value = username;
-  document.getElementById("edit-nickname").value = nickname || username;
-  document.getElementById("edit-role").value = role || "operator";
-  document.getElementById("edit-email").value = email || "";
-  document.getElementById("edit-phone").value = phone || "";
-  openModal("modal-edit-user");
-}
-
-function openResetPasswordModal(id, username) {
-  document.getElementById("reset-user-id").value = id;
-  document.getElementById("reset-username").value = username;
-  document.getElementById("reset-new-password").value = "";
-  openModal("modal-reset-password");
-}
-
-async function handleCreateUser(e) {
-  e.preventDefault();
-  const username = document.getElementById("new-username").value.trim();
-  const nickname = document.getElementById("new-nickname").value.trim();
-  const password = document.getElementById("new-password").value;
-  const role = document.getElementById("new-role").value;
-
-  try {
-    const res = await fetch("/api/v1/users", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username, nickname, password, role })
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      alert("创建失败: " + (err.detail || err.message || "未知错误"));
-      return;
-    }
-    alert("✅ 账户创建成功！");
-    location.reload();
-  } catch (err) {
-    alert("网络异常: " + err);
-  }
-}
-
-async function handleEditUser(e) {
-  e.preventDefault();
-  const userId = document.getElementById("edit-user-id").value;
-  const nickname = document.getElementById("edit-nickname").value.trim();
-  const role = document.getElementById("edit-role").value;
-  const phone = document.getElementById("edit-phone").value.trim();
-  const email = document.getElementById("edit-email").value.trim();
-
-  try {
-    const res = await fetch(`/api/v1/users/${userId}/update`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ nickname, role, phone, email })
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      alert("保存失败: " + (err.detail || err.message || "未知错误"));
-      return;
-    }
-    alert("✅ 账户信息更新成功！");
-    location.reload();
-  } catch (err) {
-    alert("网络异常: " + err);
-  }
-}
-
-async function handleResetPassword(e) {
-  e.preventDefault();
-  const userId = document.getElementById("reset-user-id").value;
-  const newPassword = document.getElementById("reset-new-password").value;
-
-  try {
-    const res = await fetch(`/api/v1/users/${userId}/reset-password`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ new_password: newPassword })
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      alert("重置密码失败: " + (err.detail || err.message || "未知错误"));
-      return;
-    }
-    const data = await res.json();
-    alert("✅ " + (data.message || "密码已成功重置！"));
-    closeModal("modal-reset-password");
-  } catch (err) {
-    alert("网络异常: " + err);
-  }
-}
-
-async function toggleUserActive(userId, username, currentActive) {
-  const actionText = currentActive ? "禁用" : "启用";
-  if (!confirm(`确定要${actionText}用户【${username}】吗？`)) return;
-
-  try {
-    const res = await fetch(`/api/v1/users/${userId}/toggle-active`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" }
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      alert("操作失败: " + (err.detail || err.message || "未知错误"));
-      return;
-    }
-    alert(`✅ 用户【${username}】已成功${actionText}！`);
-    location.reload();
-  } catch (err) {
-    alert("网络异常: " + err);
-  }
-}
-
-async function handleDeleteUser(userId, username) {
-  if (!confirm(`⚠️ 危险操作：\n确定要永久删除用户【${username}】吗？\n删除后该账户将无法登录系统，且此操作不可逆！`)) return;
-
-  try {
-    const res = await fetch(`/api/v1/users/${userId}/delete`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" }
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      alert("删除失败: " + (err.detail || err.message || "未知错误"));
-      return;
-    }
-    const data = await res.json().catch(() => ({}));
-    alert("✅ " + (data.message || `用户【${username}】已成功删除！`));
-    location.reload();
-  } catch (err) {
-    alert("网络异常: " + err);
-  }
-}
-
-// 绑定 DOM 事件
-document.addEventListener("DOMContentLoaded", () => {
-  // 点击遮罩层空白处关闭弹窗
-  document.querySelectorAll(".modal-overlay").forEach(overlay => {
-    overlay.addEventListener("click", (e) => {
-      if (e.target === overlay) {
-        closeModal(overlay.id);
-      }
-    });
-  });
-
-  // 编辑按钮
-  document.querySelectorAll(".btn-edit-user").forEach(btn => {
-    btn.addEventListener("click", () => {
-      const id = btn.dataset.id;
-      const username = btn.dataset.username;
-      const nickname = btn.dataset.nickname;
-      const role = btn.dataset.role;
-      const email = btn.dataset.email;
-      const phone = btn.dataset.phone;
-      const active = btn.dataset.active === "true";
-      openEditUserModal(id, username, nickname, role, email, phone, active);
-    });
-  });
-
-  // 重置密码按钮
-  document.querySelectorAll(".btn-reset-password").forEach(btn => {
-    btn.addEventListener("click", () => {
-      const id = btn.dataset.id;
-      const username = btn.dataset.username;
-      openResetPasswordModal(id, username);
-    });
-  });
-
-  // 禁用/启用按钮
-  document.querySelectorAll(".btn-toggle-active").forEach(btn => {
-    btn.addEventListener("click", () => {
-      const id = btn.dataset.id;
-      const username = btn.dataset.username;
-      const currentActive = btn.dataset.active === "true";
-      toggleUserActive(id, username, currentActive);
-    });
-  });
-
-  // 删除用户按钮
-  document.querySelectorAll(".btn-delete-user").forEach(btn => {
-    btn.addEventListener("click", () => {
-      if (btn.disabled) return;
-      const id = btn.dataset.id;
-      const username = btn.dataset.username;
-      handleDeleteUser(id, username);
-    });
-  });
-});
+function openModal(id){const el=document.getElementById(id);if(el){el.style.display="flex";void el.offsetWidth;el.classList.add("active");}}
+function closeModal(id){const el=document.getElementById(id);if(el){el.classList.remove("active");setTimeout(()=>{if(!el.classList.contains("active"))el.style.display="none";},200);}}
+function openCreateUserModal(){document.getElementById("form-create-user").reset();openModal("modal-create-user");}
+function openEditUserModal(id,username,nickname,role,email,phone,active){document.getElementById("edit-user-id").value=id;document.getElementById("edit-username").value=username;document.getElementById("edit-nickname").value=nickname||username;document.getElementById("edit-role").value=role||"operator";document.getElementById("edit-email").value=email||"";document.getElementById("edit-phone").value=phone||"";openModal("modal-edit-user");}
+function openResetPasswordModal(id,username){document.getElementById("reset-user-id").value=id;document.getElementById("reset-username").value=username;document.getElementById("reset-new-password").value="";openModal("modal-reset-password");}
+async function handleCreateUser(e){e.preventDefault();const username=document.getElementById("new-username").value.trim(),nickname=document.getElementById("new-nickname").value.trim(),password=document.getElementById("new-password").value,role=document.getElementById("new-role").value;try{const res=await fetch("/api/v1/users",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username,nickname,password,role})});if(!res.ok){const err=await res.json().catch(()=>({}));alert("创建失败: "+(err.detail||err.message||"未知错误"));return;}alert("✅ 账户创建成功！");location.reload();}catch(err){alert("网络异常: "+err);}}
+async function handleEditUser(e){e.preventDefault();const userId=document.getElementById("edit-user-id").value,nickname=document.getElementById("edit-nickname").value.trim(),role=document.getElementById("edit-role").value,phone=document.getElementById("edit-phone").value.trim(),email=document.getElementById("edit-email").value.trim();try{const res=await fetch(`/api/v1/users/${userId}/update`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({nickname,role,phone,email})});if(!res.ok){const err=await res.json().catch(()=>({}));alert("保存失败: "+(err.detail||err.message||"未知错误"));return;}alert("✅ 账户信息更新成功！");location.reload();}catch(err){alert("网络异常: "+err);}}
+async function handleResetPassword(e){e.preventDefault();const userId=document.getElementById("reset-user-id").value,newPassword=document.getElementById("reset-new-password").value;try{const res=await fetch(`/api/v1/users/${userId}/reset-password`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({new_password:newPassword})});if(!res.ok){const err=await res.json().catch(()=>({}));alert("重置密码失败: "+(err.detail||err.message||"未知错误"));return;}const data=await res.json();alert("✅ "+(data.message||"密码已成功重置！"));closeModal("modal-reset-password");}catch(err){alert("网络异常: "+err);}}
+async function toggleUserActive(userId,username,currentActive){const actionText=currentActive?"禁用":"启用";if(!confirm(`确定要${actionText}用户【${username}】吗？`))return;try{const res=await fetch(`/api/v1/users/${userId}/toggle-active`,{method:"POST",headers:{"Content-Type":"application/json"}});if(!res.ok){const err=await res.json().catch(()=>({}));alert("操作失败: "+(err.detail||err.message||"未知错误"));return;}alert(`✅ 用户【${username}】已成功${actionText}！`);location.reload();}catch(err){alert("网络异常: "+err);}}
+async function handleDeleteUser(userId,username){if(!confirm(`⚠️ 危险操作：\n确定要永久删除用户【${username}】吗？\n删除后该账户将无法登录系统，且此操作不可逆！`))return;try{const res=await fetch(`/api/v1/users/${userId}/delete`,{method:"POST",headers:{"Content-Type":"application/json"}});if(!res.ok){const err=await res.json().catch(()=>({}));alert("删除失败: "+(err.detail||err.message||"未知错误"));return;}const data=await res.json().catch(()=>({}));alert("✅ "+(data.message||`用户【${username}】已成功删除！`));location.reload();}catch(err){alert("网络异常: "+err);}}
+document.addEventListener("DOMContentLoaded",()=>{document.querySelectorAll(".modal-overlay").forEach(overlay=>overlay.addEventListener("click",e=>{if(e.target===overlay)closeModal(overlay.id);}));document.querySelectorAll(".btn-edit-user").forEach(btn=>btn.addEventListener("click",()=>openEditUserModal(btn.dataset.id,btn.dataset.username,btn.dataset.nickname,btn.dataset.role,btn.dataset.email,btn.dataset.phone,btn.dataset.active==="true")));document.querySelectorAll(".btn-reset-password").forEach(btn=>btn.addEventListener("click",()=>openResetPasswordModal(btn.dataset.id,btn.dataset.username)));document.querySelectorAll(".btn-toggle-active").forEach(btn=>btn.addEventListener("click",()=>toggleUserActive(btn.dataset.id,btn.dataset.username,btn.dataset.active==="true")));document.querySelectorAll(".btn-delete-user").forEach(btn=>btn.addEventListener("click",()=>{if(!btn.disabled)handleDeleteUser(btn.dataset.id,btn.dataset.username);}));});
 </script>
 {% endblock %}
