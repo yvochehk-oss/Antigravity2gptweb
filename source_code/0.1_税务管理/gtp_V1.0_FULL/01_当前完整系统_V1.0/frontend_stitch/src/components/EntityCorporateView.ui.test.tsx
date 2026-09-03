@@ -404,7 +404,7 @@ describe('EntityCorporateView legal-entity dual-scope workspace', () => {
     render(<EntityCorporateView />);
 
     expect(await screen.findByText('LEGAL_ENTITY_PROJECTION · 管理/经营投影，非申报口径')).toBeInTheDocument();
-    expect(screen.getByText(/上方【正式 VAT】是纳税申报口径/)).toBeInTheDocument();
+    expect(await screen.findByText(/上方【正式 VAT】是纳税申报口径/)).toBeInTheDocument();
     expect(screen.getByText(/当前期间未归档正式台账，故显示为“—”/)).toBeInTheDocument();
 
     const statutorySection = screen.getByRole('region', { name: '正式 VAT' });
