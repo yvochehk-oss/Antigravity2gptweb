@@ -255,25 +255,28 @@ def aggregate_legal_entity_scope(
         project_meta=project_meta,
         period=period,
     )
-    if period:
-        cumulative = _aggregate_facts_for_entity(
+    cumulative = (
+        _aggregate_facts_for_entity(
             facts,
             entity_code=wanted,
             internal_codes=internal_codes,
             project_meta=project_meta,
             through_period=period,
         )
-        projection["cumulative"] = {
-            "revenue": cumulative["revenue"],
-            "book_cost_projection": cumulative["book_cost_projection"],
-            "accounting_profit_projection": cumulative["accounting_profit_projection"],
-            "output_vat": cumulative["output_vat"],
-            "input_vat": cumulative["input_vat"],
-            "fact_count": cumulative["fact_count"],
-        }
-        if cumulative["status"] == "DEGRADED":
-            projection["status"] = "DEGRADED"
-            projection["data_gaps"] = sorted(set(projection["data_gaps"]) | set(cumulative["data_gaps"]))
+        if period
+        else projection
+    )
+    projection["cumulative"] = {
+        "revenue": cumulative["revenue"],
+        "book_cost_projection": cumulative["book_cost_projection"],
+        "accounting_profit_projection": cumulative["accounting_profit_projection"],
+        "output_vat": cumulative["output_vat"],
+        "input_vat": cumulative["input_vat"],
+        "fact_count": cumulative["fact_count"],
+    }
+    if cumulative["status"] == "DEGRADED":
+        projection["status"] = "DEGRADED"
+        projection["data_gaps"] = sorted(set(projection["data_gaps"]) | set(cumulative["data_gaps"]))
     return projection
 
 
