@@ -5,6 +5,7 @@ import type { LegalEntityOperatingProjection, LegalEntityProjectionContribution 
 import {
   fetchLegalEntities,
   fetchLegalEntityFactPeriods,
+  fetchLegalEntityStatutoryVat,
   type LegalEntityFactPeriod,
   type LegalEntityMasterData,
 } from '../legalEntityApi';
@@ -230,7 +231,8 @@ export function EntityCorporateView() {
     setStatutoryRecords([]);
     setStatutoryStatus('LOADING');
     setStatutoryMessage('正在读取法人正式 VAT 台账…');
-    void api.fetchEntityTaxLedger(controller.signal)
+    const entityName = legalEntities.find(item => item.canonicalCode === entityCode)?.legalName;
+    void fetchLegalEntityStatutoryVat(controller.signal, entityCode, period, entityName)
       .then(result => {
         if (controller.signal.aborted) return;
         const selected = result.items.filter(record => record.entityCode === entityCode && record.period === period);
@@ -247,7 +249,7 @@ export function EntityCorporateView() {
         if (statutoryAbortRef.current === controller) statutoryAbortRef.current = null;
       });
     return () => controller.abort();
-  }, [entityCode, period]);
+  }, [entityCode, period, legalEntities]);
 
   useEffect(() => () => {
     masterAbortRef.current?.abort();

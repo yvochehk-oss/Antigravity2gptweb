@@ -2,19 +2,23 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { LegalEntityOperatingProjection } from '../api';
 import type { EntityTaxLedgerRecord } from '../types';
-import { fetchEntityTaxLedger, fetchLegalEntityOperatingProjection } from '../api';
-import { fetchLegalEntities, fetchLegalEntityFactPeriods } from '../legalEntityApi';
+import { fetchLegalEntityOperatingProjection } from '../api';
+import { fetchLegalEntities, fetchLegalEntityFactPeriods, fetchLegalEntityStatutoryVat } from '../legalEntityApi';
 import { EntityCorporateView } from './EntityCorporateView';
 
 vi.mock('../api', () => ({
-  fetchEntityTaxLedger: vi.fn(),
   fetchLegalEntityOperatingProjection: vi.fn(),
 }));
 
 vi.mock('../legalEntityApi', () => ({
   fetchLegalEntities: vi.fn(),
   fetchLegalEntityFactPeriods: vi.fn(),
+  fetchLegalEntityStatutoryVat: vi.fn(),
 }));
+
+const fetchEntityTaxLedger = fetchLegalEntityStatutoryVat as unknown as (
+  signal?: AbortSignal,
+) => Promise<{ status: 'READY' | 'DEGRADED'; message: string; items: EntityTaxLedgerRecord[] }>;
 
 const LEGAL_ENTITY_FIXTURES = [
   ['A08', '四川锐宝建设工程有限公司'],

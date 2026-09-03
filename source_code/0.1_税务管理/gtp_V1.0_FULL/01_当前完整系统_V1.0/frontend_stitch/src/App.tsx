@@ -14,7 +14,11 @@ import { NewTaxRecordModal } from './components/NewTaxRecordModal';
 import { ExportReportModal } from './components/ExportReportModal';
 import { DataStatusCard } from './components/DataStatusCard';
 import { DEFAULT_SETTINGS } from './components/SettingsModal';
-import { askProjectAi, ApiError, fetchAiModelStatus, fetchAuditLogs, fetchConfiguredProjects, fetchRiskEvents, fetchEntityTaxLedger, rebuildTaxLedger } from './api';
+import { askProjectAi, ApiError, fetchAiModelStatus, fetchAuditLogs, fetchConfiguredProjects, fetchRiskEvents } from './api';
+import {
+  fetchLegalEntityStatutoryVatCollection,
+  rebuildLegalEntityStatutoryVatCollection,
+} from './legalEntityApi';
 import {
   AssistantMessage,
   AiModelStatus,
@@ -25,6 +29,8 @@ import {
   EntityTaxLedgerRecord,
   SystemSettings,
 } from './types';
+
+const rebuildTaxLedger = rebuildLegalEntityStatutoryVatCollection;
 
 function nowLabel(): string {
   return new Date().toLocaleString('zh-CN', { hour12: false });
@@ -64,7 +70,7 @@ export default function App() {
   const [riskStatus, setRiskStatus] = useState<DataStatus>('LOADING');
   const [riskStatusMessage, setRiskStatusMessage] = useState('正在从 Tax 服务加载风险集合…');
   const [taxLedgerStatus, setTaxLedgerStatus] = useState<DataStatus>('LOADING');
-  const [taxLedgerStatusMessage, setTaxLedgerStatusMessage] = useState('正在从 Tax 服务加载台账集合…');
+  const [taxLedgerStatusMessage, setTaxLedgerStatusMessage] = useState('正在读取 Canonical Statutory VAT 资源…');
   const [isLedgerRebuilding, setIsLedgerRebuilding] = useState(false);
   const [auditLogs, setAuditLogs] = useState<AuditTrailRecord[]>([]);
   const [auditStatus, setAuditStatus] = useState<DataStatus>('LOADING');
@@ -87,9 +93,9 @@ export default function App() {
     const controller = new AbortController();
     entityVatAbortRef.current = controller;
     setTaxLedgerStatus('LOADING');
-    setTaxLedgerStatusMessage('正在从 Tax 服务加载台账集合…');
+    setTaxLedgerStatusMessage('正在读取 Canonical Statutory VAT 资源…');
     try {
-      const result = await fetchEntityTaxLedger(controller.signal);
+      const result = await fetchLegalEntityStatutoryVatCollection(controller.signal);
       if (controller.signal.aborted) return;
       setEntityTaxLedgerRecords(result.items);
       setTaxLedgerStatus(result.status);
@@ -303,7 +309,11 @@ export default function App() {
     try {
       const result = await rebuildTaxLedger(period);
       await loadEntityVatDomain();
-      setActionNotice(`已生成 ${result.rowCount} 条 ${result.period} 台账，页面已重新读取法人确定性台账数据。`);
+      setActionNotice(
+        result.status === 'DEGRADED'
+          ? `${result.message} 页面已重新读取成功生成的法人法定 VAT 资源。`
+          : `已生成 ${result.rowCount} 条 ${result.period} 台账，页面已重新读取法人确定性台账数据。`,
+      );
     } catch (error) {
       setActionNotice(`台账生成/重建失败：${errorMessage(error)}；已保留当前页面最后可信数据。`);
     } finally {

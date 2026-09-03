@@ -74,7 +74,7 @@ export function DashboardView({
   const totalClosingInputCredit = taxLedgerRecords.reduce((sum, record) => sum + record.closingInputCredit, 0);
 
   const unresolvedRiskCount = riskEvents.filter(risk => risk.status !== '已闭环').length;
-  const hasStatutoryData = taxLedgerStatus === 'READY' || taxLedgerStatus === 'DEGRADED' || taxLedgerRecords.length > 0;
+  const hasStatutoryData = taxLedgerRecords.length > 0;
   const hasRiskData = riskStatus === 'READY' || riskEvents.length > 0;
 
   return (

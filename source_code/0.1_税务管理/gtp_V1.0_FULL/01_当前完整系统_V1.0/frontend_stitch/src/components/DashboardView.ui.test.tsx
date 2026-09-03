@@ -122,6 +122,15 @@ describe('DashboardView dual-core executive summaries', () => {
     expect(screen.queryByText('真实利润')).not.toBeInTheDocument();
   });
 
+  it('keeps READY empty statutory state visibly empty instead of fabricating zero tax', () => {
+    renderDashboard({ taxLedgerStatus: 'READY', taxLedgerRecords: [] });
+
+    const statutory = screen.getByRole('region', { name: '法人主体法定税务总览' });
+    expect(within(statutory).getAllByText('—')).toHaveLength(5);
+    expect(statutory).not.toHaveTextContent('¥ 0 元');
+    expect(statutory).not.toHaveTextContent('0 个');
+  });
+
   it('keeps entity and project navigation callbacks independent', () => {
     const onOpenEntityCorporate = vi.fn();
     const onSelectProject = vi.fn();
