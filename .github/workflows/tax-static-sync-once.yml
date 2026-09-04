@@ -21,13 +21,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-          cache: npm
-          cache-dependency-path: source_code/0.1_税务管理/gtp_V1.0_FULL/01_当前完整系统_V1.0/frontend_stitch/package-lock.json
 
       - name: Build frontend
         working-directory: source_code/0.1_税务管理/gtp_V1.0_FULL/01_当前完整系统_V1.0/frontend_stitch
         run: |
-          npm ci
+          npm install --no-package-lock
           npm run build
 
       - name: Sync dist to backend static_dist
