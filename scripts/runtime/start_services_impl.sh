@@ -54,7 +54,8 @@ _LOCAL_LLM_REASONING_OVERRIDE="${LOCAL_LLM_REASONING-}"
 _LOCAL_LLM_TIMEOUT_WAS_SET="${LOCAL_LLM_STARTUP_TIMEOUT_SECONDS+x}"
 _LOCAL_LLM_TIMEOUT_OVERRIDE="${LOCAL_LLM_STARTUP_TIMEOUT_SECONDS-}"
 HARDWARE_ENV_FILE="$PROJECT_DIR/.env.hardware"
-if [ ! -f "$HARDWARE_ENV_FILE" ]; then
+HARDWARE_JSON_FILE="$PROJECT_DIR/.hardware_profile.json"
+if [ ! -f "$HARDWARE_ENV_FILE" ] || [ ! -f "$HARDWARE_JSON_FILE" ]; then
   python3 "$PROJECT_DIR/scripts/runtime/detect_hardware.py" >/dev/null 2>&1 || true
 fi
 if [ -f "$HARDWARE_ENV_FILE" ]; then

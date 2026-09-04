@@ -33,9 +33,6 @@ dependencies = [
     "pyjwt>=2.13.0",
     "webauthn>=3.0.0",
     "pymupdf>=1.28.2",
-    # Local-only OCR backend used by the built-in native parser. The parser supplies
-    # explicit model paths and never permits the package to download defaults.
-    "rapidocr-onnxruntime>=1.4,<2",
     # 1.24+ no longer ships CPython 3.10 wheels; this RAG release targets 3.10.
     "onnxruntime>=1.17,<1.24",
     "flagembedding>=1.4.2",

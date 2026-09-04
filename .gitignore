@@ -20,6 +20,8 @@ models/local-llm/
 # Local sensitive env
 .env
 .env.local
+.env.hardware
+.hardware_profile.json
 
 # Builds & logs
 dist/

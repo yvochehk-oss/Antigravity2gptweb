@@ -237,10 +237,6 @@ pyyaml==6.0.3
     #   huggingface-hub
     #   ir-datasets
     #   peft
-    #   rapidocr-onnxruntime
-    #   transformers
-rapidocr-onnxruntime==1.4.4
-    # via project-rag (pyproject.toml)
 regex==2026.7.19
     # via transformers
 requests==2.34.2

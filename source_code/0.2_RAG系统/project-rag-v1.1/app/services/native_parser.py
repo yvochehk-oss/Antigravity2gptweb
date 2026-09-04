@@ -12,6 +12,28 @@ class NativeParserError(RuntimeError):
     """Raised when the built-in parser cannot extract usable content."""
 
 
+def detect_image_mime_type(file_path: str) -> str:
+    """Detect correct image MIME type from file extension."""
+    ext = Path(file_path).suffix.lower()
+    if ext in (".png",):
+        return "image/png"
+    elif ext in (".webp",):
+        return "image/webp"
+    elif ext in (".gif",):
+        return "image/gif"
+    elif ext in (".bmp",):
+        return "image/bmp"
+    return "image/jpeg"
+
+
+def validate_canonical_schema(data: dict) -> bool:
+    """Validate that parsed dict adheres to the required Canonical Document Schema."""
+    if not isinstance(data, dict):
+        return False
+    required_keys = {"document_type", "text_content", "fields"}
+    return required_keys.issubset(data.keys())
+
+
 def parse_image_with_paddleocr_vl(image_path: str) -> dict | None:
     """Call PaddleOCR-VL-1.6 multimodal endpoint for image/scan extraction with Schema parsing."""
     import base64
@@ -20,6 +42,7 @@ def parse_image_with_paddleocr_vl(image_path: str) -> dict | None:
     import re
 
     vl_endpoint = os.getenv("PADDLE_OCR_VL_ENDPOINT", "http://127.0.0.1:8935/v1/chat/completions")
+    mime_type = detect_image_mime_type(image_path)
     try:
         with open(image_path, "rb") as f:
             b64_str = base64.b64encode(f.read()).decode("utf-8")
@@ -41,7 +64,7 @@ def parse_image_with_paddleocr_vl(image_path: str) -> dict | None:
                 {
                     "role": "user",
                     "content": [
-                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64_str}"}},
+                        {"type": "image_url", "image_url": {"url": f"data:{mime_type};base64,{b64_str}"}},
                         {"type": "text", "text": prompt_text}
                     ]
                 }
@@ -52,16 +75,19 @@ def parse_image_with_paddleocr_vl(image_path: str) -> dict | None:
         r = requests.post(vl_endpoint, json=payload, timeout=35)
         if r.status_code == 200:
             content = r.json()["choices"][0]["message"]["content"].strip()
-            structured_data = None
             json_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", content, re.DOTALL)
             raw_json = json_match.group(1) if json_match else content
             try:
                 structured_data = json.loads(raw_json)
-            except Exception:
-                structured_data = {"document_type": "unknown", "text_content": content, "fields": {}}
-            
-            extracted_text = structured_data.get("text_content") or content
-            return {"text": extracted_text, "structured_json": structured_data}
+                if validate_canonical_schema(structured_data):
+                    extracted_text = structured_data.get("text_content") or content
+                    return {"text": extracted_text, "structured_json": structured_data}
+                else:
+                    logger.warning(f"PaddleOCR-VL output failed Schema validation: {content[:100]}")
+                    return {"text": content, "structured_json": {"document_type": "unvalidated", "text_content": content, "fields": {}}}
+            except Exception as parse_err:
+                logger.warning(f"JSON decode failed for PaddleOCR-VL output: {parse_err}")
+                return {"text": content, "structured_json": None}
     except Exception as e:
         logger.warning(f"PaddleOCR-VL-1.6 parse warning for {image_path}: {e}")
     return None
@@ -83,7 +109,8 @@ def parse_with_native_idp(document_code: str, input_path: str) -> dict:
             doc = fitz.open(str(path))
             for page_idx, page in enumerate(doc):
                 page_text = page.get_text("text").strip()
-                if page_text:
+                # Native text quality check: if page has >15 usable characters, use native text
+                if len(page_text) >= 15:
                     md_lines.append(f"## 第 {page_idx + 1} 页\n\n" + page_text)
                     content_list.append({
                         "type": "text",
@@ -92,7 +119,7 @@ def parse_with_native_idp(document_code: str, input_path: str) -> dict:
                         "page_idx": page_idx,
                     })
                 else:
-                    # Scanned PDF page fallback to PaddleOCR-VL-1.6
+                    # Scanned PDF or low-text page fallback to PaddleOCR-VL-1.6
                     tmp_page_img = out_dir / f"page_{page_idx}.png"
                     pix = page.get_pixmap(dpi=150)
                     pix.save(str(tmp_page_img))
@@ -107,6 +134,10 @@ def parse_with_native_idp(document_code: str, input_path: str) -> dict:
                             "page_idx": page_idx,
                             "schema_data": vl_res.get("structured_json"),
                         })
+                    elif page_text:
+                        # Keep low-density text if VL is unreachable
+                        md_lines.append(f"## 第 {page_idx + 1} 页\n\n" + page_text)
+                        content_list.append({"type": "text", "text": page_text, "text_level": 0, "page_idx": page_idx})
                     if tmp_page_img.exists():
                         tmp_page_img.unlink(missing_ok=True)
             doc.close()
