@@ -7,7 +7,7 @@ public sealed class StatusForm : Form
     private readonly Label _overallLabel = new();
     private readonly Label _checkedLabel = new();
     private readonly TableLayoutPanel _serviceTable = new();
-    private readonly Dictionary<ServiceKind, (Label Dot, Label Name, Label State, Label Detail)> _rows = new();
+    private readonly Dictionary<ServiceKind, (Label Name, Label State, Label Detail)> _rows = new();
     private readonly Func<Task<ServiceSnapshot>> _refreshRequested;
     private readonly Label _rootLabel = new();
     private bool _closing;
@@ -73,14 +73,13 @@ public sealed class StatusForm : Form
         header.Controls.Add(_checkedLabel, 0, 1);
 
         _serviceTable.Dock = DockStyle.Fill;
-        _serviceTable.ColumnCount = 4;
+        _serviceTable.ColumnCount = 3;
         _serviceTable.RowCount = definitions.Count + 1;
         _serviceTable.CellBorderStyle = TableLayoutPanelCellBorderStyle.Single;
         _serviceTable.BackColor = Color.White;
         _serviceTable.Padding = new Padding(0);
-        _serviceTable.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 34));
-        _serviceTable.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 165));
-        _serviceTable.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 122));
+        _serviceTable.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 190));
+        _serviceTable.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 132));
         _serviceTable.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         _serviceTable.RowStyles.Add(new RowStyle(SizeType.Absolute, 38));
         for (var i = 0; i < definitions.Count; i++)
@@ -88,30 +87,20 @@ public sealed class StatusForm : Form
             _serviceTable.RowStyles.Add(new RowStyle(SizeType.Absolute, 52));
         }
 
-        AddHeaderCell("状态", 0, 0);
-        AddHeaderCell("服务", 1, 0);
-        AddHeaderCell("当前状态", 2, 0);
-        AddHeaderCell("检查说明", 3, 0);
+        AddHeaderCell("服务", 0, 0);
+        AddHeaderCell("当前状态", 1, 0);
+        AddHeaderCell("检查说明", 2, 0);
 
         for (var row = 0; row < definitions.Count; row++)
         {
             var definition = definitions[row];
-            var dot = new Label
-            {
-                Text = "●",
-                Dock = DockStyle.Fill,
-                TextAlign = ContentAlignment.MiddleCenter,
-                Font = CreateUiFont(14f, FontStyle.Bold),
-                ForeColor = Color.FromArgb(126, 142, 168),
-            };
             var name = CreateBodyLabel(definition.DisplayName, bold: true);
             var state = CreateBodyLabel("正在检查", bold: true);
             var detail = CreateBodyLabel(definition.LoopbackBaseUrl, bold: false);
-            _serviceTable.Controls.Add(dot, 0, row + 1);
-            _serviceTable.Controls.Add(name, 1, row + 1);
-            _serviceTable.Controls.Add(state, 2, row + 1);
-            _serviceTable.Controls.Add(detail, 3, row + 1);
-            _rows[definition.Kind] = (dot, name, state, detail);
+            _serviceTable.Controls.Add(name, 0, row + 1);
+            _serviceTable.Controls.Add(state, 1, row + 1);
+            _serviceTable.Controls.Add(detail, 2, row + 1);
+            _rows[definition.Kind] = (name, state, detail);
         }
 
         outer.Controls.Add(_serviceTable, 0, 1);
@@ -150,6 +139,15 @@ public sealed class StatusForm : Form
             {
                 var snapshot = await _refreshRequested().ConfigureAwait(true);
                 ApplySnapshot(snapshot);
+            }
+            catch (Exception exception)
+            {
+                MessageBox.Show(
+                    this,
+                    $"状态刷新未完成：{exception.Message}",
+                    "成都建工控制台",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
             }
             finally
             {
@@ -196,7 +194,6 @@ public sealed class StatusForm : Form
             }
 
             var color = StatusColor(status.Condition);
-            row.Dot.ForeColor = color;
             row.State.Text = status.StateText;
             row.State.ForeColor = color;
             row.Detail.Text = $"{status.PortText}；{status.Detail}";
