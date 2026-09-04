@@ -1,5 +1,6 @@
 """Document management service with improved error handling."""
 
+import re
 import uuid
 from pathlib import Path
 
@@ -32,10 +33,123 @@ from .storage.write import (
 logger = get_logger(__name__)
 
 
+_EXTERNAL_REFERENCE_RE = re.compile(r"^E[A-D0](?:0[1-9]|[1-9]\d)?$", re.IGNORECASE)
+
+
 def _canonical_counterparty_code(metadata: dict, inferred: dict) -> str:
     """Return the canonical external-party code before Document persistence."""
     raw_code = metadata.get("counterparty_code") or inferred.get("counterparty_code", "")
     return map_to_standard_external_code(raw_code) or ""
+
+
+def _canonical_external_reference_code(value: str | None) -> str | None:
+    """Return a safe canonical external-party reference, or ``None``.
+
+    Historical data may contain bank receipt identifiers such as ``EBNK*`` in
+    ``counterparty_code``. Those identifiers are never business parties. Only
+    explicit ``EXT-*`` references or the canonical ``E[A-D0]`` family are
+    eligible for lifecycle reconciliation.
+    """
+    raw = str(value or "").strip().upper()
+    if (
+        not raw
+        or is_canonical_entity_code(raw)
+        or raw.startswith("EBNK")
+        or raw.startswith("BANK")
+    ):
+        return None
+
+    canonical = (map_to_standard_external_code(raw) or "").strip().upper()
+    if (
+        not canonical
+        or is_canonical_entity_code(canonical)
+        or canonical.startswith("EBNK")
+        or canonical.startswith("BANK")
+    ):
+        return None
+
+    if canonical.startswith("EXT-") or _EXTERNAL_REFERENCE_RE.fullmatch(canonical):
+        return canonical
+    return None
+
+
+def _external_party_kind(document: Document, canonical_code: str) -> str:
+    """Infer a conservative external-party kind from durable document metadata."""
+    category = str(getattr(document, "business_category", "") or "").strip().lower()
+    code = canonical_code.upper()
+    if "CRANE" in code or category == "equipment":
+        return "equipment"
+    if "PG" in code or category == "material":
+        return "supplier"
+    if "EXP" in code or category == "subcontract":
+        return "subcontractor"
+    if category == "labor":
+        return "labor"
+    return "partner"
+
+
+def reconcile_document_external_party(
+    db: Session,
+    document: Document,
+    *,
+    inferred: dict | None = None,
+) -> bool:
+    """Normalize and activate the external party actually referenced by a document.
+
+    This is intentionally document-scoped: it never enumerates or activates
+    the entire external-party master. The caller owns the transaction boundary.
+    """
+    canonical_code = _canonical_external_reference_code(
+        getattr(document, "counterparty_code", None)
+    )
+    if not canonical_code:
+        return False
+
+    if document.counterparty_code != canonical_code:
+        document.counterparty_code = canonical_code
+
+    details = inferred or {}
+    from .ingest import _auto_register_external_party
+
+    _auto_register_external_party(
+        db,
+        canonical_code,
+        counterparty_name=details.get("counterparty_name") or canonical_code,
+        tax_id=details.get("counterparty_tax_id") or None,
+        kind=_external_party_kind(document, canonical_code),
+    )
+    return True
+
+
+def reconcile_project_external_parties(db: Session, project_id: int) -> dict[str, int]:
+    """Reconcile canonical external parties from durable project references only.
+
+    This is an activation-only self-heal. It never deactivates unrelated master
+    rows and never treats an arbitrary historical identifier as a counterparty.
+    """
+    documents = db.scalars(
+        select(Document)
+        .where(
+            Document.project_id == project_id,
+            Document.duplicate_of_id.is_(None),
+        )
+        .order_by(Document.id.asc())
+    ).all()
+
+    checked = 0
+    reconciled = 0
+    for document in documents:
+        checked += 1
+        if reconcile_document_external_party(db, document):
+            reconciled += 1
+
+    if reconciled:
+        db.commit()
+
+    return {
+        "checked": checked,
+        "external_party_references_reconciled": reconciled,
+    }
 
 
 def _lock_project_file_hash(
@@ -113,7 +227,9 @@ def register_bytes(
 
     _lock_project_file_hash(db, project.id, digest)
 
-    # Check for existing document in this project
+    # Check for existing document in this project. A duplicate scan is still a
+    # valid business reference signal, so reconcile its external party before
+    # returning the canonical document.
     existing = _find_existing_document(db, project.id, digest)
     if existing is not None:
         logger.info(
@@ -125,6 +241,8 @@ def register_bytes(
         )
         if hasattr(db, "rollback"):
             db.rollback()
+        if reconcile_document_external_party(db, existing):
+            db.commit()
         return existing, None
 
     # Infer metadata from the same canonical Entity master used by the
@@ -209,36 +327,7 @@ def register_bytes(
         except Exception as e:
             logger.error(f"Failed to queue parsing for {d.id}: {e}")
 
-    # Auto-register external party if counterparty is system-external
-    if (
-        d.counterparty_code
-        and not is_canonical_entity_code(d.counterparty_code)
-        and not d.counterparty_code.upper().startswith("EBNK")
-        and not d.counterparty_code.upper().startswith("BANK")
-        and (
-            d.counterparty_code.upper().startswith("EXT-")
-            or bool(re.match(r"^E[A-D0](?:0[1-9]|[1-9]\d)?$", d.counterparty_code, re.IGNORECASE))
-        )
-    ):
-        kind = "partner"
-        cp_upper = d.counterparty_code.upper()
-        if "CRANE" in cp_upper or d.business_category == "equipment":
-            kind = "equipment"
-        elif "PG" in cp_upper or d.business_category == "material":
-            kind = "supplier"
-        elif "EXP" in cp_upper or d.business_category == "subcontract":
-            kind = "subcontractor"
-        elif d.business_category == "labor":
-            kind = "labor"
-
-        from .ingest import _auto_register_external_party
-        _auto_register_external_party(
-            db,
-            d.counterparty_code,
-            counterparty_name=inferred.get("counterparty_name") or d.counterparty_code,
-            tax_id=inferred.get("counterparty_tax_id") or None,
-            kind=kind,
-        )
+    if reconcile_document_external_party(db, d, inferred=inferred):
         db.commit()
 
     return d, job_id
@@ -292,6 +381,8 @@ def scan_folder(
             if existing is not None:
                 if hasattr(db, "rollback"):
                     db.rollback()
+                if reconcile_document_external_party(db, existing):
+                    db.commit()
                 out.append(
                     {
                         "source": str(path),
@@ -374,6 +465,8 @@ def register_local_path(
         )
         if hasattr(db, "rollback"):
             db.rollback()
+        if reconcile_document_external_party(db, existing):
+            db.commit()
         return existing, None
 
     inferred = infer_from_filename(
@@ -441,6 +534,9 @@ def register_local_path(
             logger.info(f"Queued parsing job {job_id} for document {d.id} from local path")
         except Exception as e:
             logger.error(f"Failed to queue parsing for {d.id}: {e}")
+
+    if reconcile_document_external_party(db, d, inferred=inferred):
+        db.commit()
 
     return d, job_id
 
@@ -579,10 +675,13 @@ def repair_filename_classifications(
     db: Session,
     project_id: int,
 ) -> dict[str, int]:
-    """Repair only deterministic strong-evidence filename mistakes.
+    """Repair deterministic filename mistakes and external-party reference drift.
 
-    User-edited metadata is never touched.
+    User-edited classification metadata is never touched. External-party
+    reconciliation is independent from classification source because a durable
+    document reference remains valid even after a user edits its metadata.
     """
+    party_repair = reconcile_project_external_parties(db, project_id)
     canonical_cache = load_canonical_entity_cache()
 
     documents = db.scalars(
@@ -648,4 +747,5 @@ def repair_filename_classifications(
     return {
         "checked": checked,
         "reclassified": changed,
+        **party_repair,
     }

@@ -33,6 +33,7 @@ logger = get_logger(__name__)
 
 _INVOICE_DOCUMENT_TYPES = frozenset({"invoice", "receipt", "tax_invoice"})
 _INVOICE_MARKERS = ("发票号码", "发票代码", "价税合计", "增值税专用发票", "增值税普通发票")
+_EXTERNAL_PARTY_CODE_RE = re.compile(r"^E[A-D0](?:0[1-9]|[1-9]\d)?$", re.IGNORECASE)
 
 
 def _invoice_candidate_text(raw: list[dict]) -> str:
@@ -245,13 +246,33 @@ def _auto_register_external_party(
     tax_id: str | None = None,
     kind: str = "partner",
 ) -> None:
-    """Automatically discover and register canonical system-external parties."""
+    """Automatically discover and register canonical system-external parties.
+
+    Only explicit external reference codes are accepted.  This keeps bank
+    receipt numbers and other arbitrary identifiers from entering the
+    external-party master, even when this helper is called from historical
+    parse/reindex paths.
+    """
     raw_code = (counterparty_code or "").strip().upper()
-    if not raw_code or is_canonical_entity_code(raw_code):
+    if (
+        not raw_code
+        or is_canonical_entity_code(raw_code)
+        or raw_code.startswith("EBNK")
+        or raw_code.startswith("BANK")
+    ):
         return
 
     code = map_to_standard_external_code(raw_code)
-    if not code or is_canonical_entity_code(code):
+    if (
+        not code
+        or is_canonical_entity_code(code)
+        or code.startswith("EBNK")
+        or code.startswith("BANK")
+        or not (
+            code.startswith("EXT-")
+            or _EXTERNAL_PARTY_CODE_RE.fullmatch(code)
+        )
+    ):
         return
 
     from ..domain.entities import get_external_preset
@@ -286,6 +307,13 @@ def _auto_register_external_party(
                 existing.tax_id = tax_id
             if kind and (not existing.kind or existing.kind == "partner"):
                 existing.kind = kind
+            if not existing.active:
+                existing.active = True
+                logger.info(
+                    "Reactivated referenced external party: %s (%s)",
+                    code,
+                    existing.name,
+                )
             return
 
         new_party = ExternalParty(
