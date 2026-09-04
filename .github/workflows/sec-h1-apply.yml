@@ -1,0 +1,43 @@
+name: Apply SEC-H1 RAG hardening
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/sec-h1-apply.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply SEC-H1 source cleanup
+        run: python scripts/sec_h1_apply.py
+
+      - name: Verify SEC-H1 invariants
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile 'source_code/0.2_RAG系统/project-rag-v1.1/app/legacy_routes.py'
+          ! grep -RniE '888888|admin123|123456|cdjg@2026|Admin@2026' 'source_code/0.2_RAG系统/project-rag-v1.1/app' --include='*.py'
+          ! grep -nE '@app\.(post|delete)\("/api/v1/projects|@app\.post\("/projects"' 'source_code/0.2_RAG系统/project-rag-v1.1/app/legacy_routes.py'
+
+      - name: Commit SEC-H1 and remove one-shot machinery
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git rm '.github/workflows/sec-h1-apply.yml' 'scripts/sec_h1_apply.py'
+          git add 'source_code/0.2_RAG系统/project-rag-v1.1/app/legacy_routes.py'
+          git diff --cached --check
+          git commit -m 'refactor(rag): remove legacy project master mutation code'
+          git push origin HEAD:main
