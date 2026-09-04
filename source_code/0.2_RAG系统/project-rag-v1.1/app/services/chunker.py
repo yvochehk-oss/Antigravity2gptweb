@@ -383,6 +383,12 @@ def chunks_from_content_list(path: str, document_type: str = "") -> list[dict]:
         if not isinstance(item, dict):
             continue
 
+        # Fail-closed gate: Skip items marked as REVIEW or FAILED to prevent vector index pollution
+        item_status = (item.get("status") or "").upper().strip()
+        if item_status in ("REVIEW", "FAILED") or (item.get("status") and item_status != "PROCESSED"):
+            logger.info(f"Skipping content_list item with status={item.get('status')!r} to prevent vector index pollution.")
+            continue
+
         typ = item.get("type", "text")
         page = item.get("page_idx")
 

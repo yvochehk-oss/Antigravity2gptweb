@@ -30,7 +30,7 @@ def validate_canonical_schema(data: dict) -> bool:
     """Validate that parsed dict strictly adheres to the required Canonical Document Schema."""
     if not isinstance(data, dict):
         return False
-    required_keys = {"document_type", "title", "text_content", "fields"}
+    required_keys = {"document_type", "title", "text_content", "fields", "confidence"}
     if not required_keys.issubset(data.keys()):
         return False
     if not isinstance(data.get("document_type"), str) or not data["document_type"].strip():
@@ -42,7 +42,7 @@ def validate_canonical_schema(data: dict) -> bool:
     if not isinstance(data.get("fields"), dict):
         return False
     conf = data.get("confidence")
-    if conf is not None and not isinstance(conf, (int, float)):
+    if not isinstance(conf, (int, float)) or not (0.0 <= float(conf) <= 1.0):
         return False
     return True
 

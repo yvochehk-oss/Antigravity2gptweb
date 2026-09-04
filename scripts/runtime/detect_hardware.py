@@ -80,14 +80,33 @@ def detect_gpu_capability() -> dict:
         "vram_mb": vram_mb
     }
 
-def run_hardware_probe(force=False) -> dict:
+def compute_hardware_fingerprint() -> str:
     cores = detect_cpu_cores()
     ram_gb = detect_total_ram_gb()
     avx2_status = detect_avx2_support()
     gpu_info = detect_gpu_capability()
-
     fp_str = f"{platform.system()}:{platform.machine()}:{cores}:{ram_gb}:{avx2_status}:{gpu_info.get('cuda_supported')}:{gpu_info.get('is_apple_silicon')}"
-    fingerprint = hashlib.md5(fp_str.encode("utf-8")).hexdigest()[:12]
+    return hashlib.md5(fp_str.encode("utf-8")).hexdigest()[:12]
+
+def validate_cached_profile() -> bool:
+    if not os.path.exists(ENV_HARDWARE_PATH) or not os.path.exists(PROFILE_JSON_PATH):
+        return False
+    try:
+        with open(PROFILE_JSON_PATH, "r", encoding="utf-8") as f:
+            profile = json.load(f)
+        if profile.get("HARDWARE_CONFIGURED") != "true":
+            return False
+        if profile.get("PROFILE_VERSION") != PROFILE_VERSION:
+            return False
+        expected_fp = compute_hardware_fingerprint()
+        if profile.get("HARDWARE_FINGERPRINT") != expected_fp:
+            return False
+        return True
+    except Exception:
+        return False
+
+def run_hardware_probe(force=False) -> dict:
+    fingerprint = compute_hardware_fingerprint()
 
     if not force and os.path.exists(ENV_HARDWARE_PATH) and os.path.exists(PROFILE_JSON_PATH):
         try:
@@ -99,6 +118,11 @@ def run_hardware_probe(force=False) -> dict:
                     return profile
         except Exception:
             pass
+
+    cores = detect_cpu_cores()
+    ram_gb = detect_total_ram_gb()
+    avx2_status = detect_avx2_support()
+    gpu_info = detect_gpu_capability()
 
     is_low_spec = (ram_gb < 16.0) or (cores <= 4)
     
@@ -150,7 +174,16 @@ def run_hardware_probe(force=False) -> dict:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Hardware Adaptive Probe v2.0")
     parser.add_argument("--force", action="store_true", help="Force re-detection even if persisted config exists")
+    parser.add_argument("--validate", action="store_true", help="Validate existing profile against current hardware fingerprint")
     args = parser.parse_args()
+
+    if args.validate:
+        if validate_cached_profile():
+            print("VALID")
+            sys.exit(0)
+        else:
+            print("INVALID")
+            sys.exit(1)
 
     result = run_hardware_probe(force=args.force)
     print(json.dumps(result, indent=2, ensure_ascii=False))

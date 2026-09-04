@@ -55,27 +55,8 @@ _LOCAL_LLM_TIMEOUT_WAS_SET="${LOCAL_LLM_STARTUP_TIMEOUT_SECONDS+x}"
 _LOCAL_LLM_TIMEOUT_OVERRIDE="${LOCAL_LLM_STARTUP_TIMEOUT_SECONDS-}"
 HARDWARE_ENV_FILE="$PROJECT_DIR/.env.hardware"
 HARDWARE_JSON_FILE="$PROJECT_DIR/.hardware_profile.json"
-REPROBE_NEEDED=0
 
-if [ ! -f "$HARDWARE_ENV_FILE" ] || [ ! -f "$HARDWARE_JSON_FILE" ]; then
-  REPROBE_NEEDED=1
-else
-  if ! python3 -c "
-import json, sys
-try:
-    with open('$HARDWARE_JSON_FILE', 'r', encoding='utf-8') as f:
-        data = json.load(f)
-    if data.get('HARDWARE_CONFIGURED') == 'true' and data.get('PROFILE_VERSION') == '2.0' and data.get('HARDWARE_FINGERPRINT'):
-        sys.exit(0)
-    sys.exit(1)
-except Exception:
-    sys.exit(1)
-" >/dev/null 2>&1; then
-    REPROBE_NEEDED=1
-  fi
-fi
-
-if [ "$REPROBE_NEEDED" -eq 1 ]; then
+if ! python3 "$PROJECT_DIR/scripts/runtime/detect_hardware.py" --validate >/dev/null 2>&1; then
   python3 "$PROJECT_DIR/scripts/runtime/detect_hardware.py" --force >/dev/null 2>&1 || true
 fi
 if [ -f "$HARDWARE_ENV_FILE" ]; then
