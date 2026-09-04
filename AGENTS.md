@@ -45,3 +45,43 @@ Agent 在任何情况下**绝对禁止**执行以下操作：
 1. 检出 `main` 分支，人工审查并精准整合双端的有效业务修改；
 2. 运行系统全量回归验证与测试；
 3. 将统一后的提交同步到 `main`，并依次将 `windows` 和 `macos` 以 `--ff-only` 恢复为相同 SHA。
+
+---
+
+## 5. 双层混合 Agent 架构协同与本地 Agent“零自主写代码”铁律 (Dual-Agent Supreme Law)
+
+1. **认知控制面与执行数据面严格隔离**：
+   - **云端认知与代码控制面（Safari / Chrome Custom GPT）**：配备 GitHub 直连读写工具，拥有独占的系统架构推演、故障归因、实施方案制定以及远程仓库代码修改与提交推送（commits / PRs）权。
+   - **本地执行与验收数据面（本地 Agent）**：职责严格限定为**监视 GPT 进度、督促其工作、`git pull` 拉取远端代码、在本地真实环境中运行 GPT 指定的验证命令，并收集客观测试证据反馈给 GPT**。
+
+2. **本地 Agent 绝对禁止越俎代庖写业务代码（“你不要改程序”）**：
+   - **核心禁令**：本地 Agent 绝对禁止自主编写、改写任何业务代码、配置文件或执行私自重构；
+   - **闭环流向**：所有代码变更必须先由 Custom GPT 在 GitHub 远端仓库实施并推送，本地 Agent 仅通过 `git pull` 同步拉取；
+   - **防抢跑纪律**：当 Custom GPT 处于深度思考（Reasoning）、工具调用（GitHub Actions / API）或流式生成时，本地 Agent 必须保持耐心监视，绝对严禁以“等待时间较长”为由擅自编写或修改本地代码。
+
+3. **单步流式推进与闭环核准契约**：
+   - Custom GPT 在远端推送代码后，必须显式给出可验证的本地测试命令（`TEST: <实际命令>` 与 `EXPECTED: <预期断言与退出码>`）；
+   - 本地 Agent 执行 `git pull` 后完整运行该检验命令，收集标准输出、错误日志与退出码，通过 bridge 回传给 GPT 审查（`task-review`）；
+   - 必须获得 Custom GPT 审查后显式裁决 `APPROVED`，该任务方可标记完成或推进至下一步。
+
+---
+
+## 6. 桌面端控制台工程、状态栏 Logo 与 SSOT 规范 (Desktop Apps & Status Bar Logo Specification)
+
+1. **桌面工程 GitHub 统一纳入与 SSOT 契约**：
+   - 全系统桌面端控制台源码与资源（macOS: `desktop_apps/macos`，Windows: `desktop_apps/windows`）必须完整纳入 GitHub 远程仓库分支统一管理；严禁脱离远程仓库形成本地孤岛。
+   - 二进制编译产物（如 `desktop_apps/macos/build/`、`成都建工控制台.app`、`bin/`、`obj/`）严禁提交至 Git，必须在 `.gitignore` 中彻底排除。
+
+2. **macOS 状态栏（Menu Bar / NSStatusItem）品牌 Logo 架构准则 (ADR-MAC-MENUBAR-ICON-01)**：
+   - **官方品牌彩色 Logo**：采用官方 192×192 PNG 作为母版，自包含存放于 `desktop_apps/macos/Resources/StatusLogo.png`，严禁跨子系统动态软链接；
+   - **严禁 Template 化（`image.isTemplate = false`）**：官方橙底黑字“建”Logo 为不透明实体资产，禁止设置为 Template Image，以防被 macOS 渲染成纯黑/纯白无辨识度色块；该橙黑配色在深色与浅色菜单栏中均具有极高对比度与品牌清晰度；
+   - **Retina 逻辑尺寸**：设置 `image.size = NSSize(width: 18, height: 18)`，由 AppKit backing scale 自动渲染 2x Retina 像素（36×36 px），保持硬边清晰；
+   - **品牌身份与运行时状态解耦**：
+     - **Logo（产品身份）**：常驻显示，生命周期仅在应用启动时配置加载一次；
+     - **运行时状态（Runtime State）**：通过独立的动态彩色圆点（`●`）呈现（正常为绿、启动中为蓝、降级为橙、异常为红、停止为灰）；
+     - **状态文字**：显式指定为 `NSColor.labelColor`，确保深色/浅色模式文字自适应可读；状态变化时仅刷新圆点颜色、标题与 ToolTip，严禁重刷或改变品牌 Logo。
+
+3. **构建脚本 Fail-Closed 与运行时优雅降级**：
+   - 构建脚本 `build_app.sh` 打包前必须执行 `StatusLogo.png` 存在性校验，若源资源缺失则构建立刻中断报错（Fail-Closed），严禁产出缺图的残缺 App；
+   - 运行时若发生极端 Bundle 资源缺失，必须具备优雅降级机制（降级为系统 SF Symbol `building.2.crop.circle`）。
+
