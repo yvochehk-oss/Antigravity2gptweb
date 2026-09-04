@@ -9,7 +9,7 @@ permissions:
 
 jobs:
   harden-rag-legacy-routes:
-    if: github.event.head_commit.message == 'chore(sec): run one-shot RAG legacy hardening'
+    if: startsWith(github.event.head_commit.message, 'chore(sec): run one-shot RAG legacy hardening')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -17,8 +17,10 @@ jobs:
           fetch-depth: 0
 
       - name: Remove retired Project Master mutation code
-        shell: python
+        shell: bash
         run: |
+          set -euo pipefail
+          python <<'PY'
           from pathlib import Path
           import ast
 
@@ -35,30 +37,22 @@ jobs:
                   raise SystemExit(f'missing end marker: {end}')
               return source[:start_index] + source[end_index:]
 
-          # API create/sync writers: preserve GET collection/detail routes.
           text = cut_between(
               text,
               '@app.post("/api/v1/projects")\n',
               '@app.get("/api/v1/projects/{project_id}")\n',
           )
-
-          # Destructive project-delete helpers + endpoints.  This also removes
-          # the retired password verification fallback and all hard-coded
-          # universal passwords from production source.
           text = cut_between(
               text,
               '_PROJECT_PURGE_SECONDARY_SQL = (\n',
               '@app.get("/api/v1/projects/{project_id}/audit")\n',
           )
-
-          # Legacy web UI Project Master creator.
           text = cut_between(
               text,
               '@app.post("/projects")\n',
               '@app.get("/projects/{project_ref}", response_class=HTMLResponse)\n',
           )
 
-          # Imports used only by the retired destructive Project Master path.
           for obsolete in (
               'import hashlib\n',
               'import hmac\n',
@@ -95,6 +89,7 @@ jobs:
 
           ast.parse(text, filename=str(path))
           path.write_text(text, encoding='utf-8')
+          PY
 
       - name: Verify boundary and remove one-shot workflow
         shell: bash
