@@ -19,13 +19,13 @@ private struct ConsoleMenuView: View {
     @ObservedObject var state: AppStateManager
 
     var body: some View {
-        (Text(state.summaryPrefix) + Text(state.summaryTitle).foregroundColor(state.summaryColor))
-        (Text(state.rootPrefix) + Text(state.rootTitle).foregroundColor(state.rootColor))
+        (Text(state.summaryPrefix).foregroundColor(Color(nsColor: .labelColor)) + Text(state.summaryTitle).foregroundColor(state.summaryColor).bold())
+        (Text(state.rootPrefix).foregroundColor(Color(nsColor: .labelColor)) + Text(state.rootTitle).foregroundColor(state.rootColor).bold())
 
         Divider()
 
         ForEach(ServiceID.allCases, id: \.self) { service in
-            (Text("\(service.displayName)：") + Text(state.serviceTitle(service)).foregroundColor(state.serviceColor(service)))
+            (Text("\(service.displayName)：").foregroundColor(Color(nsColor: .labelColor)) + Text(state.serviceTitle(service)).foregroundColor(state.serviceColor(service)).bold())
                 .help(state.serviceDetail(service))
         }
 

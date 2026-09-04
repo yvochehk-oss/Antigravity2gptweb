@@ -43,11 +43,11 @@ enum ServiceState: String, Codable, Equatable {
     var statusColor: Color {
         switch self {
         case .normal:
-            return .green
+            return Color(red: 0.2, green: 0.9, blue: 0.4)
         case .starting, .checking, .partial:
-            return .yellow
+            return Color(red: 1.0, green: 0.85, blue: 0.2)
         case .unavailable, .stopped:
-            return .red
+            return Color(red: 1.0, green: 0.35, blue: 0.35)
         }
     }
 }
