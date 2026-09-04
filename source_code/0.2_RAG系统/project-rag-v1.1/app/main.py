@@ -8,6 +8,10 @@ from accumulating in the composition layer.
 from __future__ import annotations
 
 from . import legacy_routes as _legacy
+from .project_master_boundary import (
+    assert_project_master_read_only,
+    enforce_project_master_read_only,
+)
 from .routers.health import install_health_routes
 from .routers.phase3_retirement import install_phase3_retirement
 from .routers.phase4_canonical import router as phase4_canonical_router
@@ -17,9 +21,16 @@ from .time_types import apply_timezone_types
 # point. Upgrade legacy *_at mappings before the application starts serving.
 apply_timezone_types()
 app = _legacy.app
+
+# Tax owns Project Master.  Retire the remaining legacy RAG create/sync/delete
+# endpoints before any additional canonical routers are composed.  The final
+# assertion is deliberately repeated after composition so a future router
+# cannot accidentally reopen a second Project Master writer.
+enforce_project_master_read_only(app)
 install_phase3_retirement(app)
 app.include_router(phase4_canonical_router)
 install_health_routes(app)
+assert_project_master_read_only(app)
 
 
 def __getattr__(name: str):
