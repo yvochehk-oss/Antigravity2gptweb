@@ -34,12 +34,12 @@ final class AppStateManager: ObservableObject {
 
     var summaryTitle: String {
         projectAvailable
-            ? "总体状态：\(snapshot.overall.title)"
-            : "总体状态：未选择项目目录"
+            ? "\(snapshot.overall.dotSymbol) 总体状态：\(snapshot.overall.title)"
+            : "🔴 总体状态：未选择项目目录"
     }
 
     var rootTitle: String {
-        projectAvailable ? "项目目录：已连接" : "项目目录：未选择"
+        projectAvailable ? "🟢 项目目录：已连接" : "🔴 项目目录：未选择"
     }
 
     var controlsEnabled: Bool {
@@ -48,7 +48,7 @@ final class AppStateManager: ObservableObject {
 
     func serviceTitle(_ service: ServiceID) -> String {
         let value = snapshot.services[service] ?? ServiceSnapshot.checking(service)
-        return "\(service.displayName)：\(value.state.title)"
+        return "\(value.state.dotSymbol) \(service.displayName)：\(value.state.title)"
     }
 
     func serviceDetail(_ service: ServiceID) -> String {

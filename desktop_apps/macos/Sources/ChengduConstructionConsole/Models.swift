@@ -39,6 +39,17 @@ enum ServiceState: String, Codable, Equatable {
         case .stopped: return "已停止"
         }
     }
+
+    var dotSymbol: String {
+        switch self {
+        case .normal:
+            return "🟢"
+        case .starting, .checking, .partial:
+            return "🟡"
+        case .unavailable, .stopped:
+            return "🔴"
+        }
+    }
 }
 
 struct ServiceSnapshot: Equatable {
