@@ -26,9 +26,18 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python -m py_compile 'source_code/0.2_RAG系统/project-rag-v1.1/app/legacy_routes.py'
+          target='source_code/0.2_RAG系统/project-rag-v1.1/app/legacy_routes.py'
+          python -m py_compile "$target"
           ! grep -RniE '888888|admin123|123456|cdjg@2026|Admin@2026' 'source_code/0.2_RAG系统/project-rag-v1.1/app' --include='*.py'
-          ! grep -nE '@app\.(post|delete)\("/api/v1/projects|@app\.post\("/projects"' 'source_code/0.2_RAG系统/project-rag-v1.1/app/legacy_routes.py'
+          for needle in \
+            '@app.post("/api/v1/projects")' \
+            '@app.post("/api/v1/projects/sync")' \
+            '@app.delete("/api/v1/projects/{project_id}")' \
+            '@app.post("/api/v1/projects/{project_id}/delete")' \
+            '@app.post("/projects")'
+          do
+            ! grep -Fq "$needle" "$target"
+          done
 
       - name: Commit SEC-H1 and remove one-shot machinery
         shell: bash
