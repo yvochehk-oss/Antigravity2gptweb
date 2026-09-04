@@ -99,7 +99,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         loginItem = addMenuItem(title: "登录后自动运行", action: #selector(toggleLoginItem), keyEquivalent: "")
         addMenuItem(title: "退出控制台", action: #selector(quit), keyEquivalent: "q")
 
-        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         configureStatusBarButton()
         statusItem.menu = menu
         updateStatusButton(for: .checking)
@@ -112,8 +112,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         button.image = loadStatusBarLogo()
-        button.imagePosition = .imageLeading
+        button.imagePosition = .imageOnly
         button.imageScaling = .scaleProportionallyDown
+        button.title = ""
+        button.attributedTitle = NSAttributedString(string: "")
         button.toolTip = "成都建工控制台"
     }
 
@@ -140,12 +142,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func presentStatusMenu() {
         DispatchQueue.main.async { [weak self] in
-            guard let self, let button = self.statusItem?.button else {
-                NSLog("[ChengduConstructionConsole] Unable to present status menu: button is unavailable")
+            guard let self,
+                  let button = self.statusItem?.button,
+                  let menu = self.statusItem?.menu else {
+                NSLog("[ChengduConstructionConsole] Unable to present status menu: status item is unavailable")
                 return
             }
             NSApp.activate(ignoringOtherApps: true)
-            button.performClick(nil)
+            menu.popUp(
+                positioning: nil,
+                at: NSPoint(x: 0, y: button.bounds.height),
+                in: button
+            )
         }
     }
 
@@ -222,31 +230,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func updateStatusButton(for state: ServiceState) {
-        let color: NSColor
-        switch state {
-        case .checking, .starting: color = .systemBlue
-        case .normal: color = .systemGreen
-        case .partial: color = .systemOrange
-        case .unavailable: color = .systemRed
-        case .stopped: color = .secondaryLabelColor
-        }
-
-        let title = NSMutableAttributedString(
-            string: "●",
-            attributes: [
-                .foregroundColor: color,
-                .font: NSFont.systemFont(ofSize: 12, weight: .medium)
-            ]
-        )
-        title.append(NSAttributedString(
-            string: " 成都建工",
-            attributes: [
-                .foregroundColor: NSColor.labelColor,
-                .font: NSFont.systemFont(ofSize: 12, weight: .medium)
-            ]
-        ))
-        statusItem?.button?.attributedTitle = title
-        statusItem?.button?.toolTip = "成都建工控制台｜\(state.title)"
+        guard let button = statusItem?.button else { return }
+        button.title = ""
+        button.attributedTitle = NSAttributedString(string: "")
+        button.imagePosition = .imageOnly
+        button.toolTip = "成都建工控制台｜\(state.title)"
     }
 
     private func updateActionAvailability() {
