@@ -147,7 +147,7 @@ def reconcile_project_external_parties(db: Session, project_id: int) -> dict[str
         db.commit()
 
     return {
-        "checked": checked,
+        "external_party_documents_checked": checked,
         "external_party_references_reconciled": reconciled,
     }
 
