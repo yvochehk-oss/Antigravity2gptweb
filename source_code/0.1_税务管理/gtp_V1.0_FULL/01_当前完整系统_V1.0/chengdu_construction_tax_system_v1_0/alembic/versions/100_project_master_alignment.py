@@ -45,8 +45,10 @@ CANONICAL_PROJECTS = (
 PROJECT_TRIGGER = r"""
 CREATE OR REPLACE FUNCTION sync_project_aliases() RETURNS trigger AS $$
 BEGIN
-  IF NEW.code = 'CY-LZ-003' OR NEW.project_code = 'CY-LZ-003' THEN
+  IF NEW.code = 'CY-LZ-003' THEN
     NEW.code := 'GY-LZ-003';
+  END IF;
+  IF NEW.project_code = 'CY-LZ-003' THEN
     NEW.project_code := 'GY-LZ-003';
   END IF;
 
