@@ -99,7 +99,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         addMenuItem(title: "退出控制台", action: #selector(quit), keyEquivalent: "q")
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        statusItem.autosaveName = "ChengduConstructionStatusItem"
         configureStatusBarButton()
         statusItem.menu = menu
         updateStatusButton(for: .checking)
