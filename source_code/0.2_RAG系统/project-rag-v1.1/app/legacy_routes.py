@@ -222,12 +222,13 @@ def _canonical_entity_views(db) -> list[dict]:
             .where(Document.counterparty_code.is_not(None), Document.counterparty_code != "")
             .group_by(Document.counterparty_code)
         ).all():
-            if isinstance(r, (tuple, list)) and len(r) >= 2:
-                doc_ref_counts[str(r[0])] = int(r[1])
-            elif isinstance(r, (tuple, list)) and len(r) == 1:
-                doc_ref_counts[str(r[0])] = doc_ref_counts.get(str(r[0]), 0) + 1
-            elif isinstance(r, str):
-                doc_ref_counts[r] = doc_ref_counts.get(r, 0) + 1
+            try:
+                code_val = str(r[0] if hasattr(r, "__getitem__") else getattr(r, "counterparty_code", r)).strip().upper()
+                count_val = int(r[1] if hasattr(r, "__getitem__") and len(r) >= 2 else 1)
+                if code_val:
+                    doc_ref_counts[code_val] = doc_ref_counts.get(code_val, 0) + count_val
+            except Exception:
+                pass
     except Exception:
         pass
 
