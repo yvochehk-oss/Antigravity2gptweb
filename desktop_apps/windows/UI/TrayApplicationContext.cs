@@ -112,11 +112,11 @@ public sealed class TrayApplicationContext : ApplicationContext
         menu.Items.Add(refresh);
         menu.Items.Add(new ToolStripSeparator());
 
-        var openTax = new ToolStripMenuItem("打开税务系统");
+        var openTax = new ToolStripMenuItem("打开智能财税管理系统");
         openTax.Click += (_, _) => OpenUrl("http://127.0.0.1:8921/");
-        var openRag = new ToolStripMenuItem("打开资料知识系统");
+        var openRag = new ToolStripMenuItem("打开资料输入管理系统");
         openRag.Click += (_, _) => OpenUrl("http://127.0.0.1:8922/");
-        var openBoss = new ToolStripMenuItem("打开老板驾驶舱");
+        var openBoss = new ToolStripMenuItem("打开移动端管理系统");
         openBoss.Click += (_, _) => OpenUrl("http://127.0.0.1:5173/");
         menu.Items.Add(openTax);
         menu.Items.Add(openRag);

@@ -1,4 +1,4 @@
-import Foundation
+import SwiftUI
 
 /// A service whose state can be shown in the menu bar controller.
 enum ServiceID: String, CaseIterable, Codable, Hashable {
@@ -11,10 +11,10 @@ enum ServiceID: String, CaseIterable, Codable, Hashable {
     var displayName: String {
         switch self {
         case .localModel: return "本地语言模型"
-        case .tax: return "税务系统"
-        case .rag: return "资料与知识系统"
+        case .tax: return "智能财税管理系统"
+        case .rag: return "资料输入管理系统"
         case .idp: return "文档录入引擎"
-        case .boss: return "老板驾驶舱"
+        case .boss: return "移动端管理系统"
         }
     }
 }
@@ -40,14 +40,14 @@ enum ServiceState: String, Codable, Equatable {
         }
     }
 
-    var dotSymbol: String {
+    var statusColor: Color {
         switch self {
         case .normal:
-            return "🟢"
+            return .green
         case .starting, .checking, .partial:
-            return "🟡"
+            return .yellow
         case .unavailable, .stopped:
-            return "🔴"
+            return .red
         }
     }
 }

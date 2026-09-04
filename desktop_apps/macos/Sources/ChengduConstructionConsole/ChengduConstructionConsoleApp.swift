@@ -19,25 +19,25 @@ private struct ConsoleMenuView: View {
     @ObservedObject var state: AppStateManager
 
     var body: some View {
-        Text(state.summaryTitle)
-        Text(state.rootTitle)
+        (Text(state.summaryPrefix) + Text(state.summaryTitle).foregroundColor(state.summaryColor))
+        (Text(state.rootPrefix) + Text(state.rootTitle).foregroundColor(state.rootColor))
 
         Divider()
 
         ForEach(ServiceID.allCases, id: \.self) { service in
-            Text(state.serviceTitle(service))
+            (Text("\(service.displayName)：") + Text(state.serviceTitle(service)).foregroundColor(state.serviceColor(service)))
                 .help(state.serviceDetail(service))
         }
 
         Divider()
 
-        Button("打开税务系统") { state.openTax() }
+        Button("打开智能财税管理系统") { state.openTax() }
             .keyboardShortcut("1")
             .disabled(!state.projectAvailable)
-        Button("打开资料与知识系统") { state.openRAG() }
+        Button("打开资料输入管理系统") { state.openRAG() }
             .keyboardShortcut("2")
             .disabled(!state.projectAvailable)
-        Button("打开老板驾驶舱") { state.openBoss() }
+        Button("打开移动端管理系统") { state.openBoss() }
             .keyboardShortcut("3")
             .disabled(!state.projectAvailable)
 

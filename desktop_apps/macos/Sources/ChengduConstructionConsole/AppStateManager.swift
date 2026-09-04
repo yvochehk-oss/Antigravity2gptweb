@@ -2,6 +2,7 @@ import AppKit
 import Combine
 import Foundation
 import ServiceManagement
+import SwiftUI
 
 @MainActor
 final class AppStateManager: ObservableObject {
@@ -32,14 +33,20 @@ final class AppStateManager: ObservableObject {
         projectAvailable ? snapshot.overall : .stopped
     }
 
+    var summaryPrefix: String { "总体状态：" }
     var summaryTitle: String {
-        projectAvailable
-            ? "\(snapshot.overall.dotSymbol) 总体状态：\(snapshot.overall.title)"
-            : "🔴 总体状态：未选择项目目录"
+        projectAvailable ? snapshot.overall.title : "未选择项目目录"
+    }
+    var summaryColor: Color {
+        projectAvailable ? snapshot.overall.statusColor : .red
     }
 
+    var rootPrefix: String { "项目目录：" }
     var rootTitle: String {
-        projectAvailable ? "🟢 项目目录：已连接" : "🔴 项目目录：未选择"
+        projectAvailable ? "已连接" : "未选择"
+    }
+    var rootColor: Color {
+        projectAvailable ? .green : .red
     }
 
     var controlsEnabled: Bool {
@@ -48,7 +55,12 @@ final class AppStateManager: ObservableObject {
 
     func serviceTitle(_ service: ServiceID) -> String {
         let value = snapshot.services[service] ?? ServiceSnapshot.checking(service)
-        return "\(value.state.dotSymbol) \(service.displayName)：\(value.state.title)"
+        return value.state.title
+    }
+
+    func serviceColor(_ service: ServiceID) -> Color {
+        let value = snapshot.services[service] ?? ServiceSnapshot.checking(service)
+        return value.state.statusColor
     }
 
     func serviceDetail(_ service: ServiceID) -> String {

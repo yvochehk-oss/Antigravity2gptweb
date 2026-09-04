@@ -177,7 +177,7 @@ public static class ServiceCatalog
                 ""),
             new ServiceDefinition(
                 ServiceKind.Tax,
-                "税务系统",
+                "智能财税管理系统",
                 8921,
                 new[] { "/healthz" },
                 new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "python", "python.exe", "uvicorn", "uvicorn.exe" },
@@ -189,7 +189,7 @@ public static class ServiceCatalog
                 "http://127.0.0.1:8921/"),
             new ServiceDefinition(
                 ServiceKind.Rag,
-                "资料知识系统",
+                "资料输入管理系统",
                 8922,
                 new[] { "/api/v1/health", "/healthz" },
                 new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "python", "python.exe", "uvicorn", "uvicorn.exe" },
@@ -213,7 +213,7 @@ public static class ServiceCatalog
                 "http://127.0.0.1:8933/"),
             new ServiceDefinition(
                 ServiceKind.Boss,
-                "老板驾驶舱",
+                "移动端管理系统",
                 5173,
                 new[] { "/" },
                 new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "node", "node.exe", "npm", "npm.cmd", "cmd", "cmd.exe", "vite", "vite.cmd" },
