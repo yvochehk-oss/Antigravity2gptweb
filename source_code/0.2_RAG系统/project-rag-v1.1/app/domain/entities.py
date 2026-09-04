@@ -47,6 +47,11 @@ def validate_entity_code(value: str | None) -> str | None:
     return code
 
 
+def is_canonical_internal_code(value: str | None) -> bool:
+    """Return True if value is a canonical system-internal code (A01-A11, B01-B10, C01-C02, D01-D03)."""
+    return is_canonical_entity_code(value)
+
+
 CANONICAL_EXTERNAL_CODE_RE = re.compile(
     r"^E(?:0[1-9]|[1-9]\d|[A-D](?:0[1-9]|[1-9]\d))$",
     re.IGNORECASE,
@@ -59,6 +64,24 @@ def is_canonical_external_code(value: str | None) -> bool:
         return False
     code = str(value).strip().upper()
     return bool(code in EXTERNAL_ENTITY_PRESETS or CANONICAL_EXTERNAL_CODE_RE.fullmatch(code))
+
+
+def is_canonical_party_code(value: str | None) -> bool:
+    """Return True if value is either a canonical internal entity or a canonical external party."""
+    return is_canonical_internal_code(value) or is_canonical_external_code(value)
+
+
+def normalize_party_code(value: str | None) -> str | None:
+    """Normalize and resolve any entity/counterparty code or alias to its persistent canonical code."""
+    if not value:
+        return None
+    raw = str(value).strip().upper()
+    if is_canonical_internal_code(raw):
+        return raw
+    ext = map_to_standard_external_code(raw)
+    if ext:
+        return ext
+    return None
 
 
 EXTERNAL_ENTITY_PRESETS: dict[str, dict[str, Any]] = {

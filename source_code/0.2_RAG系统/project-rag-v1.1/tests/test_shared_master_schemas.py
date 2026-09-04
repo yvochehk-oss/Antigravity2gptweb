@@ -31,5 +31,5 @@ def test_a04_branch_semantics_are_fail_closed():
 def test_external_party_rejects_internal_master_code():
     with pytest.raises(ValidationError):
         ExternalPartyCreate(code="D03", name="Internal")
-    ext = ExternalPartyCreate(code="EXT-OWNER-01", name="External owner")
-    assert ext.code == "EXT-OWNER-01"
+    ext = ExternalPartyCreate(code="E01", name="External owner")
+    assert ext.code == "E01"

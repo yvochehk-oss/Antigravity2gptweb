@@ -9,7 +9,11 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..config import MAX_UPLOAD_SIZE
-from ..domain.entities import is_canonical_entity_code, map_to_standard_external_code
+from ..domain.entities import (
+    is_canonical_entity_code,
+    is_canonical_external_code,
+    map_to_standard_external_code,
+)
 from ..logging_config import get_logger
 from ..models import Chunk, Document, IngestJob, Project
 from ..security import read_file_limited, validate_file_content
@@ -31,9 +35,6 @@ from .storage.write import (
 )
 
 logger = get_logger(__name__)
-
-
-_EXTERNAL_REFERENCE_RE = re.compile(r"^E(?:0[1-9]|[1-9]\d|[A-D](?:0[1-9]|[1-9]\d))$", re.IGNORECASE)
 
 
 def _canonical_counterparty_code(metadata: dict, inferred: dict) -> str:
@@ -68,7 +69,7 @@ def _canonical_external_reference_code(value: str | None) -> str | None:
     ):
         return None
 
-    if _EXTERNAL_REFERENCE_RE.fullmatch(canonical):
+    if is_canonical_external_code(canonical):
         return canonical
     return None
 

@@ -191,3 +191,49 @@ def test_scan_folder_duplicate_and_self_heal_reconcile_only_real_references(
     assert test_db.scalar(
         select(func.count(ExternalParty.id)).where(ExternalParty.code.like("EBNK%"))
     ) == 0
+
+
+def test_scan_unknown_party_not_registered_leaves_unresolved(test_db):
+    """Verify that scanning a document with a valid format but unseeded/unregistered party (e.g., EA37) does NOT create a master row."""
+    from app.services.ingest import _auto_register_external_party
+
+    _auto_register_external_party(
+        test_db,
+        counterparty_code="EA37",
+        counterparty_name="未登记特种施工单位",
+        tax_id=None,
+        kind="construction",
+    )
+
+    party = test_db.scalar(select(ExternalParty).where(ExternalParty.code == "EA37"))
+    assert party is None, "Ingestion must not create new ExternalParty rows for unregistered codes"
+
+
+def test_auto_register_nested_savepoint_rollback(test_db):
+    """Verify that duplicate or conflict in _auto_register_external_party rolls back nested savepoint without poisoning outer session."""
+    from app.services.ingest import _auto_register_external_party
+    from sqlalchemy.exc import IntegrityError
+
+    # Session is healthy before
+    assert test_db.is_active
+
+    # Create dummy party
+    p = ExternalParty(code="EA01", name="原始单位", short_name="原始", kind="construction", active=False)
+    test_db.add(p)
+    test_db.commit()
+
+    # Call _auto_register_external_party - it uses with db.begin_nested()
+    _auto_register_external_party(
+        test_db,
+        counterparty_code="EA01",
+        counterparty_name="四川省建筑科学研究院特种技术服务中心",
+        tax_id=None,
+        kind="construction",
+    )
+
+    test_db.refresh(p)
+    assert p.active is True
+    # Session remains completely usable
+    assert test_db.is_active
+    test_db.execute(select(ExternalParty.id)).fetchall()
+

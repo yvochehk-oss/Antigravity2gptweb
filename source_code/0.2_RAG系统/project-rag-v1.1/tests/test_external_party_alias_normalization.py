@@ -106,7 +106,7 @@ def test_api_create_external_party_rejects_non_canonical_ext() -> None:
     assert "does not conform to canonical format" in str(resp.json())
 
 
-def test_auto_register_does_not_create_ext_cq() -> None:
+def test_auto_register_does_not_create_new_master() -> None:
     created_parties = []
 
     class _MockDB:
@@ -118,6 +118,7 @@ def test_auto_register_does_not_create_ext_cq() -> None:
             pass
 
     mock_db = _MockDB()
+    # Ingestion rule (Blocker 8): valid syntax != master registered. Ingestion cannot create new ExternalParty rows.
     _auto_register_external_party(
         mock_db,
         counterparty_code="EXT-CQ",
@@ -126,9 +127,7 @@ def test_auto_register_does_not_create_ext_cq() -> None:
         kind="equipment",
     )
 
-    assert len(created_parties) == 1
-    assert created_parties[0].code == "ED01"
-    assert created_parties[0].code != "EXT-CQ"
+    assert len(created_parties) == 0, "Ingestion must not create new ExternalParty rows"
 
 
 def test_api_patch_metadata_normalizes_alias(monkeypatch) -> None:

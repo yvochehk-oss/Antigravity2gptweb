@@ -14,46 +14,21 @@ import re
 from typing import Any
 
 from ..domain.entities import (
+    BUSINESS_ROLE_CODES,
+    CANONICAL_ENTITY_CODES,
     EXTERNAL_ENTITY_PRESETS,
+    VIRTUAL_ENTITY_CODES,
     get_external_preset,
+    is_canonical_entity_code,
+    is_canonical_external_code,
+    is_canonical_internal_code,
+    is_canonical_party_code,
     map_to_standard_external_code,
+    normalize_entity_code,
 )
 from ..logging_config import get_logger
 
 logger = get_logger(__name__)
-
-# Keep metadata inference dependency-free.  The ORM model exposes the same
-# contract for persistence/API callers; repeating this tiny lexical contract
-# avoids forcing a database driver merely to classify a filename.
-CANONICAL_ENTITY_CODES = frozenset(
-    {f"A{i:02d}" for i in range(1, 12)}
-    | {f"B{i:02d}" for i in range(1, 11)}
-    | {f"C{i:02d}" for i in range(1, 3)}
-    | {f"D{i:02d}" for i in range(1, 4)}
-)
-BUSINESS_ROLE_CODES = frozenset({"A", "B", "C", "D"})
-VIRTUAL_ENTITY_CODES = frozenset({"A", "B", "C", "D", "甲", "乙", "丙", "丁"})
-_CANONICAL_ENTITY_CODE_RE = re.compile(
-    r"^(?:A(?:0[1-9]|1[01])|B(?:0[1-9]|10)|C(?:0[1-2])|D(?:0[1-3])|E(?:0[1-9]|[1-9]\d|[A-D](?:0[1-9]|[1-9]\d)))$",
-    re.IGNORECASE,
-)
-
-
-def normalize_entity_code(value: str | None) -> str | None:
-    value = "" if value is None else str(value).strip().upper()
-    return value or None
-
-
-def is_canonical_entity_code(value: str | None) -> bool:
-    code = normalize_entity_code(value)
-    return bool(
-        code
-        and (
-            code in CANONICAL_ENTITY_CODES
-            or bool(_CANONICAL_ENTITY_CODE_RE.fullmatch(code) and code.startswith("E"))
-        )
-        and _CANONICAL_ENTITY_CODE_RE.fullmatch(code)
-    )
 
 
 _ENTITY_CODE_RE = re.compile(

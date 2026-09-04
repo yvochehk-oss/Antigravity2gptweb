@@ -32,7 +32,7 @@ def test_contract_document_promotes_canonical_external_identity() -> None:
     assert candidate.status == "accepted"
     assert candidate.business_key == "TF-A08-EXT-CRANE"
     assert candidate.payload["party_a_entity_code"] == "A08"
-    assert candidate.payload["party_b_entity_code"] == "ED"
+    assert candidate.payload["party_b_entity_code"] == "ED01"
     assert candidate.validation_errors == []
 
 
@@ -57,7 +57,7 @@ def test_invoice_document_uses_document_identity_and_requires_validation() -> No
     )
     assert candidate.status == "accepted"
     assert candidate.payload["buyer_entity_code"] == "A08"
-    assert candidate.payload["seller_entity_code"] == "EB"
+    assert candidate.payload["seller_entity_code"] == "EB01"
 
 
 def test_incomplete_fact_is_review_only() -> None:
@@ -111,5 +111,5 @@ def test_invoice_business_key_is_scoped_by_canonical_seller() -> None:
     assert eb.status == "accepted"
     assert ea.status == "accepted"
     assert eb.business_key != ea.business_key
-    assert eb.business_key.startswith("invoice:EB:")
-    assert ea.business_key.startswith("invoice:EA:")
+    assert eb.business_key.startswith("invoice:EB01:")
+    assert ea.business_key.startswith("invoice:EA01:")

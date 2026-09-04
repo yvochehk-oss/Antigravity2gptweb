@@ -7,11 +7,16 @@ import re
 from pathlib import Path
 
 from sqlalchemy import delete, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..config import EMBEDDING_DIM, IS_POSTGRES
 from ..logging_config import get_logger
-from ..domain.entities import is_canonical_entity_code, map_to_standard_external_code
+from ..domain.entities import (
+    is_canonical_entity_code,
+    is_canonical_external_code,
+    map_to_standard_external_code,
+)
 from ..models import Chunk, Document, ExternalParty, IngestJob, Project
 from .chunker import chunks_from_content_list, chunks_from_markdown, chunks_from_plain_text
 from .embeddings import embed_many
@@ -33,7 +38,6 @@ logger = get_logger(__name__)
 
 _INVOICE_DOCUMENT_TYPES = frozenset({"invoice", "receipt", "tax_invoice"})
 _INVOICE_MARKERS = ("发票号码", "发票代码", "价税合计", "增值税专用发票", "增值税普通发票")
-_EXTERNAL_PARTY_CODE_RE = re.compile(r"^E(?:0[1-9]|[1-9]\d|[A-D](?:0[1-9]|[1-9]\d))$", re.IGNORECASE)
 
 
 def _invoice_candidate_text(raw: list[dict]) -> str:
@@ -268,7 +272,7 @@ def _auto_register_external_party(
         or is_canonical_entity_code(code)
         or code.startswith("EBNK")
         or code.startswith("BANK")
-        or not _EXTERNAL_PARTY_CODE_RE.fullmatch(code)
+        or not is_canonical_external_code(code)
     ):
         return
 
@@ -306,7 +310,15 @@ def _auto_register_external_party(
                     code,
                 )
                 existing.code = code
-        if existing:
+
+        # Ingestion rule: only existing master records can be reconciled/reactivated.
+        # Syntax valid != master registered. Ingestion cannot create new ExternalParty rows.
+        if not existing:
+            logger.info("External party %s is valid syntax but not registered in master; leaving unresolved", code)
+            return
+
+        # Use savepoint so flush failures never poison the parent session transaction
+        with db.begin_nested():
             if name and existing.name in (code, raw_code, ""):
                 existing.name = name
             if short_name and (not existing.short_name or existing.short_name in (code, raw_code)):
@@ -322,21 +334,12 @@ def _auto_register_external_party(
                     code,
                     existing.name,
                 )
-            return
-
-        new_party = ExternalParty(
-            code=code,
-            name=name,
-            short_name=short_name,
-            kind=kind,
-            tax_id=tax_id or None,
-            active=True,
-        )
-        db.add(new_party)
-        db.flush()
-        logger.info(f"Auto-registered new external party: {code} ({name}) - {kind}")
+            db.flush()
+    except IntegrityError as e:
+        logger.warning(f"Integrity conflict reconciling external party {code}: {e}")
     except Exception as e:
         logger.warning(f"Auto-register external party failed for {code}: {e}")
+        raise
 
 
 def parse_and_index(db: Session, doc: Document) -> Document:

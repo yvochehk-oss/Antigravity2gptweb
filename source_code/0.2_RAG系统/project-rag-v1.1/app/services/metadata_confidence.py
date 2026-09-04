@@ -8,21 +8,17 @@ from ..logging_config import get_logger
 
 logger = get_logger(__name__)
 
-_CANONICAL_CODE_RE = re.compile(
-    r"^(?:A(?:0[1-9]|1[01])|B(?:0[1-9]|10)|C(?:0[1-2])|D(?:0[1-3])|E(?:0[1-9]|[1-9]\d|[A-D](?:0[1-9]|[1-9]\d)))$"
+from ..domain.entities import (
+    CANONICAL_ENTITY_CODES,
+    VIRTUAL_ENTITY_CODES,
+    is_canonical_entity_code,
+    is_canonical_external_code,
+    is_canonical_internal_code,
+    is_canonical_party_code,
 )
-_CANONICAL_ENTITY_CODES = frozenset(
-    {f"A{i:02d}" for i in range(1, 12)}
-    | {f"B{i:02d}" for i in range(1, 11)}
-    | {f"C{i:02d}" for i in range(1, 3)}
-    | {f"D{i:02d}" for i in range(1, 4)}
-)
-VIRTUAL_ENTITY_CODES = frozenset({"A", "B", "C", "D", "甲", "乙", "丙", "丁"})
+from ..logging_config import get_logger
 
-
-def is_canonical_entity_code(value: str | None) -> bool:
-    code = str(value or "").strip().upper()
-    return bool(code and (code in _CANONICAL_ENTITY_CODES or code.startswith("E")) and _CANONICAL_CODE_RE.fullmatch(code))
+logger = get_logger(__name__)
 
 # Confidence ranges by source
 _SOURCE_RANGES: dict[str, tuple[float, float]] = {
@@ -119,7 +115,7 @@ def _score_field(
         # A/B/C/D are roles, never entity identifiers.  Only a canonical
         # code can score as an entity; unresolved candidates are intentionally
         # low confidence until the canonical cache validates them.
-        if raw in VIRTUAL_ENTITY_CODES or not _CANONICAL_CODE_RE.fullmatch(raw) or not is_canonical_entity_code(raw):
+        if raw in VIRTUAL_ENTITY_CODES or not is_canonical_party_code(raw):
             return 0.0
         resolution = str((metadata or {}).get("entity_resolution_status", "")).upper()
         if resolution == "RESOLVED":

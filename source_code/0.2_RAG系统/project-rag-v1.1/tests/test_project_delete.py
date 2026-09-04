@@ -184,7 +184,8 @@ def test_project_delete_success(monkeypatch):
     data = resp.json()
     assert data.get("success") is True
     assert data.get("deleted_documents_count") == 1
-    assert data.get("deleted_parties_count") == 1
+    # Master Data Separation: deleting a project must NOT delete Master ExternalParty records
+    assert data.get("deleted_parties_count") == 0
     assert test_proj in mock_db.deleted
 
     # 也测试直接通过 DELETE 方法调用

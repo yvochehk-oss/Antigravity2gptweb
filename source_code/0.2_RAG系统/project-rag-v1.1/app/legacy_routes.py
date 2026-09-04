@@ -212,7 +212,25 @@ def _canonical_entity_views(db) -> list[dict]:
             "note": entity.note or "",
         })
 
-    # Also load from dedicated external_parties table (all external units)
+    # Also load from dedicated external_parties table (active and in_scope external units)
+    # Master active represents administrative lifecycle; in_scope represents actual business reference.
+    # The canonical roster displays in_scope active external counterparties.
+    doc_ref_counts: dict[str, int] = {}
+    try:
+        for r in db.execute(
+            select(Document.counterparty_code, func.count(Document.id))
+            .where(Document.counterparty_code.is_not(None), Document.counterparty_code != "")
+            .group_by(Document.counterparty_code)
+        ).all():
+            if isinstance(r, (tuple, list)) and len(r) >= 2:
+                doc_ref_counts[str(r[0])] = int(r[1])
+            elif isinstance(r, (tuple, list)) and len(r) == 1:
+                doc_ref_counts[str(r[0])] = doc_ref_counts.get(str(r[0]), 0) + 1
+            elif isinstance(r, str):
+                doc_ref_counts[r] = doc_ref_counts.get(r, 0) + 1
+    except Exception:
+        pass
+
     ext_rows = db.execute(
         select(ExternalParty)
         .where(ExternalParty.active.is_(True))
@@ -221,6 +239,11 @@ def _canonical_entity_views(db) -> list[dict]:
 
     for ext in ext_rows:
         code = (ext.code or "").strip().upper()
+        ref_count = doc_ref_counts.get(code, 0)
+        in_scope = ref_count > 0
+        if not in_scope:
+            continue
+
         preset = get_external_preset(code)
         
         if preset:
@@ -257,6 +280,8 @@ def _canonical_entity_views(db) -> list[dict]:
             "industry": "外部往来",
             "source": "系统外",
             "is_external": True,
+            "in_scope": True,
+            "reference_count": ref_count,
             "legal_representative": "-",
             "registered_capital": "-",
             "note": note,
@@ -1089,23 +1114,7 @@ async def api_delete_project(
                 )
                 raise HTTPException(status_code=409, detail=detail)
 
-            # Phase 4: 核对外部单位激活状态 (Master 数据不物理删除，孤立主体安全降级为 inactive)
-            deactivated_parties_count = 0
-            for cp_code in sorted(counterparty_codes):
-                if not cp_code or is_canonical_entity_code(cp_code):
-                    continue
-                remaining_documents = db.scalar(
-                    select(func.count(Document.id)).where(Document.counterparty_code == cp_code)
-                ) or 0
-                if remaining_documents == 0:
-                    db.execute(
-                        sa_update(ExternalParty)
-                        .where(ExternalParty.code == cp_code)
-                        .values(active=False)
-                    )
-                    deactivated_parties_count += 1
-
-            # Phase 5: 删除项目主记录
+            # Phase 4: 删除项目主记录（ExternalParty 作为集团主数据独立维护，删除项目事实绝不触碰 Master 状态与属性）
             db.delete(p)
             if hasattr(db, "flush"):
                 db.flush()
@@ -1126,11 +1135,10 @@ async def api_delete_project(
             db.commit()
 
             logger.info(
-                "Wiped project %s (%s): tables=%s external_parties_deactivated=%s",
+                "Wiped project %s (%s): tables=%s",
                 project_code,
                 project_name,
                 deleted_counts,
-                deactivated_parties_count,
             )
             security_audit(
                 request,
@@ -1149,8 +1157,7 @@ async def api_delete_project(
                 "message": f"项目「{project_name}」({project_code}) 及其所有关联数据已彻底清除",
                 "deleted_counts": deleted_counts,
                 "deleted_documents_count": len(docs),
-                "deactivated_parties_count": deactivated_parties_count,
-                "deleted_parties_count": deactivated_parties_count,
+                "deleted_parties_count": 0,
             }
 
         except HTTPException:
