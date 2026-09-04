@@ -112,7 +112,7 @@ def main() -> int:
         "目标端口由未确认进程监听，视为端口冲突",
         "五项服务健康、目标端口监听和项目归属均已确认",
         "status.Http.ModelReady",
-        "trackedLaunch is null && !HasLivePortEvidence",
+        "&& !HasLivePortEvidence(",
         "launch.Process.HasExited",
         "launch.StartedAt.Value.UtcDateTime",
         "EstablishTrackedLaunchAsync",
@@ -122,6 +122,36 @@ def main() -> int:
         "TerminateDirectLaunch",
         "原始 Process 句柄",
         "身份建立失败",
+        "InspectCleanupCandidates",
+        "PortTableReadResult",
+        "GetListeningProcessIdsResult",
+        "ProcessCleanupCandidate",
+        "UnconfirmedCandidates",
+        "ProcessCleanupEvidence",
+        "BuildCleanupPlan",
+        "StopServicesBeforeStartAsync",
+        "ExecuteCleanupPlanAsync",
+        "WaitForPortsReleasedAsync",
+        "PortReleaseTimeout = TimeSpan.FromSeconds(15)",
+        "allowCommandPortEvidence",
+        "IsProcessAlive",
+        "candidate.IsConfirmed",
+        "未发送停止信号",
+        "PID 文件格式无效",
+        "ServiceKind.Boss => \".app.pid\"",
+        "RegexOptions.CultureInvariant",
+        "IsStrictNpmPreviewInvocation",
+        "IsProjectViteEntrypoint",
+        "TokenizeWindowsCommandLine",
+        "ResolveProjectPathToken",
+        "IsViteEntrypointPath",
+        "HasExactPortArgument",
+        "NormalizeAbsolutePath",
+        "npm-cli.js",
+        r"C:\tmp\foreign-vite.js --port 5173",
+        r"node <boss>\node_modules\vite\bin\vite.js preview --port 5173",
+        "五项服务端口表读取失败",
+        "无法确认五项服务端口是否已释放",
         "catch (OperationCanceledException)",
         "catch (Exception exception)",
     ):
@@ -138,6 +168,93 @@ def main() -> int:
         "launchedProcessIds.Contains(identity.ProcessId)" not in cs,
         "tracked PID 仍存在仅凭进程名/路径的认领旁路",
     )
+    inspector = (APP_DIR / "Services/ProcessInspector.cs").read_text(encoding="utf-8-sig")
+    require(
+        'commandLine.Contains("vite", StringComparison.OrdinalIgnoreCase)' not in inspector,
+        "Boss 归属不能通过任意 vite 文本认领",
+    )
+    require(
+        "IsStrictNpmPreviewInvocation(tokens, definition.Port)" in inspector
+        and "IsProjectViteEntrypoint(identity, tokens, bossRoot)" in inspector
+        and "IsBossProcess(identity, definition, expectedWorkingDirectory)" in inspector
+        and "IsPathUnderRoot(path, nodeModulesRoot)" in inspector,
+        "Boss 归属缺少严格 npm/Vite 路径边界",
+    )
+    require(
+        r"C:\tmp\foreign-vite.js --port 5173" in inspector,
+        "缺少 foreign-vite 路径负例契约",
+    )
+    require(
+        r"node <boss>\node_modules\vite\bin\vite.js preview --port 5173" in inspector,
+        "缺少老板端 Vite 路径正例契约",
+    )
+    orchestrator = (APP_DIR / "Services/ServiceOrchestrator.cs").read_text(encoding="utf-8-sig")
+    require(
+        orchestrator.count("new HashSet<int> { evidence.ProcessId.Value }") == 1,
+        "PID 文件证据集合表达式必须恰好出现一次",
+    )
+    start_all = orchestrator[orchestrator.index("StartAllAsync"):orchestrator.index("RestartAllAsync")]
+    restart_all = orchestrator[orchestrator.index("RestartAllAsync"):orchestrator.index("StopAllAsync")]
+    start_core = orchestrator[
+        orchestrator.index("private async Task<OperationResult> StartAllCoreAsync"):
+        orchestrator.index("VerifyStartupAsync")
+    ]
+    preflight = orchestrator[
+        orchestrator.index("private CleanupPreflightResult BuildCleanupPlan"):
+        orchestrator.index("private async Task<OperationResult> ExecuteCleanupPlanAsync")
+    ]
+    wait_for_ports = orchestrator[
+        orchestrator.index("private async Task<OperationResult> WaitForPortsReleasedAsync"):
+        orchestrator.index("private async Task<ServiceStatus> CheckOneAsync")
+    ]
+    require("StartAllCoreAsync(cancellationToken)" in start_all, "启动全部没有进入统一启动事务")
+    require("StartAllCoreAsync(cancellationToken)" in restart_all, "重启全部没有进入统一启动事务")
+    require("StopAllCoreAsync" not in restart_all, "重启全部仍通过旧的分离停止路径")
+    require("StopServicesBeforeStartAsync" in start_core, "启动前没有执行统一安全清理")
+    require("_adapter.Start(definition)" in start_core, "统一启动事务没有启动服务")
+    require(
+        start_core.index("StopServicesBeforeStartAsync") < start_core.index("_adapter.Start(definition)"),
+        "启动服务发生在启动前清理之前",
+    )
+    require("alreadyRunning" not in start_core, "启动逻辑仍存在复用旧进程分支")
+    require(
+        preflight.index("InspectCleanupCandidates") < preflight.index("candidate.IsConfirmed"),
+        "候选归属检查顺序不正确",
+    )
+    require(
+        preflight.index("var portTables = _definitions.ToDictionary")
+        < preflight.index("InspectCleanupCandidates"),
+        "清理预检没有先收集全部端口表结果",
+    )
+    require("failedPortTables" in preflight, "端口表读取失败没有在预检阶段阻断")
+    require("StopOwnedProcess" not in preflight, "预检阶段不应发送停止信号")
+    execute_cleanup = orchestrator[
+        orchestrator.index("private async Task<OperationResult> ExecuteCleanupPlanAsync"):
+        orchestrator.index("private async Task<OperationResult> WaitForPortsReleasedAsync")
+    ]
+    require(
+        execute_cleanup.index("StopOwnedProcess") < execute_cleanup.index("WaitForPortsReleasedAsync"),
+        "清理没有先停止确认进程",
+    )
+    require(
+        "BuildCleanupPlan" in orchestrator[orchestrator.index("StopServicesBeforeStartAsync"):],
+        "启动前清理没有构建完整预检计划",
+    )
+    stop_before_start = orchestrator[
+        orchestrator.index("private async Task<OperationResult> StopServicesBeforeStartAsync"):
+        orchestrator.index("private CleanupPreflightResult BuildCleanupPlan")
+    ]
+    require(
+        "var preflight = BuildCleanupPlan()" in stop_before_start,
+        "启动前清理路由没有进入预检构建阶段",
+    )
+    require(
+        "ExecuteCleanupPlanAsync(preflight.Targets" in stop_before_start,
+        "启动前清理路由没有执行已预检的清理计划",
+    )
+    require("GetListeningProcessIdsResult" in wait_for_ports, "端口释放检查没有使用可区分失败的端口表结果")
+    require("failedPortTables" in wait_for_ports, "端口释放检查没有在端口表失败时阻断")
+    require("未启动新服务" in wait_for_ports, "端口释放检查失败时缺少不启动保护")
     for marker in (
         "public bool AllStopped",
         "public bool HasMixedStopped",
