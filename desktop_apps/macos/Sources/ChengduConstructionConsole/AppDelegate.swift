@@ -33,6 +33,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         refreshTimer?.tolerance = 1
         updateLoginItemState()
         refreshStatus()
+        presentStatusMenu()
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        presentStatusMenu()
+        return false
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
@@ -130,6 +136,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         return nil
+    }
+
+    private func presentStatusMenu() {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let button = self.statusItem?.button else {
+                NSLog("[ChengduConstructionConsole] Unable to present status menu: button is unavailable")
+                return
+            }
+            NSApp.activate(ignoringOtherApps: true)
+            button.performClick(nil)
+        }
     }
 
     @discardableResult
