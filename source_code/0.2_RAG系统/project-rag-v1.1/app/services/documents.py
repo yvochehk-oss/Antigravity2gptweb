@@ -33,7 +33,7 @@ from .storage.write import (
 logger = get_logger(__name__)
 
 
-_EXTERNAL_REFERENCE_RE = re.compile(r"^E[A-D0](?:0[1-9]|[1-9]\d)?$", re.IGNORECASE)
+_EXTERNAL_REFERENCE_RE = re.compile(r"^E(?:0[1-9]|[1-9]\d|[A-D](?:0[1-9]|[1-9]\d))$", re.IGNORECASE)
 
 
 def _canonical_counterparty_code(metadata: dict, inferred: dict) -> str:

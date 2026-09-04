@@ -34,7 +34,7 @@ CANONICAL_ENTITY_CODES = frozenset(
 BUSINESS_ROLE_CODES = frozenset({"A", "B", "C", "D"})
 VIRTUAL_ENTITY_CODES = frozenset({"A", "B", "C", "D", "甲", "乙", "丙", "丁"})
 _CANONICAL_ENTITY_CODE_RE = re.compile(
-    r"^(?:A(?:0[1-9]|1[01])|B(?:0[1-9]|10)|C(?:0[1-2])|D(?:0[1-3])|EXT-[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*|E[A-D0](?:0[1-9]|[1-9]\d)?|EA|EB|EC|ED|E0)$",
+    r"^(?:A(?:0[1-9]|1[01])|B(?:0[1-9]|10)|C(?:0[1-2])|D(?:0[1-3])|EXT-[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*|E(?:0[1-9]|[1-9]\d|[A-D](?:0[1-9]|[1-9]\d)))$",
     re.IGNORECASE,
 )
 
@@ -63,7 +63,7 @@ def is_canonical_entity_code(value: str | None) -> bool:
 
 
 _ENTITY_CODE_RE = re.compile(
-    r"(?<![A-Za-z0-9])(?:A(?:0[1-9]|1[01])|B(?:0[1-9]|10)|C(?:0[1-2])|D(?:0[1-3])|EXT-[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*|E[A-D0](?:0[1-9]|[1-9]\d)?|EA|EB|EC|ED|E0)(?![A-Za-z0-9])",
+    r"(?<![A-Za-z0-9])(?:A(?:0[1-9]|1[01])|B(?:0[1-9]|10)|C(?:0[1-2])|D(?:0[1-3])|EXT-[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*|E(?:0[1-9]|[1-9]\d|[A-D](?:0[1-9]|[1-9]\d))|EA|EB|EC|ED|E0)(?![A-Za-z0-9])",
     re.IGNORECASE,
 )
 _TAX_ID_RE = re.compile(r"(?<![A-Za-z0-9])[1-9ANY][1-9]\d{6}[0-9A-HJ-NP-RTUWXY]{10}(?![A-Za-z0-9])", re.IGNORECASE)

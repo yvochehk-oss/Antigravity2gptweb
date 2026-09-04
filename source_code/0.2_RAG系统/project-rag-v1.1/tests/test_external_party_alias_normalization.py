@@ -23,11 +23,11 @@ from app.schemas import DocumentMetadataPatch
 
 
 def test_ext_cq_maps_to_ed() -> None:
-    assert map_to_standard_external_code("EXT-CQ") == "ED"
-    assert map_to_standard_external_code(" ext-cq ") == "ED"
-    assert map_to_standard_external_code("EXT-CQ-HEAVY-CRANE") == "ED"
-    assert map_to_standard_external_code("EXT-CRANE") == "ED"
-    assert get_external_preset("EXT-CQ")["code"] == "ED"
+    assert map_to_standard_external_code("EXT-CQ") == "ED01"
+    assert map_to_standard_external_code(" ext-cq ") == "ED01"
+    assert map_to_standard_external_code("EXT-CQ-HEAVY-CRANE") == "ED01"
+    assert map_to_standard_external_code("EXT-CRANE") == "ED01"
+    assert get_external_preset("EXT-CQ")["code"] == "ED01"
 
 
 def test_preset_alias_wins_over_stale_runtime_row() -> None:
@@ -35,16 +35,16 @@ def test_preset_alias_wins_over_stale_runtime_row() -> None:
         {
             "entity_code": "EXT-CQ",
             "name": "重庆巨力重型起重设备吊装公司",
-            "short_name": "重庆巨力吊装",
+            "short_name": "重庆重交起重",
             "business_role": "owner",
             "entity_kind": "external",
             "legal_entity": True,
             "status": "active",
         },
         {
-            "entity_code": "ED",
+            "entity_code": "ED01",
             "name": "重庆巨力重型起重设备吊装公司",
-            "short_name": "重庆巨力吊装",
+            "short_name": "重庆重交起重",
             "business_role": "equipment",
             "entity_kind": "external",
             "legal_entity": True,
@@ -55,7 +55,7 @@ def test_preset_alias_wins_over_stale_runtime_row() -> None:
     resolved = resolve_entity_reference("EXT-CQ", canonical_cache=stale_cache)
 
     assert resolved["status"] == "RESOLVED"
-    assert resolved["entity_code"] == "ED"
+    assert resolved["entity_code"] == "ED01"
     assert resolved["business_role"] == "equipment"
 
 
@@ -65,7 +65,7 @@ def test_filename_alias_is_emitted_as_canonical_counterparty() -> None:
         canonical_cache=[],
     )
 
-    assert inferred["counterparty_code"] == "ED"
+    assert inferred["counterparty_code"] == "ED01"
     assert inferred["counterparty_resolution_status"] == "RESOLVED"
 
 
@@ -76,7 +76,7 @@ def test_refine_normalizes_explicit_alias_even_without_content() -> None:
         canonical_cache=[],
     )
 
-    assert refined["counterparty_code"] == "ED"
+    assert refined["counterparty_code"] == "ED01"
 
 
 def test_api_create_external_party_rejects_alias() -> None:
@@ -86,7 +86,7 @@ def test_api_create_external_party_rejects_alias() -> None:
         json={"code": "EXT-CQ", "name": "重庆巨力", "kind": "equipment"},
     )
     assert resp.status_code == 409
-    assert "alias of canonical external party ED" in resp.json()["detail"]
+    assert "alias of canonical external party ED01" in resp.json()["detail"]
 
 
 def test_auto_register_does_not_create_ext_cq() -> None:
@@ -110,7 +110,7 @@ def test_auto_register_does_not_create_ext_cq() -> None:
     )
 
     assert len(created_parties) == 1
-    assert created_parties[0].code == "ED"
+    assert created_parties[0].code == "ED01"
     assert created_parties[0].code != "EXT-CQ"
 
 
@@ -133,8 +133,8 @@ def test_api_patch_metadata_normalizes_alias(monkeypatch) -> None:
 
     patch = DocumentMetadataPatch(counterparty_code="EXT-CQ")
     res = api_patch_metadata(99, patch)
-    assert res["counterparty_code"] == "ED"
-    assert doc.counterparty_code == "ED"
+    assert res["counterparty_code"] == "ED01"
+    assert doc.counterparty_code == "ED01"
 
 
 def test_api_patch_metadata_missing_document_returns_404(monkeypatch) -> None:
@@ -189,17 +189,17 @@ def test_register_bytes_initial_commit_normalizes_to_ed(monkeypatch) -> None:
         metadata={"counterparty_code": "EXT-CQ"},
     )
 
-    assert doc.counterparty_code == "ED"
+    assert doc.counterparty_code == "ED01"
     assert len(saved_docs) >= 1
-    assert saved_docs[0].counterparty_code == "ED"
+    assert saved_docs[0].counterparty_code == "ED01"
 
 
 @pytest.mark.parametrize(
     ("name", "expected"),
     [
-        ("四川省建筑科学研究院特种技术服务中心", "EA"),
-        ("攀钢集团攀枝花钢铁钒物资销售有限公司", "EB"),
-        ("重庆重交大件起重吊装工程有限公司", "ED"),
+        ("四川省建筑科学研究院特种技术服务中心", "EA01"),
+        ("攀钢集团攀枝花钢铁钒物资销售有限公司", "EB01"),
+        ("重庆重交大件起重吊装工程有限公司", "ED01"),
     ],
 )
 def test_seal_legal_names_map_to_canonical_external_code(name, expected) -> None:
@@ -216,5 +216,5 @@ def test_contract_extract_backfills_both_code_field_names() -> None:
 
     assert fields["party_a_entity_code"] == "A08"
     assert fields["party_a_code"] == "A08"
-    assert fields["party_b_entity_code"] == "ED"
-    assert fields["party_b_code"] == "ED"
+    assert fields["party_b_entity_code"] == "ED01"
+    assert fields["party_b_code"] == "ED01"

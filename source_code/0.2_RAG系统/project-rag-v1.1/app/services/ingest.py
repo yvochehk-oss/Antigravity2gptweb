@@ -33,7 +33,7 @@ logger = get_logger(__name__)
 
 _INVOICE_DOCUMENT_TYPES = frozenset({"invoice", "receipt", "tax_invoice"})
 _INVOICE_MARKERS = ("发票号码", "发票代码", "价税合计", "增值税专用发票", "增值税普通发票")
-_EXTERNAL_PARTY_CODE_RE = re.compile(r"^E[A-D0](?:0[1-9]|[1-9]\d)?$", re.IGNORECASE)
+_EXTERNAL_PARTY_CODE_RE = re.compile(r"^E(?:0[1-9]|[1-9]\d|[A-D](?:0[1-9]|[1-9]\d))$", re.IGNORECASE)
 
 
 def _invoice_candidate_text(raw: list[dict]) -> str:
@@ -298,6 +298,17 @@ def _auto_register_external_party(
 
     try:
         existing = db.scalar(select(ExternalParty).where(ExternalParty.code == code))
+        if not existing and preset and preset.get("aliases"):
+            existing = db.scalar(
+                select(ExternalParty).where(ExternalParty.code.in_(preset["aliases"]))
+            )
+            if existing:
+                logger.info(
+                    "Migrated legacy external party code %s -> %s",
+                    existing.code,
+                    code,
+                )
+                existing.code = code
         if existing:
             if name and existing.name in (code, raw_code, ""):
                 existing.name = name
