@@ -33,7 +33,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         refreshTimer?.tolerance = 1
         updateLoginItemState()
         refreshStatus()
-        presentStatusMenu()
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
@@ -148,6 +147,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 NSLog("[ChengduConstructionConsole] Unable to present status menu: status item is unavailable")
                 return
             }
+
+            // A newly-created status item may briefly report a window at the screen origin.
+            // Wait until SystemUIServer has placed it in the menu bar before anchoring the popup.
+            if let window = button.window,
+               window.frame.origin.x <= 0 && window.frame.origin.y <= 0 {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+                    self?.presentStatusMenu()
+                }
+                return
+            }
+
             NSApp.activate(ignoringOtherApps: true)
             menu.popUp(
                 positioning: nil,
