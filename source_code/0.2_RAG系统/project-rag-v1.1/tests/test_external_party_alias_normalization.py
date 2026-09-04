@@ -30,6 +30,13 @@ def test_ext_cq_maps_to_ed() -> None:
     assert get_external_preset("EXT-CQ")["code"] == "ED01"
 
 
+def test_unknown_ext_alias_fails_closed_without_crashing() -> None:
+    assert map_to_standard_external_code("EXT-UNKNOWN-VENDOR") is None
+    resolved = resolve_entity_reference("EXT-UNKNOWN-VENDOR", canonical_cache=[])
+    assert resolved["status"] == "UNRESOLVED"
+    assert resolved["entity_code"] == ""
+
+
 def test_preset_alias_wins_over_stale_runtime_row() -> None:
     stale_cache = [
         {

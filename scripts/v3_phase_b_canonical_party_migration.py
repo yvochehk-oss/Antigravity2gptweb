@@ -130,39 +130,48 @@ def run_migration(apply: bool = False):
                 cur.execute("UPDATE documents SET counterparty_code = %s WHERE counterparty_code = %s;", (target, source))
                 print(f"  documents.counterparty_code: {cur.rowcount} rows updated")
 
-                # 6. canonical_facts payload
-                cur.execute(
-                    """
-                    UPDATE canonical_facts
-                    SET payload = replace(payload::text, %s, %s)::jsonb
-                    WHERE payload::text LIKE %s;
-                    """,
-                    (f'"{source}"', f'"{target}"', f'%"{source}"%')
-                )
-                print(f"  canonical_facts payload: {cur.rowcount} rows updated")
+                # 6. canonical_facts targeted key update
+                # Update only specific entity/counterparty keys instead of indiscriminate text replacement
+                for key in ("counterparty_code", "party_a_code", "party_b_code", "buyer_code", "seller_code"):
+                    cur.execute(
+                        f"""
+                        UPDATE canonical_facts
+                        SET payload = jsonb_set(payload, '{{{key}}}', to_jsonb(%(target)s::text))
+                        WHERE payload->>'{key}' = %(source)s;
+                        """,
+                        {"source": source, "target": target}
+                    )
+                    if cur.rowcount > 0:
+                        print(f"  canonical_facts payload ({key}): {cur.rowcount} rows updated")
 
-                # 7. parties
+                # 7. parties (preserve existing active status)
                 cur.execute(
                     """
                     UPDATE parties 
-                    SET code = %s, name = %s, short_name = %s, active = TRUE
+                    SET code = %s, name = %s, short_name = %s
                     WHERE code = %s;
                     """,
                     (target, meta["name"], meta["short_name"], source)
                 )
                 print(f"  parties.code: {cur.rowcount} rows updated")
 
-                # 8. external_parties
+                # 8. external_parties (preserve existing active status)
                 cur.execute(
                     """
                     UPDATE external_parties 
-                    SET code = %s, name = %s, short_name = %s, kind = %s, active = TRUE,
+                    SET code = %s, name = %s, short_name = %s, kind = %s,
                         tax_id = COALESCE(tax_id, %s)
                     WHERE code = %s;
                     """,
                     (target, meta["name"], meta["short_name"], meta["kind"], meta["tax_id"], source)
                 )
                 print(f"  external_parties.code: {cur.rowcount} rows updated")
+
+            # 9. Purge unreferenced legacy EXT-* seed rows from master tables
+            cur.execute("DELETE FROM external_parties WHERE code LIKE 'EXT-%';")
+            print(f"\nPurged unreferenced legacy EXT-* rows from external_parties: {cur.rowcount} rows deleted")
+            cur.execute("DELETE FROM parties WHERE code LIKE 'EXT-%';")
+            print(f"Purged unreferenced legacy EXT-* rows from parties: {cur.rowcount} rows deleted")
 
             # Verification
             print("\n=== VERIFICATION CHECKS ===")
@@ -172,8 +181,9 @@ def run_migration(apply: bool = False):
                 assert cur.fetchone()[0] == 0, f"Leaked contract party: {source}"
                 cur.execute("SELECT count(*) FROM fulfillment WHERE counterparty_code = %s;", (source,))
                 assert cur.fetchone()[0] == 0, f"Leaked fulfillment counterparty_code: {source}"
-                cur.execute("SELECT count(*) FROM canonical_facts WHERE payload::text LIKE %s;", (f'%"{source}"%',))
-                assert cur.fetchone()[0] == 0, f"Leaked canonical_facts payload: {source}"
+                for key in ("counterparty_code", "party_a_code", "party_b_code", "buyer_code", "seller_code"):
+                    cur.execute(f"SELECT count(*) FROM canonical_facts WHERE payload->>'{key}' = %s;", (source,))
+                    assert cur.fetchone()[0] == 0, f"Leaked canonical_facts payload ({key}): {source}"
                 cur.execute("SELECT count(*) FROM documents WHERE counterparty_code = %s;", (source,))
                 assert cur.fetchone()[0] == 0, f"Leaked document counterparty_code: {source}"
                 cur.execute("SELECT count(*) FROM invoices WHERE counterparty_code = %s;", (source,))
@@ -186,11 +196,15 @@ def run_migration(apply: bool = False):
                 assert cur.fetchone()[0] == 0, f"Leaked parties code: {source}"
                 print(f"  Verified 0 occurrences of old code {source} across all 8 tables")
 
-            # Global Zero-Residue Invariant Checks
+            # Global Zero-Residue Invariant Checks across ENTIRE tables (active & inactive)
             print("\n=== GLOBAL ZERO-RESIDUE INVARIANT CHECKS ===")
-            cur.execute("SELECT count(*) FROM external_parties WHERE active = TRUE AND code !~ '^E(?:0[1-9]|[1-9]\\d|[A-D](?:0[1-9]|[1-9]\\d))$';")
-            assert cur.fetchone()[0] == 0, "Non-canonical active external_parties found!"
-            print("  [PASS] All active external_parties strictly conform to canonical two-digit regex")
+            cur.execute("SELECT count(*) FROM external_parties WHERE code !~ '^E(?:0[1-9]|[1-9]\\d|[A-D](?:0[1-9]|[1-9]\\d))$';")
+            assert cur.fetchone()[0] == 0, "Non-canonical external_parties found in master roster!"
+            print("  [PASS] All external_parties (active & inactive) strictly conform to canonical two-digit regex")
+
+            cur.execute("SELECT count(*) FROM parties WHERE code !~ '^(?:[ABCD](?:0[1-9]|1[01]|10)|E(?:0[1-9]|[1-9]\\d|[A-D](?:0[1-9]|[1-9]\\d)))$';")
+            assert cur.fetchone()[0] == 0, "Non-canonical parties found in master roster!"
+            print("  [PASS] All parties (active & inactive) strictly conform to canonical regex")
 
             cur.execute("SELECT count(*) FROM contracts WHERE (buyer_code IS NOT NULL AND buyer_code !~ '^(?:[ABCD](?:0[1-9]|1[01]|10)|E(?:0[1-9]|[1-9]\\d|[A-D](?:0[1-9]|[1-9]\\d)))$') OR (seller_code IS NOT NULL AND seller_code !~ '^(?:[ABCD](?:0[1-9]|1[01]|10)|E(?:0[1-9]|[1-9]\\d|[A-D](?:0[1-9]|[1-9]\\d)))$');")
             assert cur.fetchone()[0] == 0, "Non-canonical contract party codes found!"
@@ -200,7 +214,7 @@ def run_migration(apply: bool = False):
             assert cur.fetchone()[0] == 0, "Non-canonical fulfillment counterparty codes found!"
             print("  [PASS] All fulfillment counterparties strictly conform to canonical regex")
 
-            cur.execute("SELECT count(*) FROM canonical_facts WHERE payload::text ~ '\"counterparty_code\":\\s*\"(?:EXT-[^\"]+|E0|EA|EB|EC|ED)\"';")
+            cur.execute("SELECT count(*) FROM canonical_facts WHERE payload->>'counterparty_code' ~ '^(?:EXT-.*|E0|EA|EB|EC|ED)$';")
             assert cur.fetchone()[0] == 0, "Leaked legacy counterparty_code in canonical_facts!"
             print("  [PASS] All canonical_facts payloads have 0 legacy counterparty codes")
 

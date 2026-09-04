@@ -343,9 +343,8 @@ def resolve_entity_reference(
             or bool(re.match(r"^E[A-D0](?:0[1-9]|[1-9]\d)?$", code, re.IGNORECASE))
         )
     ):
-        try:
-            std_code = map_to_standard_external_code(code)
-        except ValueError:
+        std_code = map_to_standard_external_code(code)
+        if not std_code:
             return {
                 "status": "UNRESOLVED",
                 "entity_code": "",
