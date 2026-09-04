@@ -9,7 +9,7 @@ from ..logging_config import get_logger
 logger = get_logger(__name__)
 
 _CANONICAL_CODE_RE = re.compile(
-    r"^(?:A(?:0[1-9]|1[01])|B(?:0[1-9]|10)|C(?:0[1-2])|D(?:0[1-3]))$"
+    r"^(?:A(?:0[1-9]|1[01])|B(?:0[1-9]|10)|C(?:0[1-2])|D(?:0[1-3])|E(?:0[1-9]|[1-9]\d|[A-D](?:0[1-9]|[1-9]\d)))$"
 )
 _CANONICAL_ENTITY_CODES = frozenset(
     {f"A{i:02d}" for i in range(1, 12)}
@@ -22,7 +22,7 @@ VIRTUAL_ENTITY_CODES = frozenset({"A", "B", "C", "D", "甲", "乙", "丙", "丁"
 
 def is_canonical_entity_code(value: str | None) -> bool:
     code = str(value or "").strip().upper()
-    return bool(code and (code in _CANONICAL_ENTITY_CODES or code.startswith("EXT-")) and _CANONICAL_CODE_RE.fullmatch(code))
+    return bool(code and (code in _CANONICAL_ENTITY_CODES or code.startswith("E")) and _CANONICAL_CODE_RE.fullmatch(code))
 
 # Confidence ranges by source
 _SOURCE_RANGES: dict[str, tuple[float, float]] = {

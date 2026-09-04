@@ -268,10 +268,7 @@ def _auto_register_external_party(
         or is_canonical_entity_code(code)
         or code.startswith("EBNK")
         or code.startswith("BANK")
-        or not (
-            code.startswith("EXT-")
-            or _EXTERNAL_PARTY_CODE_RE.fullmatch(code)
-        )
+        or not _EXTERNAL_PARTY_CODE_RE.fullmatch(code)
     ):
         return
 

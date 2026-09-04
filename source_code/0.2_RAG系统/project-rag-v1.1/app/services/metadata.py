@@ -34,7 +34,7 @@ CANONICAL_ENTITY_CODES = frozenset(
 BUSINESS_ROLE_CODES = frozenset({"A", "B", "C", "D"})
 VIRTUAL_ENTITY_CODES = frozenset({"A", "B", "C", "D", "甲", "乙", "丙", "丁"})
 _CANONICAL_ENTITY_CODE_RE = re.compile(
-    r"^(?:A(?:0[1-9]|1[01])|B(?:0[1-9]|10)|C(?:0[1-2])|D(?:0[1-3])|EXT-[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*|E(?:0[1-9]|[1-9]\d|[A-D](?:0[1-9]|[1-9]\d)))$",
+    r"^(?:A(?:0[1-9]|1[01])|B(?:0[1-9]|10)|C(?:0[1-2])|D(?:0[1-3])|E(?:0[1-9]|[1-9]\d|[A-D](?:0[1-9]|[1-9]\d)))$",
     re.IGNORECASE,
 )
 
@@ -50,13 +50,7 @@ def is_canonical_entity_code(value: str | None) -> bool:
         code
         and (
             code in CANONICAL_ENTITY_CODES
-            or code.startswith("EXT-")
-            or code.startswith("EA")
-            or code.startswith("EB")
-            or code.startswith("EC")
-            or code.startswith("ED")
-            or code.startswith("E0")
-            or code in ("EA", "EB", "EC", "ED", "E0")
+            or bool(_CANONICAL_ENTITY_CODE_RE.fullmatch(code) and code.startswith("E"))
         )
         and _CANONICAL_ENTITY_CODE_RE.fullmatch(code)
     )
@@ -221,7 +215,7 @@ def _load_runtime_entity_cache() -> list[dict[str, Any]]:
                     "entity_code": code,
                     "name": entity.name or "",
                     "short_name": entity.short_name or "",
-                    "business_role": getattr(entity, "business_role", None) or ("E" if code.startswith("EXT-") else code[0]),
+                    "business_role": getattr(entity, "business_role", None) or ("E" if code.startswith("E") else code[0]),
                     "entity_kind": getattr(entity, "entity_kind", "external") or ("branch" if code == "A04" else "company"),
                     "legal_entity": getattr(entity, "legal_entity", True),
                     "parent_entity_code": getattr(entity, "parent_entity_code", None),
@@ -267,10 +261,10 @@ def _extract_external_name_from_filename(code: str, filename: str) -> str:
         return f"外部{match.group(1).strip()}"
 
     known_names = {
-        "EXT-CRANE": "外部超重型起重吊装租赁服务单位",
-        "EXT-PG": "外部特种高强合金钢直采供货单位",
-        "EXT-EXP": "外部深基坑地质监测与技术咨询服务单位",
-        "EXT-OWNER": "项目发包方/外部业主单位",
+        "ED01": "外部超重型起重吊装租赁服务单位",
+        "EB01": "外部特种高强合金钢直采供货单位",
+        "EA01": "外部深基坑地质监测与技术咨询服务单位",
+        "E01": "项目发包方/外部业主单位",
     }
     return known_names.get(code.upper(), f"系统外合作单位 ({code})")
 
@@ -349,7 +343,16 @@ def resolve_entity_reference(
             or bool(re.match(r"^E[A-D0](?:0[1-9]|[1-9]\d)?$", code, re.IGNORECASE))
         )
     ):
-        std_code = map_to_standard_external_code(code)
+        try:
+            std_code = map_to_standard_external_code(code)
+        except ValueError:
+            return {
+                "status": "UNRESOLVED",
+                "entity_code": "",
+                "tax_id": "",
+                "name": "",
+                "input": raw,
+            }
         role = "owner"
         if std_code.startswith("EA"):
             role = "construction"
@@ -359,7 +362,7 @@ def resolve_entity_reference(
             role = "labor"
         elif std_code.startswith("ED"):
             role = "equipment"
-        elif std_code.startswith("E0") or std_code.startswith("EXT-"):
+        elif std_code.startswith("E0"):
             role = "owner"
 
         return {
@@ -671,7 +674,7 @@ def infer_from_filename(
         r, source = resolved_list[0]
         code = r["entity_code"]
         role = r.get("business_role", "")
-        if code.startswith("EXT-") or code.startswith("E") or role in ("C", "D"):
+        if code.startswith("E") or role in ("C", "D"):
             result["counterparty_code"] = code
             result["counterparty_name"] = r.get("name", "")
             result["counterparty_tax_id"] = r.get("tax_id", "")
@@ -691,7 +694,7 @@ def infer_from_filename(
         r2, src2 = resolved_list[1]
         c1, c2 = r1["entity_code"], r2["entity_code"]
 
-        if (c1.startswith("EXT-") or c1.startswith("E") or r1.get("business_role") in ("C", "D")) and not (c2.startswith("EXT-") or c2.startswith("E")):
+        if (c1.startswith("E") or r1.get("business_role") in ("C", "D")) and not c2.startswith("E"):
             r1, r2 = r2, r1
             src1, src2 = src2, src1
 
@@ -712,8 +715,8 @@ def infer_from_filename(
         result["entity_resolution_status"] = "UNRESOLVED"
 
     # Counterparty codes are persisted identifiers, so aliases must not leave
-    # metadata inference.  This also ensures category inference sees ED rather
-    # than EXT-CQ.
+    # metadata inference.  This also ensures category inference sees ED01 rather
+    # than legacy aliases.
     if result["counterparty_code"]:
         result["counterparty_code"] = map_to_standard_external_code(result["counterparty_code"]) or ""
 
@@ -721,26 +724,26 @@ def infer_from_filename(
     cp_code = result["counterparty_code"]
     ent_code = result["entity_code"]
 
-    # Check if this is a main contract or site photo with owner E0
+    # Check if this is a main contract or site photo with owner E01
     if ("MAIN" in name or "总承包" in name or "主合同" in name or "中标通知" in name) and not cp_code:
-        result["counterparty_code"] = "E0"
+        result["counterparty_code"] = "E01"
         result["counterparty_name"] = "成都市天府新区金融城投公司"
         result["counterparty_resolution_status"] = "RESOLVED"
         result["business_category"] = "construction"
         result["document_type"] = "main_contract"
-        cp_code = "E0"
+        cp_code = "E01"
 
     # If business_category is empty or not specific, infer from counterparty
     if not result["business_category"]:
-        if cp_code.startswith("C") or cp_code == "EC":
+        if cp_code.startswith("C") or cp_code.startswith("EC"):
             result["business_category"] = "labor"
-        elif cp_code.startswith("B") or cp_code == "EB":
+        elif cp_code.startswith("B") or cp_code.startswith("EB"):
             result["business_category"] = "material"
-        elif cp_code.startswith("D") or cp_code == "ED":
+        elif cp_code.startswith("D") or cp_code.startswith("ED"):
             result["business_category"] = "equipment"
-        elif (cp_code.startswith("A") and cp_code != ent_code) or cp_code == "EA":
+        elif (cp_code.startswith("A") and cp_code != ent_code) or cp_code.startswith("EA"):
             result["business_category"] = "subcontract"
-        elif cp_code.startswith("E0") or cp_code.startswith("EXT-OWNER"):
+        elif cp_code.startswith("E0"):
             result["business_category"] = "construction"
 
     # Refine document_type for specific prefixes if it is still generic

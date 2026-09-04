@@ -81,6 +81,13 @@ MAPPINGS = {
         "kind": "trade",
         "tax_id": "91510400MA61EEEE77",
     },
+    "EC": {
+        "target": "EC01",
+        "name": "四川中泰建筑劳务分包有限公司",
+        "short_name": "中泰劳务",
+        "kind": "labor",
+        "tax_id": "91510100MA61LLLL44",
+    },
     "ED": {
         "target": "ED01",
         "name": "重庆巨力重型起重设备吊装公司",
@@ -161,6 +168,12 @@ def run_migration(apply: bool = False):
             print("\n=== VERIFICATION CHECKS ===")
             for source, meta in MAPPINGS.items():
                 target = meta["target"]
+                cur.execute("SELECT count(*) FROM contracts WHERE buyer_code = %s OR seller_code = %s;", (source, source))
+                assert cur.fetchone()[0] == 0, f"Leaked contract party: {source}"
+                cur.execute("SELECT count(*) FROM fulfillment WHERE counterparty_code = %s;", (source,))
+                assert cur.fetchone()[0] == 0, f"Leaked fulfillment counterparty_code: {source}"
+                cur.execute("SELECT count(*) FROM canonical_facts WHERE payload::text LIKE %s;", (f'%"{source}"%',))
+                assert cur.fetchone()[0] == 0, f"Leaked canonical_facts payload: {source}"
                 cur.execute("SELECT count(*) FROM documents WHERE counterparty_code = %s;", (source,))
                 assert cur.fetchone()[0] == 0, f"Leaked document counterparty_code: {source}"
                 cur.execute("SELECT count(*) FROM invoices WHERE counterparty_code = %s;", (source,))
@@ -171,7 +184,25 @@ def run_migration(apply: bool = False):
                 assert cur.fetchone()[0] == 0, f"Leaked external_parties code: {source}"
                 cur.execute("SELECT count(*) FROM parties WHERE code = %s;", (source,))
                 assert cur.fetchone()[0] == 0, f"Leaked parties code: {source}"
-                print(f"  Verified 0 occurrences of old code {source}")
+                print(f"  Verified 0 occurrences of old code {source} across all 8 tables")
+
+            # Global Zero-Residue Invariant Checks
+            print("\n=== GLOBAL ZERO-RESIDUE INVARIANT CHECKS ===")
+            cur.execute("SELECT count(*) FROM external_parties WHERE active = TRUE AND code !~ '^E(?:0[1-9]|[1-9]\\d|[A-D](?:0[1-9]|[1-9]\\d))$';")
+            assert cur.fetchone()[0] == 0, "Non-canonical active external_parties found!"
+            print("  [PASS] All active external_parties strictly conform to canonical two-digit regex")
+
+            cur.execute("SELECT count(*) FROM contracts WHERE (buyer_code IS NOT NULL AND buyer_code !~ '^(?:[ABCD](?:0[1-9]|1[01]|10)|E(?:0[1-9]|[1-9]\\d|[A-D](?:0[1-9]|[1-9]\\d)))$') OR (seller_code IS NOT NULL AND seller_code !~ '^(?:[ABCD](?:0[1-9]|1[01]|10)|E(?:0[1-9]|[1-9]\\d|[A-D](?:0[1-9]|[1-9]\\d)))$');")
+            assert cur.fetchone()[0] == 0, "Non-canonical contract party codes found!"
+            print("  [PASS] All contracts parties strictly conform to canonical regex")
+
+            cur.execute("SELECT count(*) FROM fulfillment WHERE counterparty_code IS NOT NULL AND counterparty_code !~ '^(?:[ABCD](?:0[1-9]|1[01]|10)|E(?:0[1-9]|[1-9]\\d|[A-D](?:0[1-9]|[1-9]\\d)))$';")
+            assert cur.fetchone()[0] == 0, "Non-canonical fulfillment counterparty codes found!"
+            print("  [PASS] All fulfillment counterparties strictly conform to canonical regex")
+
+            cur.execute("SELECT count(*) FROM canonical_facts WHERE payload::text ~ '\"counterparty_code\":\\s*\"(?:EXT-[^\"]+|E0|EA|EB|EC|ED)\"';")
+            assert cur.fetchone()[0] == 0, "Leaked legacy counterparty_code in canonical_facts!"
+            print("  [PASS] All canonical_facts payloads have 0 legacy counterparty codes")
 
             cur.execute("SELECT code, name, short_name, active FROM external_parties WHERE active = TRUE ORDER BY code;")
             active_parties = cur.fetchall()

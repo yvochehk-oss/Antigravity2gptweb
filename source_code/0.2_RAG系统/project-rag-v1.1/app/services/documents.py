@@ -68,7 +68,7 @@ def _canonical_external_reference_code(value: str | None) -> str | None:
     ):
         return None
 
-    if canonical.startswith("EXT-") or _EXTERNAL_REFERENCE_RE.fullmatch(canonical):
+    if _EXTERNAL_REFERENCE_RE.fullmatch(canonical):
         return canonical
     return None
 
