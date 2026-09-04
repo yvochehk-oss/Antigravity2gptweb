@@ -7,7 +7,7 @@
     <key>CFBundleExecutable</key>
     <string>ChengduConstructionConsole</string>
     <key>CFBundleIdentifier</key>
-    <string>cn.cdjg.controlpanel.macos</string>
+    <string>cn.cdjg.controlpanel.macos.v3</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>

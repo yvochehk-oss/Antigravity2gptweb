@@ -35,11 +35,14 @@ struct ProjectLocator {
             candidate.deleteLastPathComponent()
         }
 
-        while candidate.path != candidate.deletingLastPathComponent().path {
+        var visitedPaths = Set<String>()
+        while visitedPaths.insert(candidate.path).inserted {
             if let valid = validatedRoot(candidate) { return valid }
-            candidate.deleteLastPathComponent()
+            let parent = candidate.deletingLastPathComponent().standardizedFileURL
+            guard parent.path != candidate.path else { return nil }
+            candidate = parent
         }
-        return validatedRoot(candidate)
+        return nil
     }
 
     @discardableResult

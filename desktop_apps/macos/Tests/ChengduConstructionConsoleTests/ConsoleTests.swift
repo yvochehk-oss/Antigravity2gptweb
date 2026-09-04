@@ -10,6 +10,21 @@ final class ConsoleTests: XCTestCase {
         XCTAssertEqual(ProjectLocator.findInAncestors(of: nested), root.standardizedFileURL)
     }
 
+    func testProjectRootSearchStopsWhenNoAncestorIsAProject() throws {
+        let directory = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+            .appendingPathComponent("cdjg-no-project-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("nested", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(
+                at: directory.deletingLastPathComponent()
+            )
+        }
+
+        XCTAssertNil(ProjectLocator.findInAncestors(of: directory))
+        XCTAssertNil(ProjectLocator.findInAncestors(of: URL(fileURLWithPath: "/", isDirectory: true)))
+    }
+
     func testEnvironmentRootTakesPrecedenceAndConfigurationUsesSafeValues() throws {
         let root = try makeProjectRoot()
         let envFile = root.appendingPathComponent(".env")
