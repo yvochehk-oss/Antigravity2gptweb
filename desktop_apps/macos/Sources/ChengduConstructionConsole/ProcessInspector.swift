@@ -1,0 +1,365 @@
+import Foundation
+import Darwin
+
+enum ProcessKind {
+    case uvicorn
+    case localModel
+    case bossWeb
+}
+
+struct ProcessEvidence: Equatable {
+    let confirmed: Bool
+    let pid: Int32?
+    let source: String
+    let command: String?
+    let elapsedSeconds: TimeInterval?
+    /// True only when `pid` is the process listening on the inspected target
+    /// port, or when that listener is linked to a separately confirmed project
+    /// process through its parent/child chain.
+    let listeningConfirmed: Bool
+
+    init(
+        confirmed: Bool,
+        pid: Int32?,
+        source: String,
+        command: String?,
+        elapsedSeconds: TimeInterval?,
+        listeningConfirmed: Bool = false
+    ) {
+        self.confirmed = confirmed
+        self.pid = pid
+        self.source = source
+        self.command = command
+        self.elapsedSeconds = elapsedSeconds
+        self.listeningConfirmed = listeningConfirmed
+    }
+
+    static let missing = ProcessEvidence(
+        confirmed: false,
+        pid: nil,
+        source: "未发现进程",
+        command: nil,
+        elapsedSeconds: nil
+    )
+}
+
+/// Read-only process inspection used to prevent a healthy-looking port from
+/// being mistaken for one of the project's managed services.
+struct ProcessInspector {
+    static func evidence(
+        pidFileURL: URL?,
+        port: Int,
+        kind: ProcessKind,
+        rootURL: URL,
+        bossDirectoryURL: URL? = nil
+    ) -> ProcessEvidence {
+        let projectPID = pidFileURL.flatMap(readPID(at:))
+        let listenerPIDs = listeningPIDs(port: port)
+
+        // Prefer the process that is actually bound to the target port.  A
+        // PID file alone is not enough to turn a healthy response into a
+        // normal state.
+        for listenerPID in listenerPIDs {
+            if let direct = evidence(
+                forPID: listenerPID,
+                source: "监听端口 (\(port))",
+                port: port,
+                kind: kind,
+                rootURL: rootURL,
+                bossDirectoryURL: bossDirectoryURL
+            ) {
+                return direct.withListeningConfirmation(source: "监听端口 (\(port))")
+            }
+
+            if let projectPID,
+               let chained = listenerChainEvidence(
+                   listenerPID: listenerPID,
+                   projectPID: projectPID,
+                   port: port,
+                   kind: kind,
+                   rootURL: rootURL,
+                   bossDirectoryURL: bossDirectoryURL
+               ) {
+                return chained
+            }
+        }
+
+        // Keep the project PID as useful startup evidence even when it is not
+        // the listener.  HealthMonitor deliberately treats this as starting
+        // or partial, never as normal.
+        if let projectPID,
+           let projectEvidence = evidence(
+               forPID: projectPID,
+               source: "项目 PID 文件",
+               port: port,
+               kind: kind,
+               rootURL: rootURL,
+               bossDirectoryURL: bossDirectoryURL
+           ) {
+            return projectEvidence
+        }
+
+        return .missing
+    }
+
+    /// Inspect one exact PID without falling back to a port candidate.  Stop
+    /// operations use this path so a PID reuse or a foreign process can never
+    /// receive a signal merely because it happens to use the same port.
+    static func evidence(
+        forPID pid: Int32,
+        source: String = "指定 PID",
+        port: Int,
+        kind: ProcessKind,
+        rootURL: URL,
+        bossDirectoryURL: URL? = nil
+    ) -> ProcessEvidence? {
+        guard isAlive(pid),
+              let command = commandLine(for: pid),
+              !command.isEmpty else { return nil }
+        let cwd = workingDirectory(for: pid)
+        guard matches(
+            kind: kind,
+            command: command,
+            workingDirectory: cwd,
+            port: port,
+            rootURL: rootURL,
+            bossDirectoryURL: bossDirectoryURL
+        ) else { return nil }
+
+        return ProcessEvidence(
+            confirmed: true,
+            pid: pid,
+            source: source,
+            command: command,
+            elapsedSeconds: elapsedSeconds(for: pid)
+        )
+    }
+
+    /// Confirm an actual listener whose process command is wrapped by a
+    /// project-owned parent/child process.  The listener must be a descendant
+    /// of the project PID and located under the expected project directory.
+    /// The project endpoint identity still comes from `evidence(forPID:)`.
+    private static func listenerChainEvidence(
+        listenerPID: Int32,
+        projectPID: Int32,
+        port: Int,
+        kind: ProcessKind,
+        rootURL: URL,
+        bossDirectoryURL: URL?
+    ) -> ProcessEvidence? {
+        guard listenerPID != projectPID,
+              isAncestor(projectPID, of: listenerPID),
+              let projectEvidence = evidence(
+                  forPID: projectPID,
+                  source: "项目 PID 文件",
+                  port: port,
+                  kind: kind,
+                  rootURL: rootURL,
+                  bossDirectoryURL: bossDirectoryURL
+              ),
+              let listenerCommand = commandLine(for: listenerPID),
+              !listenerCommand.isEmpty,
+              let listenerWorkingDirectory = workingDirectory(for: listenerPID) else {
+            return nil
+        }
+
+        let expectedDirectory = bossDirectoryURL ?? rootURL
+        guard pathIsInside(listenerWorkingDirectory, rootURL: expectedDirectory) else {
+            return nil
+        }
+
+        return ProcessEvidence(
+            confirmed: projectEvidence.confirmed,
+            pid: listenerPID,
+            source: "监听端口 (\(port))（项目父子进程链）",
+            command: listenerCommand,
+            elapsedSeconds: elapsedSeconds(for: listenerPID),
+            listeningConfirmed: true
+        )
+    }
+
+    private static func isAncestor(_ ancestorPID: Int32, of childPID: Int32) -> Bool {
+        var currentPID = childPID
+        var visited = Set<Int32>()
+        while currentPID > 1, visited.insert(currentPID).inserted {
+            guard let parent = parentPID(for: currentPID), parent > 1 else { return false }
+            if parent == ancestorPID { return true }
+            currentPID = parent
+        }
+        return false
+    }
+
+    private static func parentPID(for pid: Int32) -> Int32? {
+        let value = run("/bin/ps", arguments: ["-p", String(pid), "-o", "ppid="])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let parent = Int32(value), parent > 1 else { return nil }
+        return parent
+    }
+
+    static func readPID(at url: URL) -> Int32? {
+        guard let content = try? String(contentsOf: url, encoding: .utf8),
+              let value = Int32(content.trimmingCharacters(in: .whitespacesAndNewlines)),
+              value > 1 else { return nil }
+        return value
+    }
+
+    static func isAlive(_ pid: Int32) -> Bool {
+        guard pid > 1 else { return false }
+        let killResult = kill(pid, 0)
+        if killResult != 0, errno != EPERM { return false }
+        // A zombie (state starts with `Z`) still answers `kill(pid, 0) == 0`
+        // but is no longer schedulable and cannot receive real signals.  Use
+        // `ps -o stat=` to exclude it.
+        let stat = run("/bin/ps", arguments: ["-p", String(pid), "-o", "stat="])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if stat.hasPrefix("Z") { return false }
+        return true
+    }
+
+    static func commandLine(for pid: Int32) -> String? {
+        run("/bin/ps", arguments: ["-p", String(pid), "-o", "command="])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .nilIfEmpty
+    }
+
+    static func workingDirectory(for pid: Int32) -> String? {
+        let output = run("/usr/sbin/lsof", arguments: ["-a", "-p", String(pid), "-d", "cwd", "-Fn"])
+        for line in output.split(whereSeparator: \.isNewline) {
+            let text = String(line)
+            if text.hasPrefix("n") { return String(text.dropFirst()) }
+        }
+        return nil
+    }
+
+    static func listeningPIDs(port: Int) -> [Int32] {
+        let output = run(
+            "/usr/sbin/lsof",
+            arguments: ["-nP", "-iTCP:\(port)", "-sTCP:LISTEN", "-Fp"]
+        )
+        return output.split(whereSeparator: \.isNewline).compactMap { line in
+            let text = String(line)
+            guard text.first == "p" else { return nil }
+            return Int32(text.dropFirst())
+        }
+    }
+
+    static func matches(
+        kind: ProcessKind,
+        command: String,
+        workingDirectory: String?,
+        port: Int,
+        rootURL: URL,
+        bossDirectoryURL: URL?
+    ) -> Bool {
+        let normalizedCommand = command.lowercased()
+        let portArgument = commandContainsPort(normalizedCommand, port: port)
+
+        switch kind {
+        case .uvicorn:
+            return normalizedCommand.contains("uvicorn")
+                && portArgument
+                && pathIsInside(workingDirectory, rootURL: rootURL)
+        case .localModel:
+            return normalizedCommand.contains("llama-server")
+                && portArgument
+                && pathIsInside(workingDirectory, rootURL: rootURL)
+        case .bossWeb:
+            let commandLooksLikeVite = normalizedCommand.contains("vite")
+                || normalizedCommand.contains("npm run dev")
+                || normalizedCommand.contains("npm exec")
+            let expectedDirectory = bossDirectoryURL ?? rootURL
+            return commandLooksLikeVite
+                && portArgument
+                && pathIsInside(workingDirectory, rootURL: expectedDirectory)
+        }
+    }
+
+    static func elapsedSeconds(for pid: Int32) -> TimeInterval? {
+        let value = run("/bin/ps", arguments: ["-p", String(pid), "-o", "etime="])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return parseElapsed(value)
+    }
+
+    static func parseElapsed(_ value: String) -> TimeInterval? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        var daySeconds: TimeInterval = 0
+        var time = trimmed
+        if let dash = time.firstIndex(of: "-") {
+            daySeconds = (Double(time[..<dash]) ?? 0) * 86_400
+            time = String(time[time.index(after: dash)...])
+        }
+        let pieces = time.split(separator: ":").compactMap { Double($0) }
+        guard pieces.count == 2 || pieces.count == 3 else { return nil }
+        if pieces.count == 2 {
+            return daySeconds + pieces[0] * 60 + pieces[1]
+        }
+        return daySeconds + pieces[0] * 3_600 + pieces[1] * 60 + pieces[2]
+    }
+
+    @discardableResult
+    static func sendSignal(_ signal: Int32, to pid: Int32) -> Bool {
+        guard isAlive(pid) else { return true }
+        return kill(pid, signal) == 0
+    }
+
+    private static func pathIsInside(_ path: String?, rootURL: URL) -> Bool {
+        guard let path else { return false }
+        let candidate = URL(fileURLWithPath: path).standardizedFileURL.path
+        let root = rootURL.standardizedFileURL.path
+        return candidate == root || candidate.hasPrefix(root + "/")
+    }
+
+    /// Match `--port <p>`, `--port=<p>` or `:<p>` so that ports whose decimal
+    /// representation is a prefix of another port (for example port `5` vs
+    /// `:50`, or port `8921` vs `:89210`) cannot silently collide.
+    private static func commandContainsPort(_ command: String, port: Int) -> Bool {
+        let token = NSRegularExpression.escapedPattern(for: String(port))
+        let patterns = [
+            "--port \(token)(?![0-9])",
+            "--port=\(token)(?![0-9])",
+            ":\(token)(?![0-9])"
+        ]
+        for pattern in patterns {
+            if command.range(of: pattern, options: .regularExpression) != nil {
+                return true
+            }
+        }
+        return false
+    }
+
+    private static func run(_ executable: String, arguments: [String]) -> String {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: executable)
+        process.arguments = arguments
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+        do {
+            try process.run()
+        } catch {
+            return ""
+        }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        return String(data: data, encoding: .utf8) ?? ""
+    }
+}
+
+private extension ProcessEvidence {
+    func withListeningConfirmation(source: String) -> ProcessEvidence {
+        ProcessEvidence(
+            confirmed: confirmed,
+            pid: pid,
+            source: source,
+            command: command,
+            elapsedSeconds: elapsedSeconds,
+            listeningConfirmed: true
+        )
+    }
+}
+
+private extension String {
+    var nilIfEmpty: String? { isEmpty ? nil : self }
+}

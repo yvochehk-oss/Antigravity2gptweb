@@ -1,0 +1,1279 @@
+using System.Diagnostics;
+using ChengduConstructionController.Models;
+
+namespace ChengduConstructionController.Services;
+
+public sealed class ServiceOrchestrator : IDisposable
+{
+    private static readonly TimeSpan StartupVerificationTimeout = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan StartupVerificationPoll = TimeSpan.FromMilliseconds(500);
+    private const int TrackedIdentityAttempts = 6;
+    private const int RequiredStableIdentityReads = 2;
+    private static readonly TimeSpan TrackedIdentityPoll = TimeSpan.FromMilliseconds(100);
+    private readonly ProjectRootResolver _rootResolver;
+    private readonly SafeLogger _logger;
+    private readonly HealthProbe _healthProbe;
+    private readonly ProcessInspector _processInspector = new();
+    private readonly WindowsServiceAdapter _adapter;
+    private readonly IReadOnlyList<ServiceDefinition> _definitions = ServiceCatalog.Create();
+    private readonly SemaphoreSlim _operationGate = new(1, 1);
+    private readonly object _trackedGate = new();
+    private readonly Dictionary<ServiceKind, List<TrackedLaunch>> _tracked = new();
+    private bool _disposed;
+
+    public ServiceOrchestrator(ProjectRootResolver rootResolver, SafeLogger logger)
+    {
+        _rootResolver = rootResolver;
+        _logger = logger;
+        _healthProbe = new HealthProbe(logger);
+        _adapter = new WindowsServiceAdapter(rootResolver, logger);
+    }
+
+    public IReadOnlyList<ServiceDefinition> Definitions => _definitions;
+    public bool IsBusy => _operationGate.CurrentCount == 0;
+    public string ProjectRoot => _rootResolver.Describe();
+    public string LogPath => _logger.LogPath;
+    public bool TryEnterOperation() => _operationGate.Wait(0);
+    public void LeaveOperation() => _operationGate.Release();
+
+    public async Task<IReadOnlyList<ServiceStatus>> CheckStatusAsync(CancellationToken cancellationToken)
+    {
+        var tasks = _definitions.Select(definition => CheckOneAsync(definition, cancellationToken));
+        return await Task.WhenAll(tasks).ConfigureAwait(false);
+    }
+
+    public async Task<OperationResult> StartAllAsync(CancellationToken cancellationToken = default)
+    {
+        if (!TryEnterOperation())
+        {
+            return new OperationResult(false, "已有启停操作正在执行，请稍候。");
+        }
+
+        try
+        {
+            return await StartAllCoreAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            LeaveOperation();
+        }
+    }
+
+    public async Task<OperationResult> RestartAllAsync(CancellationToken cancellationToken = default)
+    {
+        if (!TryEnterOperation())
+        {
+            return new OperationResult(false, "已有启停操作正在执行，请稍候。");
+        }
+
+        try
+        {
+            var stopped = await StopAllCoreAsync(cancellationToken).ConfigureAwait(false);
+            if (!stopped.Success)
+            {
+                return new OperationResult(false, $"重启已中止：{stopped.Message}");
+            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(700), cancellationToken).ConfigureAwait(false);
+            var started = await StartAllCoreAsync(cancellationToken).ConfigureAwait(false);
+            return new OperationResult(started.Success, $"重启结果：{started.Message}");
+        }
+        finally
+        {
+            LeaveOperation();
+        }
+    }
+
+    public async Task<OperationResult> StopAllAsync(CancellationToken cancellationToken = default)
+    {
+        if (!TryEnterOperation())
+        {
+            return new OperationResult(false, "已有启停操作正在执行，请稍候。");
+        }
+
+        try
+        {
+            return await StopAllCoreAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            LeaveOperation();
+        }
+    }
+
+    private async Task<OperationResult> StartAllCoreAsync(CancellationToken cancellationToken)
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return new OperationResult(false, "当前不是 Windows，不能启动 Windows 服务。");
+        }
+
+        var failed = new List<string>();
+        var started = new List<string>();
+        var alreadyRunning = new List<string>();
+        var startedThisRound = new List<TrackedLaunch>();
+        OperationResult? result = null;
+
+        try
+        {
+            var statuses = await CheckStatusAsync(cancellationToken).ConfigureAwait(false);
+            foreach (var definition in _definitions)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var status = statuses.First(item => item.Definition.Kind == definition.Kind);
+                if (status.Process.PortListening && !status.Process.PortConfirmed)
+                {
+                    failed.Add($"{definition.DisplayName}：目标端口已被未确认进程占用，视为端口冲突，未执行启动");
+                    continue;
+                }
+
+                if (status.Process.PortConfirmed)
+                {
+                    // A project process already owns the target port. Do not
+                    // launch a duplicate while it is still becoming healthy;
+                    // the bounded verification below will wait for it.
+                    alreadyRunning.Add(status.HttpHealthy
+                        ? definition.DisplayName
+                        : $"{definition.DisplayName}（项目进程启动中）");
+                    continue;
+                }
+
+                if (status.Process.BelongsToProject)
+                {
+                    // A strictly identified project process can be tracked
+                    // before LISTEN. Starting another copy could create a
+                    // race for the target port, so wait for this process.
+                    alreadyRunning.Add($"{definition.DisplayName}（项目进程启动中）");
+                    continue;
+                }
+
+                if (status.HttpHealthy)
+                {
+                    // A healthy endpoint with no confirmed project process is
+                    // an external/unknown listener, never an existing service.
+                    failed.Add($"{definition.DisplayName}：健康接口已响应，但目标端口归属未确认，视为端口冲突，未执行启动");
+                    continue;
+                }
+
+                try
+                {
+                    var process = _adapter.Start(definition);
+                    // Add the raw Process handle to the pending rollback list
+                    // before identity probing. Even a process whose identity
+                    // is briefly unreadable must remain cleanable by this
+                    // operation's final failure path.
+                    var launch = CreateTrackedLaunch(definition.Kind, process);
+                    startedThisRound.Add(launch);
+                    RegisterTrackedLaunch(launch);
+                    StartOutputPump(definition, process);
+
+                    var identityResult = await EstablishTrackedLaunchAsync(
+                        launch,
+                        definition,
+                        cancellationToken).ConfigureAwait(false);
+                    if (!identityResult.Success)
+                    {
+                        failed.Add($"{definition.DisplayName}：{identityResult.Message}");
+                    }
+                    else
+                    {
+                        started.Add(definition.DisplayName);
+                    }
+                }
+                catch (Exception exception) when (exception is InvalidOperationException or PlatformNotSupportedException or System.ComponentModel.Win32Exception)
+                {
+                    failed.Add($"{definition.DisplayName}：{exception.Message}");
+                    _logger.Error($"{definition.DisplayName}启动失败", exception);
+                }
+
+                await Task.Delay(TimeSpan.FromMilliseconds(250), cancellationToken).ConfigureAwait(false);
+            }
+
+            if (failed.Count > 0)
+            {
+                result = new OperationResult(
+                    false,
+                    $"启动未完成；本轮已提交 {started.Count} 项，已有 {alreadyRunning.Count} 项运行中；失败：{string.Join("；", failed)}");
+            }
+            else
+            {
+                var verification = await VerifyStartupAsync(startedThisRound, cancellationToken).ConfigureAwait(false);
+                result = verification.Success
+                    ? new OperationResult(true, $"已提交 {started.Count} 项启动，已有 {alreadyRunning.Count} 项运行中。窗口已隐藏。")
+                    : new OperationResult(false, $"启动后验证未通过：{verification.Message}");
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            result = new OperationResult(false, "启动操作已取消");
+        }
+        catch (Exception exception)
+        {
+            _logger.Error("启动全部服务失败", exception);
+            failed.Add($"控制台异常：{exception.Message}");
+            result = new OperationResult(
+                false,
+                $"启动未完成；本轮已提交 {started.Count} 项，已有 {alreadyRunning.Count} 项运行中；失败：{string.Join("；", failed)}");
+        }
+
+        if (result is null)
+        {
+            // This is defensive only: every normal path above assigns a
+            // result, and an unset result must never be reported as success.
+            result = new OperationResult(false, "启动未产生可确认结果");
+        }
+
+        if (!result.Success)
+        {
+            // All failed, cancelled, and exceptional startup paths converge
+            // here so this round is rolled back exactly once.
+            var rollback = RollbackStartedThisRound(startedThisRound);
+            var message = $"{result.Message}；{rollback}";
+            _logger.Warn(message);
+            return new OperationResult(false, message);
+        }
+
+        return result;
+    }
+
+    private async Task<OperationResult> VerifyStartupAsync(
+        IReadOnlyList<TrackedLaunch> startedThisRound,
+        CancellationToken cancellationToken)
+    {
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        IReadOnlyList<ServiceStatus> statuses = Array.Empty<ServiceStatus>();
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            foreach (var launch in startedThisRound)
+            {
+                try
+                {
+                    if (launch.Process.HasExited)
+                    {
+                        var definition = _definitions.First(item => item.Kind == launch.Kind);
+                        return new OperationResult(
+                            false,
+                            $"{definition.DisplayName}启动进程已立即退出（进程 {launch.ProcessId}）");
+                    }
+                }
+                catch (Exception exception) when (exception is InvalidOperationException or System.ComponentModel.Win32Exception)
+                {
+                    var definition = _definitions.First(item => item.Kind == launch.Kind);
+                    return new OperationResult(
+                        false,
+                        $"无法确认{definition.DisplayName}启动进程仍在运行（进程 {launch.ProcessId}）");
+                }
+            }
+
+            statuses = await CheckStatusAsync(cancellationToken).ConfigureAwait(false);
+            var conflict = statuses.FirstOrDefault(status =>
+                status.Process.PortListening && !status.Process.PortConfirmed);
+            if (conflict is not null)
+            {
+                return new OperationResult(
+                    false,
+                    $"{conflict.Definition.DisplayName}目标端口由未确认进程监听，视为端口冲突");
+            }
+
+            if (statuses.Count == _definitions.Count && statuses.All(IsStartupReady))
+            {
+                return new OperationResult(true, "五项服务健康、目标端口监听和项目归属均已确认");
+            }
+
+            if (stopwatch.Elapsed >= StartupVerificationTimeout)
+            {
+                var pending = statuses
+                    .Where(status => !IsStartupReady(status))
+                    .Select(status => $"{status.Definition.DisplayName}：{status.StateText}")
+                    .ToArray();
+                return new OperationResult(
+                    false,
+                    $"等待 {StartupVerificationTimeout.TotalSeconds:0} 秒后仍未完成五项服务验证：{string.Join("；", pending)}");
+            }
+
+            await Task.Delay(StartupVerificationPoll, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    private static bool IsStartupReady(ServiceStatus status)
+    {
+        return status.HttpHealthy
+            && status.ProcessConfirmed
+            && status.Process.PortConfirmed
+            && (status.Definition.Kind != ServiceKind.LocalModel || status.Http.ModelReady);
+    }
+
+    private async Task<OperationResult> StopAllCoreAsync(CancellationToken cancellationToken)
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return new OperationResult(false, "当前不是 Windows，不能停止 Windows 服务。");
+        }
+
+        var stopped = new List<string>();
+        var skipped = new List<string>();
+        foreach (var definition in _definitions)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var trustedIds = GetTrackedProcessIds(definition.Kind);
+            var pidFileIds = ReadValidatedPidFileIds(definition);
+            var identities = _processInspector.ReadProjectProcesses(
+                definition,
+                _rootResolver.Root,
+                trustedIds,
+                pidFileIds);
+
+            foreach (var identity in identities.GroupBy(item => item.ProcessId).Select(group => group.First()))
+            {
+                if (identity.ProcessId == Environment.ProcessId)
+                {
+                    continue;
+                }
+
+                var result = StopOwnedProcess(identity, definition, trustedIds);
+                if (result.Success)
+                {
+                    stopped.Add(definition.DisplayName);
+                }
+                else
+                {
+                    skipped.Add($"{definition.DisplayName}：{result.Message}");
+                }
+            }
+        }
+
+        // PostgreSQL is intentionally absent from Definitions and is never
+        // addressed by this operation. It remains available to other services.
+        await Task.CompletedTask.ConfigureAwait(false);
+        return skipped.Count == 0
+            ? new OperationResult(true, stopped.Count == 0
+                ? "没有发现可安全停止的本项目服务；数据库保持运行。"
+                : $"已停止 {stopped.Distinct().Count()} 项本项目服务；数据库保持运行。")
+            : new OperationResult(false, $"已停止 {stopped.Distinct().Count()} 项；以下项目未停止：{string.Join("；", skipped)}。数据库保持运行。");
+    }
+
+    private async Task<ServiceStatus> CheckOneAsync(ServiceDefinition definition, CancellationToken cancellationToken)
+    {
+        var launchIds = new HashSet<int>(GetTrackedProcessIds(definition.Kind));
+        launchIds.UnionWith(ReadValidatedPidFileIds(definition));
+        var http = await _healthProbe.ProbeAsync(definition, cancellationToken).ConfigureAwait(false);
+        var process = _processInspector.Inspect(definition, _rootResolver.Root, launchIds);
+        var httpHealthy = http.Healthy && (definition.Kind != ServiceKind.LocalModel || http.ModelReady);
+
+        var condition = ServiceCondition.Unknown;
+        var state = "正在检查";
+        if (httpHealthy && process.BelongsToProject && process.PortConfirmed)
+        {
+            condition = http.Slow ? ServiceCondition.Degraded : ServiceCondition.Healthy;
+            state = http.Slow ? "响应缓慢" : "正常";
+        }
+        else if (httpHealthy)
+        {
+            condition = ServiceCondition.Unavailable;
+            state = process.PortListening
+                ? "健康接口已响应，但目标端口归属未确认"
+                : "健康接口已响应，但项目端口证据缺失";
+        }
+        else if (process.BelongsToProject && process.PortConfirmed)
+        {
+            condition = http.Responded && http.StatusCode is >= 400 and < 500
+                ? ServiceCondition.Unavailable
+                : ServiceCondition.Starting;
+            state = condition == ServiceCondition.Starting ? "正在启动" : "服务不可用";
+        }
+        else if (process.BelongsToProject)
+        {
+            condition = ServiceCondition.Starting;
+            state = "项目进程已确认，正在等待目标端口";
+        }
+        else if (process.Found || http.Responded)
+        {
+            condition = ServiceCondition.Unavailable;
+            state = process.Found ? "接口有响应，进程待确认" : "服务不可用";
+        }
+        else
+        {
+            condition = ServiceCondition.Stopped;
+            state = "已停止";
+        }
+
+        var detail = $"{http.Detail}；{process.Detail}；{http.Elapsed.TotalMilliseconds:0} 毫秒检查。";
+        return new ServiceStatus(
+            definition,
+            condition,
+            state,
+            httpHealthy,
+            process.BelongsToProject,
+            http,
+            process,
+            DateTimeOffset.Now,
+            detail);
+    }
+
+    private OperationResult StopOwnedProcess(
+        ProcessIdentity? identity,
+        ServiceDefinition definition,
+        IReadOnlySet<int> trustedIds,
+        TrackedLaunch? trackedLaunch = null)
+    {
+        if (trackedLaunch is not null)
+        {
+            // A tracked rollback must use the original Process handle. It
+            // must never re-open the PID, because that PID may now belong to
+            // an unrelated process. The direct path also works before LISTEN.
+            return TerminateDirectLaunch(trackedLaunch, definition);
+        }
+
+        if (identity is null)
+        {
+            return new OperationResult(false, "进程归属无法确认，已跳过");
+        }
+
+        try
+        {
+            using var process = Process.GetProcessById(identity.ProcessId);
+            if (process.HasExited)
+            {
+                return new OperationResult(true, "进程已退出");
+            }
+
+            // Re-check ownership immediately before touching the process. A
+            // recycled PID must never turn into a kill of an unrelated process.
+            var currentIdentity = _processInspector.ReadIdentity(identity.ProcessId);
+            var expandedTrustedIds = _processInspector.ExpandProcessTree(trustedIds);
+            if (currentIdentity is null)
+            {
+                return new OperationResult(false, "进程归属无法确认，已跳过");
+            }
+
+            if (!CanSafelyStop(
+                    identity,
+                    currentIdentity,
+                    definition,
+                    expandedTrustedIds,
+                    trackedLaunch,
+                    out var reason))
+            {
+                return new OperationResult(false, reason ?? "进程归属无法确认，已跳过");
+            }
+
+            try
+            {
+                if (process.MainWindowHandle != IntPtr.Zero)
+                {
+                    process.CloseMainWindow();
+                    process.WaitForExit(1200);
+                }
+            }
+            catch (Exception exception) when (exception is InvalidOperationException or System.ComponentModel.Win32Exception)
+            {
+                _logger.Warn($"{definition.DisplayName}未能发送优雅停止信号：{exception.Message}");
+            }
+
+            if (!process.HasExited)
+            {
+                // Re-read all identity and port evidence after the graceful
+                // stop window too; both the process and its PID may have
+                // changed while waiting.
+                var beforeKill = _processInspector.ReadIdentity(identity.ProcessId);
+                if (beforeKill is null
+                    || !CanSafelyStop(
+                        identity,
+                        beforeKill,
+                        definition,
+                        expandedTrustedIds,
+                        trackedLaunch,
+                        out reason))
+                {
+                    return new OperationResult(false, reason ?? "进程身份或端口证据已变化，已跳过");
+                }
+
+                // Kill is permitted only after the current identity and live
+                // port ownership passed every project validation above.
+                process.Kill(entireProcessTree: true);
+                process.WaitForExit(2500);
+            }
+
+            return process.HasExited
+                ? new OperationResult(true, "已停止")
+                : new OperationResult(false, "停止超时，已保留进程");
+        }
+        catch (ArgumentException)
+        {
+            return new OperationResult(true, "进程已退出");
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or System.ComponentModel.Win32Exception or UnauthorizedAccessException)
+        {
+            _logger.Error($"停止{definition.DisplayName}失败", exception);
+            return new OperationResult(false, "系统拒绝停止，已跳过");
+        }
+    }
+
+    private bool CanSafelyStop(
+        ProcessIdentity expectedIdentity,
+        ProcessIdentity currentIdentity,
+        ServiceDefinition definition,
+        IReadOnlySet<int> trustedIds,
+        TrackedLaunch? trackedLaunch,
+        out string? reason)
+    {
+        reason = null;
+        if (!ProcessInspector.SameProcessIdentity(expectedIdentity, currentIdentity))
+        {
+            reason = "进程身份已变化或 PID 已复用，已跳过";
+            return false;
+        }
+
+        if (trackedLaunch is not null && !MatchesTrackedLaunch(trackedLaunch, currentIdentity))
+        {
+            reason = "本轮启动记录与当前进程不一致，可能发生 PID 复用，已跳过";
+            return false;
+        }
+
+        if (!ProcessInspector.IsProjectProcess(currentIdentity, definition, _rootResolver.Root, trustedIds))
+        {
+            reason = "进程项目归属无法确认，已跳过";
+            return false;
+        }
+
+        // Ordinary user-requested stop requires live target-port ownership.
+        // Rollback is the narrow exception: its immutable launch record can
+        // prove ownership even before the process has reached LISTEN.
+        if (trackedLaunch is null && !HasLivePortEvidence(currentIdentity.ProcessId, definition.Port))
+        {
+            reason = "端口归属无法确认，已跳过";
+            return false;
+        }
+
+        return true;
+    }
+
+    private bool HasLivePortEvidence(int processId, int port)
+    {
+        var listeningIds = ProcessInspector.GetListeningProcessIds(port);
+        if (listeningIds.Contains(processId))
+        {
+            return true;
+        }
+
+        var processTree = _processInspector.ExpandProcessTree(new HashSet<int> { processId });
+        return processTree.Any(listeningIds.Contains);
+    }
+
+    private static bool MatchesTrackedLaunch(TrackedLaunch launch, ProcessIdentity currentIdentity)
+    {
+        if (string.IsNullOrWhiteSpace(launch.ExpectedExecutablePath)
+            || string.IsNullOrWhiteSpace(launch.ExpectedWorkingDirectory)
+            || launch.ExpectedArguments.Count == 0
+            || !launch.StartedAt.HasValue
+            || !currentIdentity.StartedAt.HasValue
+            || launch.StartedAt.Value.UtcDateTime != currentIdentity.StartedAt.Value.UtcDateTime)
+        {
+            return false;
+        }
+
+        if (!SamePath(launch.ExpectedExecutablePath, currentIdentity.ExecutablePath)
+            || !SamePath(launch.ExpectedWorkingDirectory, currentIdentity.WorkingDirectory))
+        {
+            return false;
+        }
+
+        var commandLine = NormalizeProcessValue(currentIdentity.CommandLine);
+        return launch.ExpectedArguments.All(argument =>
+            !string.IsNullOrWhiteSpace(argument)
+            && commandLine.Contains(NormalizeProcessValue(argument), StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool SamePath(string left, string right)
+    {
+        return string.Equals(
+            NormalizeProcessValue(left).TrimEnd('\\'),
+            NormalizeProcessValue(right).TrimEnd('\\'),
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string NormalizeProcessValue(string value) => value.Replace('/', '\\').Trim().Trim('"');
+
+    private IReadOnlySet<int> ReadValidatedPidFileIds(ServiceDefinition definition)
+    {
+        if (_rootResolver.Root is null)
+        {
+            return new HashSet<int>();
+        }
+
+        var fileName = definition.Kind switch
+        {
+            ServiceKind.LocalModel => ".local_llm.pid",
+            ServiceKind.Tax => ".tax.pid",
+            ServiceKind.Rag => ".rag.pid",
+            ServiceKind.Idp => ".idp.pid",
+            _ => null,
+        };
+        if (fileName is null)
+        {
+            return new HashSet<int>();
+        }
+
+        var pidPath = _rootResolver.ResolvePath(fileName);
+        if (string.IsNullOrWhiteSpace(pidPath) || !File.Exists(pidPath))
+        {
+            return new HashSet<int>();
+        }
+
+        try
+        {
+            var content = File.ReadAllText(pidPath).Trim();
+            if (!int.TryParse(content, out var pid) || pid <= 4)
+            {
+                return new HashSet<int>();
+            }
+
+            var identity = _processInspector.ReadIdentity(pid);
+            return identity is not null
+                && ProcessInspector.IsProjectProcess(identity, definition, _rootResolver.Root, new HashSet<int>())
+                ? new HashSet<int> { pid }
+                : new HashSet<int>();
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            return new HashSet<int>();
+        }
+    }
+
+    private string RollbackStartedThisRound(IReadOnlyList<TrackedLaunch> launches)
+    {
+        if (launches.Count == 0)
+        {
+            return "回滚：本轮没有已提交的新进程，未触碰原先已运行服务或 PostgreSQL";
+        }
+
+        var rolledBack = new List<string>();
+        var skipped = new List<string>();
+        foreach (var launch in launches.Reverse())
+        {
+            var definition = _definitions.First(item => item.Kind == launch.Kind);
+            var result = StopTrackedLaunch(launch, definition);
+            if (result.Success)
+            {
+                rolledBack.Add(definition.DisplayName);
+            }
+            else
+            {
+                skipped.Add($"{definition.DisplayName}（进程 {launch.ProcessId}）：{result.Message}");
+            }
+        }
+
+        var message = $"回滚：已安全停止 {rolledBack.Distinct().Count()} 项本轮新启动服务";
+        if (skipped.Count > 0)
+        {
+            message += $"；未回滚：{string.Join("；", skipped)}";
+        }
+
+        return message + "；原先已运行服务和 PostgreSQL 未纳入回滚";
+    }
+
+    private OperationResult StopTrackedLaunch(TrackedLaunch launch, ServiceDefinition definition)
+    {
+        var result = StopOwnedProcess(
+            launch.Identity,
+            definition,
+            new HashSet<int> { launch.ProcessId },
+            launch);
+        if (result.Success)
+        {
+            Untrack(launch);
+        }
+
+        return result;
+    }
+
+    private async Task<OperationResult> EstablishTrackedLaunchAsync(
+        TrackedLaunch launch,
+        ServiceDefinition definition,
+        CancellationToken cancellationToken)
+    {
+        ProcessIdentity? previousIdentity = null;
+        var stableReads = 0;
+        var lastIssue = "启动后无法读取完整进程身份";
+
+        for (var attempt = 0; attempt < TrackedIdentityAttempts; attempt++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                // Read all lifetime evidence from the original Process handle
+                // before observing any PID-derived identity. This prevents a
+                // recycled PID from being attached to this launch record.
+                if (launch.Process.HasExited)
+                {
+                    return new OperationResult(false, $"启动进程在身份建立前已退出（进程 {launch.ProcessId}）");
+                }
+
+                if (launch.Process.Id != launch.ProcessId)
+                {
+                    return new OperationResult(false, $"启动进程 PID 已变化（进程 {launch.ProcessId}）");
+                }
+
+                var originalStartedAt = new DateTimeOffset(launch.Process.StartTime);
+                if (launch.StartedAt.HasValue
+                    && launch.StartedAt.Value.UtcDateTime != originalStartedAt.UtcDateTime)
+                {
+                    return new OperationResult(false, $"启动进程启动时间已变化（进程 {launch.ProcessId}）");
+                }
+
+                launch.StartedAt ??= originalStartedAt;
+                var identity = _processInspector.ReadIdentity(launch.Process);
+                if (identity is not null
+                    && identity.ProcessId == launch.ProcessId
+                    && identity.StartedAt.HasValue
+                    && identity.StartedAt.Value.UtcDateTime == originalStartedAt.UtcDateTime
+                    && MatchesTrackedLaunch(launch, identity)
+                    && ProcessInspector.IsProjectProcess(
+                        identity,
+                        definition,
+                        _rootResolver.Root,
+                        new HashSet<int> { launch.ProcessId }))
+                {
+                    stableReads = previousIdentity is not null
+                        && ProcessInspector.SameProcessIdentity(previousIdentity, identity)
+                        ? stableReads + 1
+                        : 1;
+                    previousIdentity = identity;
+                    if (stableReads >= RequiredStableIdentityReads)
+                    {
+                        launch.Identity = identity;
+                        return new OperationResult(true, "已建立稳定进程身份");
+                    }
+
+                    lastIssue = $"进程身份正在稳定确认（第 {stableReads}/{RequiredStableIdentityReads} 次一致读取）";
+                }
+                else
+                {
+                    stableReads = 0;
+                    previousIdentity = null;
+                    lastIssue = "启动后进程身份或预期启动信息尚未一致";
+                }
+            }
+            catch (Exception exception) when (exception is InvalidOperationException or System.ComponentModel.Win32Exception or NotSupportedException or UnauthorizedAccessException)
+            {
+                stableReads = 0;
+                previousIdentity = null;
+                lastIssue = $"启动后进程身份暂不可读取：{exception.Message}";
+            }
+
+            if (attempt + 1 < TrackedIdentityAttempts)
+            {
+                await Task.Delay(TrackedIdentityPoll, cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        return new OperationResult(
+            false,
+            $"{lastIssue}；身份建立失败，将由原始 Process 句柄执行本轮回滚（进程 {launch.ProcessId}）");
+    }
+
+    private OperationResult TerminateDirectLaunch(TrackedLaunch launch, ServiceDefinition definition)
+    {
+        // This is the only rollback path for a tracked launch. It deliberately
+        // uses the original Process handle rather than Process.GetProcessById.
+        // Consequently it remains safe before LISTEN and cannot kill a PID
+        // that was recycled after the original process exited.
+        var process = launch.Process;
+        try
+        {
+            if (process.HasExited)
+            {
+                return new OperationResult(true, "本轮进程已退出");
+            }
+
+            if (!MatchesOriginalLaunchHandle(launch, process, definition, out var reason))
+            {
+                return new OperationResult(false, reason ?? "原始 Process 句柄身份无法确认，已跳过");
+            }
+
+            if (!ValidateTrackedLaunchIdentity(launch, process, definition, out reason))
+            {
+                return new OperationResult(false, reason ?? "本轮进程身份或预期启动信息已变化，已跳过");
+            }
+
+            try
+            {
+                if (process.MainWindowHandle != IntPtr.Zero)
+                {
+                    process.CloseMainWindow();
+                    process.WaitForExit(1200);
+                }
+            }
+            catch (Exception exception) when (exception is InvalidOperationException or System.ComponentModel.Win32Exception)
+            {
+                _logger.Warn($"{definition.DisplayName}回滚时未能发送优雅停止信号：{exception.Message}");
+            }
+
+            if (process.HasExited)
+            {
+                return new OperationResult(true, "本轮进程已退出");
+            }
+
+            // Re-check the original handle immediately before Kill. A process
+            // that exits here stays harmlessly attached to this handle; a
+            // recycled PID can never be reached through it.
+            if (!MatchesOriginalLaunchHandle(launch, process, definition, out reason)
+                || !ValidateTrackedLaunchIdentity(launch, process, definition, out reason))
+            {
+                return new OperationResult(false, reason ?? "原始进程身份或预期启动信息已变化，已跳过");
+            }
+
+            process.Kill(entireProcessTree: true);
+            process.WaitForExit(2500);
+            return process.HasExited
+                ? new OperationResult(true, "已安全停止本轮新启动进程")
+                : new OperationResult(false, "回滚停止超时，已保留本轮进程");
+        }
+        catch (ArgumentException)
+        {
+            // The original handle no longer represents a running process.
+            return new OperationResult(true, "本轮进程已退出");
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or System.ComponentModel.Win32Exception or UnauthorizedAccessException)
+        {
+            _logger.Error($"回滚停止{definition.DisplayName}失败", exception);
+            return new OperationResult(false, "系统拒绝通过原始 Process 句柄停止，已跳过");
+        }
+    }
+
+    private bool MatchesOriginalLaunchHandle(
+        TrackedLaunch launch,
+        Process process,
+        ServiceDefinition definition,
+        out string? reason)
+    {
+        reason = null;
+        try
+        {
+            if (process.Id != launch.ProcessId)
+            {
+                reason = "原始 Process 句柄 PID 已变化，已跳过";
+                return false;
+            }
+
+            if (!launch.StartedAt.HasValue)
+            {
+                reason = "本轮进程启动时间无法确认，已跳过";
+                return false;
+            }
+
+            var startedAt = new DateTimeOffset(process.StartTime);
+            if (startedAt.UtcDateTime != launch.StartedAt.Value.UtcDateTime)
+            {
+                reason = "本轮进程启动时间已变化，已跳过";
+                return false;
+            }
+
+            var executablePath = process.MainModule?.FileName ?? string.Empty;
+            if (!SamePath(launch.ExpectedExecutablePath, executablePath))
+            {
+                reason = "本轮进程可执行文件已变化，已跳过";
+                return false;
+            }
+
+            var processName = process.ProcessName;
+            var executableName = Path.GetFileName(executablePath);
+            if (!definition.AllowedProcessNames.Contains(processName)
+                && !definition.AllowedProcessNames.Contains(executableName))
+            {
+                reason = "本轮进程名称无法确认属于项目，已跳过";
+                return false;
+            }
+
+            var expectedWorkingDirectory = _rootResolver.ResolvePath(definition.RelativeWorkingDirectory);
+            if (string.IsNullOrWhiteSpace(expectedWorkingDirectory)
+                || !SamePath(expectedWorkingDirectory, launch.ExpectedWorkingDirectory))
+            {
+                reason = "本轮预期工作目录已变化，已跳过";
+                return false;
+            }
+
+            var startInfo = process.StartInfo;
+            if (!SamePath(startInfo.FileName, launch.ExpectedExecutablePath)
+                || !SamePath(startInfo.WorkingDirectory, launch.ExpectedWorkingDirectory)
+                || !ArgumentsMatch(startInfo.ArgumentList, launch.ExpectedArguments))
+            {
+                reason = "本轮预期启动参数已变化，已跳过";
+                return false;
+            }
+
+            return launch.ExpectedArguments.Count > 0;
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or System.ComponentModel.Win32Exception or NotSupportedException or UnauthorizedAccessException)
+        {
+            reason = $"无法读取原始 Process 句柄身份：{exception.Message}";
+            return false;
+        }
+    }
+
+    private bool ValidateTrackedLaunchIdentity(
+        TrackedLaunch launch,
+        Process process,
+        ServiceDefinition definition,
+        out string? reason)
+    {
+        reason = null;
+        var identity = _processInspector.ReadIdentity(process);
+        if (identity is null)
+        {
+            // The raw handle checks above still prove PID, start time, path,
+            // process name, working directory, and expected launch metadata.
+            // Native command-line access can be denied for a live process; do
+            // not re-open the PID merely to manufacture a different owner.
+            return true;
+        }
+
+        if (!IsCompatibleTrackedIdentity(launch, identity))
+        {
+            reason = "本轮进程身份或 PID 已复用，已跳过";
+            return false;
+        }
+
+        if (HasCompleteIdentity(identity)
+            && !ProcessInspector.IsProjectProcess(
+                identity,
+                definition,
+                _rootResolver.Root,
+                new HashSet<int> { launch.ProcessId }))
+        {
+            reason = "本轮进程项目归属无法确认，已跳过";
+            return false;
+        }
+
+        return true;
+    }
+
+    private static bool IsCompatibleTrackedIdentity(TrackedLaunch launch, ProcessIdentity identity)
+    {
+        if (identity.ProcessId != launch.ProcessId
+            || (launch.StartedAt.HasValue
+                && identity.StartedAt.HasValue
+                && launch.StartedAt.Value.UtcDateTime != identity.StartedAt.Value.UtcDateTime))
+        {
+            return false;
+        }
+
+        if (!string.IsNullOrWhiteSpace(identity.ExecutablePath)
+            && !SamePath(launch.ExpectedExecutablePath, identity.ExecutablePath))
+        {
+            return false;
+        }
+
+        if (!string.IsNullOrWhiteSpace(identity.WorkingDirectory)
+            && !SamePath(launch.ExpectedWorkingDirectory, identity.WorkingDirectory))
+        {
+            return false;
+        }
+
+        var commandLine = NormalizeProcessValue(identity.CommandLine);
+        return string.IsNullOrWhiteSpace(commandLine)
+            || launch.ExpectedArguments.All(argument =>
+                !string.IsNullOrWhiteSpace(argument)
+                && commandLine.Contains(NormalizeProcessValue(argument), StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool HasCompleteIdentity(ProcessIdentity identity)
+    {
+        return identity.StartedAt.HasValue
+            && !string.IsNullOrWhiteSpace(identity.ProcessName)
+            && !string.IsNullOrWhiteSpace(identity.ExecutablePath)
+            && !string.IsNullOrWhiteSpace(identity.CommandLine)
+            && !string.IsNullOrWhiteSpace(identity.WorkingDirectory);
+    }
+
+    private static bool ArgumentsMatch(
+        IEnumerable<string> actual,
+        IReadOnlyList<string> expected)
+    {
+        var actualValues = actual.ToArray();
+        return actualValues.Length == expected.Count
+            && actualValues.Zip(expected).All(pair => string.Equals(
+                NormalizeProcessValue(pair.First),
+                NormalizeProcessValue(pair.Second),
+                StringComparison.OrdinalIgnoreCase));
+    }
+
+    private IReadOnlySet<int> GetTrackedProcessIds(ServiceKind kind)
+    {
+        lock (_trackedGate)
+        {
+            if (!_tracked.TryGetValue(kind, out var launches))
+            {
+                return new HashSet<int>();
+            }
+
+            var active = new HashSet<int>();
+            foreach (var launch in launches.ToArray())
+            {
+                try
+                {
+                    if (!launch.Process.HasExited)
+                    {
+                        active.Add(launch.Process.Id);
+                    }
+                    else
+                    {
+                        launches.Remove(launch);
+                    }
+                }
+                catch (Exception exception) when (exception is InvalidOperationException or System.ComponentModel.Win32Exception)
+                {
+                    launches.Remove(launch);
+                }
+            }
+
+            return active;
+        }
+    }
+
+    private TrackedLaunch CreateTrackedLaunch(ServiceKind kind, Process process)
+    {
+        var startInfo = process.StartInfo;
+        return new TrackedLaunch(
+            kind,
+            process,
+            process.Id,
+            null,
+            null,
+            NormalizeProcessValue(startInfo.FileName),
+            startInfo.ArgumentList.ToArray(),
+            NormalizeProcessValue(startInfo.WorkingDirectory),
+            DateTimeOffset.Now);
+    }
+
+    private void RegisterTrackedLaunch(TrackedLaunch launch)
+    {
+        lock (_trackedGate)
+        {
+            if (!_tracked.TryGetValue(launch.Kind, out var launches))
+            {
+                launches = new List<TrackedLaunch>();
+                _tracked[launch.Kind] = launches;
+            }
+
+            launches.Add(launch);
+        }
+
+        var process = launch.Process;
+        process.Exited += (_, _) => _logger.Info($"{_definitions.First(item => item.Kind == launch.Kind).DisplayName}启动进程已退出（进程 {launch.ProcessId}）");
+    }
+
+    private void Untrack(TrackedLaunch launch)
+    {
+        lock (_trackedGate)
+        {
+            if (!_tracked.TryGetValue(launch.Kind, out var launches))
+            {
+                return;
+            }
+
+            launches.Remove(launch);
+            if (launches.Count == 0)
+            {
+                _tracked.Remove(launch.Kind);
+            }
+        }
+    }
+
+    private void StartOutputPump(ServiceDefinition definition, Process process)
+    {
+        _ = PumpAsync(process.StandardOutput, definition.DisplayName);
+        _ = PumpAsync(process.StandardError, definition.DisplayName);
+    }
+
+    private async Task PumpAsync(StreamReader reader, string serviceName)
+    {
+        try
+        {
+            while (await reader.ReadLineAsync().ConfigureAwait(false) is { } line)
+            {
+                if (!string.IsNullOrWhiteSpace(line))
+                {
+                    _logger.Info($"{serviceName}：{line}");
+                }
+            }
+        }
+        catch (Exception exception) when (exception is IOException or ObjectDisposedException or InvalidOperationException)
+        {
+            // Process exit and app shutdown close the redirected stream normally.
+        }
+    }
+
+    public void Dispose()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
+        _healthProbe.Dispose();
+        lock (_trackedGate)
+        {
+            foreach (var launch in _tracked.Values.SelectMany(items => items))
+            {
+                launch.Process.Dispose();
+            }
+
+            _tracked.Clear();
+        }
+
+        _operationGate.Dispose();
+    }
+
+    private sealed class TrackedLaunch
+    {
+        public TrackedLaunch(
+            ServiceKind kind,
+            Process process,
+            int processId,
+            ProcessIdentity? identity,
+            DateTimeOffset? startedAt,
+            string expectedExecutablePath,
+            IReadOnlyList<string> expectedArguments,
+            string expectedWorkingDirectory,
+            DateTimeOffset trackedAt)
+        {
+            Kind = kind;
+            Process = process;
+            ProcessId = processId;
+            Identity = identity;
+            StartedAt = startedAt;
+            ExpectedExecutablePath = expectedExecutablePath;
+            ExpectedArguments = expectedArguments;
+            ExpectedWorkingDirectory = expectedWorkingDirectory;
+            TrackedAt = trackedAt;
+        }
+
+        public ServiceKind Kind { get; }
+        public Process Process { get; }
+        public int ProcessId { get; }
+        public ProcessIdentity? Identity { get; set; }
+        public DateTimeOffset? StartedAt { get; set; }
+        public string ExpectedExecutablePath { get; }
+        public IReadOnlyList<string> ExpectedArguments { get; }
+        public string ExpectedWorkingDirectory { get; }
+        public DateTimeOffset TrackedAt { get; }
+    }
+}
+
+public sealed class StatusMonitor : IDisposable
+{
+    private readonly ServiceOrchestrator _orchestrator;
+    private readonly SafeLogger _logger;
+    private readonly System.Threading.Timer _timer;
+    private readonly CancellationTokenSource _cancellation = new();
+    private int _refreshing;
+    private bool _started;
+    private bool _disposed;
+    private ServiceSnapshot _current;
+
+    public StatusMonitor(ServiceOrchestrator orchestrator, SafeLogger logger)
+    {
+        _orchestrator = orchestrator;
+        _logger = logger;
+        _current = ServiceSnapshot.Empty(orchestrator.Definitions);
+        _timer = new System.Threading.Timer(_ => _ = RefreshNowAsync(), null, Timeout.Infinite, Timeout.Infinite);
+    }
+
+    public event EventHandler<ServiceSnapshot>? SnapshotChanged;
+
+    public ServiceSnapshot Current => _current;
+
+    public void Start()
+    {
+        if (_started || _disposed)
+        {
+            return;
+        }
+
+        _started = true;
+        _timer.Change(TimeSpan.Zero, TimeSpan.FromSeconds(5));
+    }
+
+    public async Task<ServiceSnapshot> RefreshNowAsync()
+    {
+        if (_disposed || Interlocked.Exchange(ref _refreshing, 1) == 1)
+        {
+            return _current;
+        }
+
+        try
+        {
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(_cancellation.Token);
+            timeout.CancelAfter(TimeSpan.FromSeconds(4));
+            var statuses = await _orchestrator.CheckStatusAsync(timeout.Token).ConfigureAwait(false);
+            var snapshot = new ServiceSnapshot(
+                statuses.ToDictionary(status => status.Definition.Kind),
+                DateTimeOffset.Now,
+                false);
+            Publish(snapshot);
+            return snapshot;
+        }
+        catch (OperationCanceledException) when (_cancellation.IsCancellationRequested)
+        {
+            return _current;
+        }
+        catch (OperationCanceledException)
+        {
+            var snapshot = CreateFailureSnapshot("状态检查超时，未沿用上次结果");
+            Publish(snapshot);
+            return snapshot;
+        }
+        catch (Exception exception)
+        {
+            _logger.Error("刷新服务状态失败", exception);
+            var snapshot = CreateFailureSnapshot("状态检查失败，未沿用上次结果");
+            Publish(snapshot);
+            return snapshot;
+        }
+        finally
+        {
+            Volatile.Write(ref _refreshing, 0);
+        }
+    }
+
+    private void Publish(ServiceSnapshot snapshot)
+    {
+        _current = snapshot;
+        SnapshotChanged?.Invoke(this, snapshot);
+    }
+
+    private ServiceSnapshot CreateFailureSnapshot(string detail)
+    {
+        var checkedAt = DateTimeOffset.Now;
+        var services = _orchestrator.Definitions.ToDictionary(
+            definition => definition.Kind,
+            definition => new ServiceStatus(
+                definition,
+                ServiceCondition.Unavailable,
+                "检查失败",
+                false,
+                false,
+                HttpProbeResult.NotChecked(detail),
+                ProcessEvidence.None(detail),
+                checkedAt,
+                detail));
+        return new ServiceSnapshot(services, checkedAt, false);
+    }
+
+    public void Dispose()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
+        _cancellation.Cancel();
+        _timer.Dispose();
+        _cancellation.Dispose();
+        SnapshotChanged = null;
+    }
+}
