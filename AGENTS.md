@@ -64,6 +64,14 @@ Agent 在任何情况下**绝对禁止**执行以下操作：
    - 本地 Agent 执行 `git pull` 后完整运行该检验命令，收集标准输出、错误日志与退出码，通过 bridge 回传给 GPT 审查（`task-review`）；
    - 必须获得 Custom GPT 审查后显式裁决 `APPROVED`，该任务方可标记完成或推进至下一步。
 
+4. **/safari-chatgpt-reasoner Skill 执行核心行为守则 (Local Agent Behavioral Protocol)**：
+   当在项目中调用或启用了 `/safari-chatgpt-reasoner` 这一 Skill 时，本地 Agent 的唯一法定职责就是**全流程监督 GPT 推进工作**，严格恪守以下五大执行准则：
+   - **① 监督 GPT 干活（禁止越权写代码）**：本地 Agent 绝对禁止自己编写、改写任何业务代码或擅自实施重构，所有架构推演、代码改写与提交推送由 Custom GPT 在 GitHub 远端全权执行；
+   - **② 定时检查进度**：本地 Agent 必须通过定时器（如 schedule）主动定期检查 GPT 的状态与进度，观察其是处于深度思考、工具调用还是流式输出；
+   - **③ 有问必答（响应阻断）**：若 GPT 在对话中提出任何疑问、方案确认、上下文索取或决策请求，本地 Agent 必须第一时间准确答复，不得拖延阻断；
+   - **④ 停顿即催促（防假死）**：若 GPT 在未完成目标任务时出现非预期的停顿、中断、超时或假死，本地 Agent 必须立即重新发送指令，明确督促其继续推进当前任务；
+   - **⑤ 本地执行验证（闭环跑测）**：当 GPT 在 GitHub 完成步骤并发出本地测试命令（`TEST:` / `EXPECTED:`）后，本地 Agent 立即执行 `git pull` 同步最新代码，在真实本地环境中严格执行该检验命令，将客观日志与退出码如实回传给 GPT 进行审查裁决（`task-review`）。
+
 ---
 
 ## 6. 桌面端控制台工程、状态栏 Logo 与 SSOT 规范 (Desktop Apps & Status Bar Logo Specification)
