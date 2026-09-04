@@ -9,6 +9,7 @@ are skipped on subsequent startups unless `--force` is specified.
 import sys
 import os
 import json
+import hashlib
 import platform
 import argparse
 import subprocess
@@ -80,19 +81,24 @@ def detect_gpu_capability() -> dict:
     }
 
 def run_hardware_probe(force=False) -> dict:
-    if not force and os.path.exists(ENV_HARDWARE_PATH) and os.path.exists(PROFILE_JSON_PATH):
-        try:
-            with open(PROFILE_JSON_PATH, "r", encoding="utf-8") as f:
-                profile = json.load(f)
-                if profile.get("HARDWARE_CONFIGURED") == "true" and profile.get("PROFILE_VERSION") == PROFILE_VERSION:
-                    return profile
-        except Exception:
-            pass
-
     cores = detect_cpu_cores()
     ram_gb = detect_total_ram_gb()
     avx2_status = detect_avx2_support()
     gpu_info = detect_gpu_capability()
+
+    fp_str = f"{platform.system()}:{platform.machine()}:{cores}:{ram_gb}:{avx2_status}:{gpu_info.get('cuda_supported')}:{gpu_info.get('is_apple_silicon')}"
+    fingerprint = hashlib.md5(fp_str.encode("utf-8")).hexdigest()[:12]
+
+    if not force and os.path.exists(ENV_HARDWARE_PATH) and os.path.exists(PROFILE_JSON_PATH):
+        try:
+            with open(PROFILE_JSON_PATH, "r", encoding="utf-8") as f:
+                profile = json.load(f)
+                if (profile.get("HARDWARE_CONFIGURED") == "true" and 
+                    profile.get("PROFILE_VERSION") == PROFILE_VERSION and
+                    profile.get("HARDWARE_FINGERPRINT") == fingerprint):
+                    return profile
+        except Exception:
+            pass
 
     is_low_spec = (ram_gb < 16.0) or (cores <= 4)
     
@@ -119,6 +125,7 @@ def run_hardware_probe(force=False) -> dict:
     profile = {
         "HARDWARE_CONFIGURED": "true",
         "PROFILE_VERSION": PROFILE_VERSION,
+        "HARDWARE_FINGERPRINT": fingerprint,
         "PROFILE_MODE": profile_mode,
         "CPU_CORES": cores,
         "TOTAL_RAM_GB": ram_gb,

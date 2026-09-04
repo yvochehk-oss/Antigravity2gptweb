@@ -27,15 +27,28 @@ def detect_image_mime_type(file_path: str) -> str:
 
 
 def validate_canonical_schema(data: dict) -> bool:
-    """Validate that parsed dict adheres to the required Canonical Document Schema."""
+    """Validate that parsed dict strictly adheres to the required Canonical Document Schema."""
     if not isinstance(data, dict):
         return False
-    required_keys = {"document_type", "text_content", "fields"}
-    return required_keys.issubset(data.keys())
+    required_keys = {"document_type", "title", "text_content", "fields"}
+    if not required_keys.issubset(data.keys()):
+        return False
+    if not isinstance(data.get("document_type"), str) or not data["document_type"].strip():
+        return False
+    if not isinstance(data.get("title"), str):
+        return False
+    if not isinstance(data.get("text_content"), str) or not data["text_content"].strip():
+        return False
+    if not isinstance(data.get("fields"), dict):
+        return False
+    conf = data.get("confidence")
+    if conf is not None and not isinstance(conf, (int, float)):
+        return False
+    return True
 
 
 def parse_image_with_paddleocr_vl(image_path: str) -> dict | None:
-    """Call PaddleOCR-VL-1.6 multimodal endpoint for image/scan extraction with Schema parsing."""
+    """Call PaddleOCR-VL-1.6 multimodal endpoint for image/scan extraction with fail-closed Schema parsing."""
     import base64
     import requests
     import os
@@ -84,10 +97,10 @@ def parse_image_with_paddleocr_vl(image_path: str) -> dict | None:
                     return {"text": extracted_text, "structured_json": structured_data}
                 else:
                     logger.warning(f"PaddleOCR-VL output failed Schema validation: {content[:100]}")
-                    return {"text": content, "structured_json": {"document_type": "unvalidated", "text_content": content, "fields": {}}}
+                    return None
             except Exception as parse_err:
                 logger.warning(f"JSON decode failed for PaddleOCR-VL output: {parse_err}")
-                return {"text": content, "structured_json": None}
+                return None
     except Exception as e:
         logger.warning(f"PaddleOCR-VL-1.6 parse warning for {image_path}: {e}")
     return None
@@ -109,7 +122,7 @@ def parse_with_native_idp(document_code: str, input_path: str) -> dict:
             doc = fitz.open(str(path))
             for page_idx, page in enumerate(doc):
                 page_text = page.get_text("text").strip()
-                # Native text quality check: if page has >15 usable characters, use native text
+                # Native text quality check: if page has >=15 usable characters, use native text
                 if len(page_text) >= 15:
                     md_lines.append(f"## 第 {page_idx + 1} 页\n\n" + page_text)
                     content_list.append({
@@ -117,6 +130,7 @@ def parse_with_native_idp(document_code: str, input_path: str) -> dict:
                         "text": page_text,
                         "text_level": 0,
                         "page_idx": page_idx,
+                        "status": "PROCESSED",
                     })
                 else:
                     # Scanned PDF or low-text page fallback to PaddleOCR-VL-1.6
@@ -124,7 +138,7 @@ def parse_with_native_idp(document_code: str, input_path: str) -> dict:
                     pix = page.get_pixmap(dpi=150)
                     pix.save(str(tmp_page_img))
                     vl_res = parse_image_with_paddleocr_vl(str(tmp_page_img))
-                    if vl_res and vl_res.get("text"):
+                    if vl_res and vl_res.get("text") and vl_res.get("structured_json"):
                         text = vl_res["text"]
                         md_lines.append(f"## 第 {page_idx + 1} 页 (扫描页 OCR)\n\n" + text)
                         content_list.append({
@@ -133,11 +147,20 @@ def parse_with_native_idp(document_code: str, input_path: str) -> dict:
                             "text_level": 0,
                             "page_idx": page_idx,
                             "schema_data": vl_res.get("structured_json"),
+                            "status": "PROCESSED",
                         })
-                    elif page_text:
-                        # Keep low-density text if VL is unreachable
-                        md_lines.append(f"## 第 {page_idx + 1} 页\n\n" + page_text)
-                        content_list.append({"type": "text", "text": page_text, "text_level": 0, "page_idx": page_idx})
+                    else:
+                        # Fail-closed for scanned/low-quality page: mark REVIEW
+                        fallback_text = page_text if page_text else f"【第 {page_idx + 1} 页扫描图像识别失败/待审核】"
+                        md_lines.append(f"## 第 {page_idx + 1} 页 (低质量/待人工审核)\n\n" + fallback_text)
+                        content_list.append({
+                            "type": "text",
+                            "text": fallback_text,
+                            "text_level": 0,
+                            "page_idx": page_idx,
+                            "status": "REVIEW",
+                            "warning": "OCR_VL_FAIL_CLOSED_LOW_QUALITY",
+                        })
                     if tmp_page_img.exists():
                         tmp_page_img.unlink(missing_ok=True)
             doc.close()
@@ -148,7 +171,7 @@ def parse_with_native_idp(document_code: str, input_path: str) -> dict:
     elif suffix in (".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".webp"):
         logger.info(f"Image document {path.name} routing to PaddleOCR-VL-1.6 pipeline.")
         vl_result = parse_image_with_paddleocr_vl(str(path))
-        if vl_result and vl_result.get("text"):
+        if vl_result and vl_result.get("text") and vl_result.get("structured_json"):
             text = vl_result["text"]
             md_lines.append(f"# {path.stem}\n\n" + text)
             content_list.append({
@@ -157,15 +180,19 @@ def parse_with_native_idp(document_code: str, input_path: str) -> dict:
                 "text_level": 0,
                 "page_idx": 0,
                 "schema_data": vl_result.get("structured_json"),
+                "status": "PROCESSED",
             })
         else:
-            text = f"【图像原文件已在 IDP 存储】: {path.name}"
-            md_lines.append(f"# {path.stem}\n\n" + text)
+            # Fail-closed handling for image parsing: mark REVIEW
+            err_msg = f"【图像原文件识别失败/待审核】: {path.name}"
+            md_lines.append(f"# {path.stem}\n\n" + err_msg)
             content_list.append({
                 "type": "text",
-                "text": text,
+                "text": err_msg,
                 "text_level": 0,
                 "page_idx": 0,
+                "status": "REVIEW",
+                "warning": "OCR_VL_FAIL_CLOSED",
             })
 
     elif suffix in (".docx", ".doc"):
