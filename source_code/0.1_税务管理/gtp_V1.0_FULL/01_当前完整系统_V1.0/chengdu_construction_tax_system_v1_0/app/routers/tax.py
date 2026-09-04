@@ -1,7 +1,8 @@
-"""法人月度税务台账路由。
+"""Tax ledger and risk disposition mutation routes.
 
-The browser GET is deliberately read-only.  Rebuilding a period is an
-explicit, authenticated and CSRF-protected POST operation.
+Tax-ledger reads remain read-only. Mutations are explicit, authenticated and
+CSRF-protected. Risk disposition writes only the durable ``risk_events.resolved``
+state and an audit trail; browser-local state is never treated as authoritative.
 """
 from __future__ import annotations
 
@@ -20,20 +21,18 @@ from ..auth import CSRF_COOKIE_NAME
 from ..calc import rebuild_tax_ledger
 from ..db import SessionLocal
 from ..dependencies import require_role
-from ..models import TaxLedger, TaxRule
+from ..models import AuditLog, RiskEvent, TaxLedger, TaxRule
 from ..templates import templates
 
 router = APIRouter()
 _LOGGER = logging.getLogger(__name__)
 _PERIOD_RE = re.compile(r"^\d{4}-(?:0[1-9]|1[0-2])$")
 _rebuild_dependency = Depends(require_role("admin", "operator"))
+_risk_disposition_dependency = Depends(require_role("admin", "operator"))
 
 
 class TaxLedgerRebuildRequest(BaseModel):
-    """Explicit JSON command input for rebuilding one accounting period."""
-
     model_config = ConfigDict(extra="forbid")
-
     period: str = Field(
         ...,
         min_length=7,
@@ -44,11 +43,26 @@ class TaxLedgerRebuildRequest(BaseModel):
 
 
 class TaxLedgerRebuildResponse(BaseModel):
-    """Stable success contract for the explicit rebuild command."""
-
     status: str = Field(..., pattern=r"^success$")
     period: str = Field(..., pattern=r"^\d{4}-(?:0[1-9]|1[0-2])$")
     row_count: int = Field(..., ge=0)
+
+
+class RiskDispositionRequest(BaseModel):
+    """Durable disposition command for one risk event."""
+
+    model_config = ConfigDict(extra="forbid")
+    risk_id: int = Field(..., ge=1)
+    resolved: bool = True
+    note: str = Field(default="", max_length=1000)
+    handler: str = Field(default="", max_length=120)
+
+
+class RiskDispositionResponse(BaseModel):
+    status: str = Field(..., pattern=r"^success$")
+    risk_id: int
+    resolved: bool
+    display_status: str
 
 
 def _validate_period(period: str) -> str:
@@ -59,18 +73,97 @@ def _validate_period(period: str) -> str:
 
 
 def _require_csrf(request: Request, supplied: str) -> None:
-    """Require a matching form/header token in addition to middleware checks."""
     if os.getenv("APP_ENV", "development").lower() not in {"test", "production"}:
         return
     token = str(supplied or "").strip()
     if not token:
         token = request.headers.get("X-CSRF-Token", "").strip()
     if not token:
-        # Keep parity with AuthMiddleware's accepted API header alias.
         token = request.headers.get("X-XSRF-TOKEN", "").strip()
     cookie = request.cookies.get(CSRF_COOKIE_NAME, "").strip()
     if not token or not cookie or not hmac.compare_digest(token, cookie):
         raise HTTPException(status_code=403, detail="CSRF token 无效或缺失")
+
+
+def _actor_label(user) -> str:
+    if user is None:
+        return "anonymous"
+    if isinstance(user, dict):
+        for key in ("username", "name", "email", "sub"):
+            value = str(user.get(key) or "").strip()
+            if value:
+                return value[:80]
+    for key in ("username", "name", "email"):
+        value = str(getattr(user, key, "") or "").strip()
+        if value:
+            return value[:80]
+    return "authenticated-user"
+
+
+@router.post(
+    "/api/v1/risk/disposition",
+    response_model=RiskDispositionResponse,
+    summary="持久化风险处置状态",
+)
+def api_risk_disposition(
+    request: Request,
+    body: RiskDispositionRequest,
+    user=_risk_disposition_dependency,
+) -> RiskDispositionResponse:
+    """Persist a risk close/reopen action and record an audit trail atomically."""
+    _require_csrf(request, "")
+    db = SessionLocal()
+    try:
+        event = db.get(RiskEvent, body.risk_id)
+        if event is None:
+            raise HTTPException(status_code=404, detail="未找到指定风险事件")
+
+        previous = bool(event.resolved)
+        event.resolved = bool(body.resolved)
+        actor = _actor_label(user)
+        action = "RISK_RESOLVED" if body.resolved else "RISK_REOPENED"
+        note = body.note.strip()
+        handler = body.handler.strip()
+        audit_message = (
+            f"risk_id={event.id}; project_id={event.project_id}; "
+            f"resolved:{previous}->{event.resolved}"
+        )
+        if handler:
+            audit_message += f"; handler={handler}"
+        if note:
+            audit_message += f"; note={note}"
+        db.add(
+            AuditLog(
+                action=action,
+                object_type="risk_event",
+                object_id=str(event.id),
+                message=audit_message,
+                actor=actor,
+                ip=str(request.client.host if request.client else ""),
+                request_id=str(request.headers.get("X-Request-ID", ""))[:64],
+            )
+        )
+        db.commit()
+        db.refresh(event)
+        return RiskDispositionResponse(
+            status="success",
+            risk_id=int(event.id),
+            resolved=bool(event.resolved),
+            display_status="已闭环" if event.resolved else "待处置",
+        )
+    except HTTPException:
+        db.rollback()
+        raise
+    except SQLAlchemyError as exc:
+        db.rollback()
+        _LOGGER.exception("risk disposition database failure: risk_id=%s", body.risk_id)
+        raise HTTPException(status_code=503, detail="风险处置数据源暂时不可用") from exc
+    except Exception as exc:
+        db.rollback()
+        _LOGGER.exception("risk disposition failed: risk_id=%s", body.risk_id)
+        raise HTTPException(status_code=500, detail="风险处置失败") from exc
+    finally:
+        db.close()
 
 
 @router.post(
@@ -83,27 +176,13 @@ def api_tax_ledger_rebuild(
     body: TaxLedgerRebuildRequest,
     _user=_rebuild_dependency,
 ) -> TaxLedgerRebuildResponse:
-    """Rebuild exactly one requested period for the React JSON client.
-
-    The command is deliberately separate from the GET collection endpoint:
-    reads never generate or delete ledger rows.  The calculation engine owns
-    the source-of-truth transaction; this boundary only validates access,
-    maps errors to explicit HTTP statuses, and reports the returned row count.
-    """
-    # The middleware validates browser origin and any supplied CSRF header.
-    # Require the endpoint-level cookie/header match as well so an API JSON
-    # request cannot mutate state merely by being same-origin authenticated.
     _require_csrf(request, "")
     requested_period = _validate_period(body.period)
-
     db = SessionLocal()
     try:
         rows = rebuild_tax_ledger(db, requested_period)
         row_count = len(rows)
     except ValueError as exc:
-        # Domain/input/rule failures are client-visible 4xx errors.  The
-        # calculation engine rolls back itself; this boundary also rolls back
-        # so a patched or future engine cannot leave this session dirty.
         db.rollback()
         _LOGGER.warning(
             "tax ledger rebuild rejected: period=%s error=%s",
@@ -122,11 +201,7 @@ def api_tax_ledger_rebuild(
     finally:
         db.close()
 
-    return TaxLedgerRebuildResponse(
-        status="success",
-        period=requested_period,
-        row_count=row_count,
-    )
+    return TaxLedgerRebuildResponse(status="success", period=requested_period, row_count=row_count)
 
 
 @router.get("/tax-ledger", response_class=HTMLResponse)
@@ -135,7 +210,6 @@ def tax_ledger(
     period: str = Query(default="2026-08", min_length=7, max_length=7),
     rebuild: str | None = Query(default=None, max_length=20),
 ):
-    """Render an existing ledger period without changing database state."""
     requested_period = _validate_period(period)
     db = SessionLocal()
     try:
@@ -144,9 +218,7 @@ def tax_ledger(
             .where(TaxLedger.period == requested_period)
             .order_by(TaxLedger.entity_code, TaxLedger.id)
         ).scalars().all()
-        unreviewed = db.execute(
-            select(TaxRule).where(TaxRule.reviewed.is_(False))
-        ).scalars().all()
+        unreviewed = db.execute(select(TaxRule).where(TaxRule.reviewed.is_(False))).scalars().all()
         return templates.TemplateResponse(
             request,
             "tax_ledger.html",
@@ -173,15 +245,10 @@ def tax_ledger_rebuild(
     csrf_token: str = Form(default="", alias="_csrf"),
     _user=_rebuild_dependency,
 ):
-    """Explicitly rebuild one period, then redirect to the read-only GET."""
     requested_period = _validate_period(period)
     _require_csrf(request, csrf_token)
-
     db = SessionLocal()
     try:
-        # ``rebuild_tax_ledger`` owns the atomic replacement transaction and
-        # rolls back on validation/database failure.  This endpoint never
-        # seeds or repairs source/master data implicitly.
         rebuild_tax_ledger(db, requested_period)
     except Exception:
         db.rollback()
@@ -192,7 +259,6 @@ def tax_ledger_rebuild(
         )
     finally:
         db.close()
-
     return RedirectResponse(
         f"/tax-ledger?period={requested_period}&rebuild=success",
         status_code=303,
