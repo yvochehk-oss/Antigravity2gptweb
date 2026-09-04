@@ -268,13 +268,52 @@ struct ProcessInspector {
                     rootURL: rootURL
                 )
         case .bossWeb:
-            let commandLooksLikeVite = normalizedCommand.contains("vite")
-                || normalizedCommand.contains("npm run dev")
-                || normalizedCommand.contains("npm exec")
             let expectedDirectory = bossDirectoryURL ?? rootURL
-            return commandLooksLikeVite
+            return bossCommandOwnershipMatches(
+                    command: command,
+                    normalizedCommand: normalizedCommand,
+                    expectedDirectory: expectedDirectory
+                )
                 && portArgument
                 && pathIsInside(workingDirectory, rootURL: expectedDirectory)
+        }
+    }
+
+    /// A process is only a project Boss process when its executable/entrypoint
+    /// is the project's Vite entry (or the project package-manager command),
+    /// in addition to having the expected cwd and port.  Looking only for the
+    /// substring `vite` would allow an unrelated `/tmp/foreign-vite.js` to be
+    /// treated as owned merely because it happened to run from this cwd.
+    private static func bossCommandOwnershipMatches(
+        command: String,
+        normalizedCommand: String,
+        expectedDirectory: URL
+    ) -> Bool {
+        if normalizedCommand.contains("npm run dev") {
+            return true
+        }
+
+        let tokens = commandTokens(command)
+        if normalizedCommand.contains("npm exec") {
+            return tokens.contains { token in
+                let normalizedToken = token.lowercased()
+                return normalizedToken == "vite" || normalizedToken == "vite.js"
+                    || normalizedToken.hasSuffix("/vite/bin/vite.js")
+                    || normalizedToken.hasSuffix("/node_modules/.bin/vite")
+            }
+        }
+
+        return tokens.contains { token in
+            let normalizedToken = token.lowercased()
+            if normalizedToken == "vite" || normalizedToken == "vite.js"
+                || normalizedToken == "vite/bin/vite.js"
+                || normalizedToken.hasSuffix("/vite/bin/vite.js")
+                || normalizedToken.hasSuffix("/node_modules/.bin/vite") {
+                return true
+            }
+            return normalizedToken.hasPrefix("/")
+                && pathIsInside(normalizedToken, rootURL: expectedDirectory)
+                && normalizedToken.contains("vite")
         }
     }
 
@@ -411,8 +450,20 @@ struct ProcessInspector {
 
     private static func pathIsInside(_ path: String?, rootURL: URL) -> Bool {
         guard let path else { return false }
-        let candidate = URL(fileURLWithPath: path).standardizedFileURL.path
-        let root = rootURL.standardizedFileURL.path
+        // `lsof` reports macOS temporary directories through their canonical
+        // `/private` path while launch arguments may retain `/var`.  Resolve
+        // both sides before comparing so a project process is not rejected
+        // solely because the two OS APIs chose different spellings.  Symlink
+        // resolution also prevents a path that escapes the project from being
+        // accepted under a symlinked project directory.
+        let candidate = URL(fileURLWithPath: path)
+            .standardizedFileURL
+            .resolvingSymlinksInPath()
+            .path
+        let root = rootURL
+            .standardizedFileURL
+            .resolvingSymlinksInPath()
+            .path
         return candidate == root || candidate.hasPrefix(root + "/")
     }
 

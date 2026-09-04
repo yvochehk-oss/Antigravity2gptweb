@@ -222,6 +222,14 @@ final class ConsoleTests: XCTestCase {
             rootURL: root,
             bossDirectoryURL: bossDirectory
         ))
+        XCTAssertFalse(ProcessInspector.matches(
+            kind: .bossWeb,
+            command: "node /tmp/foreign-vite.js preview --port 5173",
+            workingDirectory: bossDirectory.path,
+            port: 5173,
+            rootURL: root,
+            bossDirectoryURL: bossDirectory
+        ))
         XCTAssertEqual(try XCTUnwrap(ProcessInspector.parseElapsed("1-02:03:04")), 93_784, accuracy: 0.1)
     }
 
@@ -516,7 +524,10 @@ final class ConsoleTests: XCTestCase {
     }
 
     func testControllerRejectsOverlappingActionsWithoutTouchingFormalServices() throws {
-        let root = try makeProjectRoot(startBody: "#!/bin/bash\nsleep 0.5\nexit 0\n")
+        let root = try makeProjectRoot(
+            startBody: "#!/bin/bash\nsleep 0.5\nexit 0\n",
+            bossPort: nextTestPort()
+        )
         let logURL = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("cdjg-console-test-\(UUID().uuidString).log")
         let logStore = LogStore(fileURL: logURL)
@@ -553,7 +564,10 @@ final class ConsoleTests: XCTestCase {
     }
 
     func testCoreStartFailureDoesNotLaunchBoss() throws {
-        let root = try makeProjectRoot(startBody: "#!/bin/bash\nexit 7\n")
+        let root = try makeProjectRoot(
+            startBody: "#!/bin/bash\nexit 7\n",
+            bossPort: nextTestPort()
+        )
         let logURL = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("cdjg-console-start-failure-\(UUID().uuidString).log")
         let controller = ServiceController(
@@ -577,7 +591,8 @@ final class ConsoleTests: XCTestCase {
         let root = try makeProjectRoot(
             startBody: "#!/bin/bash\nexit 0\n",
             stopBody: "#!/bin/bash\ntouch '\(marker.path)'\nexit 0\n",
-            includeBossRuntime: false
+            includeBossRuntime: false,
+            bossPort: nextTestPort()
         )
         let logURL = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("cdjg-console-boss-failure-\(UUID().uuidString).log")
@@ -596,6 +611,129 @@ final class ConsoleTests: XCTestCase {
         wait(for: [finished], timeout: 5)
         try? FileManager.default.removeItem(at: marker)
         try? FileManager.default.removeItem(at: logURL)
+    }
+
+    func testStartAndRestartReplaceConfirmedBossListenerWithoutPID() throws {
+        for action in [ControlAction.startAll, ControlAction.restartAll] {
+            let port = nextTestPort()
+            let eventURL = URL(fileURLWithPath: NSTemporaryDirectory())
+                .appendingPathComponent("cdjg-console-replace-\(UUID().uuidString).events")
+            let root = try makeProjectRoot(
+                startBody: "#!/bin/bash\necho start >> '\(eventURL.path)'\nexit 0\n",
+                stopBody: "#!/bin/bash\necho stop >> '\(eventURL.path)'\nexit 0\n"
+            )
+            try "BOSS_PORT=\(port)\n".write(
+                to: root.appendingPathComponent(".env"),
+                atomically: true,
+                encoding: .utf8
+            )
+            let configuration = ProjectConfiguration(rootURL: root)
+            let oldBoss = try launchAliasProcess(
+                alias: "node \(configuration.bossViteEntryURL.path) preview --host 127.0.0.1 --port \(port) --strictPort",
+                executable: "/usr/bin/nc",
+                arguments: ["-l", "127.0.0.1", "\(port)"],
+                currentDirectory: configuration.bossDirectoryURL
+            )
+            defer { terminateTestProcess(oldBoss) }
+            XCTAssertTrue(waitUntilListening(port: port, containing: oldBoss.processIdentifier))
+            XCTAssertFalse(FileManager.default.fileExists(atPath: configuration.appPIDFileURL.path))
+
+            let logURL = URL(fileURLWithPath: NSTemporaryDirectory())
+                .appendingPathComponent("cdjg-console-replace-\(UUID().uuidString).log")
+            let controller = ServiceController(
+                configuration: configuration,
+                logStore: LogStore(fileURL: logURL)
+            )
+            let finished = expectation(description: "\(action.displayName) replaces old Boss")
+            var result: ActionResult?
+            controller.perform(action) {
+                result = $0
+                finished.fulfill()
+            }
+            wait(for: [finished], timeout: 15)
+
+            XCTAssertTrue(result?.succeeded == true, result?.message ?? "未收到启动结果")
+            XCTAssertFalse(ProcessInspector.isAlive(oldBoss.processIdentifier))
+
+            let newPID = try XCTUnwrap(ProcessInspector.readPID(at: configuration.appPIDFileURL))
+            XCTAssertNotEqual(newPID, oldBoss.processIdentifier)
+            XCTAssertTrue(
+                ProcessInspector.evidence(
+                    forPID: newPID,
+                    port: port,
+                    kind: .bossWeb,
+                    rootURL: configuration.rootURL,
+                    bossDirectoryURL: configuration.bossDirectoryURL
+                )?.confirmed == true
+            )
+
+            let events = try String(contentsOf: eventURL, encoding: .utf8)
+                .split(whereSeparator: \.isNewline)
+                .map(String.init)
+            XCTAssertEqual(events, ["stop", "start"], "\(action.displayName) 应只执行一次停止再启动")
+
+            XCTAssertTrue(ProcessInspector.sendSignal(15, to: newPID))
+            XCTAssertTrue(waitUntilStoppedForTest(newPID))
+            try? FileManager.default.removeItem(at: configuration.appPIDFileURL)
+            try? FileManager.default.removeItem(at: eventURL)
+            try? FileManager.default.removeItem(at: logURL)
+            try? FileManager.default.removeItem(at: root)
+        }
+    }
+
+    func testStartAndRestartRejectUnconfirmedBossListenerWithoutStoppingCore() throws {
+        for action in [ControlAction.startAll, ControlAction.restartAll] {
+            let port = nextTestPort()
+            let eventURL = URL(fileURLWithPath: NSTemporaryDirectory())
+                .appendingPathComponent("cdjg-console-foreign-\(UUID().uuidString).events")
+            let root = try makeProjectRoot(
+                startBody: "#!/bin/bash\necho start >> '\(eventURL.path)'\nexit 0\n",
+                stopBody: "#!/bin/bash\necho stop >> '\(eventURL.path)'\nexit 0\n"
+            )
+            try "BOSS_PORT=\(port)\n".write(
+                to: root.appendingPathComponent(".env"),
+                atomically: true,
+                encoding: .utf8
+            )
+            let configuration = ProjectConfiguration(rootURL: root)
+            let foreignDirectory = root
+                .deletingLastPathComponent()
+                .appendingPathComponent("cdjg-foreign-\(UUID().uuidString)", isDirectory: true)
+            try FileManager.default.createDirectory(at: foreignDirectory, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: foreignDirectory) }
+
+            let foreignBoss = try launchAliasProcess(
+                alias: "node /tmp/foreign-vite.js preview --host 127.0.0.1 --port \(port) --strictPort",
+                executable: "/usr/bin/nc",
+                arguments: ["-l", "127.0.0.1", "\(port)"],
+                currentDirectory: foreignDirectory
+            )
+            defer { terminateTestProcess(foreignBoss) }
+            XCTAssertTrue(waitUntilListening(port: port, containing: foreignBoss.processIdentifier))
+
+            let logURL = URL(fileURLWithPath: NSTemporaryDirectory())
+                .appendingPathComponent("cdjg-console-foreign-\(UUID().uuidString).log")
+            let controller = ServiceController(
+                configuration: configuration,
+                logStore: LogStore(fileURL: logURL)
+            )
+            let finished = expectation(description: "拒绝外部老板驾驶舱")
+            var result: ActionResult?
+            controller.perform(action) {
+                result = $0
+                finished.fulfill()
+            }
+            wait(for: [finished], timeout: 10)
+
+            XCTAssertFalse(result?.succeeded == true, result?.message ?? "未收到启动结果")
+            XCTAssertTrue(result?.message.contains("无法确认") == true)
+            XCTAssertTrue(ProcessInspector.isAlive(foreignBoss.processIdentifier))
+            XCTAssertFalse(FileManager.default.fileExists(atPath: eventURL.path))
+            XCTAssertFalse(FileManager.default.fileExists(atPath: configuration.appPIDFileURL.path))
+
+            try? FileManager.default.removeItem(at: logURL)
+            try? FileManager.default.removeItem(at: root)
+        }
     }
 
     func testManagedMessagesDoNotContainInterpolationPlaceholders() throws {
@@ -650,13 +788,21 @@ final class ConsoleTests: XCTestCase {
     private func makeProjectRoot(
         startBody: String = "#!/bin/bash\nexit 0\n",
         stopBody: String = "#!/bin/bash\nexit 0\n",
-        includeBossRuntime: Bool = true
+        includeBossRuntime: Bool = true,
+        bossPort: Int? = nil
     ) throws -> URL {
         let root = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
             .appendingPathComponent("cdjg-console-root-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         try startBody.write(to: root.appendingPathComponent("start_all.sh"), atomically: true, encoding: .utf8)
         try stopBody.write(to: root.appendingPathComponent("stop_all.sh"), atomically: true, encoding: .utf8)
+        if let bossPort {
+            try "BOSS_PORT=\(bossPort)\n".write(
+                to: root.appendingPathComponent(".env"),
+                atomically: true,
+                encoding: .utf8
+            )
+        }
         if includeBossRuntime {
             let viteShim = root
                 .appendingPathComponent("source_code/0.3_老板端安卓App_天府掌舵/node_modules/.bin/vite")
@@ -728,6 +874,14 @@ final class ConsoleTests: XCTestCase {
             Thread.sleep(forTimeInterval: 0.05)
         }
         return false
+    }
+
+    private func waitUntilStoppedForTest(_ pid: Int32, timeout: TimeInterval = 5) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while ProcessInspector.isAlive(pid) && Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.05)
+        }
+        return !ProcessInspector.isAlive(pid)
     }
 
     private func terminateTestProcess(_ process: Process) {

@@ -69,23 +69,10 @@ final class ServiceController {
         case .stopAll:
             result = stopAll(action: action)
         case .restartAll:
-            let stop = stopAll(action: action)
-            if !stop.succeeded {
-                result = ActionResult(
-                    action: action,
-                    succeeded: false,
-                    exitCode: stop.exitCode,
-                    message: "重启已中止：停止阶段未完成。\(stop.message)"
-                )
-            } else {
-                let start = startAll(action: action)
-                result = ActionResult(
-                    action: action,
-                    succeeded: start.succeeded,
-                    exitCode: start.exitCode,
-                    message: "\(stop.message)；\(start.message)"
-                )
-            }
+            // `startAll` owns the complete stop-then-start transaction.  Keep
+            // restart on the same path so it cannot stop the project twice or
+            // accidentally launch while an old listener is still present.
+            result = startAll(action: action)
         }
 
         logStore.record(result.message)
@@ -93,6 +80,21 @@ final class ServiceController {
     }
 
     private func startAll(action: ControlAction) -> ActionResult {
+        // A start request is a full refresh of the project runtime, not a
+        // request to reuse whatever happens to be listening on the ports.  Do
+        // the fail-closed cleanup before touching the core services.  In
+        // particular, an unknown 5173 listener must abort without stopping
+        // Tax/RAG/IDP/LLM or sending a signal to the foreign process.
+        let cleanup = stopServicesBeforeStart(action: action)
+        guard cleanup.succeeded else {
+            return ActionResult(
+                action: action,
+                succeeded: false,
+                exitCode: cleanup.exitCode,
+                message: "启动未执行：旧项目进程未能安全停止。\(cleanup.message)"
+            )
+        }
+
         let core = runScript(
             configuration.startScriptURL,
             arguments: ["start"],
@@ -136,10 +138,21 @@ final class ServiceController {
         )
     }
 
-    private func stopAll(action: ControlAction) -> ActionResult {
-        // Stop the web front end first so it cannot keep presenting a page
-        // while the backing services are being torn down.
+    private func stopServicesBeforeStart(action: ControlAction) -> ActionResult {
+        // Stop the Boss web front end first so a stale page cannot keep
+        // presenting while the backing services are being torn down.  This
+        // also discovers a project-owned 5173 listener when `.app.pid` is
+        // missing, while refusing any ambiguous listener before core stop.
         let boss = stopBoss()
+        guard boss.succeeded else {
+            return ActionResult(
+                action: action,
+                succeeded: false,
+                exitCode: nil,
+                message: boss.message
+            )
+        }
+
         let core = runScript(
             configuration.stopScriptURL,
             arguments: [],
@@ -148,10 +161,17 @@ final class ServiceController {
         )
         return ActionResult(
             action: action,
-            succeeded: boss.succeeded && core.succeeded,
+            succeeded: core.succeeded,
             exitCode: core.exitCode,
             message: "\(boss.message)；\(core.message)"
         )
+    }
+
+    private func stopAll(action: ControlAction) -> ActionResult {
+        // Use the same ordered, fail-closed stop path as start/restart.  This
+        // keeps an ambiguous Boss listener from being mistaken for a managed
+        // process and avoids running the core stop script after that refusal.
+        return stopServicesBeforeStart(action: action)
     }
 
     private struct BossLaunchPlan {
@@ -253,31 +273,70 @@ final class ServiceController {
 
         let fileManager = FileManager.default
         let pidFileURL = configuration.appPIDFileURL
-        guard fileManager.fileExists(atPath: pidFileURL.path) else {
-            return BossOperation(succeeded: true, message: "老板驾驶舱未发现受控 PID，未终止任何进程")
-        }
-        guard let pid = ProcessInspector.readPID(at: pidFileURL) else {
-            return BossOperation(succeeded: false, message: "老板驾驶舱 PID 文件无效，未发送停止信号")
+        var candidatePIDs = Set<Int32>()
+        var hadRecordedPID = false
+
+        if fileManager.fileExists(atPath: pidFileURL.path) {
+            guard let recordedPID = ProcessInspector.readPID(at: pidFileURL) else {
+                return BossOperation(succeeded: false, message: "老板驾驶舱 PID 文件无效，未发送停止信号")
+            }
+
+            if ProcessInspector.isAlive(recordedPID) {
+                guard confirmedBossEvidence(for: recordedPID) != nil else {
+                    return BossOperation(
+                        succeeded: false,
+                        message: "老板驾驶舱 PID \(recordedPID) 无法同时确认命令、工作目录和项目归属，未发送停止信号"
+                    )
+                }
+                candidatePIDs.insert(recordedPID)
+                hadRecordedPID = true
+            } else {
+                // A dead PID record is safe to remove, but still inspect 5173
+                // below: a manually launched project Vite process can survive
+                // after the controller's record was deleted.
+                try? fileManager.removeItem(at: pidFileURL)
+            }
         }
 
-        guard ProcessInspector.isAlive(pid) else {
-            try? fileManager.removeItem(at: pidFileURL)
-            return BossOperation(succeeded: true, message: "老板驾驶舱进程已不存在，已清理陈旧 PID")
+        // The PID file is only an ownership hint.  Enumerate every listener
+        // before sending any signal so a foreign listener sharing the port
+        // causes a complete fail-closed refusal rather than partial cleanup.
+        let listenerPIDs = ProcessInspector.listeningPIDs(port: configuration.bossPort)
+        var confirmedListenerCount = 0
+        for listenerPID in listenerPIDs {
+            guard confirmedBossEvidence(for: listenerPID, source: "监听端口") != nil else {
+                return BossOperation(
+                    succeeded: false,
+                    message: "老板驾驶舱端口 \(configuration.bossPort) 存在无法确认命令、工作目录和项目归属的监听进程，未发送停止信号"
+                )
+            }
+            candidatePIDs.insert(listenerPID)
+            confirmedListenerCount += 1
         }
 
-        guard confirmedBossEvidence(for: pid) != nil else {
+        guard !candidatePIDs.isEmpty else {
             return BossOperation(
-                succeeded: false,
-                message: "老板驾驶舱 PID \(pid) 无法同时确认命令、工作目录和项目归属，未发送停止信号"
+                succeeded: true,
+                message: hadRecordedPID
+                    ? "老板驾驶舱进程已不存在，已清理陈旧 PID"
+                    : "老板驾驶舱未发现运行进程，未终止任何进程"
             )
         }
 
-        guard terminateConfirmedBoss(pid: pid) else {
-            return BossOperation(succeeded: false, message: "老板驾驶舱未能安全停止，PID 文件已保留供人工检查")
+        for pid in candidatePIDs.sorted() {
+            guard terminateConfirmedBoss(pid: pid) else {
+                return BossOperation(
+                    succeeded: false,
+                    message: "老板驾驶舱 PID \(pid) 未能安全停止，未清理 PID 文件"
+                )
+            }
         }
 
         try? fileManager.removeItem(at: pidFileURL)
-        return BossOperation(succeeded: true, message: "老板驾驶舱已停止")
+        let sourceMessage = confirmedListenerCount > 0 && !hadRecordedPID
+            ? "老板驾驶舱已停止（通过端口监听确认并回收）"
+            : "老板驾驶舱已停止"
+        return BossOperation(succeeded: true, message: sourceMessage)
     }
 
     private func bossLaunchPlan() -> BossLaunchPlan? {
@@ -385,10 +444,10 @@ final class ServiceController {
         )
     }
 
-    private func confirmedBossEvidence(for pid: Int32) -> ProcessEvidence? {
+    private func confirmedBossEvidence(for pid: Int32, source: String = "项目 .app.pid") -> ProcessEvidence? {
         ProcessInspector.evidence(
             forPID: pid,
-            source: "项目 .app.pid",
+            source: source,
             port: configuration.bossPort,
             kind: .bossWeb,
             rootURL: configuration.rootURL,
