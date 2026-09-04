@@ -264,12 +264,11 @@ def _check_ai() -> dict[str, object]:
         }
     latency_ms = int((time.monotonic() - started) * 1000)
     statuses = {str(endpoint.get("status") or "") for endpoint in endpoints}
-    if statuses == {"ok"}:
-        overall = "ok"
-    elif "ok" in statuses:
-        overall = "degraded"
-    else:
-        overall = "down"
+    # The configured endpoints form a failover pool.  One healthy endpoint
+    # keeps the AI capability available; individual failures remain visible
+    # in ``endpoints`` for diagnosis.  Only a pool with no healthy endpoint
+    # is unavailable as a whole.
+    overall = "ok" if "ok" in statuses else "down"
     return {"status": overall, "latency_ms": latency_ms, "endpoints": endpoints}
 
 
