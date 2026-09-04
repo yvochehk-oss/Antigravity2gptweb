@@ -53,6 +53,16 @@ _LOCAL_LLM_REASONING_WAS_SET="${LOCAL_LLM_REASONING+x}"
 _LOCAL_LLM_REASONING_OVERRIDE="${LOCAL_LLM_REASONING-}"
 _LOCAL_LLM_TIMEOUT_WAS_SET="${LOCAL_LLM_STARTUP_TIMEOUT_SECONDS+x}"
 _LOCAL_LLM_TIMEOUT_OVERRIDE="${LOCAL_LLM_STARTUP_TIMEOUT_SECONDS-}"
+HARDWARE_ENV_FILE="$PROJECT_DIR/.env.hardware"
+if [ ! -f "$HARDWARE_ENV_FILE" ]; then
+  python3 "$PROJECT_DIR/scripts/runtime/detect_hardware.py" >/dev/null 2>&1 || true
+fi
+if [ -f "$HARDWARE_ENV_FILE" ]; then
+  set -a
+  # shellcheck disable=SC1090
+  source "$HARDWARE_ENV_FILE"
+  set +a
+fi
 if [ -f "$ROOT_ENV_FILE" ]; then
   set -a
   # shellcheck disable=SC1090

@@ -12,6 +12,40 @@ class NativeParserError(RuntimeError):
     """Raised when the built-in parser cannot extract usable content."""
 
 
+def parse_image_with_paddleocr_vl(image_path: str) -> dict | None:
+    """Call PaddleOCR-VL-1.6 multimodal endpoint for image/scan extraction."""
+    import base64
+    import requests
+    import os
+
+    vl_endpoint = os.getenv("PADDLE_OCR_VL_ENDPOINT", "http://127.0.0.1:8935/v1/chat/completions")
+    try:
+        with open(image_path, "rb") as f:
+            b64_str = base64.b64encode(f.read()).decode("utf-8")
+        
+        payload = {
+            "model": "PaddleOCR-VL-1.6",
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64_str}"}},
+                        {"type": "text", "text": "请提取该单据/扫描件的核心文本与关键数据，并简洁结构化输出。"}
+                    ]
+                }
+            ],
+            "temperature": 0.1,
+            "max_tokens": 1024
+        }
+        r = requests.post(vl_endpoint, json=payload, timeout=30)
+        if r.status_code == 200:
+            content = r.json()["choices"][0]["message"]["content"]
+            return {"text": content, "structured_json": None}
+    except Exception as e:
+        logger.warning(f"PaddleOCR-VL-1.6 parse warning for {image_path}: {e}")
+    return None
+
+
 def parse_with_native_idp(document_code: str, input_path: str) -> dict:
     """IDP 3.0 native document parser supporting PDF, images, Word, Excel, and text."""
     path = Path(input_path)
@@ -29,19 +63,6 @@ def parse_with_native_idp(document_code: str, input_path: str) -> dict:
             ocr_engine = None
             for page_idx, page in enumerate(doc):
                 page_text = page.get_text("text").strip()
-                # Check if scanned or image-only page
-                if len(page_text) < 30:
-                    try:
-                        from rapidocr_onnxruntime import RapidOCR
-                        if ocr_engine is None:
-                            ocr_engine = RapidOCR()
-                        pix = page.get_pixmap(dpi=180)
-                        ocr_res, _ = ocr_engine(pix.tobytes("png"))
-                        if ocr_res:
-                            page_text = "\n".join([line[1] for line in ocr_res])
-                    except Exception as ocr_err:
-                        logger.warning(f"OCR fallback failed for page {page_idx}: {ocr_err}")
-
                 if page_text:
                     md_lines.append(f"## 第 {page_idx + 1} 页\n\n" + page_text)
                     content_list.append({
@@ -56,23 +77,27 @@ def parse_with_native_idp(document_code: str, input_path: str) -> dict:
             raise NativeParserError(f"PDF parsing error: {pdf_err}")
 
     elif suffix in (".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".webp"):
-        try:
-            from rapidocr_onnxruntime import RapidOCR
-            engine = RapidOCR()
-            ocr_res, _ = engine(str(path))
-            if ocr_res:
-                lines = [line[1] for line in ocr_res]
-                text = "\n".join(lines)
-                md_lines.append(f"# {path.stem}\n\n" + text)
-                content_list.append({
-                    "type": "text",
-                    "text": text,
-                    "text_level": 0,
-                    "page_idx": 0,
-                })
-        except Exception as img_err:
-            logger.error(f"Native image OCR error: {img_err}")
-            raise NativeParserError(f"Image OCR error: {img_err}")
+        logger.info(f"Image document {path.name} routing to PaddleOCR-VL-1.6 pipeline.")
+        vl_result = parse_image_with_paddleocr_vl(str(path))
+        if vl_result and vl_result.get("text"):
+            text = vl_result["text"]
+            md_lines.append(f"# {path.stem}\n\n" + text)
+            content_list.append({
+                "type": "text",
+                "text": text,
+                "text_level": 0,
+                "page_idx": 0,
+                "schema_data": vl_result.get("structured_json"),
+            })
+        else:
+            text = f"【图像原文件已在 IDP 存储】: {path.name}"
+            md_lines.append(f"# {path.stem}\n\n" + text)
+            content_list.append({
+                "type": "text",
+                "text": text,
+                "text_level": 0,
+                "page_idx": 0,
+            })
 
     elif suffix in (".docx", ".doc"):
         try:
