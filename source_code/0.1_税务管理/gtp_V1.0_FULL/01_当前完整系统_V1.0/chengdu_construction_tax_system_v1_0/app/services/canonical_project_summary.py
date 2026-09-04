@@ -14,13 +14,6 @@ from sqlalchemy import text
 from ..models import Project
 from .canonical_ssot import _decimal, _payload, consolidate_invoice_facts, load_current_facts
 
-_PRIMARY_CONTRACT_CODES = (
-    "CDTF-MAIN-2026-01",
-    "CDTF-MAIN-2023-01",
-    "ZB-CD-TF",
-    "ZB-CY-CQ",
-    "ZB-GY-LZ",
-)
 
 
 def _clean(value: Any) -> str:
@@ -37,7 +30,14 @@ def resolve_project_transaction_price(
     *,
     contract_facts: Iterable[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    """Resolve project revenue transaction price from Canonical contract facts."""
+    """Resolve project revenue transaction price without project-specific codes.
+
+    Resolution order is intentionally data-driven and non-crashing:
+    1. explicit canonical contract_scope marker;
+    2. ZB-* general/main-contract convention;
+    3. largest external-boundary contract (degraded when ambiguity exists);
+    4. projects master contract_total / contract_amount (degraded fallback).
+    """
     internal_codes = {
         _code(code)
         for code in db.execute(text("SELECT code FROM entities WHERE active = TRUE")).scalars().all()
@@ -58,55 +58,67 @@ def resolve_project_transaction_price(
         scope = _clean(payload.get("contract_scope")).upper()
         if amount <= 0:
             continue
-        known_main = contract_no.upper() in _PRIMARY_CONTRACT_CODES
         explicit_main = scope in {"PRIMARY_CUSTOMER_CONTRACT", "PROJECT_REVENUE"}
+        zb_main = _code(contract_no).startswith("ZB-")
         crosses_boundary = bool(party_a and party_b) and ((party_a in internal_codes) != (party_b in internal_codes))
-        if known_main or explicit_main or crosses_boundary:
-            candidates.append(
-                {
-                    "fact_id": int(fact.get("fact_id") or 0),
-                    "fact_version": int(fact.get("fact_version") or 0),
-                    "contract_no": contract_no,
-                    "amount": amount,
-                    "known_main": known_main,
-                    "explicit_main": explicit_main,
-                    "crosses_boundary": crosses_boundary,
-                }
-            )
+        candidates.append(
+            {
+                "fact_id": int(fact.get("fact_id") or 0),
+                "fact_version": int(fact.get("fact_version") or 0),
+                "contract_no": contract_no,
+                "amount": amount,
+                "explicit_main": explicit_main,
+                "zb_main": zb_main,
+                "crosses_boundary": crosses_boundary,
+            }
+        )
 
-    known_main_candidates = [row for row in candidates if row["known_main"]]
-    if known_main_candidates:
-        unique_amounts = {row["amount"] for row in known_main_candidates}
-        if len(unique_amounts) != 1:
-            raise ValueError("ambiguous canonical project transaction price")
-        pool = known_main_candidates
+    def _pick(rows: list[dict[str, Any]]) -> dict[str, Any]:
+        return sorted(
+            rows,
+            key=lambda row: (row["amount"], row["fact_version"], row["fact_id"]),
+            reverse=True,
+        )[0]
+
+    explicit = [row for row in candidates if row["explicit_main"]]
+    if explicit:
+        selected = _pick(explicit)
+        status = "READY" if len(explicit) == 1 else "DEGRADED"
+        reason = "EXPLICIT_SCOPE" if len(explicit) == 1 else "MULTIPLE_EXPLICIT_SCOPE_MAX_AMOUNT"
     else:
-        explicit_main_candidates = [row for row in candidates if row["explicit_main"]]
-        if explicit_main_candidates:
-            if len(explicit_main_candidates) != 1:
-                raise ValueError("ambiguous canonical project transaction price")
-            pool = explicit_main_candidates
+        zb_candidates = [row for row in candidates if row["zb_main"]]
+        if zb_candidates:
+            selected = _pick(zb_candidates)
+            status = "READY" if len(zb_candidates) == 1 else "DEGRADED"
+            reason = "ZB_PREFIX" if len(zb_candidates) == 1 else "MULTIPLE_ZB_MAX_AMOUNT"
         else:
-            boundary_candidates = [row for row in candidates if row["crosses_boundary"]]
-            if not boundary_candidates:
+            boundary = [row for row in candidates if row["crosses_boundary"]]
+            if boundary:
+                selected = _pick(boundary)
+                status = "READY" if len(boundary) == 1 else "DEGRADED"
+                reason = "SINGLE_BOUNDARY" if len(boundary) == 1 else "MULTIPLE_BOUNDARY_MAX_AMOUNT"
+            else:
+                project = db.get(Project, int(project_id)) if hasattr(db, "get") else None
+                fallback_amount = _decimal(
+                    getattr(project, "contract_total", None)
+                    or getattr(project, "contract_amount", None)
+                ) if project is not None else Decimal("0")
                 return {
-                    "amount": Decimal("0"),
-                    "status": "EMPTY",
+                    "amount": fallback_amount,
+                    "status": "DEGRADED" if fallback_amount > 0 else "EMPTY",
                     "source_fact_id": None,
                     "fact_version": None,
                     "contract_no": "",
+                    "resolution_reason": "PROJECT_MASTER_FALLBACK" if fallback_amount > 0 else "NO_CONTRACT_PRICE_FACT",
                 }
-            if len(boundary_candidates) != 1:
-                raise ValueError("ambiguous canonical project transaction price")
-            pool = boundary_candidates
 
-    selected = sorted(pool, key=lambda row: (row["fact_version"], row["fact_id"]), reverse=True)[0]
     return {
         "amount": selected["amount"],
-        "status": "READY",
+        "status": status,
         "source_fact_id": selected["fact_id"],
         "fact_version": selected["fact_version"],
         "contract_no": selected["contract_no"],
+        "resolution_reason": reason,
     }
 
 
@@ -210,6 +222,8 @@ def canonical_project_summary(db, project_id: int) -> dict[str, Any]:
             "fact_id": transaction["source_fact_id"],
             "fact_version": transaction["fact_version"],
             "contract_no": transaction["contract_no"],
+            "resolution_reason": transaction.get("resolution_reason", ""),
+            "resolution_reason": transaction.get("resolution_reason", ""),
         },
         "engine_version": accounting["engine_version"],
         "lineage": accounting["lineage"],

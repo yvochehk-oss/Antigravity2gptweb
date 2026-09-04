@@ -37,17 +37,12 @@ class DeleteProjectDataRequest(BaseModel):
     password: str = Field(..., min_length=1, description="操作者确认密码")
 
 
-@router.get("/api/projects/{pid}")
-def api_project(pid: int, _user=_reader_dependency):
-    db = SessionLocal()
-    try:
-        s = canonical_project_summary(db, pid)
-        project = s.get("project")
-        if project is None:
-            raise HTTPException(status_code=404, detail="项目不存在")
-        out = {k: v for k, v in s.items() if k != "project"}
-        contract_total = float(s.get("contract_total") or 0)
-        out["project"] = {
+def _master_project_summary(project: Project, *, message: str = "") -> dict[str, Any]:
+    contract_total = float(project.contract_total or project.contract_amount or 0)
+    return {
+        "status": "DEGRADED",
+        "message": message or "项目计算摘要暂不可用，已降级为 Project Master 主数据。",
+        "project": {
             "id": project.id,
             "code": project.code,
             "project_code": project.project_code or project.code,
@@ -55,19 +50,90 @@ def api_project(pid: int, _user=_reader_dependency):
             "city": project.city,
             "location": project.location or project.city,
             "contract_total": contract_total,
-            "contract_amount": float(s.get("contract_amount") or contract_total),
+            "contract_amount": float(project.contract_amount or project.contract_total or 0),
+        },
+        "revenue": 0.0,
+        "real_cost": 0.0,
+        "profit": 0.0,
+        "margin": 0.0,
+        "progress": 0.0,
+        "vat": 0.0,
+        "eac": None,
+        "data_gaps": ["CANONICAL_PROJECT_SUMMARY_UNAVAILABLE"],
+        "source_of_truth": "projects",
+    }
+
+
+def _render_canonical_project_summary(summary: dict[str, Any]) -> dict[str, Any]:
+    project = summary.get("project")
+    if project is None:
+        raise LookupError("project not found")
+    out = {k: v for k, v in summary.items() if k != "project"}
+    contract_total = float(summary.get("contract_total") or 0)
+    out.setdefault("status", "READY")
+    out["project"] = {
+        "id": project.id,
+        "code": project.code,
+        "project_code": project.project_code or project.code,
+        "name": project.name,
+        "city": project.city,
+        "location": project.location or project.city,
+        "contract_total": contract_total,
+        "contract_amount": float(summary.get("contract_amount") or contract_total),
+    }
+    return out
+
+
+@router.get("/api/projects")
+def api_projects(_user=_reader_dependency):
+    db = SessionLocal()
+    try:
+        projects = db.execute(select(Project).order_by(Project.id)).scalars().all()
+        items: list[dict[str, Any]] = []
+        degraded = False
+        for project in projects:
+            try:
+                items.append(_render_canonical_project_summary(canonical_project_summary(db, project.id)))
+            except Exception as exc:
+                db.rollback()
+                degraded = True
+                _LOGGER.exception("canonical project collection item degraded: pid=%s", project.id)
+                refreshed = db.get(Project, project.id)
+                if refreshed is not None:
+                    items.append(_master_project_summary(refreshed, message=str(exc)))
+        return {
+            "status": "DEGRADED" if degraded else "READY",
+            "projects": items,
+            "total": len(items),
         }
-        return out
+    except Exception as exc:
+        db.rollback()
+        _LOGGER.exception("project collection query failed")
+        projects = db.execute(select(Project).order_by(Project.id)).scalars().all()
+        items = [_master_project_summary(project, message=str(exc)) for project in projects]
+        return {"status": "DEGRADED", "projects": items, "total": len(items)}
+    finally:
+        db.close()
+
+
+@router.get("/api/projects/{pid}")
+def api_project(pid: int, _user=_reader_dependency):
+    db = SessionLocal()
+    try:
+        return _render_canonical_project_summary(canonical_project_summary(db, pid))
     except LookupError:
         db.rollback()
         raise HTTPException(status_code=404, detail="项目不存在")
     except HTTPException:
         db.rollback()
         raise
-    except Exception:
+    except Exception as exc:
         db.rollback()
-        _LOGGER.exception("canonical project summary query failed: pid=%s", pid)
-        raise
+        _LOGGER.exception("canonical project summary degraded to master data: pid=%s", pid)
+        project = db.get(Project, pid)
+        if project is None:
+            raise HTTPException(status_code=404, detail="项目不存在")
+        return _master_project_summary(project, message=str(exc))
     finally:
         db.close()
 
