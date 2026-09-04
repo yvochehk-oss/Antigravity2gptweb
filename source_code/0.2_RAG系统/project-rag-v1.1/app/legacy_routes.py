@@ -169,6 +169,74 @@ setup_logging()
 logger = get_logger(__name__)
 
 
+def _external_party_reference_counts(db) -> dict[str, int]:
+    """Aggregate durable business fact references across all authoritative sources.
+
+    In-scope external party semantics:
+      in_scope = (reference_count > 0)
+    Sources include:
+      - documents.counterparty_code
+      - contracts.buyer_code & contracts.seller_code
+      - invoices.counterparty_code
+      - cashflows.counterparty_code
+      - fulfillment.counterparty_code
+    """
+    ref_counts: dict[str, int] = {}
+    # 1. Try unified SQL aggregation across all durable fact tables
+    try:
+        sql = text("""
+            SELECT party_code, count(*)
+            FROM (
+                SELECT counterparty_code AS party_code FROM documents
+                UNION ALL
+                SELECT buyer_code AS party_code FROM contracts
+                UNION ALL
+                SELECT seller_code AS party_code FROM contracts
+                UNION ALL
+                SELECT counterparty_code AS party_code FROM invoices
+                UNION ALL
+                SELECT counterparty_code AS party_code FROM cashflows
+                UNION ALL
+                SELECT counterparty_code AS party_code FROM fulfillment
+            ) refs
+            WHERE party_code IS NOT NULL AND party_code <> ''
+            GROUP BY party_code;
+        """)
+        rows = db.execute(sql).all()
+        for r in rows:
+            try:
+                code_val = str(r[0]).strip().upper()
+                count_val = int(r[1])
+                if code_val:
+                    ref_counts[code_val] = count_val
+            except Exception:
+                pass
+        return ref_counts
+    except Exception as exc:
+        logger.warning("Unified business facts query failed, falling back to ORM queries: %s", exc)
+
+    # 2. Fallback for SQLite or test environments where secondary fact tables might be absent/mocked
+    try:
+        # Document references
+        doc_rows = db.execute(
+            select(Document.counterparty_code, func.count(Document.id))
+            .where(Document.counterparty_code.is_not(None), Document.counterparty_code != "")
+            .group_by(Document.counterparty_code)
+        ).all()
+        for r in doc_rows:
+            try:
+                code_val = str(r[0] if hasattr(r, "__getitem__") else getattr(r, "counterparty_code", r)).strip().upper()
+                count_val = int(r[1] if hasattr(r, "__getitem__") and len(r) >= 2 else 1)
+                if code_val:
+                    ref_counts[code_val] = ref_counts.get(code_val, 0) + count_val
+            except Exception:
+                pass
+    except Exception as doc_exc:
+        logger.warning("Fallback document reference count query failed: %s", doc_exc)
+
+    return ref_counts
+
+
 def _canonical_entity_views(db) -> list[dict]:
     """Return active canonical master rows (26 internal entities + external parties) for UI selectors and cards."""
     rows = db.execute(
@@ -215,22 +283,7 @@ def _canonical_entity_views(db) -> list[dict]:
     # Also load from dedicated external_parties table (active and in_scope external units)
     # Master active represents administrative lifecycle; in_scope represents actual business reference.
     # The canonical roster displays in_scope active external counterparties.
-    doc_ref_counts: dict[str, int] = {}
-    try:
-        for r in db.execute(
-            select(Document.counterparty_code, func.count(Document.id))
-            .where(Document.counterparty_code.is_not(None), Document.counterparty_code != "")
-            .group_by(Document.counterparty_code)
-        ).all():
-            try:
-                code_val = str(r[0] if hasattr(r, "__getitem__") else getattr(r, "counterparty_code", r)).strip().upper()
-                count_val = int(r[1] if hasattr(r, "__getitem__") and len(r) >= 2 else 1)
-                if code_val:
-                    doc_ref_counts[code_val] = doc_ref_counts.get(code_val, 0) + count_val
-            except Exception:
-                pass
-    except Exception:
-        pass
+    fact_ref_counts = _external_party_reference_counts(db)
 
     ext_rows = db.execute(
         select(ExternalParty)
@@ -240,7 +293,7 @@ def _canonical_entity_views(db) -> list[dict]:
 
     for ext in ext_rows:
         code = (ext.code or "").strip().upper()
-        ref_count = doc_ref_counts.get(code, 0)
+        ref_count = fact_ref_counts.get(code, 0)
         in_scope = ref_count > 0
         if not in_scope:
             continue

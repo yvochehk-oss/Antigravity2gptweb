@@ -237,3 +237,91 @@ def test_auto_register_nested_savepoint_rollback(test_db):
     assert test_db.is_active
     test_db.execute(select(ExternalParty.id)).fetchall()
 
+
+def test_in_scope_derived_from_contracts_when_documents_zero():
+    """Verify in_scope is True when documents=0 but contract references party."""
+    from app.legacy_routes import _canonical_entity_views, _external_party_reference_counts
+
+    class _MockContractDB:
+        def execute(self, stmt):
+            sql = str(stmt)
+            if "FROM (" in sql or "UNION ALL" in sql:
+                # Return party reference counts from UNION ALL query
+                class _Result:
+                    def all(self):
+                        return [("EA02", 3)]
+                return _Result()
+            elif "external_parties" in sql:
+                class _Result:
+                    def scalars(self):
+                        class _Scalars:
+                            def all(self):
+                                return [ExternalParty(id=1, code="EA02", name="长航潜水", active=True)]
+                        return _Scalars()
+                return _Result()
+            elif "entities" in sql:
+                class _Result:
+                    def scalars(self):
+                        class _Scalars:
+                            def all(self):
+                                return []
+                        return _Scalars()
+                return _Result()
+            class _Result:
+                def all(self):
+                    return []
+            return _Result()
+
+    mock_db = _MockContractDB()
+    counts = _external_party_reference_counts(mock_db)
+    assert counts.get("EA02") == 3
+    views = _canonical_entity_views(mock_db)
+    ea02_views = [v for v in views if v["entity_code"] == "EA02"]
+    assert len(ea02_views) == 1
+    assert ea02_views[0]["in_scope"] is True
+    assert ea02_views[0]["reference_count"] == 3
+
+
+def test_in_scope_derived_from_invoices_when_documents_zero():
+    """Verify in_scope is True when documents=0 but invoice references party."""
+    from app.legacy_routes import _canonical_entity_views, _external_party_reference_counts
+
+    class _MockInvoiceDB:
+        def execute(self, stmt):
+            sql = str(stmt)
+            if "FROM (" in sql or "UNION ALL" in sql:
+                class _Result:
+                    def all(self):
+                        return [("EB02", 5)]
+                return _Result()
+            elif "external_parties" in sql:
+                class _Result:
+                    def scalars(self):
+                        class _Scalars:
+                            def all(self):
+                                return [ExternalParty(id=2, code="EB02", name="特种商砼", active=True)]
+                        return _Scalars()
+                return _Result()
+            elif "entities" in sql:
+                class _Result:
+                    def scalars(self):
+                        class _Scalars:
+                            def all(self):
+                                return []
+                        return _Scalars()
+                return _Result()
+            class _Result:
+                def all(self):
+                    return []
+            return _Result()
+
+    mock_db = _MockInvoiceDB()
+    counts = _external_party_reference_counts(mock_db)
+    assert counts.get("EB02") == 5
+    views = _canonical_entity_views(mock_db)
+    eb02_views = [v for v in views if v["entity_code"] == "EB02"]
+    assert len(eb02_views) == 1
+    assert eb02_views[0]["in_scope"] is True
+    assert eb02_views[0]["reference_count"] == 5
+
+
