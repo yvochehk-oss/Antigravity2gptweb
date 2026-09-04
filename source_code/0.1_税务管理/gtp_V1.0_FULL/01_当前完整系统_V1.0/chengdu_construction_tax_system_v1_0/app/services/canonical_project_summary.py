@@ -18,6 +18,8 @@ _PRIMARY_CONTRACT_CODES = (
     "CDTF-MAIN-2026-01",
     "CDTF-MAIN-2023-01",
     "ZB-CD-TF",
+    "ZB-CY-CQ",
+    "ZB-GY-LZ",
 )
 
 
