@@ -13,15 +13,27 @@ class NativeParserError(RuntimeError):
 
 
 def parse_image_with_paddleocr_vl(image_path: str) -> dict | None:
-    """Call PaddleOCR-VL-1.6 multimodal endpoint for image/scan extraction."""
+    """Call PaddleOCR-VL-1.6 multimodal endpoint for image/scan extraction with Schema parsing."""
     import base64
     import requests
     import os
+    import re
 
     vl_endpoint = os.getenv("PADDLE_OCR_VL_ENDPOINT", "http://127.0.0.1:8935/v1/chat/completions")
     try:
         with open(image_path, "rb") as f:
             b64_str = base64.b64encode(f.read()).decode("utf-8")
+        
+        prompt_text = (
+            "请识别该单据/扫描件，并严格以 JSON 格式输出如下 Schema（不要在 JSON 前后输出任何多余文字）：\n"
+            "{\n"
+            '  "document_type": "发票/完税证明/合同/验收单/其他",\n'
+            '  "title": "单据标题描述",\n'
+            '  "text_content": "票面全文识别文本",\n'
+            '  "fields": {"发票代码": "", "发票号码": "", "开票日期": "", "购买方": "", "销售方": "", "金额": "", "税额": "", "价税合计": ""},\n'
+            '  "confidence": 0.98\n'
+            "}"
+        )
         
         payload = {
             "model": "PaddleOCR-VL-1.6",
@@ -30,17 +42,26 @@ def parse_image_with_paddleocr_vl(image_path: str) -> dict | None:
                     "role": "user",
                     "content": [
                         {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64_str}"}},
-                        {"type": "text", "text": "请提取该单据/扫描件的核心文本与关键数据，并简洁结构化输出。"}
+                        {"type": "text", "text": prompt_text}
                     ]
                 }
             ],
             "temperature": 0.1,
             "max_tokens": 1024
         }
-        r = requests.post(vl_endpoint, json=payload, timeout=30)
+        r = requests.post(vl_endpoint, json=payload, timeout=35)
         if r.status_code == 200:
-            content = r.json()["choices"][0]["message"]["content"]
-            return {"text": content, "structured_json": None}
+            content = r.json()["choices"][0]["message"]["content"].strip()
+            structured_data = None
+            json_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", content, re.DOTALL)
+            raw_json = json_match.group(1) if json_match else content
+            try:
+                structured_data = json.loads(raw_json)
+            except Exception:
+                structured_data = {"document_type": "unknown", "text_content": content, "fields": {}}
+            
+            extracted_text = structured_data.get("text_content") or content
+            return {"text": extracted_text, "structured_json": structured_data}
     except Exception as e:
         logger.warning(f"PaddleOCR-VL-1.6 parse warning for {image_path}: {e}")
     return None
@@ -60,7 +81,6 @@ def parse_with_native_idp(document_code: str, input_path: str) -> dict:
         try:
             import fitz
             doc = fitz.open(str(path))
-            ocr_engine = None
             for page_idx, page in enumerate(doc):
                 page_text = page.get_text("text").strip()
                 if page_text:
@@ -71,6 +91,24 @@ def parse_with_native_idp(document_code: str, input_path: str) -> dict:
                         "text_level": 0,
                         "page_idx": page_idx,
                     })
+                else:
+                    # Scanned PDF page fallback to PaddleOCR-VL-1.6
+                    tmp_page_img = out_dir / f"page_{page_idx}.png"
+                    pix = page.get_pixmap(dpi=150)
+                    pix.save(str(tmp_page_img))
+                    vl_res = parse_image_with_paddleocr_vl(str(tmp_page_img))
+                    if vl_res and vl_res.get("text"):
+                        text = vl_res["text"]
+                        md_lines.append(f"## 第 {page_idx + 1} 页 (扫描页 OCR)\n\n" + text)
+                        content_list.append({
+                            "type": "text",
+                            "text": text,
+                            "text_level": 0,
+                            "page_idx": page_idx,
+                            "schema_data": vl_res.get("structured_json"),
+                        })
+                    if tmp_page_img.exists():
+                        tmp_page_img.unlink(missing_ok=True)
             doc.close()
         except Exception as pdf_err:
             logger.error(f"Native PDF parse error: {pdf_err}")
