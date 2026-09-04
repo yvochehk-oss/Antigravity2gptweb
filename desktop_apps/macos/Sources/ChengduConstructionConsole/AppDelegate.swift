@@ -94,10 +94,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         addMenuItem(title: "退出控制台", action: #selector(quit), keyEquivalent: "q")
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        statusItem.button?.title = "● 成都建工"
-        statusItem.button?.toolTip = "成都建工控制台"
+        configureStatusBarButton()
         statusItem.menu = menu
         updateStatusButton(for: .checking)
+    }
+
+    private func configureStatusBarButton() {
+        guard let button = statusItem?.button else {
+            NSLog("[ChengduConstructionConsole] NSStatusItem button is unavailable")
+            return
+        }
+
+        button.image = loadStatusBarLogo()
+        button.imagePosition = .imageLeading
+        button.imageScaling = .scaleProportionallyDown
+        button.toolTip = "成都建工控制台"
+    }
+
+    private func loadStatusBarLogo() -> NSImage? {
+        if let url = Bundle.main.url(forResource: "StatusLogo", withExtension: "png"),
+           let image = NSImage(contentsOf: url) {
+            image.size = NSSize(width: 18, height: 18)
+            image.isTemplate = false
+            return image
+        }
+
+        NSLog("[ChengduConstructionConsole] StatusLogo.png missing from bundle; using fallback symbol")
+        if let fallback = NSImage(
+            systemSymbolName: "building.2.crop.circle",
+            accessibilityDescription: "成都建工"
+        ) {
+            fallback.size = NSSize(width: 18, height: 18)
+            fallback.isTemplate = true
+            return fallback
+        }
+
+        return nil
     }
 
     @discardableResult
@@ -181,13 +213,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case .unavailable: color = .systemRed
         case .stopped: color = .secondaryLabelColor
         }
-        statusItem?.button?.attributedTitle = NSAttributedString(
-            string: "● 成都建工",
+
+        let title = NSMutableAttributedString(
+            string: "●",
             attributes: [
                 .foregroundColor: color,
                 .font: NSFont.systemFont(ofSize: 12, weight: .medium)
             ]
         )
+        title.append(NSAttributedString(
+            string: " 成都建工",
+            attributes: [
+                .foregroundColor: NSColor.labelColor,
+                .font: NSFont.systemFont(ofSize: 12, weight: .medium)
+            ]
+        ))
+        statusItem?.button?.attributedTitle = title
         statusItem?.button?.toolTip = "成都建工控制台｜\(state.title)"
     }
 
