@@ -96,8 +96,9 @@ def test_resolver_accepts_equivalent_known_main_contract_aliases(monkeypatch):
     monkeypatch.setattr("app.services.canonical_project_summary.load_current_facts", lambda _db, _pid, _type=None: facts)
     result = resolve_project_transaction_price(_fake_db(["A08"]), 15)
     assert result["amount"] == Decimal("1450000000.00")
-    assert result["fact_version"] in (2, 3)
-    assert result["contract_no"] in ("ZB-CD-TF", "CDTF-MAIN-2026-01")
+    assert result["fact_version"] == 2
+    assert result["contract_no"] == "ZB-CD-TF"
+    assert result["status"] == "READY"
 
 
 def test_resolver_degrades_to_largest_boundary_contract(monkeypatch):
