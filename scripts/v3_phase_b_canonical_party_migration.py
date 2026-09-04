@@ -132,7 +132,7 @@ def run_migration(apply: bool = False):
 
                 # 6. canonical_facts targeted key update
                 # Update only specific entity/counterparty keys instead of indiscriminate text replacement
-                for key in ("counterparty_code", "party_a_code", "party_b_code", "buyer_code", "seller_code"):
+                for key in ("counterparty_code", "party_a_code", "party_b_code", "party_a_entity_code", "party_b_entity_code", "buyer_code", "seller_code"):
                     cur.execute(
                         f"""
                         UPDATE canonical_facts
@@ -173,6 +173,30 @@ def run_migration(apply: bool = False):
             cur.execute("DELETE FROM parties WHERE code LIKE 'EXT-%';")
             print(f"Purged unreferenced legacy EXT-* rows from parties: {cur.rowcount} rows deleted")
 
+            # 10. Enforce PostgreSQL hard CHECK constraints
+            print("\nEnforcing PostgreSQL hard CHECK constraints...")
+            cur.execute("""
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint WHERE conname = 'ck_external_parties_canonical_code'
+                ) THEN
+                    ALTER TABLE external_parties 
+                    ADD CONSTRAINT ck_external_parties_canonical_code 
+                    CHECK (code ~ '^E(?:0[1-9]|[1-9]\\d|[A-D](?:0[1-9]|[1-9]\\d))$');
+                END IF;
+                
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint WHERE conname = 'ck_parties_canonical_code'
+                ) THEN
+                    ALTER TABLE parties 
+                    ADD CONSTRAINT ck_parties_canonical_code 
+                    CHECK (code ~ '^(?:[ABCD](?:0[1-9]|1[01]|10)|E(?:0[1-9]|[1-9]\\d|[A-D](?:0[1-9]|[1-9]\\d)))$');
+                END IF;
+            END $$;
+            """)
+            print("  [PASS] Hard CHECK constraints active on external_parties and parties")
+
             # Verification
             print("\n=== VERIFICATION CHECKS ===")
             for source, meta in MAPPINGS.items():
@@ -181,7 +205,7 @@ def run_migration(apply: bool = False):
                 assert cur.fetchone()[0] == 0, f"Leaked contract party: {source}"
                 cur.execute("SELECT count(*) FROM fulfillment WHERE counterparty_code = %s;", (source,))
                 assert cur.fetchone()[0] == 0, f"Leaked fulfillment counterparty_code: {source}"
-                for key in ("counterparty_code", "party_a_code", "party_b_code", "buyer_code", "seller_code"):
+                for key in ("counterparty_code", "party_a_code", "party_b_code", "party_a_entity_code", "party_b_entity_code", "buyer_code", "seller_code"):
                     cur.execute(f"SELECT count(*) FROM canonical_facts WHERE payload->>'{key}' = %s;", (source,))
                     assert cur.fetchone()[0] == 0, f"Leaked canonical_facts payload ({key}): {source}"
                 cur.execute("SELECT count(*) FROM documents WHERE counterparty_code = %s;", (source,))

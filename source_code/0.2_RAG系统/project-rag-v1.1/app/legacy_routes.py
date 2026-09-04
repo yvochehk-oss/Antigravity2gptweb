@@ -21,7 +21,7 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 from sqlalchemy import and_, case, func, or_, select, text
 from sqlalchemy.orm import defer
-from sqlalchemy import delete as sa_delete
+from sqlalchemy import delete as sa_delete, update as sa_update
 from sqlalchemy.exc import IntegrityError
 
 from .auth import (
@@ -51,7 +51,11 @@ from .models import (
     RegulationChunk,
     is_canonical_entity_code,
 )
-from .domain.entities import get_external_preset, map_to_standard_external_code
+from .domain.entities import (
+    get_external_preset,
+    map_to_standard_external_code,
+    is_canonical_external_code,
+)
 from .observability import (
     get_request_id,
 )
@@ -1085,8 +1089,8 @@ async def api_delete_project(
                 )
                 raise HTTPException(status_code=409, detail=detail)
 
-            # Phase 4: 清理该项目独占的系统外单位 (External Parties)
-            deleted_parties_count = 0
+            # Phase 4: 核对外部单位激活状态 (Master 数据不物理删除，孤立主体安全降级为 inactive)
+            deactivated_parties_count = 0
             for cp_code in sorted(counterparty_codes):
                 if not cp_code or is_canonical_entity_code(cp_code):
                     continue
@@ -1094,8 +1098,12 @@ async def api_delete_project(
                     select(func.count(Document.id)).where(Document.counterparty_code == cp_code)
                 ) or 0
                 if remaining_documents == 0:
-                    db.execute(sa_delete(ExternalParty).where(ExternalParty.code == cp_code))
-                    deleted_parties_count += 1
+                    db.execute(
+                        sa_update(ExternalParty)
+                        .where(ExternalParty.code == cp_code)
+                        .values(active=False)
+                    )
+                    deactivated_parties_count += 1
 
             # Phase 5: 删除项目主记录
             db.delete(p)
@@ -1118,11 +1126,11 @@ async def api_delete_project(
             db.commit()
 
             logger.info(
-                "Wiped project %s (%s): tables=%s external_parties=%s",
+                "Wiped project %s (%s): tables=%s external_parties_deactivated=%s",
                 project_code,
                 project_name,
                 deleted_counts,
-                deleted_parties_count,
+                deactivated_parties_count,
             )
             security_audit(
                 request,
@@ -1141,7 +1149,8 @@ async def api_delete_project(
                 "message": f"项目「{project_name}」({project_code}) 及其所有关联数据已彻底清除",
                 "deleted_counts": deleted_counts,
                 "deleted_documents_count": len(docs),
-                "deleted_parties_count": deleted_parties_count,
+                "deactivated_parties_count": deactivated_parties_count,
+                "deleted_parties_count": deactivated_parties_count,
             }
 
         except HTTPException:
@@ -2030,16 +2039,23 @@ def api_create_external_party(body: ExternalPartyCreate):
     with get_db() as db:
         payload = body.model_dump()
         requested_code = payload["code"].strip().upper()
-        canonical_code = map_to_standard_external_code(requested_code) or requested_code
+        canonical_code = map_to_standard_external_code(requested_code)
 
-        if canonical_code != requested_code:
+        if canonical_code and canonical_code != requested_code:
             raise HTTPException(
                 409,
                 f"{requested_code} is an alias of canonical external party {canonical_code}; use {canonical_code}",
             )
 
-        payload["code"] = canonical_code
-        if db.scalar(select(ExternalParty).where(ExternalParty.code == canonical_code)):
+        target_code = canonical_code or requested_code
+        if not is_canonical_external_code(target_code):
+            raise HTTPException(
+                422,
+                f"External party code '{requested_code}' does not conform to canonical format (E01-E99, EA01-ED99)",
+            )
+
+        payload["code"] = target_code
+        if db.scalar(select(ExternalParty).where(ExternalParty.code == target_code)):
             raise HTTPException(409, "external party code already exists")
         party = ExternalParty(**payload)
         db.add(party)

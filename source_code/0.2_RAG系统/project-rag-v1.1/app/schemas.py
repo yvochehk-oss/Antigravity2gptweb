@@ -8,7 +8,9 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 # Canonical entity validation is shared by every RAG entry point.
 from .domain.entities import (
     CANONICAL_ENTITY_RANGE_TEXT,
+    EXTERNAL_ALIAS_TO_CODE,
     is_canonical_entity_code,
+    is_canonical_external_code,
     normalize_entity_code,
 )
 
@@ -803,10 +805,12 @@ class ExternalPartyCreate(BaseModel):
 
     @field_validator("code")
     @classmethod
-    def reject_internal_codes(cls, value: str) -> str:
+    def validate_external_code(cls, value: str) -> str:
         code = value.strip().upper()
         if is_canonical_entity_code(code):
             raise ValueError("canonical internal codes belong in entities, not external_parties")
+        if not is_canonical_external_code(code) and code not in EXTERNAL_ALIAS_TO_CODE:
+            raise ValueError(f"External party code '{code}' does not conform to canonical format (E01-E99, EA01-ED99)")
         return code
 
 

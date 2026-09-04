@@ -96,6 +96,16 @@ def test_api_create_external_party_rejects_alias() -> None:
     assert "alias of canonical external party ED01" in resp.json()["detail"]
 
 
+def test_api_create_external_party_rejects_non_canonical_ext() -> None:
+    client = TestClient(app)
+    resp = client.post(
+        "/api/v1/external-parties",
+        json={"code": "EXT-UNKNOWN", "name": "未知供应商", "kind": "supplier"},
+    )
+    assert resp.status_code == 422
+    assert "does not conform to canonical format" in str(resp.json())
+
+
 def test_auto_register_does_not_create_ext_cq() -> None:
     created_parties = []
 
