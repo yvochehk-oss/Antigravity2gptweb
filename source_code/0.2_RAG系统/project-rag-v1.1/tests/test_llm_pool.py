@@ -510,6 +510,50 @@ def test_extractor_uses_shared_pool_adapter(monkeypatch):
     assert seen["routing_group"] == "default"
 
 
+def test_extractor_passes_managed_local_fallback_to_pool(monkeypatch):
+    seen = {}
+
+    def fake_call(_messages, **kwargs):
+        seen.update(kwargs)
+        return llm_pool.LLMCallResult(text='{"invoice_no": "I-1"}')
+
+    monkeypatch.setattr(extractor, "LLM_LOCAL_BASE_URL", "http://127.0.0.1:8931/v1")
+    monkeypatch.setattr(extractor, "LLM_LOCAL_MODEL", "Spark-X2.5-4B")
+    monkeypatch.setattr(extractor, "LLM_LOCAL_TIMEOUT_SECONDS", 7)
+    monkeypatch.setattr(extractor.llm_pool, "call_chat", fake_call)
+
+    assert extractor._llm_extract("extract", session=object()).startswith("{")
+    assert seen["local_base_url"] == "http://127.0.0.1:8931/v1"
+    assert seen["local_model"] == "Spark-X2.5-4B"
+    assert seen["local_timeout_seconds"] == 7
+
+
+def test_extraction_health_probes_managed_local_fallback(monkeypatch):
+    reset_client()
+    FakeClient.responses = [FakeResponse(payload={"data": [{"id": "Spark-X2.5-4B"}]})]
+    monkeypatch.setattr(extractor, "LLM_LOCAL_BASE_URL", "http://127.0.0.1:8931/v1")
+    monkeypatch.setattr(extractor, "LLM_LOCAL_MODEL", "Spark-X2.5-4B")
+    monkeypatch.setattr(extractor, "LLM_LOCAL_TIMEOUT_SECONDS", 60)
+    monkeypatch.setattr(extractor.llm_pool, "SessionLocal", lambda: FakeSession([]))
+    monkeypatch.setattr(extractor.httpx, "Client", FakeClient)
+
+    assert extractor.llm_extraction_available() is True
+    assert FakeClient.calls[0]["method"] == "GET"
+    assert FakeClient.calls[0]["url"] == "http://127.0.0.1:8931/v1/models"
+    assert FakeClient.calls[0]["headers"] == {"Content-Type": "application/json"}
+
+
+def test_extraction_health_is_false_when_all_probes_fail(monkeypatch):
+    reset_client()
+    FakeClient.responses = [FakeResponse(status_code=503)]
+    monkeypatch.setattr(extractor, "LLM_LOCAL_BASE_URL", "http://127.0.0.1:8931/v1")
+    monkeypatch.setattr(extractor, "LLM_LOCAL_MODEL", "Spark-X2.5-4B")
+    monkeypatch.setattr(extractor.llm_pool, "SessionLocal", lambda: FakeSession([]))
+    monkeypatch.setattr(extractor.httpx, "Client", FakeClient)
+
+    assert extractor.llm_extraction_available() is False
+
+
 def test_regulation_extractor_uses_shared_pool_and_marks_ai_success(monkeypatch):
     seen = {}
 

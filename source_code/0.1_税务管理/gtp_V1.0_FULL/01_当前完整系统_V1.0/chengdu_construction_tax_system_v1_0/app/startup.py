@@ -32,9 +32,16 @@ from .structured_logging import (
 
 logger = get_logger("app.startup")
 
+# ``/healthz`` is polled by the desktop controller, whose request budget is
+# intentionally short.  A health probe should fail fast and report a
+# dependency as degraded rather than hold the public liveness endpoint open
+# for the normal (longer) business-request timeout.
+_MAX_HEALTH_PROBE_TIMEOUT_SECONDS = 1.5
+_MAX_AI_HEALTH_DEADLINE_SECONDS = 2.0
+
 _HEALTH_TIMEOUT_SECONDS = min(
     max(float(os.getenv("HEALTH_CHECK_TIMEOUT_SECONDS", "1.5")), 0.1),
-    10.0,
+    _MAX_HEALTH_PROBE_TIMEOUT_SECONDS,
 )
 
 
@@ -42,13 +49,13 @@ def _ai_health_deadline_seconds() -> float:
     """Return a bounded total budget for one synchronous AI health pass."""
     raw = os.getenv(
         "AI_HEALTH_ENDPOINT_DEADLINE_SECONDS",
-        str(max(_HEALTH_TIMEOUT_SECONDS * 2, 3.0)),
+        str(_MAX_AI_HEALTH_DEADLINE_SECONDS),
     )
     try:
         configured = float(raw)
     except (TypeError, ValueError):
-        configured = 3.0
-    return min(max(configured, 0.1), 15.0)
+        configured = _MAX_AI_HEALTH_DEADLINE_SECONDS
+    return min(max(configured, 0.1), _MAX_AI_HEALTH_DEADLINE_SECONDS)
 
 
 def _health_headers(request_id: str | None = None, *, facts: bool = False) -> dict[str, str]:
@@ -257,9 +264,9 @@ def _check_ai() -> dict[str, object]:
         }
     latency_ms = int((time.monotonic() - started) * 1000)
     statuses = {str(endpoint.get("status") or "") for endpoint in endpoints}
-    if "ok" in statuses:
+    if statuses == {"ok"}:
         overall = "ok"
-    elif "degraded" in statuses:
+    elif "ok" in statuses:
         overall = "degraded"
     else:
         overall = "down"

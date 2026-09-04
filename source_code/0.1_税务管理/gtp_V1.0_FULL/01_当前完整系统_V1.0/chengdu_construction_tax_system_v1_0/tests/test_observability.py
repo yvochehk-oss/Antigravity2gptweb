@@ -11,6 +11,7 @@ These tests cover:
 from __future__ import annotations
 
 import contextlib
+from threading import Barrier, BrokenBarrierError, Lock
 
 import httpx
 from fastapi.testclient import TestClient
@@ -220,6 +221,45 @@ def test_healthz_returns_components_block(seeded_app):
     assert {"db", "rag", "facts", "ai"}.issubset(components.keys())
     for name, comp in components.items():
         assert comp["status"] in {"ok", "degraded", "down"}, (name, comp)
+
+
+def test_healthz_runs_dependency_probes_concurrently(monkeypatch):
+    """A slow dependency cannot extend ``/healthz`` by every probe budget."""
+    from app import main as app_main
+    from app.main import app
+
+    barrier = Barrier(4, timeout=1.0)
+    lock = Lock()
+    passed_barrier = 0
+
+    def concurrent_check():
+        nonlocal passed_barrier
+        try:
+            barrier.wait()
+        except BrokenBarrierError:
+            return {"status": "down", "latency_ms": 0, "error": "not_concurrent"}
+        with lock:
+            passed_barrier += 1
+        return {"status": "ok", "latency_ms": 1}
+
+    for name in ("db", "rag", "facts", "ai"):
+        monkeypatch.setattr(app_main, f"_check_{name}", concurrent_check)
+
+    response = TestClient(app).get("/healthz")
+
+    assert response.status_code == 200
+    assert passed_barrier == 4
+    assert response.json()["status"] == "ok"
+
+
+def test_health_probe_budget_stays_inside_controller_timeout(monkeypatch):
+    """Operator timeouts cannot make Tax exceed the controller's 3s budget."""
+    from app import startup
+
+    monkeypatch.setenv("AI_HEALTH_ENDPOINT_DEADLINE_SECONDS", "60")
+
+    assert startup._HEALTH_TIMEOUT_SECONDS <= 1.5
+    assert startup._ai_health_deadline_seconds() == 2.0
 
 
 def test_healthz_reports_db_down_when_engine_unreachable(seeded_app, monkeypatch):

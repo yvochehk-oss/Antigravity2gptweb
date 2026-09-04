@@ -10,7 +10,14 @@ from typing import Any
 
 import httpx
 
-from ..config import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL
+from ..config import (
+    LLM_API_KEY,
+    LLM_BASE_URL,
+    LLM_LOCAL_BASE_URL,
+    LLM_LOCAL_MODEL,
+    LLM_LOCAL_TIMEOUT_SECONDS,
+    LLM_MODEL,
+)
 from ..logging_config import get_logger
 from . import llm_pool
 from .tax_extraction import (
@@ -865,6 +872,13 @@ def _llm_extract(prompt: str, *, session: Any = None) -> str:
             legacy_model=LLM_MODEL,
             legacy_api_key=LLM_API_KEY,
             legacy_timeout_seconds=60,
+            # The root launcher injects the managed llama.cpp endpoint only
+            # after its health check.  Pass that process-local fallback into
+            # the shared pool; omitting it leaves a migrated empty endpoint
+            # table with no extraction candidate even when Spark is healthy.
+            local_base_url=LLM_LOCAL_BASE_URL,
+            local_model=LLM_LOCAL_MODEL,
+            local_timeout_seconds=LLM_LOCAL_TIMEOUT_SECONDS,
         )
         return result.text
     except llm_pool.LLMPoolError as exc:
@@ -1071,9 +1085,33 @@ def extract_from_chunk(
 
 
 def llm_extraction_available() -> bool:
-    """Check if LLM extraction is configured and available."""
-    return llm_pool.llm_available(
-        legacy_base_url=LLM_BASE_URL,
-        legacy_model=LLM_MODEL,
-        legacy_api_key=LLM_API_KEY,
-    )
+    """Return whether a configured extraction endpoint answers a health probe.
+
+    ``llm_pool.llm_available`` only reports configuration.  The health
+    endpoint must distinguish a configured-but-stopped model from a usable
+    one, and it must include the non-persistent managed llama.cpp fallback
+    injected by the root launcher.
+    """
+    try:
+        result = llm_pool.check_connection(
+            routing_group="default",
+            http_client_factory=httpx.Client,
+            legacy_base_url=LLM_BASE_URL,
+            legacy_model=LLM_MODEL,
+            legacy_api_key=LLM_API_KEY,
+            # Keep health checks bounded so a stopped legacy endpoint cannot
+            # hold the whole service health response for its normal request
+            # timeout.  Persisted endpoint rows retain their own configured
+            # timeout; the managed local fallback is capped here.
+            legacy_timeout_seconds=3,
+            local_base_url=LLM_LOCAL_BASE_URL,
+            local_model=LLM_LOCAL_MODEL,
+            local_timeout_seconds=min(LLM_LOCAL_TIMEOUT_SECONDS, 3),
+        )
+        return bool(result.get("ok"))
+    except Exception as exc:
+        # Health is fail-closed but must remain a total function: a malformed
+        # optional endpoint or a transient pool error is reported as
+        # unavailable instead of breaking the entire health response.
+        logger.warning("LLM extraction health probe failed: %s", exc.__class__.__name__)
+        return False
