@@ -82,6 +82,30 @@ final class ConsoleTests: XCTestCase {
         )
     }
 
+    func testConfigurationRereadDetectsAllowlistedEnvChangesAndIgnoresUnrelatedChanges() throws {
+        let root = try makeProjectRoot()
+        let envFile = root.appendingPathComponent(".env")
+        try "LOCAL_LLM_PORT=8930\n".write(to: envFile, atomically: true, encoding: .utf8)
+
+        let initial = ProjectConfiguration(rootURL: root, environment: [:])
+        try "LOCAL_LLM_PORT=8931\n".write(to: envFile, atomically: true, encoding: .utf8)
+        let changed = ProjectConfiguration(rootURL: root, environment: [:])
+
+        XCTAssertNotEqual(initial, changed)
+        XCTAssertEqual(initial.localModelPort, 8930)
+        XCTAssertEqual(changed.localModelPort, 8931)
+
+        // Only allow-listed values participate in the configuration
+        // comparison.  An unrelated .env edit must not cause a rebuild.
+        try "LOCAL_LLM_PORT=8931\nUNRELATED_SETTING=changed\n".write(
+            to: envFile,
+            atomically: true,
+            encoding: .utf8
+        )
+        let unchanged = ProjectConfiguration(rootURL: root, environment: [:])
+        XCTAssertEqual(changed, unchanged)
+    }
+
     /// The controller log must record timestamps with millisecond precision so
     /// that consecutive events can be ordered without ambiguity.
     func testLogStoreRecordsMillisecondPrecision() throws {
@@ -250,6 +274,79 @@ final class ConsoleTests: XCTestCase {
             command: "python -m uvicorn app.main:app --port 8921 --workers 4",
             workingDirectory: serviceDirectory.path,
             port: 8921,
+            rootURL: root,
+            bossDirectoryURL: nil
+        ))
+    }
+
+    func testLocalModelExternalWorkingDirectoryRequiresProjectModelPath() {
+        let root = URL(fileURLWithPath: "/tmp/cdjg-test-root", isDirectory: true)
+        let externalDirectory = "/tmp/llama-runtime"
+        let projectModel = root.appendingPathComponent(
+            "models/local-llm/model.gguf"
+        ).path
+        let externalModel = "/tmp/foreign-model.gguf"
+
+        XCTAssertTrue(ProcessInspector.matches(
+            kind: .localModel,
+            command: "llama-server --model \"\(projectModel)\" --port 8931",
+            workingDirectory: externalDirectory,
+            port: 8931,
+            rootURL: root,
+            bossDirectoryURL: nil
+        ))
+        XCTAssertTrue(ProcessInspector.matches(
+            kind: .localModel,
+            command: "llama-server --model=\(projectModel) --port=8931",
+            workingDirectory: externalDirectory,
+            port: 8931,
+            rootURL: root,
+            bossDirectoryURL: nil
+        ))
+        XCTAssertFalse(ProcessInspector.matches(
+            kind: .localModel,
+            command: "llama-server --model \(externalModel) --port 8931",
+            workingDirectory: externalDirectory,
+            port: 8931,
+            rootURL: root,
+            bossDirectoryURL: nil
+        ))
+        XCTAssertFalse(ProcessInspector.matches(
+            kind: .localModel,
+            command: "llama-server --model model.gguf --port 8931",
+            workingDirectory: externalDirectory,
+            port: 8931,
+            rootURL: root,
+            bossDirectoryURL: nil
+        ))
+    }
+
+    func testLocalModelPortMatchingRemainsExact() {
+        let root = URL(fileURLWithPath: "/tmp/cdjg-test-root", isDirectory: true)
+        let projectModel = root.appendingPathComponent("models/model.gguf").path
+        let command = "llama-server --model \(projectModel)"
+
+        XCTAssertTrue(ProcessInspector.matches(
+            kind: .localModel,
+            command: "\(command) --port 8931",
+            workingDirectory: "/tmp/llama-runtime",
+            port: 8931,
+            rootURL: root,
+            bossDirectoryURL: nil
+        ))
+        XCTAssertFalse(ProcessInspector.matches(
+            kind: .localModel,
+            command: "\(command) --port 89310",
+            workingDirectory: "/tmp/llama-runtime",
+            port: 8931,
+            rootURL: root,
+            bossDirectoryURL: nil
+        ))
+        XCTAssertFalse(ProcessInspector.matches(
+            kind: .localModel,
+            command: "\(command) --bind 127.0.0.1:89310",
+            workingDirectory: "/tmp/llama-runtime",
+            port: 8931,
             rootURL: root,
             bossDirectoryURL: nil
         ))

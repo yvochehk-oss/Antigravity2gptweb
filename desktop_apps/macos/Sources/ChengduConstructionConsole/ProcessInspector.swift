@@ -262,7 +262,11 @@ struct ProcessInspector {
         case .localModel:
             return normalizedCommand.contains("llama-server")
                 && portArgument
-                && pathIsInside(workingDirectory, rootURL: rootURL)
+                && localModelOwnershipMatches(
+                    command: command,
+                    workingDirectory: workingDirectory,
+                    rootURL: rootURL
+                )
         case .bossWeb:
             let commandLooksLikeVite = normalizedCommand.contains("vite")
                 || normalizedCommand.contains("npm run dev")
@@ -272,6 +276,107 @@ struct ProcessInspector {
                 && portArgument
                 && pathIsInside(workingDirectory, rootURL: expectedDirectory)
         }
+    }
+
+    /// A llama-server launched by the V3 runtime can have a temporary
+    /// runtime directory as its cwd (for example a directory under /tmp).
+    /// That is still project-owned when its explicit model argument resolves
+    /// inside the selected project.  Keep the cwd check as the fast/default
+    /// path, and require an absolute, project-contained `--model`/`-m` path
+    /// before accepting an external cwd.  Relative model arguments cannot
+    /// establish project ownership from an external cwd and are rejected.
+    private static func localModelOwnershipMatches(
+        command: String,
+        workingDirectory: String?,
+        rootURL: URL
+    ) -> Bool {
+        if pathIsInside(workingDirectory, rootURL: rootURL) {
+            return true
+        }
+
+        guard let modelPath = explicitModelPath(in: command),
+              modelPath.hasPrefix("/"),
+              pathIsInside(modelPath, rootURL: rootURL) else {
+            return false
+        }
+        return true
+    }
+
+    /// Extract only the explicit model option.  Tokenizing quotes keeps paths
+    /// with spaces intact while avoiding a loose substring check that could
+    /// mistake an unrelated argument for a project model path.
+    private static func explicitModelPath(in command: String) -> String? {
+        let tokens = commandTokens(command)
+        for index in tokens.indices {
+            let token = tokens[index]
+            if token == "--model" || token == "-m" {
+                let next = tokens.index(after: index)
+                guard next < tokens.endIndex else { return nil }
+                return tokens[next]
+            }
+            if token.hasPrefix("--model=") {
+                let value = String(token.dropFirst("--model=".count))
+                return value.isEmpty ? nil : value
+            }
+            if token.hasPrefix("-m=") {
+                let value = String(token.dropFirst("-m=".count))
+                return value.isEmpty ? nil : value
+            }
+        }
+        return nil
+    }
+
+    private static func commandTokens(_ command: String) -> [String] {
+        var tokens: [String] = []
+        var current = ""
+        var quote: Character?
+        var escaped = false
+        var hasToken = false
+
+        for character in command {
+            if escaped {
+                current.append(character)
+                escaped = false
+                hasToken = true
+                continue
+            }
+            if character == "\\" {
+                escaped = true
+                hasToken = true
+                continue
+            }
+            if let activeQuote = quote {
+                if character == activeQuote {
+                    quote = nil
+                } else {
+                    current.append(character)
+                }
+                hasToken = true
+                continue
+            }
+            if character == "'" || character == "\"" {
+                quote = character
+                hasToken = true
+                continue
+            }
+            if character.isWhitespace {
+                if hasToken {
+                    tokens.append(current)
+                    current = ""
+                    hasToken = false
+                }
+            } else {
+                current.append(character)
+                hasToken = true
+            }
+        }
+
+        // An unmatched trailing escape is safest represented literally; an
+        // incomplete command still cannot pass the project path check unless
+        // its parsed model argument is an unambiguous absolute path.
+        if escaped { current.append("\\") }
+        if hasToken { tokens.append(current) }
+        return tokens
     }
 
     static func elapsedSeconds(for pid: Int32) -> TimeInterval? {

@@ -129,7 +129,10 @@ LOCAL_LLM_HOST="${LOCAL_LLM_HOST:-127.0.0.1}"
 LOCAL_LLM_PORT="${LOCAL_LLM_PORT:-8930}"
 DEFAULT_LOCAL_MODEL=""
 DEFAULT_LOCAL_ALIAS=""
-if [ -f "$PROJECT_DIR/models/local-llm/Ling-3.0-tiny-Q4_K_M.gguf" ]; then
+if [ -f "$PROJECT_DIR/models/local-llm/Spark-X2.5-4B-Q4_K_M.gguf" ]; then
+  DEFAULT_LOCAL_MODEL="$PROJECT_DIR/models/local-llm/Spark-X2.5-4B-Q4_K_M.gguf"
+  DEFAULT_LOCAL_ALIAS="Spark-X2.5-4B"
+elif [ -f "$PROJECT_DIR/models/local-llm/Ling-3.0-tiny-Q4_K_M.gguf" ]; then
   DEFAULT_LOCAL_MODEL="$PROJECT_DIR/models/local-llm/Ling-3.0-tiny-Q4_K_M.gguf"
   DEFAULT_LOCAL_ALIAS="ling-3.0-tiny"
 elif [ -f "$PROJECT_DIR/models/local-llm/Qwen3.5-2B-Q4_K_M.gguf" ]; then
@@ -137,7 +140,7 @@ elif [ -f "$PROJECT_DIR/models/local-llm/Qwen3.5-2B-Q4_K_M.gguf" ]; then
   DEFAULT_LOCAL_ALIAS="local-qwen3.5-2b"
 fi
 LOCAL_LLM_MODEL="${LOCAL_LLM_MODEL:-$DEFAULT_LOCAL_MODEL}"
-LOCAL_LLM_SERVER_BIN="${LOCAL_LLM_SERVER_BIN:-llama-server}"
+LOCAL_LLM_SERVER_BIN="${LOCAL_LLM_SERVER_BIN:-$PROJECT_DIR/models/local-llm/runtime-macos-arm64/llama-server}"
 LOCAL_LLM_ALIAS="${LOCAL_LLM_ALIAS:-$DEFAULT_LOCAL_ALIAS}"
 LOCAL_LLM_CTX_SIZE="${LOCAL_LLM_CTX_SIZE:-16384}"
 LOCAL_LLM_THREADS="${LOCAL_LLM_THREADS:-6}"
@@ -392,15 +395,19 @@ resolve_local_llm_model() {
   esac
 }
 
+resolve_local_llm_server_bin() {
+  case "$LOCAL_LLM_SERVER_BIN" in
+    /*) printf '%s' "$LOCAL_LLM_SERVER_BIN" ;;
+    */*) printf '%s/%s' "$PROJECT_DIR" "$LOCAL_LLM_SERVER_BIN" ;;
+    *) command -v "$LOCAL_LLM_SERVER_BIN" 2>/dev/null || return 1 ;;
+  esac
+}
+
 prepare_local_llm_runtime() {
   local model server_bin
   local_llm_is_enabled || return 0
-  if [ -x "$LOCAL_LLM_SERVER_BIN" ]; then
-    server_bin="$LOCAL_LLM_SERVER_BIN"
-  elif command -v "$LOCAL_LLM_SERVER_BIN" >/dev/null 2>&1; then
-    server_bin="$(command -v "$LOCAL_LLM_SERVER_BIN")"
-  else
-    warn "LOCAL_LLM_ENABLED=1 但未找到 llama.cpp server：$LOCAL_LLM_SERVER_BIN（IDP/Tax/RAG 将继续启动，AI 保底状态为 DEGRADED）"
+  if ! server_bin="$(resolve_local_llm_server_bin)" || [ ! -x "$server_bin" ]; then
+    warn "LOCAL_LLM_ENABLED=1 但未找到可执行的 llama.cpp server：$LOCAL_LLM_SERVER_BIN（IDP/Tax/RAG 将继续启动，AI 保底状态为 DEGRADED）"
     return 1
   fi
   model="$(resolve_local_llm_model)"

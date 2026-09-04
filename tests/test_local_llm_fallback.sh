@@ -3,12 +3,18 @@
 set -Eeuo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+RUNTIME_DIR="$ROOT_DIR/models/local-llm/runtime-macos-arm64"
+RUNTIME_SERVER="$RUNTIME_DIR/llama-server"
+RUNTIME_SCRIPT="$ROOT_DIR/scripts/runtime/start_services_impl.sh"
+ENV_EXAMPLE="$ROOT_DIR/.env.example"
 PRIMARY_MODEL="$ROOT_DIR/models/local-llm/Ling-3.0-tiny-Q4_K_M.gguf"
 FALLBACK_MODEL="$ROOT_DIR/models/local-llm/Qwen3.5-2B-Q4_K_M.gguf"
 PRIMARY_SHA="$PRIMARY_MODEL.sha256"
 FALLBACK_SHA="$FALLBACK_MODEL.sha256"
 
 bash -n "$ROOT_DIR/start_all.sh" "$ROOT_DIR/stop_all.sh" \
+  "$ROOT_DIR/scripts/runtime/start.sh" \
+  "$RUNTIME_SCRIPT" \
   "$ROOT_DIR/models/local-llm/download_ling3_tiny.sh" \
   "$ROOT_DIR/models/local-llm/download_qwen35_2b.sh" \
   "$ROOT_DIR/models/local-llm/download_windows_runtime.sh"
@@ -41,12 +47,26 @@ else
   exit 1
 fi
 
-grep -q 'LOCAL_LLM_PORT.*8930' "$ROOT_DIR/start_all.sh"
-grep -q 'LOCAL_LLM_PORT.*8930' "$ROOT_DIR/.env.example"
-grep -q 'LOCAL_LLM_REASONING.*off' "$ROOT_DIR/start_all.sh"
-grep -q 'LOCAL_LLM_REASONING.*off' "$ROOT_DIR/.env.example"
-grep -q 'LOCAL_LLM_CTX_SIZE.*4096' "$ROOT_DIR/start_all.sh"
-grep -q 'LOCAL_LLM_CTX_SIZE.*4096' "$ROOT_DIR/.env.example"
+grep -Fq 'LOCAL_LLM_SERVER_BIN="${LOCAL_LLM_SERVER_BIN:-$PROJECT_DIR/models/local-llm/runtime-macos-arm64/llama-server}"' "$RUNTIME_SCRIPT"
+grep -Fq 'LOCAL_LLM_SERVER_BIN=models/local-llm/runtime-macos-arm64/llama-server' "$ENV_EXAMPLE"
+if grep -Fq '/tmp/llama.cpp-spark/build/bin/llama-server' "$RUNTIME_SCRIPT" "$ENV_EXAMPLE"; then
+  echo "legacy /tmp llama.cpp runtime remains in the default configuration" >&2
+  exit 1
+fi
+grep -Fq 'LOCAL_LLM_PORT="${LOCAL_LLM_PORT:-8930}"' "$RUNTIME_SCRIPT"
+grep -Fq 'LOCAL_LLM_PORT=8931' "$ENV_EXAMPLE"
+grep -Fq 'LOCAL_LLM_REASONING="${LOCAL_LLM_REASONING:-off}"' "$RUNTIME_SCRIPT"
+grep -Fq 'LOCAL_LLM_REASONING=off' "$ENV_EXAMPLE"
+grep -Fq 'LOCAL_LLM_CTX_SIZE="${LOCAL_LLM_CTX_SIZE:-16384}"' "$RUNTIME_SCRIPT"
+grep -Fq 'LOCAL_LLM_CTX_SIZE=4096' "$ENV_EXAMPLE"
+if [ "$(uname -s)" = Darwin ] && [ "$(uname -m)" = arm64 ]; then
+  if [ -x "$RUNTIME_SERVER" ]; then
+    "$RUNTIME_SERVER" --version >/dev/null
+    echo "macOS arm64 local runtime: PASS"
+  else
+    echo "macOS arm64 local runtime unavailable (kept local and ignored by Git); static contract only"
+  fi
+fi
 echo "local llama.cpp static contract: PASS"
 
 if [ "${RUN_LOCAL_LLM_INTEGRATION:-0}" != 1 ]; then
@@ -54,11 +74,20 @@ if [ "${RUN_LOCAL_LLM_INTEGRATION:-0}" != 1 ]; then
   exit 0
 fi
 
-command -v "${LOCAL_LLM_SERVER_BIN:-llama-server}" >/dev/null 2>&1 || {
+resolve_server_bin() {
+  case "$1" in
+    /*) printf '%s' "$1" ;;
+    */*) printf '%s/%s' "$ROOT_DIR" "$1" ;;
+    *) command -v "$1" 2>/dev/null || return 1 ;;
+  esac
+}
+
+SERVER_SPEC="${LOCAL_LLM_SERVER_BIN:-models/local-llm/runtime-macos-arm64/llama-server}"
+SERVER_BIN="$(resolve_server_bin "$SERVER_SPEC" || true)"
+[ -n "$SERVER_BIN" ] && [ -x "$SERVER_BIN" ] || {
   echo "llama-server not found; runtime test unavailable" >&2
   exit 2
 }
-SERVER_BIN="$(command -v "${LOCAL_LLM_SERVER_BIN:-llama-server}")"
 PORT="${LOCAL_LLM_TEST_PORT:-8931}"
 LOG_FILE="${TMPDIR:-/tmp}/chengdu-local-llm-test.$$.log"
 PID=""

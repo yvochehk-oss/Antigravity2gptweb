@@ -17,9 +17,12 @@ final class AppStateManager: ObservableObject {
     private let logStore = LogStore()
     private var configuration: ProjectConfiguration?
     private var configurationGeneration = 0
+    private var configurationReloadPending = false
 
     init() {
-        configure(rootURL: ProjectLocator.locate())
+        // The first explicit refresh below performs the initial probe.  Avoid
+        // scheduling the same probe twice during construction.
+        configure(rootURL: ProjectLocator.locate(), refreshImmediately: false)
         startRefreshTimer()
         updateLoginItemState()
         refreshStatus()
@@ -72,11 +75,36 @@ final class AppStateManager: ObservableObject {
     }
 
     func refreshStatus() {
-        guard configuration != nil else {
+        guard let currentConfiguration = configuration else {
             projectAvailable = false
             return
         }
-        monitor?.refresh()
+
+        // `.env` is an operator-controlled, allow-listed configuration
+        // source.  Re-read it on every scheduled/manual refresh so a port
+        // change (for example 8930 -> 8931) takes effect without restarting
+        // the menu-bar app.  ProjectConfiguration's Equatable conformance
+        // keeps unchanged refreshes cheap and prevents needless monitor or
+        // controller replacement.
+        let refreshedConfiguration = ProjectConfiguration(rootURL: currentConfiguration.rootURL)
+        guard refreshedConfiguration != currentConfiguration else {
+            configurationReloadPending = false
+            monitor?.refresh()
+            return
+        }
+
+        // Never replace a controller while it may still be executing a
+        // start/restart/stop action.  The timer may run before the main-queue
+        // busy callback arrives, so check the controller's synchronized
+        // state as well as the published UI state.  The completion callback
+        // calls refreshStatus again and applies the latest configuration.
+        guard !isBusy, !(controller?.isBusy ?? false) else {
+            configurationReloadPending = true
+            return
+        }
+
+        configurationReloadPending = false
+        configure(configuration: refreshedConfiguration)
     }
 
     func perform(_ action: ControlAction) {
@@ -162,10 +190,21 @@ final class AppStateManager: ObservableObject {
         refreshTimer?.tolerance = 1
     }
 
-    private func configure(rootURL: URL?) {
+    private func configure(rootURL: URL?, refreshImmediately: Bool = true) {
+        configure(
+            configuration: rootURL.map { ProjectConfiguration(rootURL: $0) },
+            refreshImmediately: refreshImmediately
+        )
+    }
+
+    private func configure(
+        configuration newConfiguration: ProjectConfiguration?,
+        refreshImmediately: Bool = true
+    ) {
         configurationGeneration += 1
         let generation = configurationGeneration
-        configuration = rootURL.map { ProjectConfiguration(rootURL: $0) }
+        configuration = newConfiguration
+        configurationReloadPending = false
         guard let configuration else {
             controller = nil
             monitor = nil
@@ -186,7 +225,9 @@ final class AppStateManager: ObservableObject {
             self.snapshot = snapshot
             self.projectAvailable = true
         }
-        monitor?.refresh()
+        if refreshImmediately {
+            monitor?.refresh()
+        }
     }
 
     private func updateLoginItemState() {
