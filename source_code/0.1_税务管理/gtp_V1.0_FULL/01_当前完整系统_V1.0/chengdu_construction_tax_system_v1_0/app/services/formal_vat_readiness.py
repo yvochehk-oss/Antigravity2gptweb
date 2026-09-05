@@ -14,6 +14,7 @@ from sqlalchemy import text
 
 from app.domain.tax_data_policy import DATA_CLASS_FACT, FACT_SOURCE_RAG_POSTGRESQL
 
+from .formal_vat_rag_facts import load_rag_vat_observation
 from .formal_vat_rebuild import FormalVatRebuildBlockedError, make_formal_vat_rebuild_plan
 from .formal_vat_statutory import (
     FormalVatStatutoryResourceIntegrityError,
@@ -60,42 +61,29 @@ def _resolve_party_id(db, entity_code: str) -> tuple[str, int]:
 
 
 def _fact_preview(db, *, entity_code: str, party_id: int, tax_period: date) -> dict[str, Any]:
-    period_label = tax_period.strftime("%Y-%m")
-    invoice_count = int(
+    rag = load_rag_vat_observation(db, entity_code, tax_period)
+    output_review_count = int(
         db.execute(
             text(
-                "SELECT COUNT(*) FROM analytics_canonical_facts_current "
-                "WHERE fact_type = 'invoice' "
-                "AND left(btrim(COALESCE(NULLIF(payload::jsonb ->> 'invoice_date',''), payload::jsonb ->> 'period','')), 7) = :period "
-                "AND ("
-                "UPPER(btrim(COALESCE(NULLIF(payload::jsonb ->> 'seller_entity_code',''), payload::jsonb ->> 'seller_code',''))) = :entity_code "
-                "OR UPPER(btrim(COALESCE(NULLIF(payload::jsonb ->> 'buyer_entity_code',''), payload::jsonb ->> 'buyer_code',''))) = :entity_code"
-                ")"
+                "SELECT COUNT(*) FROM output_vat_events "
+                "WHERE reporting_party_id=:party_id AND output_vat_period=:period "
+                "AND event_status='NEEDS_REVIEW'"
             ),
-            {"period": period_label, "entity_code": entity_code},
+            {"party_id": party_id, "period": tax_period},
         ).scalar_one()
         or 0
     )
-    output = db.execute(
-        text(
-            "SELECT COUNT(*) AS total_count, "
-            "COUNT(*) FILTER (WHERE event_status='CONFIRMED') AS confirmed_count, "
-            "COUNT(*) FILTER (WHERE event_status='NEEDS_REVIEW') AS review_count, "
-            "COALESCE(SUM(vat_amount) FILTER (WHERE event_status='CONFIRMED'),0) AS confirmed_amount "
-            "FROM output_vat_events WHERE reporting_party_id=:party_id AND output_vat_period=:period"
-        ),
-        {"party_id": party_id, "period": tax_period},
-    ).mappings().one()
-    input_claim = db.execute(
-        text(
-            "SELECT COUNT(*) AS total_count, "
-            "COUNT(*) FILTER (WHERE claim_status='CONFIRMED') AS confirmed_count, "
-            "COUNT(*) FILTER (WHERE claim_status='NEEDS_REVIEW') AS review_count, "
-            "COALESCE(SUM(claim_amount) FILTER (WHERE claim_status='CONFIRMED'),0) AS confirmed_amount "
-            "FROM input_vat_claims WHERE reporting_party_id=:party_id AND claim_period=:period"
-        ),
-        {"party_id": party_id, "period": tax_period},
-    ).mappings().one()
+    input_review_count = int(
+        db.execute(
+            text(
+                "SELECT COUNT(*) FROM input_vat_claims "
+                "WHERE reporting_party_id=:party_id AND claim_period=:period "
+                "AND claim_status='NEEDS_REVIEW'"
+            ),
+            {"party_id": party_id, "period": tax_period},
+        ).scalar_one()
+        or 0
+    )
     prepayment = db.execute(
         text(
             "SELECT COUNT(*) AS total_count, COALESCE(SUM(tpf.tax_amount),0) AS amount "
@@ -110,21 +98,20 @@ def _fact_preview(db, *, entity_code: str, party_id: int, tax_period: date) -> d
         "source": FACT_SOURCE_RAG_POSTGRESQL,
         "actual_occurred": True,
         "is_filing_basis": False,
-        "invoice_fact_count": invoice_count,
-        "output_event_count": int(output["total_count"] or 0),
-        "confirmed_output_event_count": int(output["confirmed_count"] or 0),
-        "output_needs_review_count": int(output["review_count"] or 0),
-        "observed_output_vat": _money(output["confirmed_amount"]),
-        "input_claim_count": int(input_claim["total_count"] or 0),
-        "confirmed_input_claim_count": int(input_claim["confirmed_count"] or 0),
-        "input_needs_review_count": int(input_claim["review_count"] or 0),
-        "observed_input_vat": _money(input_claim["confirmed_amount"]),
+        "invoice_fact_count": int(rag["invoice_fact_count"]),
+        "output_event_count": int(rag["output_fact_count"]),
+        "confirmed_output_event_count": int(rag["output_fact_count"]),
+        "output_needs_review_count": output_review_count,
+        "observed_output_vat": _money(rag["output_vat_total"]),
+        "input_claim_count": int(rag["input_fact_count"]),
+        "confirmed_input_claim_count": int(rag["input_fact_count"]),
+        "input_needs_review_count": input_review_count,
+        "observed_input_vat": _money(rag["input_vat_total"]),
         "prepayment_count": int(prepayment["total_count"] or 0),
         "observed_prepayment": _money(prepayment["amount"]),
+        "rag_snapshot_sha256": rag["snapshot_sha256"],
         "has_business_facts": bool(
-            invoice_count
-            or output["total_count"]
-            or input_claim["total_count"]
+            rag["invoice_fact_count"]
             or prepayment["total_count"]
         ),
     }
