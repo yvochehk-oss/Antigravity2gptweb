@@ -1,8 +1,8 @@
 """Read-only diagnostics for Formal VAT statutory readiness.
 
-The diagnostics never weaken the fail-closed statutory boundary. They expose
-why an official VAT ledger is absent and provide explicitly non-statutory fact
-observations so callers do not confuse "not generated" with a formal zero.
+The diagnostics never weaken the fail-closed statutory boundary. Confirmed/current
+business and tax observations remain FACT data sourced from RAG PostgreSQL even
+when the official VAT ledger is blocked or absent.
 """
 from __future__ import annotations
 
@@ -11,6 +11,8 @@ from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import text
+
+from app.domain.tax_data_policy import DATA_CLASS_FACT, FACT_SOURCE_RAG_POSTGRESQL
 
 from .formal_vat_rebuild import FormalVatRebuildBlockedError, make_formal_vat_rebuild_plan
 from .formal_vat_statutory import (
@@ -104,6 +106,10 @@ def _fact_preview(db, *, entity_code: str, party_id: int, tax_period: date) -> d
         {"party_id": party_id, "period": tax_period},
     ).mappings().one()
     return {
+        "data_class": DATA_CLASS_FACT,
+        "source": FACT_SOURCE_RAG_POSTGRESQL,
+        "actual_occurred": True,
+        "is_filing_basis": False,
         "invoice_fact_count": invoice_count,
         "output_event_count": int(output["total_count"] or 0),
         "confirmed_output_event_count": int(output["confirmed_count"] or 0),
