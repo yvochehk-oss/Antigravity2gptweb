@@ -78,8 +78,7 @@ def actual_tax_payment_facts(
         "SELECT tpf.fact_id, tpf.project_id, tpf.reporting_party_id, "
         "tpf.tax_type, tpf.tax_period, tpf.tax_event_date, tpf.tax_amount, "
         "tpf.taxable_base, tpf.currency, tpf.event_type, tpf.source_system, "
-        "tpf.external_reference, tpf.note, f.source_document_id, "
-        "f.source_hash, f.fact_version "
+        "tpf.external_reference, tpf.note, f.business_identity_key, f.version_no "
         "FROM tax_prepayment_facts tpf "
         "JOIN facts f ON f.id=tpf.fact_id "
         "WHERE tpf.project_id=:project_id "
@@ -104,6 +103,8 @@ def actual_tax_payment_facts(
         items.append(
             {
                 "fact_id": int(row["fact_id"]),
+                "business_identity_key": str(row["business_identity_key"] or ""),
+                "fact_version": int(row["version_no"] or 0),
                 "project_id": int(row["project_id"]),
                 "reporting_party_id": int(row["reporting_party_id"]),
                 "tax_type": str(row["tax_type"] or ""),
@@ -117,9 +118,6 @@ def actual_tax_payment_facts(
                 "source_system": str(row["source_system"] or ""),
                 "external_reference": str(row["external_reference"] or ""),
                 "note": str(row["note"] or ""),
-                "source_document_id": int(row["source_document_id"] or 0) or None,
-                "source_hash": str(row["source_hash"] or ""),
-                "fact_version": int(row["fact_version"] or 0),
                 "data_class": DATA_CLASS_FACT,
                 "source": FACT_SOURCE_RAG_POSTGRESQL,
                 "actual_occurred": True,
