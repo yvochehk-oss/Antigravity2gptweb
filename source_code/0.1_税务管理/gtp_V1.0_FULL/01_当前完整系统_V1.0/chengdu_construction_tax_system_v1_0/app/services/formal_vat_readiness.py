@@ -138,6 +138,10 @@ def _reason_code(detail: str) -> str:
         return "OUTPUT_ASSERTION_REQUIRED"
     if "confirmed output vat events do not match" in value:
         return "OUTPUT_ASSERTION_MISMATCH"
+    if "reviewed input vat completeness assertion is required" in value:
+        return "INPUT_ASSERTION_REQUIRED"
+    if "confirmed input vat claims do not match" in value:
+        return "INPUT_ASSERTION_MISMATCH"
     if "no prior vat period and no reviewed opening-balance seed" in value:
         return "OPENING_BALANCE_REQUIRED"
     if "prior vat period exists but has no official statutory resource" in value:
