@@ -23,6 +23,7 @@ CRITICAL_REGRESSION_FILES = (
     "tests/test_formal_vat_closed_loop.py",
     "tests/test_formal_vat_rebuild.py",
     "tests/test_formal_vat_rebuild_closed_loop_integration.py",
+    "tests/test_formal_vat_completeness_review.py",
     "tests/test_tax_data_policy_contract.py",
     "tests/test_formal_vat_phase4_delivery_contract.py",
 )
