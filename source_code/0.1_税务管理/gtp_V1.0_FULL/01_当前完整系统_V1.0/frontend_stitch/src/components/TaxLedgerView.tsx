@@ -11,7 +11,7 @@ import {
 } from '../legalEntityApi';
 import { DataStatus, EntityTaxLedgerRecord, SystemSettings } from '../types';
 
-export const TAX_LEDGER_EMPTY_MESSAGE = '尚未形成正式法定 VAT 台账。业务事实与门禁状态见下方诊断；未生成正式资源时不会以 ¥0.00 冒充正式税额。';
+export const TAX_LEDGER_EMPTY_MESSAGE = '尚未形成正式法定 VAT 台账。RAG 已确认税务事实与门禁状态见下方；未生成正式资源时不会以 ¥0.00 冒充正式税额。';
 
 type LedgerViewMode = 'current' | 'cumulative';
 
@@ -275,7 +275,7 @@ export function TaxLedgerView({ records, dataStatusMessage }: TaxLedgerViewProps
   return (
     <div className="space-y-6">
       <header data-page-title="tax-ledger" className="w-full">
-        <div className="flex items-start gap-2.5"><ReceiptText className="mt-1 h-7 w-7 flex-shrink-0 text-brand" /><div><h2 className="text-[28px] font-bold tracking-tight text-primary">法人法定税务</h2><p className="mt-1 text-[14px] text-secondary">正式法定口径与业务事实预览严格分层；未生成正式台账时不再显示伪造的 ¥0.00。</p></div></div>
+        <div className="flex items-start gap-2.5"><ReceiptText className="mt-1 h-7 w-7 flex-shrink-0 text-brand" /><div><h2 className="text-[28px] font-bold tracking-tight text-primary">法人法定税务</h2><p className="mt-1 text-[14px] text-secondary">正式法定口径与 RAG PostgreSQL 已确认税务事实严格分层；门禁只控制正式台账生成，不否定已经发生的税务事实。</p></div></div>
       </header>
 
       <div className="surface-card flex flex-wrap items-center gap-3 rounded-xl p-4">
@@ -301,15 +301,15 @@ export function TaxLedgerView({ records, dataStatusMessage }: TaxLedgerViewProps
           </div>
         </div>
         <div className="surface-card rounded-xl p-4">
-          <div className="flex items-center gap-2 text-[13px] font-semibold text-primary"><AlertTriangle className="h-4 w-4" />业务事实预览（非正式法定口径）</div>
-          <div className="mt-3 grid grid-cols-3 gap-3 text-[12px]"><div><div className="text-secondary">已确认销项事实</div><div className="mt-1 font-bold text-primary">{formatAmount(previewTotals.outputVat)}</div></div><div><div className="text-secondary">已确认进项事实</div><div className="mt-1 font-bold text-primary">{formatAmount(previewTotals.inputVat)}</div></div><div><div className="text-secondary">有效预缴事实</div><div className="mt-1 font-bold text-primary">{formatAmount(previewTotals.prepayment)}</div></div></div>
-          <div className="mt-3 text-[11px] text-secondary">以上仅用于说明系统中存在业务证据，不得作为正式申报、正式累计或法定税额。</div>
+          <div className="flex items-center gap-2 text-[13px] font-semibold text-primary"><AlertTriangle className="h-4 w-4" />RAG 已确认税务事实（FACT）</div>
+          <div className="mt-3 grid grid-cols-3 gap-3 text-[12px]"><div><div className="text-secondary">已确认销项税务事实</div><div className="mt-1 font-bold text-primary">{formatAmount(previewTotals.outputVat)}</div></div><div><div className="text-secondary">已确认进项税务事实</div><div className="mt-1 font-bold text-primary">{formatAmount(previewTotals.inputVat)}</div></div><div><div className="text-secondary">实际预缴税款事实</div><div className="mt-1 font-bold text-primary">{formatAmount(previewTotals.prepayment)}</div></div></div>
+          <div className="mt-3 text-[11px] text-secondary">以上来自 RAG PostgreSQL 的已确认／VALID 当前事实。Formal Gate 不会否定这些已经发生的数据；它们可进入 Tax 建议计算，但不等同于本期最终法定应纳税额。</div>
         </div>
       </div>
 
       {blockedItems.length > 0 && <div className="surface-card rounded-xl p-4"><div className="text-[13px] font-semibold text-primary">门禁阻断明细</div><div className="mt-3 space-y-2">{blockedItems.slice(0, 20).map(item => <div key={`${item.entityCode}-${item.period}`} className="rounded-lg border border-default px-3 py-2 text-[12px]"><div className="font-semibold text-primary">{item.entityCode} · {item.period} · {item.formalStatus}</div><div className="mt-1 text-secondary">{item.blockingReasons.map(reason => `${reason.code}：${reason.message}`).join('；') || '尚未满足正式法定台账生成条件。'}</div></div>)}</div>{blockedItems.length > 20 && <div className="mt-2 text-[11px] text-secondary">另有 {blockedItems.length - 20} 条阻断记录未展开。</div>}</div>}
 
-      <div className="surface-card overflow-hidden rounded-xl"><div className="overflow-x-auto"><table className="w-full text-left text-[13px]"><thead className="border-b border-default bg-surface-2 text-secondary"><tr><th className="px-3 py-2.5">法人主体</th><th className="px-3 py-2.5">期间</th><th className="px-3 py-2.5 text-right">销项税额</th><th className="px-3 py-2.5 text-right">进项税额</th><th className="px-3 py-2.5 text-right">税款预缴</th><th className="px-3 py-2.5 text-right">实际应纳增值税</th><th className="px-3 py-2.5 text-right">期末留抵</th></tr></thead><tbody className="divide-y divide-default">{workspaceRecords.map(row => <tr key={`${row.entityCode}-${row.period}-${row.id}`}><td className="px-3 py-3"><div className="font-semibold text-primary">{row.entityName}</div><div className="text-[11px] text-secondary">{row.entityCode}</div></td><td className="px-3 py-3 text-secondary">{row.period}</td><td className="px-3 py-3 text-right">{formatAmount(row.outputVat)}</td><td className="px-3 py-3 text-right">{formatAmount(row.inputVat)}</td><td className="px-3 py-3 text-right">{formatAmount(row.taxPrepayment)}</td><td className="px-3 py-3 text-right font-semibold text-primary">{formatAmount(row.vatPayableAfterPrepayment)}</td><td className="px-3 py-3 text-right">{formatAmount(row.closingInputCredit)}</td></tr>)}{!loading && workspaceRecords.length === 0 && <tr><td colSpan={7} className="px-4 py-8 text-center text-secondary">——（尚未形成正式台账）<div className="mt-2 text-[11px]">请查看上方业务事实预览与门禁阻断明细。</div></td></tr>}</tbody></table></div></div>
+      <div className="surface-card overflow-hidden rounded-xl"><div className="overflow-x-auto"><table className="w-full text-left text-[13px]"><thead className="border-b border-default bg-surface-2 text-secondary"><tr><th className="px-3 py-2.5">法人主体</th><th className="px-3 py-2.5">期间</th><th className="px-3 py-2.5 text-right">销项税额</th><th className="px-3 py-2.5 text-right">进项税额</th><th className="px-3 py-2.5 text-right">税款预缴</th><th className="px-3 py-2.5 text-right">实际应纳增值税</th><th className="px-3 py-2.5 text-right">期末留抵</th></tr></thead><tbody className="divide-y divide-default">{workspaceRecords.map(row => <tr key={`${row.entityCode}-${row.period}-${row.id}`}><td className="px-3 py-3"><div className="font-semibold text-primary">{row.entityName}</div><div className="text-[11px] text-secondary">{row.entityCode}</div></td><td className="px-3 py-3 text-secondary">{row.period}</td><td className="px-3 py-3 text-right">{formatAmount(row.outputVat)}</td><td className="px-3 py-3 text-right">{formatAmount(row.inputVat)}</td><td className="px-3 py-3 text-right">{formatAmount(row.taxPrepayment)}</td><td className="px-3 py-3 text-right font-semibold text-primary">{formatAmount(row.vatPayableAfterPrepayment)}</td><td className="px-3 py-3 text-right">{formatAmount(row.closingInputCredit)}</td></tr>)}{!loading && workspaceRecords.length === 0 && <tr><td colSpan={7} className="px-4 py-8 text-center text-secondary">——（尚未形成正式台账）<div className="mt-2 text-[11px]">请查看上方 RAG 已确认税务事实与门禁阻断明细。</div></td></tr>}</tbody></table></div></div>
     </div>
   );
 }
