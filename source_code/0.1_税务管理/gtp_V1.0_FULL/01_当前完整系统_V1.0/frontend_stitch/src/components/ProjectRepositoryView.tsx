@@ -15,6 +15,7 @@ import {
 import { DataStatus, MatchingCompletenessSummary, ProjectItem, SystemSettings } from '../types';
 import { DataStatusCard } from './DataStatusCard';
 import { fetchProjectMatchingCompleteness, summarizeMatchingCompleteness } from '../api';
+import { fetchExcelExport } from '../excelExportApi';
 
 interface ProjectRepositoryViewProps {
   projects: ProjectItem[];
@@ -28,19 +29,25 @@ interface ProjectRepositoryViewProps {
   settings?: SystemSettings;
 }
 
+function currentPeriod(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+}
+
 export function ProjectRepositoryView({
   projects,
   dataStatus,
   dataStatusMessage,
   onRetry,
   onSelectProject,
-  onOpenExportModal,
   onNavigateToAiReview,
 }: ProjectRepositoryViewProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedRiskFilter, setSelectedRiskFilter] = useState('全部');
   const [selectedGradeFilter, setSelectedGradeFilter] = useState('全部');
   const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid');
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState('');
   const [flowCompleteness, setFlowCompleteness] = useState<MatchingCompletenessSummary & { loading: boolean }>({
     status: 'UNAVAILABLE',
     percentage: null,
@@ -111,6 +118,18 @@ export function ProjectRepositoryView({
       ? 'var(--color-warning)'
       : 'var(--color-success)';
 
+  const exportWorkbook = async () => {
+    setExporting(true);
+    setExportError('');
+    try {
+      await fetchExcelExport('ALL', 'current', currentPeriod());
+    } catch (error) {
+      setExportError(error instanceof Error ? error.message : '工程库 Excel 导出失败。');
+    } finally {
+      setExporting(false);
+    }
+  };
+
   const filteredProjects = projects.filter(p => {
     const matchesSearch =
       p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -160,12 +179,14 @@ export function ProjectRepositoryView({
       {pageTitle}
 
       <div data-page-controls="projects" className="surface-card flex flex-wrap items-center justify-end gap-3 rounded-xl p-3.5">
+        {exportError && <span className="mr-auto text-[12px] text-[var(--color-danger)]">{exportError}</span>}
         <button
-          onClick={onOpenExportModal}
-          className="flex cursor-pointer items-center gap-2 rounded-lg bg-[var(--color-brand)] px-4 py-2 text-[13px] font-semibold text-white transition-colors hover:bg-[var(--color-brand-hover)]"
+          onClick={() => void exportWorkbook()}
+          disabled={exporting}
+          className="flex cursor-pointer items-center gap-2 rounded-lg bg-[var(--color-brand)] px-4 py-2 text-[13px] font-semibold text-white transition-colors hover:bg-[var(--color-brand-hover)] disabled:cursor-not-allowed disabled:opacity-50"
         >
           <Download className="h-4 w-4" />
-          <span>导出工程库台账</span>
+          <span>{exporting ? '正在生成 Excel…' : '导出工程库多 Sheet Excel'}</span>
         </button>
       </div>
 
