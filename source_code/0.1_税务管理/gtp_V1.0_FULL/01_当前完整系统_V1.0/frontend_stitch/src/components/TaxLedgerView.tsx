@@ -2,6 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, Download, ReceiptText, RefreshCw, ShieldCheck } from 'lucide-react';
 import { fetchJson, postJson } from '../api';
 import {
+  fetchFormalVatCompleteness,
+  reviewFormalVatCompleteness,
+} from '../formalVatCompletenessApi';
+import {
   fetchLegalEntities,
   fetchLegalEntityFactPeriods,
   fetchLegalEntityStatutoryVat,
@@ -120,6 +124,51 @@ export function TaxLedgerView({ records, dataStatusMessage }: TaxLedgerViewProps
       const targets = selectedEntities(master);
       const pairs = targets.map(entity => ({ entity, period }));
       let diagnostic = await fetchReadinessSet(pairs);
+
+      if (forceRebuild && targets.length > 0) {
+        const completenessResults = await Promise.allSettled(
+          targets.map(entity => fetchFormalVatCompleteness(entity.canonicalCode, period)),
+        );
+        const firstPreviewFailure = completenessResults.find(result => result.status === 'rejected');
+        if (firstPreviewFailure?.status === 'rejected') throw firstPreviewFailure.reason;
+
+        const reviewCandidates = completenessResults.flatMap(result => (
+          result.status === 'fulfilled' && result.value.canReview && result.value.reviewRequired
+            ? [result.value]
+            : []
+        ));
+        if (reviewCandidates.length > 0) {
+          const previewLines = reviewCandidates.slice(0, 10).map(item => (
+            `${item.entityCode}：销项 ¥${item.observed.outputVatTotal}；进项 ¥${item.observed.inputVatTotal}`
+          ));
+          if (reviewCandidates.length > 10) {
+            previewLines.push(`另有 ${reviewCandidates.length - 10} 个法人期间待确认。`);
+          }
+          const confirmed = window.confirm(
+            `重新计算前必须先确认 ${period} 的销项/进项完整性断言。\n\n`
+            + `${previewLines.join('\n')}\n\n`
+            + '确认后，系统会记录当前已确认税务事实总额及当前登录操作人，再重新执行 Fail-Closed 法定台账重算。是否确认？',
+          );
+          if (!confirmed) {
+            if (seq === requestSeq.current) {
+              setMessage('已取消完整性确认；未写入 reviewed 断言，Formal VAT 门禁保持不变。');
+            }
+            return;
+          }
+
+          const reviewResults = await Promise.allSettled(
+            reviewCandidates.map(item => reviewFormalVatCompleteness(
+              item.entityCode,
+              item.period,
+              item.observed.outputVatTotal,
+              item.observed.inputVatTotal,
+            )),
+          );
+          const firstReviewFailure = reviewResults.find(result => result.status === 'rejected');
+          if (firstReviewFailure?.status === 'rejected') throw firstReviewFailure.reason;
+          diagnostic = await fetchReadinessSet(pairs);
+        }
+      }
 
       const rebuildableCodes = new Set(
         diagnostic.items
