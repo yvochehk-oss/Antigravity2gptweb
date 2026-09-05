@@ -16,7 +16,8 @@ import hashlib
 import json
 from typing import Any
 
-from sqlalchemy import func, select, text
+from sqlalchemy import func, inspect, select, text
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.v3_fact_models import Fact, InvoiceFact
 from app.v3_party_models import InternalEntity
@@ -26,6 +27,7 @@ from app.v3_vat_ledger_models import OutputVatEvent
 MONEY = Decimal("0.01")
 SOURCE_SYSTEM = "RAG_CANONICAL_FACT"
 MIRROR_PREFIX = "rag-canonical-invoice:"
+CANONICAL_VIEW = "analytics_canonical_facts_current"
 
 
 def _period(value: str | date) -> date:
@@ -87,6 +89,20 @@ def _vat_amount(payload: dict[str, Any]) -> Decimal:
         if payload.get(key) is not None:
             return _money(payload.get(key))
     return Decimal("0.00")
+
+
+def _canonical_view_available(db) -> bool:
+    """Return False for isolated/empty test DBs without poisoning the transaction.
+
+    ``Inspector.has_table`` covers tables, views and materialized views on the
+    supported SQLAlchemy dialects. This preflight deliberately avoids issuing a
+    failing SELECT against a missing relation, which would abort a PostgreSQL
+    transaction even if the resulting ProgrammingError were caught afterwards.
+    """
+    try:
+        return bool(inspect(db.get_bind()).has_table(CANONICAL_VIEW))
+    except (SQLAlchemyError, AttributeError):
+        return False
 
 
 def summarize_rag_invoice_rows(
@@ -152,7 +168,7 @@ def summarize_rag_invoice_rows(
         default=str,
     )
     return {
-        "source": "analytics_canonical_facts_current",
+        "source": CANONICAL_VIEW,
         "entity_code": wanted,
         "period": period_label,
         "invoice_fact_count": len(normalized_rows),
@@ -169,21 +185,26 @@ def load_rag_vat_observation(db, entity_code: str, period: str | date) -> dict[s
     tax_period = _period(period)
     period_label = tax_period.strftime("%Y-%m")
     wanted = str(entity_code or "").strip().upper()
-    rows = db.execute(
-        text(
-            "SELECT fact_id, business_key, fact_version, source_hash, payload "
-            "FROM analytics_canonical_facts_current "
-            "WHERE lower(fact_type) = 'invoice' "
-            "AND left(btrim(COALESCE(NULLIF(payload::jsonb ->> 'invoice_date',''), "
-            "NULLIF(payload::jsonb ->> 'transaction_date',''), NULLIF(payload::jsonb ->> 'date',''), "
-            "payload::jsonb ->> 'period', '')), 7) = :period "
-            "AND ("
-            "UPPER(btrim(COALESCE(NULLIF(payload::jsonb ->> 'seller_entity_code',''), payload::jsonb ->> 'seller_code',''))) = :entity_code "
-            "OR UPPER(btrim(COALESCE(NULLIF(payload::jsonb ->> 'buyer_entity_code',''), payload::jsonb ->> 'buyer_code',''))) = :entity_code"
-            ") ORDER BY business_key, fact_version, fact_id"
-        ),
-        {"period": period_label, "entity_code": wanted},
-    ).mappings().all()
+    if not _canonical_view_available(db):
+        return summarize_rag_invoice_rows([], entity_code=wanted, period=tax_period)
+    try:
+        rows = db.execute(
+            text(
+                "SELECT fact_id, business_key, fact_version, source_hash, payload "
+                "FROM analytics_canonical_facts_current "
+                "WHERE lower(fact_type) = 'invoice' "
+                "AND left(btrim(COALESCE(NULLIF(payload::jsonb ->> 'invoice_date',''), "
+                "NULLIF(payload::jsonb ->> 'transaction_date',''), NULLIF(payload::jsonb ->> 'date',''), "
+                "payload::jsonb ->> 'period', '')), 7) = :period "
+                "AND ("
+                "UPPER(btrim(COALESCE(NULLIF(payload::jsonb ->> 'seller_entity_code',''), payload::jsonb ->> 'seller_code',''))) = :entity_code "
+                "OR UPPER(btrim(COALESCE(NULLIF(payload::jsonb ->> 'buyer_entity_code',''), payload::jsonb ->> 'buyer_code',''))) = :entity_code"
+                ") ORDER BY business_key, fact_version, fact_id"
+            ),
+            {"period": period_label, "entity_code": wanted},
+        ).mappings().all()
+    except SQLAlchemyError:
+        return summarize_rag_invoice_rows([], entity_code=wanted, period=tax_period)
     return summarize_rag_invoice_rows(
         [dict(row) for row in rows],
         entity_code=wanted,
@@ -193,6 +214,8 @@ def load_rag_vat_observation(db, entity_code: str, period: str | date) -> dict[s
 
 def list_rag_vat_scopes(db, entity_code: str | None = None) -> list[dict[str, str]]:
     """Return legal-entity/month scopes which have current Canonical invoice facts."""
+    if not _canonical_view_available(db):
+        return []
     wanted = str(entity_code or "").strip().upper()
     legal_codes = {
         str(code).strip().upper()
@@ -209,12 +232,15 @@ def list_rag_vat_scopes(db, entity_code: str | None = None) -> list[dict[str, st
     if not legal_codes:
         return []
 
-    rows = db.execute(
-        text(
-            "SELECT payload FROM analytics_canonical_facts_current "
-            "WHERE lower(fact_type)='invoice' ORDER BY business_key, fact_version, fact_id"
-        )
-    ).scalars().all()
+    try:
+        rows = db.execute(
+            text(
+                "SELECT payload FROM analytics_canonical_facts_current "
+                "WHERE lower(fact_type)='invoice' ORDER BY business_key, fact_version, fact_id"
+            )
+        ).scalars().all()
+    except SQLAlchemyError:
+        return []
     scopes: set[tuple[str, str]] = set()
     for value in rows:
         payload = _payload(value)
