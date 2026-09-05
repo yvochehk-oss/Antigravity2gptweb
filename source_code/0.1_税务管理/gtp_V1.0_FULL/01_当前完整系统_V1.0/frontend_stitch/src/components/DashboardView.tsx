@@ -1,7 +1,9 @@
+import { useState } from 'react';
 import { Building2, Database, Download, ExternalLink, Landmark, LayoutDashboard, ShieldAlert } from 'lucide-react';
 import { DataStatusCard } from './DataStatusCard';
 import { ProjectItem, DataStatus, RiskEvent, SystemSettings, EntityTaxLedgerRecord } from '../types';
 import { dataStatusLabel } from './uiLocalization';
+import { fetchExcelExport } from '../excelExportApi';
 
 interface DashboardViewProps {
   projects: ProjectItem[];
@@ -24,6 +26,11 @@ interface DashboardViewProps {
 function formatAmount(value: number): string {
   if (!Number.isFinite(value)) return '—';
   return `¥ ${value.toLocaleString('zh-CN')} 元`;
+}
+
+function currentPeriod(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 }
 
 function StatutoryKpi({ label, value }: { label: string; value: string }) {
@@ -53,7 +60,6 @@ export function DashboardView({
   onSelectProject,
   onOpenEntityCorporate,
   onOpenRiskCenter,
-  onOpenExportModal,
   riskEvents,
   riskStatus,
   riskStatusMessage,
@@ -61,6 +67,8 @@ export function DashboardView({
   taxLedgerStatusMessage,
   taxLedgerRecords = [],
 }: DashboardViewProps) {
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState('');
   const totalContract = projects.reduce((sum, project) => sum + project.totalBudget, 0);
   const totalCost = projects.reduce((sum, project) => sum + project.spentAmount, 0);
   const contractCostGap = totalContract - totalCost;
@@ -77,6 +85,20 @@ export function DashboardView({
   const unresolvedRiskCount = riskEvents.filter(risk => risk.status !== '已闭环').length;
   const hasStatutoryData = taxLedgerRecords.length > 0;
   const hasRiskData = riskStatus === 'READY' || riskEvents.length > 0;
+  const periods = taxLedgerRecords.map(record => record.period).filter(Boolean).sort();
+  const exportPeriod = periods.length > 0 ? periods[periods.length - 1] : currentPeriod();
+
+  const exportWorkbook = async () => {
+    setExporting(true);
+    setExportError('');
+    try {
+      await fetchExcelExport('ALL', 'current', exportPeriod);
+    } catch (error) {
+      setExportError(error instanceof Error ? error.message : 'Excel 导出失败。');
+    } finally {
+      setExporting(false);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -91,14 +113,15 @@ export function DashboardView({
       </header>
 
       <div data-page-controls="dashboard" className="surface-card flex flex-wrap items-center justify-end gap-3 rounded-xl border border-default p-3.5">
+        {exportError && <span className="mr-auto text-[12px] text-[var(--color-danger)]">{exportError}</span>}
         <button
           type="button"
-          onClick={onOpenExportModal}
-          disabled={projects.length === 0 && taxLedgerRecords.length === 0}
+          onClick={() => void exportWorkbook()}
+          disabled={exporting || (projects.length === 0 && taxLedgerRecords.length === 0)}
           className="flex items-center gap-2 rounded-lg border border-[var(--color-brand)] bg-[var(--color-brand)] px-4 py-2 text-[13px] font-semibold text-white transition-colors hover:bg-[var(--color-brand-hover)] disabled:cursor-not-allowed disabled:opacity-40"
         >
           <Download className="h-4 w-4" />
-          <span>导出当前真实数据</span>
+          <span>{exporting ? '正在生成 Excel…' : '导出多 Sheet Excel'}</span>
         </button>
       </div>
 
@@ -205,7 +228,7 @@ export function DashboardView({
         </button>
 
         <div className="surface-card rounded-xl border border-default p-5">
-          <div className="flex items-center gap-2 text-brand"><Database className="h-4 w-4" /><h3 className="font-semibold text-primary">数据源健康状态</h3></div>
+          <div className="flex items-center gap-2 text-brand"><Database className="h-4 w-4 text-brand" /><h3 className="font-semibold text-primary">数据源健康状态</h3></div>
           <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="rounded-lg border border-default bg-[var(--color-surface-2)] p-3">
               <p className="text-[11px] text-secondary">法人法定申报增值税</p>
