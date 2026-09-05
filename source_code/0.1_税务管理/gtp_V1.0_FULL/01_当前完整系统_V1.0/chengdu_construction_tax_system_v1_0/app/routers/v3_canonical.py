@@ -235,10 +235,27 @@ def _invoice_detail_rows(db: Session, entity_code: str, periods: set[str] | None
 def _payment_detail_rows(db: Session, entity_code: str, periods: set[str] | None) -> list[dict[str, Any]]:
     rows = db.execute(
         text(
-            "SELECT period, tax_period, payment_date, transaction_date, receipt_no, tax_type, tax_amount, note "
-            "FROM tax_payment_records "
-            "WHERE UPPER(entity_code) = UPPER(:entity_code) "
-            "ORDER BY COALESCE(payment_date, transaction_date), id"
+            "SELECT "
+            "to_char(tpf.tax_period, 'YYYY-MM') AS period, "
+            "tpf.tax_period, "
+            "tpf.tax_event_date AS payment_date, "
+            "COALESCE(tpf.external_reference, '') AS payment_reference, "
+            "tpf.tax_type, "
+            "tpf.tax_amount AS prepaid_amount, "
+            "tpf.note "
+            "FROM tax_prepayment_facts tpf "
+            "JOIN facts f ON f.id = tpf.fact_id "
+            "JOIN parties p ON p.id = tpf.reporting_party_id "
+            "JOIN internal_entities ie ON ie.party_id = p.id "
+            "WHERE p.party_type = 'internal' "
+            "AND p.active = TRUE "
+            "AND ie.active = TRUE "
+            "AND ie.legal_entity = TRUE "
+            "AND UPPER(ie.canonical_code) = UPPER(:entity_code) "
+            "AND tpf.tax_type = 'VAT' "
+            "AND f.is_current = TRUE "
+            "AND f.validation_status = 'VALID' "
+            "ORDER BY tpf.tax_event_date, tpf.fact_id"
         ),
         {"entity_code": entity_code},
     ).mappings().all()
@@ -252,13 +269,13 @@ def _payment_detail_rows(db: Session, entity_code: str, periods: set[str] | None
                 "source_type": "TAX_PAYMENT",
                 "entity_code": entity_code.strip().upper(),
                 "period": fact_period,
-                "transaction_date": str(row["payment_date"] or row["transaction_date"] or ""),
+                "transaction_date": str(row["payment_date"] or ""),
                 "contract_no": "",
                 "invoice_no": "",
                 "counterparty": "税务机关",
-                "receipt_no": str(row["receipt_no"] or ""),
+                "receipt_no": str(row["payment_reference"] or ""),
                 "tax_type": str(row["tax_type"] or ""),
-                "tax_amount": _money(row["tax_amount"]),
+                "tax_amount": _money(row["prepaid_amount"]),
                 "gross_amount": 0.0,
                 "note": str(row["note"] or ""),
             }
