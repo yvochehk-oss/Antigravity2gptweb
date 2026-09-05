@@ -6,6 +6,7 @@ must never overwrite or masquerade as FACT values.
 """
 from __future__ import annotations
 
+import calendar
 from datetime import date
 from decimal import Decimal
 from typing import Any
@@ -61,6 +62,12 @@ def _period_date(period: str | None) -> date | None:
     return parsed
 
 
+def _period_end(period: date | None) -> date | None:
+    if period is None:
+        return None
+    return date(period.year, period.month, calendar.monthrange(period.year, period.month)[1])
+
+
 def actual_tax_payment_facts(
     db,
     project_id: int,
@@ -71,7 +78,9 @@ def actual_tax_payment_facts(
     """Read actual tax payments accepted by the RAG canonical pipeline.
 
     A current/VALID TaxPrepaymentFact is an occurred tax fact for Tax purposes.
-    Formal VAT/CIT gate state does not suppress or downgrade these facts.
+    Formal VAT/CIT gate state does not suppress or downgrade these facts. When a
+    period is supplied, the result is project-to-date through that month so its
+    scope matches the deterministic accounting advisory view.
     """
     tax_period = _period_date(period)
     sql = (
@@ -89,7 +98,7 @@ def actual_tax_payment_facts(
         sql += " AND tpf.reporting_party_id=:reporting_party_id"
         params["reporting_party_id"] = int(reporting_party_id)
     if tax_period is not None:
-        sql += " AND tpf.tax_period=:tax_period"
+        sql += " AND tpf.tax_period<=:tax_period"
         params["tax_period"] = tax_period
     sql += " ORDER BY tpf.tax_period, tpf.tax_event_date, tpf.fact_id"
 
@@ -130,6 +139,8 @@ def actual_tax_payment_facts(
         "source": FACT_SOURCE_RAG_POSTGRESQL,
         "actual_occurred": True,
         "is_filing_basis": False,
+        "scope": "PROJECT_TO_DATE" if tax_period is None else "PROJECT_TO_DATE_THROUGH_PERIOD",
+        "through_period": period,
         "items": items,
         "totals_by_tax_family": {key: _money(value) for key, value in sorted(totals.items())},
         "count": len(items),
@@ -144,13 +155,18 @@ def build_tax_advisory(
     period: str | None = None,
 ) -> dict[str, Any]:
     """Combine immutable RAG facts with deterministic Tax advisory calculations."""
+    parsed_period = _period_date(period)
     facts = actual_tax_payment_facts(
         db,
         int(project_id),
         reporting_party_id=reporting_party_id,
         period=period,
     )
-    accounting = build_project_accounting(db, int(project_id))
+    accounting = build_project_accounting(
+        db,
+        int(project_id),
+        as_of=_period_end(parsed_period),
+    )
     recognition = accounting.get("recognition") or {}
     book_tax = accounting.get("book_tax") or {}
     boundary = accounting.get("boundary") or {}
@@ -169,6 +185,8 @@ def build_tax_advisory(
         "source": ADVISORY_SOURCE_TAX_ENGINE,
         "actual_occurred": False,
         "is_filing_basis": False,
+        "scope": facts["scope"],
+        "through_period": period,
         "engine_version": accounting.get("engine_version"),
         "revenue": advisory_revenue,
         "cost": advisory_cost,
@@ -182,6 +200,8 @@ def build_tax_advisory(
         "data_class": DATA_CLASS_ADVISORY,
         "source": ADVISORY_SOURCE_TAX_ENGINE,
         "is_filing_basis": False,
+        "scope": facts["scope"],
+        "through_period": period,
         "vat_advisory_minus_actual_paid": _money(advisory_vat - actual_vat),
         "cit_advisory_minus_actual_paid": _money(advisory_cit - actual_cit),
     }
