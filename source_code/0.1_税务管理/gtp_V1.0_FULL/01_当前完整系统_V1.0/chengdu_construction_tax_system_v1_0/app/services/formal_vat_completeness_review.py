@@ -114,6 +114,8 @@ def _observed(db, entity_code: str, reporting_party_id: int, tax_period: date) -
     )
     return {
         "source": rag["source"],
+        "entity_code": rag["entity_code"],
+        "period": rag["period"],
         "snapshot_sha256": rag["snapshot_sha256"],
         "invoice_fact_count": int(rag["invoice_fact_count"]),
         "output_fact_count": int(rag["output_fact_count"]),
