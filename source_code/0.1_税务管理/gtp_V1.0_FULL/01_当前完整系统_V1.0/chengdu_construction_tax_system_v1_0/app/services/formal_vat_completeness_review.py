@@ -1,10 +1,10 @@
 """Explicit operator review for Formal VAT period completeness assertions.
 
-This service intentionally does not weaken the statutory rebuild boundary.
-Reading a candidate never writes evidence, and only an authenticated caller of
-``review_formal_vat_completeness`` may mark the current confirmed Output/Input
-VAT totals as reviewed. The subsequent rebuild still re-validates every source
-and assertion fail-closed.
+Canonical invoice facts remain the business source of truth. GET preview is
+read-only. Explicit review locks one legal-entity/month, verifies the exact RAG
+snapshot, materializes typed statutory-working mirrors, and only then records
+reviewed Output/Input completeness assertions. The Formal VAT rebuild continues
+to enforce its existing fail-closed source and closed-loop checks.
 """
 from __future__ import annotations
 
@@ -15,10 +15,16 @@ from typing import Any
 from sqlalchemy import func, select, text
 
 from app.v3_party_models import InternalEntity, Party
+from app.v3_period_models import TaxPeriodState
 from app.v3_tax_models import InputVatClaim
-from app.v3_vat_ledger_models import OutputVatEvent
+from app.v3_vat_ledger_models import OutputVatEvent, VatOpeningBalanceSeed
 from app.v3_vat_review_models import VatInputPeriodAssertion, VatOutputPeriodAssertion
 
+from .formal_vat_rag_facts import (
+    list_rag_vat_scopes,
+    load_rag_vat_observation,
+    materialize_rag_vat_evidence,
+)
 from .legal_entity_fact_periods import LegalEntityNotFoundError
 
 MONEY = Decimal("0.01")
@@ -75,21 +81,7 @@ def _lock_scope(db, reporting_party_id: int, tax_period: date) -> None:
     )
 
 
-def _observed(db, reporting_party_id: int, tax_period: date) -> dict[str, Any]:
-    output_total = db.scalar(
-        select(func.coalesce(func.sum(OutputVatEvent.vat_amount), 0)).where(
-            OutputVatEvent.reporting_party_id == reporting_party_id,
-            OutputVatEvent.output_vat_period == tax_period,
-            OutputVatEvent.event_status == "CONFIRMED",
-        )
-    )
-    input_total = db.scalar(
-        select(func.coalesce(func.sum(InputVatClaim.claim_amount), 0)).where(
-            InputVatClaim.reporting_party_id == reporting_party_id,
-            InputVatClaim.claim_period == tax_period,
-            InputVatClaim.claim_status == "CONFIRMED",
-        )
-    )
+def _unresolved_counts(db, reporting_party_id: int, tax_period: date) -> tuple[int, int]:
     output_review_count = int(
         db.scalar(
             select(func.count(OutputVatEvent.id)).where(
@@ -110,11 +102,27 @@ def _observed(db, reporting_party_id: int, tax_period: date) -> dict[str, Any]:
         )
         or 0
     )
+    return output_review_count, input_review_count
+
+
+def _observed(db, entity_code: str, reporting_party_id: int, tax_period: date) -> dict[str, Any]:
+    rag = load_rag_vat_observation(db, entity_code, tax_period)
+    output_review_count, input_review_count = _unresolved_counts(
+        db,
+        reporting_party_id,
+        tax_period,
+    )
     return {
-        "output_vat_total": _money(output_total),
-        "input_vat_total": _money(input_total),
+        "source": rag["source"],
+        "snapshot_sha256": rag["snapshot_sha256"],
+        "invoice_fact_count": int(rag["invoice_fact_count"]),
+        "output_fact_count": int(rag["output_fact_count"]),
+        "input_fact_count": int(rag["input_fact_count"]),
+        "output_vat_total": _money(rag["output_vat_total"]),
+        "input_vat_total": _money(rag["input_vat_total"]),
         "output_needs_review_count": output_review_count,
         "input_needs_review_count": input_review_count,
+        "rows": rag["rows"],
     }
 
 
@@ -139,15 +147,43 @@ def _assertion_payload(row, amount_attr: str, observed_total: Decimal) -> dict[s
     }
 
 
+def _opening_payload(db, reporting_party_id: int, tax_period: date) -> dict[str, Any]:
+    prior_period = date(
+        tax_period.year - 1 if tax_period.month == 1 else tax_period.year,
+        12 if tax_period.month == 1 else tax_period.month - 1,
+        1,
+    )
+    prior_state = db.scalar(
+        select(TaxPeriodState).where(
+            TaxPeriodState.reporting_party_id == reporting_party_id,
+            TaxPeriodState.tax_type == "VAT",
+            TaxPeriodState.tax_period == prior_period,
+        )
+    )
+    seed = db.scalar(
+        select(VatOpeningBalanceSeed).where(
+            VatOpeningBalanceSeed.reporting_party_id == reporting_party_id,
+            VatOpeningBalanceSeed.tax_period == tax_period,
+            VatOpeningBalanceSeed.reviewed.is_(True),
+        )
+    )
+    return {
+        "required": prior_state is None and seed is None,
+        "reviewed_seed_exists": seed is not None,
+        "opening_input_credit": f"{Decimal(seed.opening_input_credit):.2f}" if seed is not None else None,
+        "prior_period_state_exists": prior_state is not None,
+    }
+
+
 def get_formal_vat_completeness_review(
     db,
     entity_code: str,
     period: str | date,
 ) -> dict[str, Any]:
-    """Return the exact evidence an operator would review, without writing it."""
+    """Return the exact RAG evidence an operator would review, without writing it."""
     tax_period = _period(period)
     wanted, party_id = _resolve_entity(db, entity_code)
-    observed = _observed(db, party_id, tax_period)
+    observed = _observed(db, wanted, party_id, tax_period)
     output_assertion = db.scalar(
         select(VatOutputPeriodAssertion).where(
             VatOutputPeriodAssertion.reporting_party_id == party_id,
@@ -185,9 +221,15 @@ def get_formal_vat_completeness_review(
         "entity_code": wanted,
         "reporting_party_id": party_id,
         "period": tax_period.strftime("%Y-%m"),
+        "source_of_truth": "analytics_canonical_facts_current",
+        "snapshot_sha256": observed["snapshot_sha256"],
         "can_review": can_review,
         "review_required": not assertions_current,
+        "opening_balance": _opening_payload(db, party_id, tax_period),
         "observed": {
+            "invoice_fact_count": observed["invoice_fact_count"],
+            "output_fact_count": observed["output_fact_count"],
+            "input_fact_count": observed["input_fact_count"],
             "output_vat_total": f"{observed['output_vat_total']:.2f}",
             "input_vat_total": f"{observed['input_vat_total']:.2f}",
             "output_needs_review_count": observed["output_needs_review_count"],
@@ -200,6 +242,47 @@ def get_formal_vat_completeness_review(
     }
 
 
+def _review_opening_seed(
+    db,
+    *,
+    reporting_party_id: int,
+    tax_period: date,
+    opening_input_credit: Decimal | None,
+    actor: str,
+    now: datetime,
+) -> None:
+    if opening_input_credit is None:
+        return
+    amount = _money(opening_input_credit)
+    if amount < 0:
+        raise ValueError("opening_input_credit must be non-negative")
+    prior = _opening_payload(db, reporting_party_id, tax_period)
+    if prior["prior_period_state_exists"]:
+        return
+    seed = db.scalar(
+        select(VatOpeningBalanceSeed)
+        .where(
+            VatOpeningBalanceSeed.reporting_party_id == reporting_party_id,
+            VatOpeningBalanceSeed.tax_period == tax_period,
+        )
+        .with_for_update()
+    )
+    if seed is None:
+        seed = VatOpeningBalanceSeed(
+            reporting_party_id=reporting_party_id,
+            tax_period=tax_period,
+            opening_input_credit=amount,
+            source=REVIEW_SOURCE,
+        )
+        db.add(seed)
+    seed.opening_input_credit = amount
+    seed.source = REVIEW_SOURCE
+    seed.reviewed = True
+    seed.reviewed_by = actor
+    seed.reviewed_at = now
+    seed.note = "Operator explicitly confirmed the initial Formal VAT opening input credit."
+
+
 def review_formal_vat_completeness(
     db,
     entity_code: str,
@@ -208,8 +291,10 @@ def review_formal_vat_completeness(
     expected_output_vat_total: Decimal,
     expected_input_vat_total: Decimal,
     reviewed_by: str,
+    expected_snapshot_sha256: str | None = None,
+    opening_input_credit: Decimal | None = None,
 ) -> dict[str, Any]:
-    """Explicitly review current confirmed totals for one legal-entity/month."""
+    """Explicitly review and materialize current RAG invoice VAT for one month."""
     tax_period = _period(period)
     wanted, party_id = _resolve_entity(db, entity_code)
     actor = str(reviewed_by or "").strip()[:80]
@@ -217,7 +302,7 @@ def review_formal_vat_completeness(
         raise ValueError("reviewed_by is required")
 
     _lock_scope(db, party_id, tax_period)
-    observed = _observed(db, party_id, tax_period)
+    observed = _observed(db, wanted, party_id, tax_period)
     if observed["output_needs_review_count"] or observed["input_needs_review_count"]:
         raise FormalVatCompletenessReviewError(
             "unresolved VAT evidence must be reviewed before completeness can be confirmed: "
@@ -229,7 +314,28 @@ def review_formal_vat_completeness(
     expected_input = _money(expected_input_vat_total)
     if expected_output != observed["output_vat_total"] or expected_input != observed["input_vat_total"]:
         raise FormalVatCompletenessReviewError(
-            "stale VAT completeness review: confirmed totals changed after operator preview"
+            "stale VAT completeness review: Canonical RAG totals changed after operator preview"
+        )
+    if expected_snapshot_sha256 and expected_snapshot_sha256 != observed["snapshot_sha256"]:
+        raise FormalVatCompletenessReviewError(
+            "stale VAT completeness review: Canonical RAG snapshot changed after operator preview"
+        )
+
+    mirror = materialize_rag_vat_evidence(
+        db,
+        reporting_party_id=party_id,
+        entity_code=wanted,
+        period=tax_period,
+        reviewed_by=actor,
+        observation=observed,
+    )
+    if (
+        mirror["output_vat_total"] != observed["output_vat_total"]
+        or mirror["input_vat_total"] != observed["input_vat_total"]
+    ):
+        raise FormalVatCompletenessReviewError(
+            "statutory VAT mirror does not converge to the Canonical RAG totals; "
+            "non-canonical confirmed VAT rows or duplicate evidence must be reconciled first"
         )
 
     now = datetime.now(timezone.utc)
@@ -254,7 +360,10 @@ def review_formal_vat_completeness(
     output_assertion.reviewed = True
     output_assertion.reviewed_by = actor
     output_assertion.reviewed_at = now
-    output_assertion.note = "Operator explicitly confirmed the current CONFIRMED Output VAT total."
+    output_assertion.note = (
+        "Operator explicitly confirmed the current RAG Canonical Output VAT completeness snapshot "
+        f"{observed['snapshot_sha256']}."
+    )
 
     input_assertion = db.scalar(
         select(VatInputPeriodAssertion)
@@ -277,14 +386,62 @@ def review_formal_vat_completeness(
     input_assertion.reviewed = True
     input_assertion.reviewed_by = actor
     input_assertion.reviewed_at = now
-    input_assertion.note = "Operator explicitly confirmed the current CONFIRMED Input VAT total."
+    input_assertion.note = (
+        "Operator explicitly confirmed the current RAG Canonical Input VAT completeness snapshot "
+        f"{observed['snapshot_sha256']}."
+    )
 
+    _review_opening_seed(
+        db,
+        reporting_party_id=party_id,
+        tax_period=tax_period,
+        opening_input_credit=opening_input_credit,
+        actor=actor,
+        now=now,
+    )
     db.flush()
     return get_formal_vat_completeness_review(db, wanted, tax_period)
+
+
+def list_formal_vat_completeness_reviews(db, entity_code: str | None = None) -> list[dict[str, Any]]:
+    return [
+        get_formal_vat_completeness_review(db, scope["entity_code"], scope["period"])
+        for scope in list_rag_vat_scopes(db, entity_code)
+    ]
+
+
+def review_formal_vat_completeness_bulk(
+    db,
+    items: list[dict[str, Any]],
+    *,
+    reviewed_by: str,
+) -> list[dict[str, Any]]:
+    """Atomically review a caller-previewed set of legal-entity/month RAG snapshots."""
+    results: list[dict[str, Any]] = []
+    for item in sorted(items, key=lambda row: (str(row.get("entity_code")), str(row.get("period")))):
+        results.append(
+            review_formal_vat_completeness(
+                db,
+                str(item.get("entity_code") or ""),
+                str(item.get("period") or ""),
+                expected_output_vat_total=_money(item.get("expected_output_vat_total")),
+                expected_input_vat_total=_money(item.get("expected_input_vat_total")),
+                expected_snapshot_sha256=str(item.get("expected_snapshot_sha256") or "") or None,
+                opening_input_credit=(
+                    _money(item.get("opening_input_credit"))
+                    if item.get("opening_input_credit") is not None
+                    else None
+                ),
+                reviewed_by=reviewed_by,
+            )
+        )
+    return results
 
 
 __all__ = [
     "FormalVatCompletenessReviewError",
     "get_formal_vat_completeness_review",
+    "list_formal_vat_completeness_reviews",
     "review_formal_vat_completeness",
+    "review_formal_vat_completeness_bulk",
 ]
