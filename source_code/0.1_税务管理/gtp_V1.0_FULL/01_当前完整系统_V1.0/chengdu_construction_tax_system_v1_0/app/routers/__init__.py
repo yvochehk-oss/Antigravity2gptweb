@@ -19,6 +19,7 @@ from .rag_sync import router as rag_sync_router
 from .ssot_reconciliation import router as ssot_reconciliation_router
 from .tasks import router as tasks_router
 from .tax import router as tax_router
+from .tax_advisory import router as tax_advisory_router
 from .users import router as users_router
 from .v3_canonical import router as v3_canonical_router
 from ..services.phase3_retirement import install_formal_vat_router_cutover
@@ -52,6 +53,7 @@ ALL_ROUTERS = [
     phase4_accounting_router,
     v3_canonical_router,
     formal_vat_readiness_router,
+    tax_advisory_router,
     users_router,
     user_center_router,
 ]
