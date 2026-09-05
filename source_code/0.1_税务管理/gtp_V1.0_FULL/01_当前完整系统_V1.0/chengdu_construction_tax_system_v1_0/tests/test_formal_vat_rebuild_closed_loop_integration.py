@@ -23,7 +23,7 @@ from app.v3_vat_ledger_models import (
     OutputVatEvent,
     VatOpeningBalanceSeed,
 )
-from app.v3_vat_review_models import VatOutputPeriodAssertion
+from app.v3_vat_review_models import VatInputPeriodAssertion, VatOutputPeriodAssertion
 
 
 def _seed_rebuild_source(
@@ -106,6 +106,15 @@ def _seed_rebuild_source(
                 tax_period=period,
                 asserted_output_vat_total=asserted_output,
                 source="pytest reviewed Output VAT completeness",
+                reviewed=True,
+                reviewed_by="pytest",
+                reviewed_at=reviewed_at,
+            ),
+            VatInputPeriodAssertion(
+                reporting_party_id=party.id,
+                tax_period=period,
+                asserted_input_vat_total=Decimal("0.00"),
+                source="pytest reviewed Input VAT completeness",
                 reviewed=True,
                 reviewed_by="pytest",
                 reviewed_at=reviewed_at,
