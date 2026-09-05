@@ -11,9 +11,13 @@ from typing import Any, Iterable
 
 from sqlalchemy import text
 
+from ..domain.tax_data_policy import (
+    ADVISORY_SOURCE_TAX_ENGINE,
+    DATA_CLASS_ADVISORY,
+    FACT_SOURCE_RAG_POSTGRESQL,
+)
 from ..models import Project
 from .canonical_ssot import _decimal, _payload, consolidate_invoice_facts, load_current_facts
-
 
 
 def _clean(value: Any) -> str:
@@ -30,13 +34,15 @@ def resolve_project_transaction_price(
     *,
     contract_facts: Iterable[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    """Resolve project revenue transaction price without project-specific codes.
+    """Resolve project revenue transaction price only from RAG Canonical Facts.
 
     Resolution order is intentionally data-driven and non-crashing:
     1. explicit canonical contract_scope marker;
     2. ZB-* general/main-contract convention;
-    3. largest external-boundary contract (degraded when ambiguity exists);
-    4. projects master contract_total / contract_amount (degraded fallback).
+    3. largest external-boundary contract (degraded when ambiguity exists).
+
+    Project master financial fields are intentionally not a fallback. When RAG
+    PostgreSQL has no accepted/current contract-price fact, Tax reports EMPTY.
     """
     internal_codes = {
         _code(code)
@@ -98,18 +104,14 @@ def resolve_project_transaction_price(
                 status = "READY" if len(boundary) == 1 else "DEGRADED"
                 reason = "SINGLE_BOUNDARY" if len(boundary) == 1 else "MULTIPLE_BOUNDARY_MAX_AMOUNT"
             else:
-                project = db.get(Project, int(project_id)) if hasattr(db, "get") else None
-                fallback_amount = _decimal(
-                    getattr(project, "contract_total", None)
-                    or getattr(project, "contract_amount", None)
-                ) if project is not None else Decimal("0")
                 return {
-                    "amount": fallback_amount,
-                    "status": "DEGRADED" if fallback_amount > 0 else "EMPTY",
+                    "amount": Decimal("0"),
+                    "status": "EMPTY",
                     "source_fact_id": None,
                     "fact_version": None,
                     "contract_no": "",
-                    "resolution_reason": "PROJECT_MASTER_FALLBACK" if fallback_amount > 0 else "NO_CONTRACT_PRICE_FACT",
+                    "resolution_reason": "RAG_POSTGRESQL_NO_CONTRACT_PRICE_FACT",
+                    "source": FACT_SOURCE_RAG_POSTGRESQL,
                 }
 
     return {
@@ -119,6 +121,7 @@ def resolve_project_transaction_price(
         "fact_version": selected["fact_version"],
         "contract_no": selected["contract_no"],
         "resolution_reason": reason,
+        "source": FACT_SOURCE_RAG_POSTGRESQL,
     }
 
 
@@ -216,6 +219,9 @@ def canonical_project_summary(db, project_id: int) -> dict[str, Any]:
         "external_cash_in": _decimal(cash["external_cash_in"]),
         "internal_cash_eliminated": _decimal(cash["internal_cash_eliminated"]),
         "source_of_truth": "analytics_canonical_facts_current",
+        "fact_source": FACT_SOURCE_RAG_POSTGRESQL,
+        "calculated_data_class": DATA_CLASS_ADVISORY,
+        "calculated_source": ADVISORY_SOURCE_TAX_ENGINE,
         "legacy_tables_used": False,
         "transaction_price_source": {
             "status": transaction["status"],
@@ -223,7 +229,7 @@ def canonical_project_summary(db, project_id: int) -> dict[str, Any]:
             "fact_version": transaction["fact_version"],
             "contract_no": transaction["contract_no"],
             "resolution_reason": transaction.get("resolution_reason", ""),
-            "resolution_reason": transaction.get("resolution_reason", ""),
+            "source": transaction.get("source", FACT_SOURCE_RAG_POSTGRESQL),
         },
         "engine_version": accounting["engine_version"],
         "lineage": accounting["lineage"],
