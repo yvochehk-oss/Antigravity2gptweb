@@ -643,3 +643,13 @@ def rebuild_formal_vat_statutory_resource(
         "result_sha256": run.result_sha256,
         "resource": official,
     }
+
+
+__all__ = [
+    "FormalVatRebuildBlockedError",
+    "PLAN_KIND",
+    "RESOURCE_TYPE",
+    "RULESET_VERSION",
+    "make_formal_vat_rebuild_plan",
+    "rebuild_formal_vat_statutory_resource",
+]
