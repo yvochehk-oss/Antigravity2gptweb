@@ -39,6 +39,7 @@ from app.v3_vat_ledger_models import (
 )
 from app.v3_vat_review_models import VatOutputPeriodAssertion
 
+from .formal_vat_closed_loop import STATUS_INCOMPLETE, evaluate_formal_vat_closed_loop
 from .formal_vat_statutory import (
     FormalVatStatutoryResourceIntegrityError,
     FormalVatStatutoryResourceNotFoundError,
@@ -521,6 +522,24 @@ def rebuild_formal_vat_statutory_resource(
     if _canonical_hash(stable_snapshot) != input_hash:
         raise FormalVatRebuildBlockedError(
             "VAT source snapshot changed during rebuild; transaction must be retried"
+        )
+
+    components = db.scalars(
+        select(EntityVatLedgerComponent)
+        .where(EntityVatLedgerComponent.ledger_id == ledger.id)
+        .order_by(EntityVatLedgerComponent.id)
+    ).all()
+    closed_loop = evaluate_formal_vat_closed_loop(stable_snapshot, components)
+    if closed_loop["status"] == STATUS_INCOMPLETE:
+        raise FormalVatRebuildBlockedError(
+            "formal VAT closed-loop completeness assertion failed: "
+            + json.dumps(
+                closed_loop,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+                default=str,
+            )
         )
 
     result_payload = {
