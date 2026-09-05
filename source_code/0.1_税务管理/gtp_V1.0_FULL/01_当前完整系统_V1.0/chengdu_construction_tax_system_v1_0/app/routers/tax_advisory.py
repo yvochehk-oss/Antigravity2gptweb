@@ -24,7 +24,6 @@ def get_tax_advisory_db() -> Iterator[Session]:
 @router.get("/projects/{project_id}/tax-advisory")
 def project_tax_advisory(
     project_id: int,
-    reporting_party_id: int | None = Query(default=None, gt=0),
     period: str | None = Query(default=None),
     db: Session = Depends(get_tax_advisory_db),
 ):
@@ -32,7 +31,6 @@ def project_tax_advisory(
         return build_tax_advisory(
             db,
             int(project_id),
-            reporting_party_id=reporting_party_id,
             period=period,
         )
     except LookupError as exc:
