@@ -6,6 +6,7 @@ from .auth import router as auth_router
 from .canonical_ssot import router as canonical_ssot_router
 from .cockpit import router as cockpit_router
 from .collections import router as collections_router
+from .formal_vat_completeness import router as formal_vat_completeness_router
 from .formal_vat_readiness import router as formal_vat_readiness_router
 from .health_check import router as health_check_router
 from .legal_entity_operating_projection import router as legal_entity_operating_projection_router
@@ -53,6 +54,7 @@ ALL_ROUTERS = [
     phase4_accounting_router,
     v3_canonical_router,
     formal_vat_readiness_router,
+    formal_vat_completeness_router,
     tax_advisory_router,
     users_router,
     user_center_router,
