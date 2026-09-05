@@ -107,6 +107,26 @@ def _unresolved_counts(db, reporting_party_id: int, tax_period: date) -> tuple[i
 
 def _observed(db, entity_code: str, reporting_party_id: int, tax_period: date) -> dict[str, Any]:
     rag = load_rag_vat_observation(db, entity_code, tax_period)
+    legacy_output = _money(
+        db.scalar(
+            select(func.coalesce(func.sum(OutputVatEvent.vat_amount), 0)).where(
+                OutputVatEvent.reporting_party_id == reporting_party_id,
+                OutputVatEvent.output_vat_period == tax_period,
+                OutputVatEvent.event_status == "CONFIRMED",
+            )
+        )
+    )
+    legacy_input = _money(
+        db.scalar(
+            select(func.coalesce(func.sum(InputVatClaim.claim_amount), 0)).where(
+                InputVatClaim.reporting_party_id == reporting_party_id,
+                InputVatClaim.claim_period == tax_period,
+                InputVatClaim.claim_status == "CONFIRMED",
+            )
+        )
+    )
+    output_total = max(_money(rag["output_vat_total"]), legacy_output)
+    input_total = max(_money(rag["input_vat_total"]), legacy_input)
     output_review_count, input_review_count = _unresolved_counts(
         db,
         reporting_party_id,
@@ -120,8 +140,8 @@ def _observed(db, entity_code: str, reporting_party_id: int, tax_period: date) -
         "invoice_fact_count": int(rag["invoice_fact_count"]),
         "output_fact_count": int(rag["output_fact_count"]),
         "input_fact_count": int(rag["input_fact_count"]),
-        "output_vat_total": _money(rag["output_vat_total"]),
-        "input_vat_total": _money(rag["input_vat_total"]),
+        "output_vat_total": output_total,
+        "input_vat_total": input_total,
         "output_needs_review_count": output_review_count,
         "input_needs_review_count": input_review_count,
         "rows": rag["rows"],
