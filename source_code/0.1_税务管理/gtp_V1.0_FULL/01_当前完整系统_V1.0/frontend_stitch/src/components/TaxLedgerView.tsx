@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, Download, ReceiptText, RefreshCw, ShieldCheck } from 'lucide-react';
-import { fetchJson, postJson } from '../api';
+import { postJson } from '../api';
+import { fetchExcelExport } from '../excelExportApi';
 import {
   fetchFormalVatCompleteness,
   reviewFormalVatCompleteness,
@@ -32,12 +33,6 @@ interface TaxLedgerViewProps {
   settings?: SystemSettings;
 }
 
-interface ExportPayload {
-  status: string;
-  summary: unknown[];
-  details: Array<Record<string, unknown>>;
-}
-
 function currentPeriod(): string {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
@@ -45,23 +40,6 @@ function currentPeriod(): string {
 
 function formatAmount(value: number): string {
   return `¥${value.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
-
-function csvCell(value: unknown): string {
-  const text = String(value ?? '');
-  return `"${text.replaceAll('"', '""')}"`;
-}
-
-function triggerCsvDownload(filename: string, rows: string[][]): void {
-  const csv = `\ufeff${rows.map(row => row.map(csvCell).join(',')).join('\r\n')}`;
-  const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
-  const anchor = document.createElement('a');
-  anchor.href = url;
-  anchor.download = filename;
-  document.body.appendChild(anchor);
-  anchor.click();
-  anchor.remove();
-  URL.revokeObjectURL(url);
 }
 
 export function TaxLedgerView({ records, dataStatusMessage }: TaxLedgerViewProps) {
@@ -286,29 +264,14 @@ export function TaxLedgerView({ records, dataStatusMessage }: TaxLedgerViewProps
   const exportLedger = async () => {
     setExporting(true);
     try {
-      const query = new URLSearchParams({ view: viewMode });
-      if (viewMode === 'current') query.set('period', period);
-      const payload = await fetchJson<ExportPayload>(
-        `/api/v3/legal-entities/${encodeURIComponent(scope)}/statutory-vat/export?${query.toString()}`,
+      await fetchExcelExport(
+        scope,
+        viewMode,
+        viewMode === 'current' ? period : undefined,
       );
-      const rows: string[][] = [
-        ['法人法定税务台账导出'],
-        ['范围', scope === 'ALL' ? '全系统所有单位' : scope, '视图', viewMode === 'current' ? '当期' : '累计', '期间', viewMode === 'current' ? period : '全部正式期间'],
-        [], ['汇总数据'],
-        ['法人编码', '期间', '期初留抵', '销项税额', '进项税额', '税款预缴', '实际应纳增值税', '期末留抵'],
-      ];
-      for (const item of payload.summary) {
-        const data = item as Record<string, unknown>;
-        const vat = (data.vat_ledger ?? {}) as Record<string, unknown>;
-        rows.push([String(data.entity_code ?? ''), String(data.period ?? ''), String(vat.opening_input_credit ?? ''), String(vat.output_vat ?? ''), String(vat.input_vat ?? ''), String(vat.tax_prepayment ?? ''), String(vat.vat_payable_after_prepayment ?? ''), String(vat.closing_input_credit ?? '')]);
-      }
-      rows.push([], ['交易明细'], ['时间', '法人编码', '来源', '对应合同', '对应发票/缴款书', '交易对手', '具体税种', '税额', '含税金额']);
-      for (const item of payload.details) {
-        rows.push([String(item.transaction_date ?? ''), String(item.entity_code ?? ''), String(item.source_type ?? ''), String(item.contract_no ?? ''), String(item.invoice_no ?? item.receipt_no ?? ''), String(item.counterparty ?? ''), String(item.tax_type ?? ''), String(item.tax_amount ?? ''), String(item.gross_amount ?? '')]);
-      }
-      triggerCsvDownload(`法人法定税务_${scope}_${viewMode}_${viewMode === 'current' ? period : '累计'}.csv`, rows);
+      setMessage(`Excel 导出已生成：${scope} · ${viewMode === 'current' ? period : '累计全部期间'}。`);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : '台账导出失败。');
+      setMessage(error instanceof Error ? error.message : 'Excel 台账导出失败。');
     } finally {
       setExporting(false);
     }
@@ -332,7 +295,7 @@ export function TaxLedgerView({ records, dataStatusMessage }: TaxLedgerViewProps
         <div className="flex rounded-lg border border-default p-1"><button type="button" onClick={() => setViewMode('current')} className={`rounded-md px-3 py-1.5 text-[13px] font-semibold ${viewMode === 'current' ? 'bg-[var(--color-brand)] text-white' : 'text-secondary'}`}>当期</button><button type="button" onClick={() => setViewMode('cumulative')} className={`rounded-md px-3 py-1.5 text-[13px] font-semibold ${viewMode === 'cumulative' ? 'bg-[var(--color-brand)] text-white' : 'text-secondary'}`}>汇总／累计</button></div>
         {viewMode === 'current' && <input type="month" value={period} onChange={event => setPeriod(event.target.value)} className="rounded-lg border border-default bg-surface px-3 py-2 text-[13px] text-primary" />}
         <button type="button" disabled={loading || viewMode !== 'current'} onClick={() => void loadCurrent(false, true)} className="flex items-center gap-1.5 rounded-lg bg-[var(--color-brand)] px-4 py-2 text-[13px] font-semibold text-white disabled:opacity-50"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />重新计算当期台账</button>
-        <button type="button" disabled={exporting || loading} onClick={() => void exportLedger()} className="ml-auto flex items-center gap-1.5 rounded-lg border border-default bg-surface px-4 py-2 text-[13px] font-semibold text-primary disabled:opacity-50"><Download className="h-4 w-4" />{exporting ? '导出中…' : '导出台账总额 + 交易明细'}</button>
+        <button type="button" disabled={exporting || loading} onClick={() => void exportLedger()} className="ml-auto flex items-center gap-1.5 rounded-lg border border-default bg-surface px-4 py-2 text-[13px] font-semibold text-primary disabled:opacity-50"><Download className="h-4 w-4" />{exporting ? '导出中…' : '导出 6 Sheet Excel'}</button>
       </div>
 
       <div className="surface-card rounded-xl px-4 py-3 text-[12px] text-secondary" role="status">{loading ? '正在读取正式 VAT 与 readiness 门禁状态…' : message || TAX_LEDGER_EMPTY_MESSAGE}</div>
