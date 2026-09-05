@@ -2,12 +2,17 @@
 from __future__ import annotations
 
 from decimal import Decimal
-from typing import Iterator
+from typing import Any, Iterator
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from ..db import SessionLocal
+from ..domain.tax_data_policy import (
+    ADVISORY_SOURCE_TAX_ENGINE,
+    DATA_CLASS_ADVISORY,
+    FACT_SOURCE_RAG_POSTGRESQL,
+)
 from ..services.phase4_accounting import (
     build_project_accounting,
     list_accounting_snapshots,
@@ -29,6 +34,18 @@ def _rate(value: float) -> Decimal:
     return Decimal(str(value))
 
 
+def _as_advisory(payload: dict[str, Any]) -> dict[str, Any]:
+    """Make the Tax-engine nature of calculated accounting values explicit."""
+    return {
+        **payload,
+        "data_class": DATA_CLASS_ADVISORY,
+        "source": ADVISORY_SOURCE_TAX_ENGINE,
+        "fact_source": FACT_SOURCE_RAG_POSTGRESQL,
+        "actual_occurred": False,
+        "is_filing_basis": False,
+    }
+
+
 @router.get("/projects/{project_id}/preview")
 def accounting_preview(
     project_id: int,
@@ -36,7 +53,7 @@ def accounting_preview(
     db: Session = Depends(get_accounting_db),
 ):
     try:
-        return build_project_accounting(db, project_id, cit_rate=_rate(cit_rate))
+        return _as_advisory(build_project_accounting(db, project_id, cit_rate=_rate(cit_rate)))
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -48,7 +65,7 @@ def create_accounting_snapshot(
     db: Session = Depends(get_accounting_db),
 ):
     try:
-        result = snapshot_project_accounting(db, project_id, cit_rate=_rate(cit_rate))
+        result = _as_advisory(snapshot_project_accounting(db, project_id, cit_rate=_rate(cit_rate)))
         db.commit()
         return result
     except LookupError as exc:
@@ -66,7 +83,10 @@ def accounting_snapshots(
 ):
     return {
         "project_id": project_id,
-        "source_of_truth": "canonical_facts",
+        "data_class": DATA_CLASS_ADVISORY,
+        "source": ADVISORY_SOURCE_TAX_ENGINE,
+        "fact_source": FACT_SOURCE_RAG_POSTGRESQL,
+        "is_filing_basis": False,
         "items": list_accounting_snapshots(db, project_id),
     }
 
