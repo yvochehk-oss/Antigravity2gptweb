@@ -79,8 +79,11 @@ def actual_tax_payment_facts(
 
     A current/VALID TaxPrepaymentFact is an occurred tax fact for Tax purposes.
     Formal VAT/CIT gate state does not suppress or downgrade these facts. When a
-    period is supplied, the result is project-to-date through that month so its
-    scope matches the deterministic accounting advisory view.
+    period is supplied, the result is project-to-date through that month.
+
+    ``reporting_party_id`` is intentionally available only to low-level fact
+    consumers. Project advisory comparisons never use it until the deterministic
+    accounting engine has an equivalent legal-entity scope.
     """
     tax_period = _period_date(period)
     sql = (
@@ -151,15 +154,13 @@ def build_tax_advisory(
     db,
     project_id: int,
     *,
-    reporting_party_id: int | None = None,
     period: str | None = None,
 ) -> dict[str, Any]:
-    """Combine immutable RAG facts with deterministic Tax advisory calculations."""
+    """Combine project-scoped RAG facts with project-scoped Tax advisory calculations."""
     parsed_period = _period_date(period)
     facts = actual_tax_payment_facts(
         db,
         int(project_id),
-        reporting_party_id=reporting_party_id,
         period=period,
     )
     accounting = build_project_accounting(
@@ -209,7 +210,6 @@ def build_tax_advisory(
     return {
         "status": accounting.get("status", "READY"),
         "project_id": int(project_id),
-        "reporting_party_id": reporting_party_id,
         "period": period,
         "principles": {
             "fact_source": FACT_SOURCE_RAG_POSTGRESQL,
@@ -217,6 +217,7 @@ def build_tax_advisory(
             "tax_reads_source_files": False,
             "actual_tax_payments_are_facts": True,
             "advisory_never_overwrites_fact": True,
+            "comparison_scope": "PROJECT",
         },
         "actual_tax_payments": facts,
         "advisory": advisory,
