@@ -37,7 +37,7 @@ from app.v3_vat_ledger_models import (
     OutputVatEvent,
     VatOpeningBalanceSeed,
 )
-from app.v3_vat_review_models import VatOutputPeriodAssertion
+from app.v3_vat_review_models import VatInputPeriodAssertion, VatOutputPeriodAssertion
 
 from .formal_vat_closed_loop import STATUS_INCOMPLETE, evaluate_formal_vat_closed_loop
 from .formal_vat_statutory import (
@@ -221,6 +221,18 @@ def _source_snapshot(
             "reviewed Output VAT completeness assertion is required"
         )
 
+    input_assertion = db.scalar(
+        select(VatInputPeriodAssertion).where(
+            VatInputPeriodAssertion.reporting_party_id == reporting_party_id,
+            VatInputPeriodAssertion.tax_period == tax_period,
+            VatInputPeriodAssertion.reviewed.is_(True),
+        )
+    )
+    if input_assertion is None:
+        raise FormalVatRebuildBlockedError(
+            "reviewed Input VAT completeness assertion is required"
+        )
+
     output_rows = db.scalars(
         select(OutputVatEvent)
         .where(
@@ -234,8 +246,8 @@ def _source_snapshot(
         (Decimal(row.vat_amount) for row in output_rows),
         Decimal("0.00"),
     )
-    asserted_total = Decimal(output_assertion.asserted_output_vat_total)
-    if output_total != asserted_total:
+    asserted_output_total = Decimal(output_assertion.asserted_output_vat_total)
+    if output_total != asserted_output_total:
         raise FormalVatRebuildBlockedError(
             "confirmed Output VAT events do not match the reviewed completeness assertion"
         )
@@ -249,6 +261,16 @@ def _source_snapshot(
         )
         .order_by(InputVatClaim.id)
     ).all()
+    input_total = sum(
+        (Decimal(row.claim_amount) for row in input_rows),
+        Decimal("0.00"),
+    )
+    asserted_input_total = Decimal(input_assertion.asserted_input_vat_total)
+    if input_total != asserted_input_total:
+        raise FormalVatRebuildBlockedError(
+            "confirmed Input VAT claims do not match the reviewed completeness assertion"
+        )
+
     prepayment_rows = db.execute(
         select(TaxPrepaymentFact, Fact)
         .join(Fact, Fact.id == TaxPrepaymentFact.fact_id)
@@ -275,7 +297,11 @@ def _source_snapshot(
         "opening": opening,
         "output_completeness_assertion": {
             "id": int(output_assertion.id),
-            "asserted_total": f"{asserted_total:.2f}",
+            "asserted_total": f"{asserted_output_total:.2f}",
+        },
+        "input_completeness_assertion": {
+            "id": int(input_assertion.id),
+            "asserted_total": f"{asserted_input_total:.2f}",
         },
         "output_events": [
             {"id": int(row.id), "amount": f"{Decimal(row.vat_amount):.2f}"}
@@ -617,13 +643,3 @@ def rebuild_formal_vat_statutory_resource(
         "result_sha256": run.result_sha256,
         "resource": official,
     }
-
-
-__all__ = [
-    "FormalVatRebuildBlockedError",
-    "PLAN_KIND",
-    "RESOURCE_TYPE",
-    "RULESET_VERSION",
-    "make_formal_vat_rebuild_plan",
-    "rebuild_formal_vat_statutory_resource",
-]
