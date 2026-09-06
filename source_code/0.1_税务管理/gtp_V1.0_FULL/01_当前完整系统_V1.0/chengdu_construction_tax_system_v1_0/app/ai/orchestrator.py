@@ -350,9 +350,12 @@ def _claim_review_job(
             result = sess.scalar(
                 select(AIReviewResult).where(AIReviewResult.job_id == existing.id)
             )
-            return (existing, "ok") if result is not None else (
-                existing, "failed:completed job has no result"
-            )
+            if result is not None:
+                return existing, "ok"
+            existing.error_message = "已完成但缺少 result"
+            existing.parse_failed = True
+            sess.commit()
+            return existing, "failed:completed job has no result"
         if existing.status in {"pending", "running"}:
             return existing, "in_progress"
         # A failed child is retained as an audit record.  Do not silently
@@ -594,7 +597,10 @@ def _build_consensus(db: Session, batch_id: int) -> AIConsensusReport:
     )
     for _key, items in finding_groups.items():
         models = sorted({x["model"] for x in items})
-        if selected_endpoint_count > 1 and len(models) >= 2 or selected_endpoint_count == 1 and len(items) >= 1:
+        if (
+            (selected_endpoint_count > 1 and len(models) >= 2)
+            or (selected_endpoint_count == 1 and len(items) >= 1)
+        ):
             base = dict(items[0])
             base["confirmed_by"] = models
             base["count"] = len(items)
