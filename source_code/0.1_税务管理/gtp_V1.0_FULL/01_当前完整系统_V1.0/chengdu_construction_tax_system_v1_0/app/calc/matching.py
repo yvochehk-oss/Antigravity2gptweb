@@ -71,6 +71,9 @@ _CATEGORY_KEYWORDS: list[tuple[str, str]] = [
     ("税费", "税金"),
 ]
 
+_PROJECT_MANAGEMENT_ROLE_SUFFIXES = ("人员", "岗位", "员", "岗", "者")
+_PROJECT_MANAGEMENT_SUFFIX_SCAN = max(map(len, _PROJECT_MANAGEMENT_ROLE_SUFFIXES))
+
 
 def _note_category(note: str) -> str:
     """Guess a category for warning text only, never for matching evidence."""
@@ -79,8 +82,14 @@ def _note_category(note: str) -> str:
     note_l = note.lower()
     for kw, cat in _CATEGORY_KEYWORDS:
         pattern = rf"(?<![A-Za-z0-9_]){re.escape(kw)}(?![A-Za-z0-9_])"
-        if re.search(pattern, note_l):
-            return cat
+        match = re.search(pattern, note_l)
+        if not match:
+            continue
+        if kw == "项目管理":
+            suffix = note_l[match.end():match.end() + _PROJECT_MANAGEMENT_SUFFIX_SCAN]
+            if any(suffix.startswith(role_suffix) for role_suffix in _PROJECT_MANAGEMENT_ROLE_SUFFIXES):
+                continue
+        return cat
     return "未分类"
 
 
