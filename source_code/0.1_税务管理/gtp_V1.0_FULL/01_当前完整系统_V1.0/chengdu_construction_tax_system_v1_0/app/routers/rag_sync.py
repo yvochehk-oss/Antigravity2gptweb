@@ -769,12 +769,14 @@ def facts_invalidate(project_id: int, request: Request):
 
 
 @router.get("/facts/{project_id}/snapshots")
-def facts_snapshots_list(project_id: int, limit: int = Query(20, ge=1, le=100)):
+def facts_snapshots_list(project_id: int, request: Request, limit: int = Query(20, ge=1, le=100)):
+    admin_only(request)
     return {"project_id": project_id, "items": list_snapshots(project_id, limit)}
 
 
 @router.get("/facts/{project_id}/latest")
-def facts_latest(project_id: int):
+def facts_latest(project_id: int, request: Request):
+    admin_only(request)
     snapshot = get_latest_snapshot(project_id)
     if not snapshot:
         raise HTTPException(404, "无快照")
