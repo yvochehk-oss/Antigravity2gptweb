@@ -394,7 +394,8 @@ def _single_run(batch_id: int, scope: str, endpoint_id: int,
             return scope, endpoint_id, claim_status
 
         try:
-            assert job is not None
+            if job is None:
+                raise RuntimeError("Review job instance cannot be None in claim worker")
             endpoint = sess.get(AIModelEndpoint, endpoint_id)
             deadline = time.monotonic() + health_endpoint_deadline_seconds(endpoint)
             run_review(sess, job, deadline=deadline)
