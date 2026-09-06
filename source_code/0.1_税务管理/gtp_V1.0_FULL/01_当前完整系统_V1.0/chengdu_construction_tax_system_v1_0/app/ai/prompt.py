@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import json
+import math
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -30,6 +32,18 @@ def get_prompt_template(
         .where(AIPromptTemplate.scope == "default", AIPromptTemplate.enabled == True)  # noqa: E712
         .order_by(AIPromptTemplate.version.desc(), AIPromptTemplate.id.desc())
     )
+
+
+def validate_response_score(payload: dict[str, Any]) -> bool:
+    """Return whether an AI review score satisfies the strict 0-100 contract."""
+    raw_score = payload.get("score")
+    if isinstance(raw_score, bool):
+        return False
+    try:
+        score = float(raw_score)
+    except (TypeError, ValueError):
+        return False
+    return math.isfinite(score) and 0 <= score <= 100
 
 
 SYSTEM_PROMPT = """你是建筑施工企业经营与税务审查资深专家。你的职责是审查系统提供的结构化工程项目数据，深入分析项目内部法人协同、外部交易方生态与财税合规性，并提出可追溯、可落地的税务筹划与风控建议。
