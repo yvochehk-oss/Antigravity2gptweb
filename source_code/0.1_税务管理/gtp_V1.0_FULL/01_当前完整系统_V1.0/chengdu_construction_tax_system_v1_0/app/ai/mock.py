@@ -1,10 +1,19 @@
 """V0.2: Mock 审查器。"""
 from __future__ import annotations
 
+import os
 from typing import Any
 
 
+def _ensure_mock_runtime_allowed() -> None:
+    """Keep the test double unreachable from production-like runtimes."""
+    environment = os.getenv("APP_ENV", "development").strip().lower()
+    if environment in {"prod", "production", "staging"}:
+        raise RuntimeError("Mock AI reviewer is disabled outside test/development environments")
+
+
 def mock_review(ctx: dict[str, Any], reviewer_name: str = "") -> dict[str, Any]:
+    _ensure_mock_runtime_allowed()
     findings: list[dict[str, Any]] = []
     recs: list[dict[str, Any]] = []
     gaps: list[str] = []
