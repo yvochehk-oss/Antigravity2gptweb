@@ -10,7 +10,6 @@ Facts Provider 是 RAG V1.0 统一事实通道，承载 L2（确定性计算）�
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import time
@@ -223,7 +222,7 @@ def _cache_key(
     as_of: str | None,
 ) -> str:
     """Build a non-secret cache key for one Facts query shape."""
-    key_fingerprint = hashlib.sha256(FACTS_API_KEY.encode("utf-8")).hexdigest()[:12]
+    api_key_configured = bool(FACTS_API_KEY)
     return "::".join(
         (
             (base_url or FACTS_URL).rstrip("/"),
@@ -231,7 +230,7 @@ def _cache_key(
             str(bool(require_fresh)),
             str(max_age),
             as_of or "",
-            key_fingerprint,
+            str(api_key_configured),
         ),
     )
 
