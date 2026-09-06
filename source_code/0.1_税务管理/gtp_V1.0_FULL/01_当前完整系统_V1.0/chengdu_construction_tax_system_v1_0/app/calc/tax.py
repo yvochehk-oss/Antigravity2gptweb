@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 import re
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 
 from sqlalchemy import delete, select, text
 from sqlalchemy.orm import Session
@@ -19,6 +19,7 @@ from ..models import Entity, Invoice, RealCost, TaxLedger, TaxRule
 
 _PERIOD_RE = re.compile(r"^\d{4}-\d{2}$")
 _LOGGER = logging.getLogger(__name__)
+MONEY_QUANTUM = Decimal("0.01")
 
 
 class EntityScopeError(ValueError):
@@ -365,7 +366,10 @@ def rebuild_tax_ledger(db: Session, period: str, *, commit: bool = True) -> list
             r_vat_payable = max(outvat[code] - invat[code], Decimal("0"))
             legal_cost = invoice_cost[code] + direct_real[code]
             profit = revenue[code] - legal_cost
-            est_cit = max(profit, Decimal("0")) * cit_rate
+            est_cit = (max(profit, Decimal("0")) * cit_rate).quantize(
+                MONEY_QUANTUM,
+                rounding=ROUND_HALF_UP,
+            )
             ledger = TaxLedger(
                 period=period,
                 entity_code=code,
