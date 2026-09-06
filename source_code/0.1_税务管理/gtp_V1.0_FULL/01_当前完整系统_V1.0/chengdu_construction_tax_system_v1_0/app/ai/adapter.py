@@ -5,7 +5,7 @@ import json
 import os
 import re
 import time
-from typing import Any
+from typing import Any, Literal
 
 import httpx
 
@@ -242,7 +242,7 @@ def call_endpoint(
     ctx: dict,
     *,
     deadline: float | None = None,
-    _response_mode: str = "structured",
+    _response_mode: Literal["structured", "text"] = "structured",
 ) -> tuple[dict, str, bool]:
     """返回 (parsed_result, raw_text, parse_failed)。
 
@@ -251,6 +251,8 @@ def call_endpoint(
     model call indefinitely.  Ordinary AI calls preserve the endpoint's
     configured timeout when no deadline is supplied.
     """
+    if _response_mode not in ("structured", "text"):
+        raise ValueError(f"不支持的 AI 响应模式: {_response_mode}")
     ensure_endpoint_allowed(endpoint)
     if is_mock_endpoint(endpoint):
         result = mock_review(ctx, endpoint.name)
@@ -377,8 +379,6 @@ def call_endpoint(
     # strict structured contract by default.
     if _response_mode == "text":
         return {}, text, False
-    if _response_mode != "structured":
-        raise ValueError(f"不支持的 AI 响应模式: {_response_mode}")
 
     # 解析 JSON
     try:
