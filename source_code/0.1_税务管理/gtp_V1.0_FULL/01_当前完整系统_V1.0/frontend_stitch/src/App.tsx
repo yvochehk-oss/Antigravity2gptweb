@@ -12,6 +12,8 @@ import { AuditView } from './components/AuditView';
 import { AiAssistantDrawer } from './components/AiAssistantDrawer';
 import { NewTaxRecordModal } from './components/NewTaxRecordModal';
 import { ExportReportModal } from './components/ExportReportModal';
+import { TokenHubSetupWizard } from './components/TokenHubSetupWizard';
+import { RagSetupWizard } from './components/RagSetupWizard';
 import { DataStatusCard } from './components/DataStatusCard';
 import { DEFAULT_SETTINGS } from './components/SettingsModal';
 import { askProjectAi, ApiError, fetchAiModelStatus, fetchAuditLogs, fetchConfiguredProjects, fetchRiskEvents } from './api';
@@ -87,6 +89,8 @@ export default function App() {
 
   const [isNewRecordModalOpen, setIsNewRecordModalOpen] = useState<boolean>(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState<boolean>(false);
+  const [isTokenHubSetupOpen, setIsTokenHubSetupOpen] = useState<boolean>(false);
+  const [isRagSetupOpen, setIsRagSetupOpen] = useState<boolean>(false);
 
   const loadEntityVatDomain = useCallback(async () => {
     entityVatAbortRef.current?.abort();
@@ -280,6 +284,20 @@ export default function App() {
     setCurrentTab(tab);
     if (tab === 'projects') setProjectSubView('list');
     setIsMobileMenuOpen(false);
+    if (tab === 'tokenhub-setup') {
+      setIsMobileMenuOpen(false);
+      setIsTokenHubSetupOpen(true);
+    }
+  };
+
+  const handleOpenTokenHubSetup = () => {
+    setIsTokenHubSetupOpen(true);
+    setIsMobileMenuOpen(false);
+  };
+
+  const handleOpenRagSetup = () => {
+    setIsRagSetupOpen(true);
+    setIsMobileMenuOpen(false);
   };
 
   const handleSelectProject = (projectId: string) => {
@@ -376,13 +394,13 @@ export default function App() {
 
   return (
     <div className="fixed inset-0 h-screen w-screen bg-[#0b1326] text-[#dae2fd] flex flex-col md:flex-row  overflow-hidden font-sans">
-      <Sidebar currentTab={currentTab} onSelectTab={handleSelectTab} unresolvedRiskCount={unresolvedRiskCount} aiModelStatus={aiModelStatus} />
+      <Sidebar currentTab={currentTab} onSelectTab={handleSelectTab} unresolvedRiskCount={unresolvedRiskCount} aiModelStatus={aiModelStatus} onOpenTokenHubSetup={handleOpenTokenHubSetup} onOpenRagSetup={handleOpenRagSetup} />
 
       {isMobileMenuOpen && (
         <div className="fixed inset-0 z-50 md:hidden flex">
           <div className="fixed inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setIsMobileMenuOpen(false)} />
           <div className="relative w-[var(--sidebar-width)] h-full bg-[var(--color-surface)] z-10 flex flex-col shadow-2xl">
-            <Sidebar isMobile onCloseMobile={() => setIsMobileMenuOpen(false)} currentTab={currentTab} onSelectTab={handleSelectTab} unresolvedRiskCount={unresolvedRiskCount} aiModelStatus={aiModelStatus} />
+            <Sidebar isMobile onCloseMobile={() => setIsMobileMenuOpen(false)} currentTab={currentTab} onSelectTab={handleSelectTab} unresolvedRiskCount={unresolvedRiskCount} aiModelStatus={aiModelStatus} onOpenTokenHubSetup={handleOpenTokenHubSetup} onOpenRagSetup={handleOpenRagSetup} />
           </div>
         </div>
       )}
@@ -501,6 +519,8 @@ export default function App() {
         />
       )}
       <ExportReportModal isOpen={isExportModalOpen} onClose={() => setIsExportModalOpen(false)} projects={projects} />
+      <TokenHubSetupWizard isOpen={isTokenHubSetupOpen} onClose={() => setIsTokenHubSetupOpen(false)} onSaved={() => { /* 配置已落盘，AI 状态将由下一次 fetchAiModelStatus 反映 */ }} />
+      <RagSetupWizard isOpen={isRagSetupOpen} onClose={() => setIsRagSetupOpen(false)} onSaved={() => { /* RAG 地址已持久化到 Tax 后端 */ }} />
     </div>
   );
 }

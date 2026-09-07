@@ -4,10 +4,12 @@ import {
   Building2,
   ChevronRight,
   FileCheck2,
+  KeyRound,
   Landmark,
   LayoutDashboard,
   LogOut,
   ReceiptText,
+  Server,
   ShieldCheck,
   X,
   type LucideIcon,
@@ -22,6 +24,8 @@ interface SidebarProps {
   aiModelStatus: AiModelStatus;
   isMobile?: boolean;
   onCloseMobile?: () => void;
+  onOpenTokenHubSetup?: () => void;
+  onOpenRagSetup?: () => void;
 }
 
 interface NavItem {
@@ -30,6 +34,7 @@ interface NavItem {
   icon: LucideIcon;
   badge?: number | string;
   disabled?: boolean;
+  action?: 'tokenhub-setup' | 'rag-setup';
 }
 
 interface NavGroup {
@@ -37,7 +42,7 @@ interface NavGroup {
   items: NavItem[];
 }
 
-export function Sidebar({ currentTab, onSelectTab, unresolvedRiskCount, aiModelStatus, isMobile, onCloseMobile }: SidebarProps) {
+export function Sidebar({ currentTab, onSelectTab, unresolvedRiskCount, aiModelStatus, isMobile, onCloseMobile, onOpenTokenHubSetup, onOpenRagSetup }: SidebarProps) {
   const navGroups: NavGroup[] = [
     { label: '集团', items: [{ id: 'dashboard', label: '集团经营总览', icon: LayoutDashboard }] },
     {
@@ -49,6 +54,13 @@ export function Sidebar({ currentTab, onSelectTab, unresolvedRiskCount, aiModelS
     },
     { label: '项目工程', items: [{ id: 'projects', label: '项目工程库', icon: Building2 }] },
     { label: '智能决策', items: [{ id: 'ai-decision', label: '智能财税决策中心', icon: BrainCircuit }] },
+    {
+      label: 'AI 接入',
+      items: [
+        { id: 'tokenhub-setup', label: 'TokenHub API Key 配置', icon: KeyRound, action: 'tokenhub-setup' },
+        { id: 'rag-setup', label: 'RAG 知识库连接配置', icon: Server, action: 'rag-setup' },
+      ],
+    },
     {
       label: '风险与治理',
       items: [
@@ -118,7 +130,18 @@ export function Sidebar({ currentTab, onSelectTab, unresolvedRiskCount, aiModelS
                     key={item.id}
                     disabled={item.disabled}
                     aria-current={isActive ? 'page' : undefined}
-                    onClick={() => { if (!item.disabled) onSelectTab(item.id); }}
+                    onClick={() => {
+                      if (item.disabled) return;
+                      if (item.action === 'tokenhub-setup' && onOpenTokenHubSetup) {
+                        onOpenTokenHubSetup();
+                        return;
+                      }
+                      if (item.action === 'rag-setup' && onOpenRagSetup) {
+                        onOpenRagSetup();
+                        return;
+                      }
+                      onSelectTab(item.id);
+                    }}
                     className={`group flex w-full items-center justify-between rounded-[var(--radius-base)] border px-2.5 py-2.5 font-medium transition-colors duration-150 ${
                       isIntelligentDecision ? 'ai-decision-nav text-[15px] font-semibold' : 'text-[13px]'
                     } ${
