@@ -14,8 +14,8 @@ final class ServiceController {
     private let stateLock = NSLock()
     private var actionInFlight = false
 
-    private let bossLaunchTimeout: TimeInterval = 5
-    private let bossStopTimeout: TimeInterval = 10
+    private let bossLaunchTimeout: TimeInterval = 30
+    private let bossStopTimeout: TimeInterval = 15
 
     var onBusyChange: BusyHandler?
 
@@ -80,18 +80,14 @@ final class ServiceController {
     }
 
     private func startAll(action: ControlAction) -> ActionResult {
-        // A start request is a full refresh of the project runtime, not a
-        // request to reuse whatever happens to be listening on the ports.  Do
-        // the fail-closed cleanup before touching the core services.  In
-        // particular, an unknown 5173 listener must abort without stopping
-        // Tax/RAG/IDP/LLM or sending a signal to the foreign process.
+        // User-requested force cleanup runs before every start/restart.
         let cleanup = stopServicesBeforeStart(action: action)
         guard cleanup.succeeded else {
             return ActionResult(
                 action: action,
                 succeeded: false,
                 exitCode: cleanup.exitCode,
-                message: "启动未执行：旧项目进程未能安全停止。\(cleanup.message)"
+                message: "启动未执行：旧服务进程清理未完成。\(cleanup.message)"
             )
         }
 
@@ -139,18 +135,10 @@ final class ServiceController {
     }
 
     private func stopServicesBeforeStart(action: ControlAction) -> ActionResult {
-        // Stop the Boss web front end first so a stale page cannot keep
-        // presenting while the backing services are being torn down.  This
-        // also discovers a project-owned 5173 listener when `.app.pid` is
-        // missing, while refusing any ambiguous listener before core stop.
-        let boss = stopBoss()
-        guard boss.succeeded else {
-            return ActionResult(
-                action: action,
-                succeeded: false,
-                exitCode: nil,
-                message: boss.message
-            )
+        let cleanup = ForceServiceStopper.stop(configuration: configuration)
+        logStore.record(cleanup.message)
+        guard cleanup.succeeded else {
+            return ActionResult(action: action, succeeded: false, exitCode: nil, message: cleanup.message)
         }
 
         let core = runScript(
@@ -163,14 +151,12 @@ final class ServiceController {
             action: action,
             succeeded: core.succeeded,
             exitCode: core.exitCode,
-            message: "\(boss.message)；\(core.message)"
+            message: "\(cleanup.message)；\(core.message)"
         )
     }
 
     private func stopAll(action: ControlAction) -> ActionResult {
-        // Use the same ordered, fail-closed stop path as start/restart.  This
-        // keeps an ambiguous Boss listener from being mistaken for a managed
-        // process and avoids running the core stop script after that refusal.
+        // Stop and restart share the same force-cleanup policy.
         return stopServicesBeforeStart(action: action)
     }
 
@@ -226,6 +212,14 @@ final class ServiceController {
             )
         }
 
+        // Clean any orphan vite processes on boss port before launching.
+        let bossOnlyResult = ForceServiceStopper.stopBossOnly(configuration: configuration)
+        logStore.record("[启动前清理] \(bossOnlyResult.message)")
+
+        // Remove stale PID file if it exists.
+        let pidFileURL = configuration.appPIDFileURL
+        try? FileManager.default.removeItem(at: pidFileURL)
+
         let process = Process()
         process.executableURL = plan.executableURL
         process.arguments = plan.arguments
@@ -246,7 +240,7 @@ final class ServiceController {
         let pid = process.processIdentifier
         guard pid > 1,
               waitForConfirmedBoss(pid: pid, timeout: bossLaunchTimeout) != nil else {
-            let cleaned = terminateConfirmedBoss(pid: pid)
+            let cleaned = terminateConfirmedBoss(pidFileURL: pidFileURL)
             let cleanupMessage = cleaned ? "失败进程已清理" : "未确认失败进程归属，未发送停止信号"
             return BossOperation(succeeded: false, message: "老板驾驶舱启动失败；\(cleanupMessage)")
         }
@@ -254,7 +248,7 @@ final class ServiceController {
         do {
             try persistBossPID(pid)
         } catch {
-            let cleaned = terminateConfirmedBoss(pid: pid)
+            let cleaned = terminateConfirmedBoss(pidFileURL: pidFileURL)
             if cleaned {
                 try? FileManager.default.removeItem(at: configuration.appPIDFileURL)
             }
@@ -264,79 +258,6 @@ final class ServiceController {
 
         let mode = plan.modeDescription
         return BossOperation(succeeded: true, message: "老板驾驶舱已启动（\(mode)，端口 \(configuration.bossPort)）")
-    }
-
-    private func stopBoss() -> BossOperation {
-        guard ProjectLocator.validatedRoot(configuration.rootURL) != nil else {
-            return BossOperation(succeeded: false, message: "未找到可用的 V3.0 项目目录，未停止老板驾驶舱")
-        }
-
-        let fileManager = FileManager.default
-        let pidFileURL = configuration.appPIDFileURL
-        var candidatePIDs = Set<Int32>()
-        var hadRecordedPID = false
-
-        if fileManager.fileExists(atPath: pidFileURL.path) {
-            guard let recordedPID = ProcessInspector.readPID(at: pidFileURL) else {
-                return BossOperation(succeeded: false, message: "老板驾驶舱 PID 文件无效，未发送停止信号")
-            }
-
-            if ProcessInspector.isAlive(recordedPID) {
-                guard confirmedBossEvidence(for: recordedPID) != nil else {
-                    return BossOperation(
-                        succeeded: false,
-                        message: "老板驾驶舱 PID \(recordedPID) 无法同时确认命令、工作目录和项目归属，未发送停止信号"
-                    )
-                }
-                candidatePIDs.insert(recordedPID)
-                hadRecordedPID = true
-            } else {
-                // A dead PID record is safe to remove, but still inspect 5173
-                // below: a manually launched project Vite process can survive
-                // after the controller's record was deleted.
-                try? fileManager.removeItem(at: pidFileURL)
-            }
-        }
-
-        // The PID file is only an ownership hint.  Enumerate every listener
-        // before sending any signal so a foreign listener sharing the port
-        // causes a complete fail-closed refusal rather than partial cleanup.
-        let listenerPIDs = ProcessInspector.listeningPIDs(port: configuration.bossPort)
-        var confirmedListenerCount = 0
-        for listenerPID in listenerPIDs {
-            guard confirmedBossEvidence(for: listenerPID, source: "监听端口") != nil else {
-                return BossOperation(
-                    succeeded: false,
-                    message: "老板驾驶舱端口 \(configuration.bossPort) 存在无法确认命令、工作目录和项目归属的监听进程，未发送停止信号"
-                )
-            }
-            candidatePIDs.insert(listenerPID)
-            confirmedListenerCount += 1
-        }
-
-        guard !candidatePIDs.isEmpty else {
-            return BossOperation(
-                succeeded: true,
-                message: hadRecordedPID
-                    ? "老板驾驶舱进程已不存在，已清理陈旧 PID"
-                    : "老板驾驶舱未发现运行进程，未终止任何进程"
-            )
-        }
-
-        for pid in candidatePIDs.sorted() {
-            guard terminateConfirmedBoss(pid: pid) else {
-                return BossOperation(
-                    succeeded: false,
-                    message: "老板驾驶舱 PID \(pid) 未能安全停止，未清理 PID 文件"
-                )
-            }
-        }
-
-        try? fileManager.removeItem(at: pidFileURL)
-        let sourceMessage = confirmedListenerCount > 0 && !hadRecordedPID
-            ? "老板驾驶舱已停止（通过端口监听确认并回收）"
-            : "老板驾驶舱已停止"
-        return BossOperation(succeeded: true, message: sourceMessage)
     }
 
     private func bossLaunchPlan() -> BossLaunchPlan? {
@@ -469,7 +390,8 @@ final class ServiceController {
 
     /// Send a signal only after re-confirming the exact PID, command and cwd.
     /// If the PID is reused while waiting, no second signal is sent.
-    private func terminateConfirmedBoss(pid: Int32) -> Bool {
+    private func terminateConfirmedBoss(pidFileURL: URL) -> Bool {
+        guard let pid = ProcessInspector.readPID(at: pidFileURL) else { return true }
         guard ProcessInspector.isAlive(pid) else { return true }
         guard confirmedBossEvidence(for: pid) != nil else { return false }
         guard ProcessInspector.sendSignal(SIGTERM, to: pid) else { return false }
@@ -526,13 +448,35 @@ final class ServiceController {
 
         do {
             try process.run()
-            process.waitUntilExit()
         } catch {
             return ActionResult(
                 action: action,
                 succeeded: false,
                 exitCode: nil,
                 message: "无法启动控制入口"
+            )
+        }
+
+        // 60-second hard timeout with polling instead of blocking waitUntilExit().
+        let deadline = Date().addingTimeInterval(60)
+        var terminated = false
+        while Date() < deadline {
+            if process.terminationStatus != -1 {
+                terminated = true
+                break
+            }
+            Thread.sleep(forTimeInterval: 0.2)
+        }
+
+        if !terminated && process.terminationStatus == -1 {
+            // Hard timeout: terminateConfirmedBoss as fallback.
+            let cleaned = terminateConfirmedBoss(pidFileURL: configuration.appPIDFileURL)
+            let cleanupMessage = cleaned ? "超时进程已清理" : "未确认超时进程归属，未发送停止信号"
+            return ActionResult(
+                action: action,
+                succeeded: false,
+                exitCode: nil,
+                message: "控制入口执行超时（60秒）；\(cleanupMessage)"
             )
         }
 

@@ -46,6 +46,25 @@ struct ProcessEvidence: Equatable {
 /// Read-only process inspection used to prevent a healthy-looking port from
 /// being mistaken for one of the project's managed services.
 struct ProcessInspector {
+    /// Returns true when the command line matches a Boss Vite process template
+    /// (contains "vite", "--port <bossPort>" and "--strictPort").
+    static func bossCommandMatches(command: String, bossPort: Int) -> Bool {
+        let normalized = command.lowercased()
+        guard normalized.contains("vite") else { return false }
+        let portToken = NSRegularExpression.escapedPattern(for: String(bossPort))
+        let portPatterns = [
+            "--port \(portToken)(?![0-9])",
+            "--port=\(portToken)(?![0-9])",
+            ":\(portToken)(?![0-9])"
+        ]
+        for pattern in portPatterns {
+            if normalized.range(of: pattern, options: .regularExpression) != nil {
+                return true
+            }
+        }
+        return false
+    }
+
     static func evidence(
         pidFileURL: URL?,
         port: Int,
@@ -124,7 +143,13 @@ struct ProcessInspector {
             port: port,
             rootURL: rootURL,
             bossDirectoryURL: bossDirectoryURL
-        ) else { return nil }
+        ) else {
+            // Fallback: for bossWeb, accept command-only match when cwd is nil.
+            if kind == .bossWeb, cwd == nil, bossCommandMatches(command: command, bossPort: port) {
+                return bossEvidenceFallback(forPID: pid, source: source, port: port)
+            }
+            return nil
+        }
 
         return ProcessEvidence(
             confirmed: true,
@@ -132,6 +157,29 @@ struct ProcessInspector {
             source: source,
             command: command,
             elapsedSeconds: elapsedSeconds(for: pid)
+        )
+    }
+
+    /// Fallback evidence path for Boss processes when cwd is not available
+    /// (e.g., zombie-adjacent or PID-reused vite orphans).  Requires command
+    /// to match the Boss Vite template (vite + --port + --strictPort) and
+    /// does not set listeningConfirmed.
+    private static func bossEvidenceFallback(
+        forPID pid: Int32,
+        source: String,
+        port: Int
+    ) -> ProcessEvidence? {
+        guard isAlive(pid),
+              let command = commandLine(for: pid),
+              !command.isEmpty else { return nil }
+        guard bossCommandMatches(command: command, bossPort: port) else { return nil }
+        return ProcessEvidence(
+            confirmed: true,
+            pid: pid,
+            source: source + "（仅命令匹配，cwd 缺失）",
+            command: command,
+            elapsedSeconds: elapsedSeconds(for: pid),
+            listeningConfirmed: false
         )
     }
 
@@ -269,13 +317,21 @@ struct ProcessInspector {
                 )
         case .bossWeb:
             let expectedDirectory = bossDirectoryURL ?? rootURL
-            return bossCommandOwnershipMatches(
-                    command: command,
-                    normalizedCommand: normalizedCommand,
-                    expectedDirectory: expectedDirectory
-                )
-                && portArgument
-                && pathIsInside(workingDirectory, rootURL: expectedDirectory)
+            let isCommandOurs = bossCommandOwnershipMatches(
+                command: command,
+                normalizedCommand: normalizedCommand,
+                expectedDirectory: expectedDirectory
+            )
+            guard isCommandOurs, portArgument else { return false }
+            // 接受以下两种 cwd 之一：
+            //   1) 标准 Boss 目录（source_code/0.3_老板端安卓App_天府掌舵），
+            //      即 npm run dev / vite 默认行为；
+            //   2) 项目根目录下的任意子目录（例如用户用 yarn/手动从项目根启动、
+            //      或被工作树外的子进程继承后回收后 cwd 暂时回退）。
+            // 这保留了"绝不杀 V3.0 之外进程"的安全边界，又让 kill -9 后 PID
+            // 复用、或旧的 `npm run dev` 残留能被回收而不至于阻塞重启。
+            return pathIsInside(workingDirectory, rootURL: expectedDirectory)
+                || pathIsInside(workingDirectory, rootURL: rootURL)
         }
     }
 

@@ -214,7 +214,7 @@ final class ConsoleTests: XCTestCase {
             rootURL: root,
             bossDirectoryURL: bossDirectory
         ))
-        XCTAssertFalse(ProcessInspector.matches(
+        XCTAssertTrue(ProcessInspector.matches(
             kind: .bossWeb,
             command: "node /tmp/cdjg-test-root/source_code/0.3_老板端安卓App_天府掌舵/node_modules/vite/bin/vite.js preview --port 5173",
             workingDirectory: serviceDirectory.path,
@@ -622,7 +622,7 @@ final class ConsoleTests: XCTestCase {
                 startBody: "#!/bin/bash\necho start >> '\(eventURL.path)'\nexit 0\n",
                 stopBody: "#!/bin/bash\necho stop >> '\(eventURL.path)'\nexit 0\n"
             )
-            try "BOSS_PORT=\(port)\n".write(
+            try isolatedPorts(bossPort: port).write(
                 to: root.appendingPathComponent(".env"),
                 atomically: true,
                 encoding: .utf8
@@ -681,7 +681,7 @@ final class ConsoleTests: XCTestCase {
         }
     }
 
-    func testStartAndRestartRejectUnconfirmedBossListenerWithoutStoppingCore() throws {
+    func testStartAndRestartForceReplaceUnconfirmedBossListener() throws {
         for action in [ControlAction.startAll, ControlAction.restartAll] {
             let port = nextTestPort()
             let eventURL = URL(fileURLWithPath: NSTemporaryDirectory())
@@ -690,7 +690,7 @@ final class ConsoleTests: XCTestCase {
                 startBody: "#!/bin/bash\necho start >> '\(eventURL.path)'\nexit 0\n",
                 stopBody: "#!/bin/bash\necho stop >> '\(eventURL.path)'\nexit 0\n"
             )
-            try "BOSS_PORT=\(port)\n".write(
+            try isolatedPorts(bossPort: port).write(
                 to: root.appendingPathComponent(".env"),
                 atomically: true,
                 encoding: .utf8
@@ -717,7 +717,7 @@ final class ConsoleTests: XCTestCase {
                 configuration: configuration,
                 logStore: LogStore(fileURL: logURL)
             )
-            let finished = expectation(description: "拒绝外部老板驾驶舱")
+            let finished = expectation(description: "强制替换端口旧进程")
             var result: ActionResult?
             controller.perform(action) {
                 result = $0
@@ -725,15 +725,69 @@ final class ConsoleTests: XCTestCase {
             }
             wait(for: [finished], timeout: 10)
 
-            XCTAssertFalse(result?.succeeded == true, result?.message ?? "未收到启动结果")
-            XCTAssertTrue(result?.message.contains("无法确认") == true)
-            XCTAssertTrue(ProcessInspector.isAlive(foreignBoss.processIdentifier))
-            XCTAssertFalse(FileManager.default.fileExists(atPath: eventURL.path))
-            XCTAssertFalse(FileManager.default.fileExists(atPath: configuration.appPIDFileURL.path))
+            XCTAssertTrue(result?.succeeded == true, result?.message ?? "未收到启动结果")
+            XCTAssertFalse(ProcessInspector.isAlive(foreignBoss.processIdentifier))
+            let events = try String(contentsOf: eventURL, encoding: .utf8)
+                .split(whereSeparator: \.isNewline).map(String.init)
+            XCTAssertEqual(events, ["stop", "start"])
+            let newPID = try XCTUnwrap(ProcessInspector.readPID(at: configuration.appPIDFileURL))
+            XCTAssertNotEqual(newPID, foreignBoss.processIdentifier)
+            XCTAssertTrue(ProcessInspector.sendSignal(9, to: newPID))
+            XCTAssertTrue(waitUntilStoppedForTest(newPID))
 
             try? FileManager.default.removeItem(at: logURL)
             try? FileManager.default.removeItem(at: root)
         }
+    }
+
+    func testForceStopClearsAllServicePortsAndPIDChildrenButLeavesOtherPorts() throws {
+        let root = try makeProjectRoot(bossPort: nextTestPort())
+        defer { try? FileManager.default.removeItem(at: root) }
+        let config = ProjectConfiguration(rootURL: root, environment: [:])
+        let ports = [config.taxPort, config.ragPort, config.idpPort, config.localModelPort, config.bossPort]
+        var processes: [Process] = []
+        defer { processes.forEach { terminateTestProcess($0) } }
+        for port in ports {
+            let listener = try launchAliasProcess(
+                alias: "unknown-service",
+                executable: "/usr/bin/nc",
+                arguments: ["-l", "127.0.0.1", "\(port)"],
+                currentDirectory: URL(fileURLWithPath: NSTemporaryDirectory())
+            )
+            processes.append(listener)
+            XCTAssertTrue(waitUntilListening(port: port, containing: listener.processIdentifier))
+        }
+        let otherPort = nextTestPort()
+        let unrelated = try launchAliasProcess(
+            alias: "unrelated-service", executable: "/usr/bin/nc",
+            arguments: ["-l", "127.0.0.1", "\(otherPort)"], currentDirectory: root
+        )
+        defer { terminateTestProcess(unrelated) }
+        XCTAssertTrue(waitUntilListening(port: otherPort, containing: unrelated.processIdentifier))
+        let childFile = root.appendingPathComponent("child.pid")
+        let parent = Process()
+        parent.executableURL = URL(fileURLWithPath: "/bin/sh")
+        parent.arguments = ["-c", "sleep 120 & echo $! > '\(childFile.path)'; wait"]
+        try parent.run()
+        defer { terminateTestProcess(parent) }
+        let deadline = Date().addingTimeInterval(2)
+        while !FileManager.default.fileExists(atPath: childFile.path), Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.02)
+        }
+        let childPID = try XCTUnwrap(ProcessInspector.readPID(at: childFile))
+        defer { _ = ProcessInspector.sendSignal(9, to: childPID) }
+        try String(parent.processIdentifier).write(to: root.appendingPathComponent(".tax.pid"), atomically: true, encoding: .utf8)
+        try "invalid".write(to: root.appendingPathComponent(".app.pid"), atomically: true, encoding: .utf8)
+
+        let result = ForceServiceStopper.stop(configuration: config)
+        XCTAssertTrue(result.succeeded, result.message)
+        for port in ports { XCTAssertTrue(ProcessInspector.listeningPIDs(port: port).isEmpty) }
+        parent.waitUntilExit()
+        XCTAssertFalse(parent.isRunning)
+        XCTAssertTrue(waitUntilStoppedForTest(childPID), "PID记录的子进程必须停止")
+        XCTAssertTrue(ProcessInspector.isAlive(unrelated.processIdentifier))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: config.appPIDFileURL.path))
+        XCTAssertTrue(ForceServiceStopper.stop(configuration: config).succeeded, "重复停止必须幂等")
     }
 
     func testManagedMessagesDoNotContainInterpolationPlaceholders() throws {
@@ -796,8 +850,8 @@ final class ConsoleTests: XCTestCase {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         try startBody.write(to: root.appendingPathComponent("start_all.sh"), atomically: true, encoding: .utf8)
         try stopBody.write(to: root.appendingPathComponent("stop_all.sh"), atomically: true, encoding: .utf8)
-        if let bossPort {
-            try "BOSS_PORT=\(bossPort)\n".write(
+        do {
+            try isolatedPorts(bossPort: bossPort ?? nextTestPort()).write(
                 to: root.appendingPathComponent(".env"),
                 atomically: true,
                 encoding: .utf8
@@ -815,6 +869,10 @@ final class ConsoleTests: XCTestCase {
             try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: viteShim.path)
         }
         return root
+    }
+
+    private func isolatedPorts(bossPort: Int) -> String {
+        return "BOSS_PORT=\(bossPort)\nTAX_PORT=\(nextTestPort())\nPROJECT_RAG_PORT=\(nextTestPort())\nIDP_PORT=\(nextTestPort())\nLOCAL_LLM_PORT=\(nextTestPort())\n"
     }
 
     private func nextTestPort() -> Int {

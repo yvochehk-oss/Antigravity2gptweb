@@ -246,12 +246,77 @@ final class AppStateManager: ObservableObject {
         showAlert(title: "尚未连接项目", message: "请先选择包含 start_all.sh 和 stop_all.sh 的 V3.0 项目目录。")
     }
 
-    private func showAlert(title: String, message: String) {
+    private func showAlert(title: String, message: String, severity: AlertSeverity = .warning) {
         let alert = NSAlert()
-        alert.alertStyle = .warning
+        alert.alertStyle = severity.nsAlertStyle
         alert.messageText = title
         alert.informativeText = message
         alert.addButton(withTitle: "知道了")
+        if let icon = AlertIconFactory.image(for: severity) {
+            alert.icon = icon
+        }
         alert.runModal()
+    }
+}
+
+/// 提示对话框的语义等级。不同等级会显示不同的 SF Symbol 大图标，避免
+/// 使用应用默认图标或系统三角警告给人的"粗糙占位"印象。
+enum AlertSeverity {
+    case warning
+    case error
+    case info
+
+    var nsAlertStyle: NSAlert.Style {
+        switch self {
+        case .warning: return .warning
+        case .error: return .critical
+        case .info: return .informational
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .warning: return "exclamationmark.triangle.fill"
+        case .error: return "xmark.octagon.fill"
+        case .info: return "info.circle.fill"
+        }
+    }
+}
+
+private enum AlertIconFactory {
+    /// 生成一张带语义着色的大尺寸 SF Symbol 图标，作为 NSAlert.icon 使用。
+    /// 仅在 macOS 11+ 上生效；旧系统上若返回 nil 则交给 alertStyle 兜底。
+    static func image(for severity: AlertSeverity) -> NSImage? {
+        guard let base = NSImage(
+            systemSymbolName: severity.symbolName,
+            accessibilityDescription: nil
+        ) else { return nil }
+        let palette: NSColor
+        switch severity {
+        case .warning:
+            palette = NSColor.systemOrange
+        case .error:
+            palette = NSColor.systemRed
+        case .info:
+            palette = NSColor.systemBlue
+        }
+        let config = NSImage.SymbolConfiguration(
+            pointSize: 36,
+            weight: .semibold
+        )
+        let colored = base.withSymbolConfiguration(config) ?? base
+        let canvas = NSImage(size: colored.size)
+        canvas.lockFocus()
+        defer { canvas.unlockFocus() }
+        colored.draw(
+            in: NSRect(origin: .zero, size: colored.size),
+            from: NSRect(origin: .zero, size: colored.size),
+            operation: .sourceOver,
+            fraction: 1.0
+        )
+        palette.set()
+        NSRect(origin: .zero, size: colored.size).fill(using: .sourceAtop)
+        canvas.isTemplate = false
+        return canvas
     }
 }

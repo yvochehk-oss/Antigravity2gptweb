@@ -81,21 +81,45 @@ private struct StatusBarLabel: View {
 }
 
 private enum StatusBarLogo {
+    /// 菜单栏图标：优先使用项目预置的"建筑 + 齿轮"组合 SF Symbol，模板渲染，
+    /// 自动适配浅色/深色菜单栏且永不模糊。`StatusLogo.png` 仅作为可选覆写，
+    /// 若需要品牌定制位图可放回 Resources；否则使用 SF Symbol 即可获得
+    /// 与 macOS Sonoma / Sequoia 系统一致的精致观感。
     static let image: NSImage = {
-        if let url = Bundle.main.url(forResource: "StatusLogo", withExtension: "png"),
-            let image = NSImage(contentsOf: url) {
-            image.size = NSSize(width: 18, height: 18)
-            image.isTemplate = true
-            return image
-        }
-
-        NSLog("[ChengduConstructionConsole] StatusLogo.png missing from bundle; using fallback symbol")
-        let fallback = NSImage(
-            systemSymbolName: "building.2.crop.circle",
-            accessibilityDescription: "成都建工"
-        ) ?? NSImage(size: NSSize(width: 18, height: 18))
-        fallback.size = NSSize(width: 18, height: 18)
-        fallback.isTemplate = true
-        return fallback
+        let configured = preferredSymbolImage()
+            ?? BundleFallbackImage()
+            ?? NSImage(size: NSSize(width: 18, height: 18))
+        configured.size = NSSize(width: 18, height: 18)
+        configured.isTemplate = true
+        return configured
     }()
+
+    private static func preferredSymbolImage() -> NSImage? {
+        // 优先选择单纯的"房屋/建筑"轮廓，避免之前的"建筑+齿轮"复合图标
+        // 给人"复杂、不像产品 logo"的印象。
+        let symbolNames = [
+            "house.fill",
+            "house.circle.fill",
+            "house.lodge.fill",
+            "building.2.fill"
+        ]
+        for name in symbolNames {
+            if let image = NSImage(
+                systemSymbolName: name,
+                accessibilityDescription: "成都建工控制台"
+            ) {
+                return image
+            }
+        }
+        return nil
+    }
+
+    private static func BundleFallbackImage() -> NSImage? {
+        guard let url = Bundle.main.url(forResource: "StatusLogo", withExtension: "png"),
+              let image = NSImage(contentsOf: url) else {
+            return nil
+        }
+        NSLog("[ChengduConstructionConsole] using bundled StatusLogo.png as icon override")
+        return image
+    }
 }
