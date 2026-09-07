@@ -1751,3 +1751,145 @@ export async function fetchLegalEntityOperatingProjection(
   }
   return projection;
 }
+
+// ---------------------------------------------------------------------------
+// TokenHub 用户级 API Key 配置（设置向导）
+// ---------------------------------------------------------------------------
+
+export interface TokenHubEndpointSummary {
+  id: number;
+  name: string;
+  baseUrl: string;
+  chatPath: string;
+  model: string;
+  enabled: boolean;
+  routingGroup: string;
+  priority: number;
+  updatedAt: string | null;
+  note: string;
+}
+
+export interface TokenHubSetupStatus {
+  configured: boolean;
+  hasUserKey: boolean;
+  envFallback: boolean;
+  endpoint: TokenHubEndpointSummary | null;
+}
+
+export interface TokenHubTestResult {
+  ok: boolean;
+  reachable: boolean;
+  statusCode: number;
+  error: string | null;
+  models?: string[];
+  formatWarning?: string | null;
+}
+
+export interface TokenHubSaveResult {
+  ok: true;
+  endpoint: TokenHubEndpointSummary;
+  models: string[];
+}
+
+function asString(value: unknown): string {
+  return typeof value === 'string' ? value : '';
+}
+
+function parseTokenHubEndpoint(value: unknown): TokenHubEndpointSummary | null {
+  const data = asRecord(value);
+  if (!data) return null;
+  const id = positiveInteger(data.id);
+  if (!id) return null;
+  return {
+    id,
+    name: asString(data.name),
+    baseUrl: asString(data.base_url),
+    chatPath: asString(data.chat_path),
+    model: asString(data.model),
+    enabled: data.enabled === true,
+    routingGroup: asString(data.routing_group) || 'default',
+    priority: toFiniteNumber(data.priority, 0),
+    updatedAt: asString(data.updated_at) || null,
+    note: asString(data.note),
+  };
+}
+
+export async function fetchTokenHubSetupStatus(signal?: AbortSignal): Promise<TokenHubSetupStatus> {
+  const payload = await fetchJson<unknown>('/tokenhub-setup/status', { signal });
+  const data = asRecord(payload);
+  if (!data) {
+    throw new ApiError('TokenHub 设置状态返回格式不完整。', 502, payload);
+  }
+  return {
+    configured: data.configured === true,
+    hasUserKey: data.has_user_key === true,
+    envFallback: data.env_fallback === true,
+    endpoint: parseTokenHubEndpoint(data.endpoint),
+  };
+}
+
+export async function testTokenHubApiKey(input: {
+  apiKey: string;
+  signal?: AbortSignal;
+}): Promise<TokenHubTestResult> {
+  const apiKey = input.apiKey.trim();
+  if (!apiKey) throw new ApiError('请输入 API Key。', 400);
+  if (apiKey.length > 4096) throw new ApiError('API Key 长度超出 4096 字符限制。', 400);
+  const payload = await postJson<unknown>(
+    '/tokenhub-setup/test',
+    { api_key: apiKey },
+    input.signal,
+  );
+  const data = asRecord(payload);
+  if (!data) throw new ApiError('TokenHub 测试响应格式不完整。', 502, payload);
+  return {
+    ok: data.ok === true,
+    reachable: data.reachable === true,
+    statusCode: toFiniteNumber(data.status_code, 0),
+    error: asString(data.error) || null,
+    models: Array.isArray(data.models)
+      ? data.models.filter((item): item is string => typeof item === 'string')
+      : [],
+    formatWarning: asString(data.format_warning) || null,
+  };
+}
+
+export async function saveTokenHubApiKey(input: {
+  apiKey: string;
+  model?: string;
+  signal?: AbortSignal;
+}): Promise<TokenHubSaveResult> {
+  const apiKey = input.apiKey.trim();
+  if (!apiKey) throw new ApiError('请输入 API Key。', 400);
+  if (apiKey.length > 4096) throw new ApiError('API Key 长度超出 4096 字符限制。', 400);
+  const body: Record<string, unknown> = { api_key: apiKey };
+  const trimmedModel = (input.model || '').trim();
+  if (trimmedModel) body.model = trimmedModel;
+  const payload = await postJson<unknown>('/tokenhub-setup/save', body, input.signal);
+  const data = asRecord(payload);
+  if (!data || data.ok !== true) {
+    throw new ApiError(asString(data?.detail) || 'TokenHub 保存失败。', 502, payload);
+  }
+  const endpoint = parseTokenHubEndpoint(data.endpoint);
+  if (!endpoint) throw new ApiError('TokenHub 保存响应缺少端点信息。', 502, payload);
+  return {
+    ok: true,
+    endpoint,
+    models: Array.isArray(data.models)
+      ? data.models.filter((item): item is string => typeof item === 'string')
+      : [],
+  };
+}
+
+export async function revokeTokenHubApiKey(signal?: AbortSignal): Promise<{ ok: boolean; message: string }> {
+  const payload = await postJson<unknown>(
+    '/tokenhub-setup/revoke',
+    {},
+    signal,
+  );
+  const data = asRecord(payload);
+  if (!data || data.ok !== true) {
+    throw new ApiError(asString(data?.detail) || '撤销 TokenHub Key 失败。', 502, payload);
+  }
+  return { ok: true, message: asString(data.message) || '已撤销。' };
+}
