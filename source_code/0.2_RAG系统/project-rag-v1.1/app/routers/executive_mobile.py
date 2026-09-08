@@ -11,6 +11,7 @@ import json
 import time
 from typing import Any, Dict, List, Optional
 
+import httpx
 from fastapi import Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy import text
@@ -319,6 +320,125 @@ def _group_business_snapshot(
     }
 
 
+def _extract_facts_context(db: Session, scope: Dict[str, Any]) -> tuple:
+    if scope["mode"] == "project":
+        project = scope["project"]
+        facts = _safe_get_facts(db, project["project_code"])
+        if not facts.facts_available:
+            return f"【经营底账状态】项目：{project.get('name')}，目前经营数据尚未完整汇集。", {
+                "facts_available": False,
+                "facts_reason": facts.reason,
+                "as_of": None,
+                "project_id": project.get("id"),
+                "project_name": project.get("name") or project.get("project_code"),
+            }
+
+        metrics = facts.metrics
+        revenue = _metric_value(metrics, "recognized_revenue")
+        cost = _metric_value(metrics, "real_project_cost")
+        profit = _metric_value(metrics, "real_profit")
+        actual_margin = (
+            profit / revenue
+            if profit is not None and revenue not in (None, 0)
+            else None
+        )
+        collection = _metric_value(metrics, "collection_rate")
+        cash_gap = _metric_value(metrics, "cash_gap_30d")
+        tax_rate = _metric_value(metrics, "tax_burden_rate")
+        collected_amount = _metric_value(metrics, "collected_amount")
+
+        facts_text = (
+            f"【真实经营底账事实】\n"
+            f"项目名称：{project.get('name')} ({project.get('project_code')})\n"
+            f"已确认收入：{_fmt_money(revenue)}\n"
+            f"实际项目成本：{_fmt_money(cost)}\n"
+            f"真实利润额：{_fmt_money(profit)}\n"
+            f"真实利润率：{_fmt_percent(actual_margin)}\n"
+            f"累计已回款：{_fmt_money(collected_amount)}\n"
+            f"回款率：{_fmt_percent(collection)}\n"
+            f"未来30天预计资金缺口：{_fmt_money(cash_gap)}\n"
+            f"综合税负率：{_fmt_percent(tax_rate)}"
+        )
+        return facts_text, {
+            "facts_available": True,
+            "facts_reason": None,
+            "as_of": facts.as_of,
+            "project_id": project.get("id"),
+            "project_name": project.get("name") or project.get("project_code"),
+        }
+
+    # 集团全局模式
+    projects = scope["projects"]
+    ambiguous = scope.get("ambiguous", [])
+    project_codes = [p["project_code"] for p in projects if p.get("project_code")]
+    aggregate = _aggregate_facts(project_codes, db)
+    kpi = aggregate.get("kpi", {})
+
+    if aggregate.get("facts_available"):
+        recognized = kpi.get("recognized_revenue")
+        profit = kpi.get("real_profit")
+        actual_margin = (
+            profit / recognized
+            if profit is not None and recognized not in (None, 0)
+            else None
+        )
+        names = "、".join(p.get("name") or p.get("project_code") for p in projects[:6])
+        facts_text = (
+            f"【全集团经营底账大盘】\n"
+            f"在建重点项目数量：{len(projects)} 个（{names}）\n"
+            f"集团合同总额：{_fmt_money(kpi.get('contract_total'))}\n"
+            f"累计确认收入：{_fmt_money(recognized)}\n"
+            f"累计真实利润：{_fmt_money(profit)}\n"
+            f"集团真实利润率：{_fmt_percent(actual_margin)}\n"
+            f"累计已回款：{_fmt_money(kpi.get('collected_amount'))}\n"
+            f"集团整体回款率：{_fmt_percent(kpi.get('collection_rate'))}\n"
+            f"全盘净现金流：{_fmt_money(kpi.get('net_cashflow'))}\n"
+            f"综合税负率：{_fmt_percent(kpi.get('tax_burden_rate'))}"
+        )
+    else:
+        facts_text = "【全集团经营底账大盘】目前部分项目经营数据尚未完整汇集。"
+
+    if ambiguous:
+        amb_names = "、".join(p.get("name") or p.get("project_code") for p in ambiguous)
+        facts_text += f"\n识别到提问可能涉及项目：{amb_names}"
+
+    return facts_text, {
+        "facts_available": bool(aggregate.get("facts_available")),
+        "facts_reason": aggregate.get("facts_reason"),
+        "as_of": aggregate.get("as_of"),
+        "project_id": None,
+        "project_name": None,
+    }
+
+
+PRIMARY_LLM_CONFIG = {
+    "api_key": "sk-38lLhF00gYlbe2pfjlug9KE7DInnLNNMIOvcTye8JwRAhLkm",
+    "base_url": "https://tokenhub.tencentmaas.com/v1",
+    "model": "deepseek-v4-flash-202605",
+    "timeout": 30.0,
+}
+
+FALLBACK_LLM_CONFIG = {
+    "api_key": "none",
+    "base_url": "http://127.0.0.1:8931/v1",
+    "model": "Spark-X2.5-4B",
+    "timeout": 15.0,
+}
+
+EXECUTIVE_SYSTEM_PROMPT = """你是成都建工集团的高管经营智策专家兼高级财务顾问。你正在为集团高管提供专属的【高管经营内参】。
+
+【核心原则与约束】
+1. 真实数据铁律：必须严格基于下方提供的【真实经营底账事实】回答，绝对禁止擅自篡改、编造或凭空捏造任何未给出的财务数据、金额或比率。涉及已给出的数字时必须准确引用。
+2. 深度经营洞察：面向集团高管视角，结合建筑施工行业实务（如工程进度节点、主要材料采购与对账、分包劳务结算、应收账款与垫资、进销项增值税抵扣池、跨区预缴凭证核销等），对经营现状、利润归因、资金风险进行深刻剖析，并提供2~3条专业管理建议。
+3. 篇幅与风格：控制在350~500字左右，分段清晰紧凑，观点鲜明，适合手机端高效阅览。沉稳专业，严禁任何代码和数据库黑话（如 Canonical Facts、analytics_*、project_id、cockpit 等）。
+4. 结尾规范：回答末尾必须严格以如下格式输出3个紧贴当前分析的后续追问建议（严禁多于或少于3个）：
+接下来您可以直接问：
+- <具体后续问题1>
+- <具体后续问题2>
+- <具体后续问题3>
+5. 结构严谨完整：请务必确保正文论述与末尾的3个追问建议全部完整输出，切勿中途截断。"""
+
+
 def _build_chat_payload(
     query: str,
     db: Session,
@@ -370,23 +490,87 @@ def executive_ai_chat(
     db = SessionLocal()
     try:
         scope = _resolve_chat_scope(db, q, req.project_id)
-        payload = _build_chat_payload(q, db, scope)
+        facts_text, meta_info = _extract_facts_context(db, scope)
+        citations: List[Dict[str, str]] = [
+            {"title": "集团经营总览", "url": "/ui/overview"},
+            {"title": "项目经营明细", "url": "/ui/projects"},
+        ]
         meta = _meta_block(
             principal,
-            facts_available=payload["facts_available"],
-            facts_reason=payload["facts_reason"],
-            as_of=payload["as_of"],
+            facts_available=meta_info["facts_available"],
+            facts_reason=meta_info["facts_reason"],
+            as_of=meta_info["as_of"],
         )
-        meta["project_id"] = payload.get("project_id")
-        meta["project_name"] = payload.get("project_name")
+        meta["project_id"] = meta_info.get("project_id")
+        meta["project_name"] = meta_info.get("project_name")
+
+        reply_text = ""
+        # 1. 尝试云端 DeepSeek-V4-Flash (通过 httpx)
+        try:
+            url = f"{PRIMARY_LLM_CONFIG['base_url'].rstrip('/')}/chat/completions"
+            headers = {
+                "Authorization": f"Bearer {PRIMARY_LLM_CONFIG['api_key']}",
+                "Content-Type": "application/json",
+            }
+            payload = {
+                "model": PRIMARY_LLM_CONFIG["model"],
+                "messages": [
+                    {"role": "system", "content": EXECUTIVE_SYSTEM_PROMPT},
+                    {"role": "user", "content": f"{facts_text}\n\n高管提问：{q}"},
+                ],
+                "temperature": 0.3,
+                "max_tokens": 2500,
+            }
+            resp = httpx.post(url, headers=headers, json=payload, timeout=PRIMARY_LLM_CONFIG["timeout"])
+            if resp.status_code == 200:
+                data = resp.json()
+                content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+                if content and len(content.strip()) > 10:
+                    reply_text = content.strip()
+                    meta["data_source"] = "deepseek-v4-flash"
+        except Exception:
+            pass
+
+        # 2. 尝试本地保底 Spark-X2.5-4B (通过 httpx)
+        if not reply_text:
+            try:
+                url = f"{FALLBACK_LLM_CONFIG['base_url'].rstrip('/')}/chat/completions"
+                payload = {
+                    "model": FALLBACK_LLM_CONFIG["model"],
+                    "messages": [
+                        {"role": "system", "content": EXECUTIVE_SYSTEM_PROMPT},
+                        {"role": "user", "content": f"{facts_text}\n\n高管提问：{q}"},
+                    ],
+                    "temperature": 0.3,
+                    "max_tokens": 800,
+                }
+                resp = httpx.post(url, json=payload, timeout=FALLBACK_LLM_CONFIG["timeout"])
+                if resp.status_code == 200:
+                    data = resp.json()
+                    content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+                    if content and len(content.strip()) > 10:
+                        reply_text = content.strip()
+                        meta["data_source"] = "spark-x2.5-4b"
+            except Exception:
+                pass
+
+        # 3. 兜底规则模板
+        if not reply_text:
+            payload = _build_chat_payload(q, db, scope)
+            reply_text = payload["reply"]
+            meta["data_source"] = "rule_engine"
+
+        if "接下来您可以直接问" not in reply_text:
+            reply_text += "\n\n接下来您可以直接问：\n- 利润为什么高或低\n- 回款与现金缺口\n- 税负和发票风险"
+
         return {
             "status": "success",
             "query": q,
-            "reply": payload["reply"],
-            "citations": payload["citations"],
+            "reply": reply_text,
+            "citations": citations,
             "timestamp": int(time.time()),
-            "project_id": payload.get("project_id"),
-            "project_name": payload.get("project_name"),
+            "project_id": meta_info.get("project_id"),
+            "project_name": meta_info.get("project_name"),
             "_meta": meta,
         }
     finally:
@@ -405,24 +589,118 @@ async def executive_ai_chat_stream(
     db = SessionLocal()
     try:
         scope = _resolve_chat_scope(db, q, req.project_id)
-        payload = _build_chat_payload(q, db, scope)
-        reply_text = payload["reply"]
-        citations = payload["citations"]
+        facts_text, meta_info = _extract_facts_context(db, scope)
+        citations: List[Dict[str, str]] = [
+            {"title": "集团经营总览", "url": "/ui/overview"},
+            {"title": "项目经营明细", "url": "/ui/projects"},
+        ]
         meta_block = _meta_block(
             principal,
-            facts_available=payload["facts_available"],
-            facts_reason=payload["facts_reason"],
-            as_of=payload["as_of"],
+            facts_available=meta_info["facts_available"],
+            facts_reason=meta_info["facts_reason"],
+            as_of=meta_info["as_of"],
         )
-        meta_block["project_id"] = payload.get("project_id")
-        meta_block["project_name"] = payload.get("project_name")
+        meta_block["project_id"] = meta_info.get("project_id")
+        meta_block["project_name"] = meta_info.get("project_name")
 
         async def event_source():
-            chunk_size = 24
-            for start in range(0, len(reply_text), chunk_size):
-                chunk = reply_text[start:start + chunk_size]
-                yield f"event: delta\ndata: {json.dumps(chunk, ensure_ascii=False)}\n\n"
-                await asyncio.sleep(0.04)
+            stream_started = False
+            full_reply_buffer = []
+
+            # 1. 尝试云端主力 DeepSeek-V4-Flash 实时流式 (通过 httpx)
+            try:
+                url = f"{PRIMARY_LLM_CONFIG['base_url'].rstrip('/')}/chat/completions"
+                headers = {
+                    "Authorization": f"Bearer {PRIMARY_LLM_CONFIG['api_key']}",
+                    "Content-Type": "application/json",
+                }
+                payload = {
+                    "model": PRIMARY_LLM_CONFIG["model"],
+                    "messages": [
+                        {"role": "system", "content": EXECUTIVE_SYSTEM_PROMPT},
+                        {"role": "user", "content": f"{facts_text}\n\n高管提问：{q}"},
+                    ],
+                    "temperature": 0.3,
+                    "max_tokens": 2500,
+                    "stream": True,
+                }
+                async with httpx.AsyncClient(timeout=PRIMARY_LLM_CONFIG["timeout"]) as client:
+                    async with client.stream("POST", url, headers=headers, json=payload) as response:
+                        if response.status_code == 200:
+                            async for line in response.aiter_lines():
+                                line = line.strip()
+                                if not line or line == "data: [DONE]":
+                                    continue
+                                if line.startswith("data: "):
+                                    try:
+                                        chunk = json.loads(line[6:])
+                                        delta = chunk.get("choices", [{}])[0].get("delta", {})
+                                        token = delta.get("content")
+                                        if token:
+                                            stream_started = True
+                                            full_reply_buffer.append(token)
+                                            yield f"event: delta\ndata: {json.dumps(token, ensure_ascii=False)}\n\n"
+                                    except Exception:
+                                        pass
+                if stream_started:
+                    meta_block["data_source"] = "deepseek-v4-flash"
+            except Exception:
+                pass
+
+            # 2. 若云端未启动，降级尝试本地保底模型 Spark-X2.5-4B (通过 httpx)
+            if not stream_started:
+                try:
+                    url = f"{FALLBACK_LLM_CONFIG['base_url'].rstrip('/')}/chat/completions"
+                    payload = {
+                        "model": FALLBACK_LLM_CONFIG["model"],
+                        "messages": [
+                            {"role": "system", "content": EXECUTIVE_SYSTEM_PROMPT},
+                            {"role": "user", "content": f"{facts_text}\n\n高管提问：{q}"},
+                        ],
+                        "temperature": 0.3,
+                        "max_tokens": 800,
+                        "stream": True,
+                    }
+                    async with httpx.AsyncClient(timeout=FALLBACK_LLM_CONFIG["timeout"]) as client:
+                        async with client.stream("POST", url, json=payload) as response:
+                            if response.status_code == 200:
+                                async for line in response.aiter_lines():
+                                    line = line.strip()
+                                    if not line or line == "data: [DONE]":
+                                        continue
+                                    if line.startswith("data: "):
+                                        try:
+                                            chunk = json.loads(line[6:])
+                                            delta = chunk.get("choices", [{}])[0].get("delta", {})
+                                            token = delta.get("content")
+                                            if token:
+                                                stream_started = True
+                                                full_reply_buffer.append(token)
+                                                yield f"event: delta\ndata: {json.dumps(token, ensure_ascii=False)}\n\n"
+                                        except Exception:
+                                            pass
+                    if stream_started:
+                        meta_block["data_source"] = "spark-x2.5-4b"
+                except Exception:
+                    pass
+
+            # 3. 若大模型均未启动，保底回退到确定性规则模板
+            if not stream_started:
+                payload = _build_chat_payload(q, db, scope)
+                rule_text = payload["reply"]
+                chunk_size = 24
+                for start in range(0, len(rule_text), chunk_size):
+                    chunk = rule_text[start:start + chunk_size]
+                    full_reply_buffer.append(chunk)
+                    yield f"event: delta\ndata: {json.dumps(chunk, ensure_ascii=False)}\n\n"
+                    await asyncio.sleep(0.03)
+                meta_block["data_source"] = "rule_engine"
+
+            # 检查是否有引导问句，如果没有则补齐
+            full_text = "".join(full_reply_buffer)
+            if "接下来您可以直接问" not in full_text:
+                tail = "\n\n接下来您可以直接问：\n- 利润为什么高或低\n- 回款与现金缺口\n- 税负和发票风险"
+                yield f"event: delta\ndata: {json.dumps(tail, ensure_ascii=False)}\n\n"
 
             yield f"event: citations\ndata: {json.dumps(citations, ensure_ascii=False)}\n\n"
             yield f"event: meta\ndata: {json.dumps(meta_block, ensure_ascii=False)}\n\n"
