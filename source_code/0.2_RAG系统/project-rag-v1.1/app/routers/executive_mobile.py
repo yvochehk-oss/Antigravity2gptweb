@@ -1,9 +1,9 @@
-"""成都建工·天府掌舵 —— 董事长移动端经营助手。
+"""成都建工·天府掌舵 —— 高管移动端经营助手。
 
 本模块保留既有驾驶舱接口，并重构 AI 对话入口：
 - 支持自然语言识别项目名称与期数关键词；
 - 未锁定单项目时自动按集团整体口径汇总；
-- 面向董事长的回复只使用业务语言，不暴露内部实现细节。
+- 面向高管层的回复只使用业务语言，不暴露内部实现细节。
 """
 
 import asyncio
@@ -159,7 +159,7 @@ def _fmt_percent(value: Optional[float]) -> str:
 def _project_business_snapshot(facts, project_name: str) -> str:
     if not facts.facts_available:
         return (
-            f"**【董事长经营内参 · {project_name}】**\n\n"
+            f"**【高管经营内参 · {project_name}】**\n\n"
             "这个项目我已经为您定位到了，但当前经营数据还没有完整汇集，"
             "因此不适合给出利润率、金额或风险等级等确定结论。\n\n"
             "您可以继续问我“这个项目缺哪些数据？”或“先看集团整体经营情况”。"
@@ -179,7 +179,7 @@ def _project_business_snapshot(facts, project_name: str) -> str:
     tax_rate = _metric_value(metrics, "tax_burden_rate")
 
     return (
-        f"**【董事长经营内参 · {project_name}】**\n\n"
+        f"**【高管经营内参 · {project_name}】**\n\n"
         f"已确认收入：{_fmt_money(revenue)}；真实成本：{_fmt_money(cost)}；"
         f"真实利润：{_fmt_money(profit)}；真实利润率：{_fmt_percent(actual_margin)}。\n\n"
         f"回款率：{_fmt_percent(collection)}；未来 30 天资金缺口：{_fmt_money(cash_gap)}；"
@@ -207,7 +207,7 @@ def _group_business_snapshot(
             else None
         )
         intro = (
-            "**【董事长经营内参 · 集团概览】**\n\n"
+            "**【高管经营内参 · 集团概览】**\n\n"
             "您这次没有锁定到单一项目，我先按集团整体口径给您看最重要的经营结果。\n\n"
             f"合同总额：{_fmt_money(kpi.get('contract_total'))}；"
             f"确认收入：{_fmt_money(recognized)}；"
@@ -219,7 +219,7 @@ def _group_business_snapshot(
         )
     else:
         intro = (
-            "**【董事长经营内参 · 集团概览】**\n\n"
+            "**【高管经营内参 · 集团概览】**\n\n"
             "您这次没有锁定到单一项目，我先按集团整体口径为您梳理。"
             "目前部分项目经营数据尚未完整汇集，因此暂不输出可能误导决策的金额或比例。"
         )
@@ -239,7 +239,7 @@ def _group_business_snapshot(
             "- 哪个项目利润率最低，原因是什么？\n"
             "- 天府二期真实利润率是多少？\n"
             "- 哪些项目回款慢、未来 30 天资金压力最大？\n"
-            "- 按经营、资金、税负、风险四个维度生成本月董事长简报。"
+            "- 按经营、资金、税负、风险四个维度生成本月高管经营内参简报。"
         )
 
     return {
