@@ -342,8 +342,8 @@ async function saveAndTest() {
   ui.persistSettings()
   testing.value = true
   try {
-    const isOnline = await fetch(`${serverBaseUrl.value}/`, { method: 'GET', redirect: 'manual' })
-      .then(() => true)
+    const isOnline = await fetch(`${serverBaseUrl.value}/login`)
+      .then(res => res.status < 500)
       .catch(() => false)
     if (isOnline) {
       ui.connectionStatus = 'connected'

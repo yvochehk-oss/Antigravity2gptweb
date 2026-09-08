@@ -1,0 +1,2 @@
+const __vite__mapDeps=(i,m=__vite__mapDeps,d=(m.f||(m.f=["assets/web-BylLpRN9.js","assets/index-q_ZAoP0V.js","assets/client-CAdtIe34.js","assets/index-B_Zrq1-v.css"])))=>i.map(i=>d[i]);
+import{o as e,u as t}from"./index-q_ZAoP0V.js";var n;(function(e){e.Heavy=`HEAVY`,e.Medium=`MEDIUM`,e.Light=`LIGHT`})(n||={});var r;(function(e){e.Success=`SUCCESS`,e.Warning=`WARNING`,e.Error=`ERROR`})(r||={});var i=e(`Haptics`,{web:()=>t(()=>import(`./web-BylLpRN9.js`).then(e=>new e.HapticsWeb),__vite__mapDeps([0,1,2,3]))});export{i as Haptics,n as ImpactStyle,r as NotificationType};
