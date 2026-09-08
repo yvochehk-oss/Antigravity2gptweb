@@ -225,6 +225,21 @@
   padding-bottom: calc(88px + var(--sab));
 }
 
+/* AI 智策视图全屏聊天固定布局：禁止整页外层滚动，锁定顶栏底栏，让输入与聚焦行牢牢固定在底部 */
+.is-copilot-shell {
+  height: 100dvh !important;
+  max-height: 100dvh !important;
+  overflow: hidden !important;
+}
+
+.is-copilot-content {
+  padding-bottom: 0 !important;
+  overflow: hidden !important;
+  display: flex !important;
+  flex-direction: column !important;
+  min-height: 0 !important;
+}
+
 .app-page {
   width: 100%;
   max-width: var(--app-max-width);

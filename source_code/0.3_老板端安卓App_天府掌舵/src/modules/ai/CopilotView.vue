@@ -1,8 +1,8 @@
 <template>
-  <main class="app-page flex h-[calc(100dvh-7rem)] min-h-0 flex-col px-4 pt-4 !pb-[calc(5.5rem+var(--sab))] max-w-[440px] mx-auto">
+  <main class="app-page flex h-full max-h-[calc(100dvh-5.2rem-var(--sat))] min-h-0 flex-1 flex-col px-4 pt-2 !pb-0 max-w-[440px] mx-auto w-full">
     <div
       ref="scrollContainer"
-      class="min-h-0 flex-1 overflow-y-auto overscroll-contain pr-0.5 space-y-4 scroll-smooth"
+      class="min-h-0 flex-1 overflow-y-auto overscroll-contain pr-0.5 space-y-4 scroll-smooth pb-3"
       role="log"
       aria-live="polite"
       aria-label="智策会话"
@@ -108,56 +108,59 @@
       </div>
     </div>
 
-    <!-- 上下文聚焦条（当锁定了具体项目时显示，方便高管知晓并可一键切回集团） -->
-    <div
-      v-if="activeProject"
-      class="mt-2 flex items-center justify-between gap-2 px-3 py-1.5 text-[12px] text-amber-200 bg-amber-400/10 border border-amber-400/25 rounded-xl shrink-0 shadow-sm"
-    >
-      <div class="flex items-center gap-1.5 min-w-0">
-        <span class="inline-block h-2 w-2 rounded-full bg-emerald-400 animate-pulse" aria-hidden="true" />
-        <span class="truncate">当前对话聚焦项目：<strong class="text-amber-100 font-semibold">{{ activeProject.name }}</strong></span>
+    <!-- 底部固定停靠区：上下文聚焦条 + 提问输入栏，永远固定在最底部 -->
+    <footer class="copilot-bottom-dock shrink-0 pt-2 pb-[calc(84px+var(--sab))] space-y-2 bg-gradient-to-t from-[#060a12] via-[#060a12]/95 to-transparent z-20">
+      <!-- 上下文聚焦条（当锁定了具体项目时显示，方便高管知晓并可一键切回集团） -->
+      <div
+        v-if="activeProject"
+        class="flex items-center justify-between gap-2 px-3 py-1.5 text-[12px] text-amber-200 bg-amber-400/10 border border-amber-400/25 rounded-xl shadow-sm"
+      >
+        <div class="flex items-center gap-1.5 min-w-0">
+          <span class="inline-block h-2 w-2 rounded-full bg-emerald-400 animate-pulse" aria-hidden="true" />
+          <span class="truncate">当前对话聚焦项目：<strong class="text-amber-100 font-semibold">{{ activeProject.name }}</strong></span>
+        </div>
+        <button
+          type="button"
+          class="shrink-0 text-[11px] font-medium text-slate-300 hover:text-amber-200 transition-colors px-2 py-0.5 rounded-lg bg-white/10 hover:bg-white/20 active:scale-95"
+          @click="resetToGroup"
+        >
+          切回集团概览 ✕
+        </button>
       </div>
-      <button
-        type="button"
-        class="shrink-0 text-[11px] font-medium text-slate-300 hover:text-amber-200 transition-colors px-2 py-0.5 rounded-lg bg-white/10 hover:bg-white/20 active:scale-95"
-        @click="resetToGroup"
-      >
-        切回集团概览 ✕
-      </button>
-    </div>
 
-    <!-- 提问输入栏 -->
-    <form
-      class="mt-2 flex min-h-14 shrink-0 items-center gap-2 rounded-2xl border border-white/15 bg-gradient-to-b from-[#152338] to-[#0d1728] p-1.5 shadow-[0_12px_32px_rgba(0,0,0,0.5)]"
-      aria-label="向智策助手提问"
-      @submit.prevent="submit"
-    >
-      <input
-        v-model="query"
-        type="text"
-        inputmode="text"
-        autocomplete="off"
-        aria-label="问题内容"
-        placeholder="向 AI 咨询项目经营、税筹或资金底账..."
-        class="min-h-11 min-w-0 flex-1 bg-transparent px-3 text-[14px] leading-5 text-slate-50 placeholder:text-slate-500 focus:outline-none"
-      />
-      <button
-        v-if="!streaming"
-        type="submit"
-        :disabled="!query.trim() || loading"
-        class="min-h-11 shrink-0 rounded-xl bg-gradient-to-r from-amber-400 to-amber-300 px-4 text-[14px] font-bold text-slate-950 shadow-md transition-all hover:brightness-105 active:scale-95 disabled:cursor-not-allowed disabled:opacity-40"
+      <!-- 提问输入栏 -->
+      <form
+        class="flex min-h-14 shrink-0 items-center gap-2 rounded-2xl border border-white/15 bg-gradient-to-b from-[#152338] to-[#0d1728] p-1.5 shadow-[0_12px_32px_rgba(0,0,0,0.5)]"
+        aria-label="向智策助手提问"
+        @submit.prevent="submit"
       >
-        发送
-      </button>
-      <button
-        v-else
-        type="button"
-        class="min-h-11 shrink-0 rounded-xl border border-rose-400/40 bg-rose-500/20 px-3.5 text-[14px] font-bold text-rose-200 transition-colors hover:bg-rose-500/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-300/80 active:scale-95"
-        @click.prevent="cancel"
-      >
-        停止
-      </button>
-    </form>
+        <input
+          v-model="query"
+          type="text"
+          inputmode="text"
+          autocomplete="off"
+          aria-label="问题内容"
+          placeholder="向 AI 咨询项目经营、税筹或资金底账..."
+          class="min-h-11 min-w-0 flex-1 bg-transparent px-3 text-[14px] leading-5 text-slate-50 placeholder:text-slate-500 focus:outline-none"
+        />
+        <button
+          v-if="!streaming"
+          type="submit"
+          :disabled="!query.trim() || loading"
+          class="min-h-11 shrink-0 rounded-xl bg-gradient-to-r from-amber-400 to-amber-300 px-4 text-[14px] font-bold text-slate-950 shadow-md transition-all hover:brightness-105 active:scale-95 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          发送
+        </button>
+        <button
+          v-else
+          type="button"
+          class="min-h-11 shrink-0 rounded-xl border border-rose-400/40 bg-rose-500/20 px-3.5 text-[14px] font-bold text-rose-200 transition-colors hover:bg-rose-500/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-300/80 active:scale-95"
+          @click.prevent="cancel"
+        >
+          停止
+        </button>
+      </form>
+    </footer>
   </main>
 </template>
 
