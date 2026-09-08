@@ -80,13 +80,13 @@
 
             <!-- AI 回复中的后续建议快捷操作 pills：严格展示最多 3 个 -->
             <div
-              v-if="message.role === 'assistant' && !streaming && followUpSuggestions(message.content).length"
+              v-if="message.role === 'assistant' && !(streaming && index === messages.length - 1) && getMessageSuggestions(message).length"
               class="mt-3.5 border-t border-white/10 pt-3 space-y-2"
             >
-              <p class="text-[11px] font-semibold text-amber-300/80 uppercase tracking-wide">继续深入分析</p>
+              <p class="text-[11px] font-semibold text-amber-300/80 tracking-wide">接下来您可以直接问：</p>
               <div class="flex flex-wrap gap-2">
                 <button
-                  v-for="(suggestion, sIdx) in followUpSuggestions(message.content)"
+                  v-for="(suggestion, sIdx) in getMessageSuggestions(message)"
                   :key="sIdx"
                   type="button"
                   :disabled="loading"
@@ -238,76 +238,154 @@ onMounted(() => {
 })
 
 /**
- * 智能解析 AI 回复中的后续建议问题：
- * 1. 支持 Markdown 列表（以 -、*、• 开头）
- * 2. 支持数字编号列表（1. xxx、1、xxx）
- * 3. 支持行内圆圈数字（① xxx；② xxx）
- * 4. 严格限制最多展示 3 条！
+ * 解析 AI 回复，将其精准拆分为两部分：
+ * 1. body: 剔除末尾引导语与后续问题列表后的纯净分析正文
+ * 2. suggestions: 提取出的后续建议问题数组（严格最多 3 条，格式为 [{ index: '①', text: '...' }]）
  */
-function followUpSuggestions(content) {
-  if (!content) return []
-  const list = []
+function parseMessageContent(rawContent) {
+  if (!rawContent || typeof rawContent !== 'string') {
+    return { body: '', suggestions: [] }
+  }
 
-  // 1. 优先从行首列表提取（以 -、*、•、1.、1、开头的行）
-  const lines = content.split('\n')
-  let itemCounter = 1
+  // 引导语正则：匹配末尾常见的引导问题段落开头（支持换行、句尾标点或行首）
+  const leadInRegex = /(?:[\r\n]+|^|(?:[。；!！?\?]\s*))(接下来您可以直接问|建议您可以继续|如果您愿意[，,]?\s*您可以继续问|您可以继续问|推荐关注|您还可以关注|您还可以了解|后续建议|您可以直接问|推荐问题|关注以下问题|推荐进一步了解|您可能还想了解)[：:\s]*([\s\S]*)$/i
 
-  for (const line of lines) {
-    const trimmed = line.trim()
-    if (!trimmed) continue
+  const match = rawContent.match(leadInRegex)
 
-    // 忽略引导语本身
-    if (/^(接下来您可以直接问|建议您可以继续|如果您愿意|您可以继续问|推荐关注)[：:]?$/.test(trimmed)) {
-      continue
-    }
+  if (match) {
+    const bodyEnd = match.index
+    const prefix = match[0]
+    const leadWord = match[1]
+    const wordIdx = prefix.indexOf(leadWord)
+    const body = rawContent.slice(0, bodyEnd + wordIdx).trimEnd()
+    const tail = match[2] || ''
+    const suggestions = []
 
-    // 匹配列表项：- xxx 或 * xxx 或 • xxx
-    const bulletMatch = trimmed.match(/^[-*•]\s+(.+)$/)
-    if (bulletMatch) {
-      const text = bulletMatch[1].replace(/[；;。，,、\s]+$/, '').trim()
-      if (text.length > 1) {
-        list.push({
-          index: CIRCLED_DIGITS[itemCounter - 1] || String(itemCounter),
-          text
-        })
-        itemCounter++
-        continue
+    const lines = tail.split(/\r?\n/)
+    let counter = 1
+
+    for (const line of lines) {
+      const trimmed = line.trim()
+      if (!trimmed) continue
+
+      // 匹配列表项符号：- xxx, * xxx, • xxx
+      const bulletMatch = trimmed.match(/^[-*•]\s*(.+)$/)
+      if (bulletMatch) {
+        const text = bulletMatch[1]
+          .replace(/^[①②③④⑤⑥⑦⑧⑨⑩\d+[\.、\)]\s*]*/, '')
+          .replace(/[；;。，,、\s]+$/, '')
+          .trim()
+        if (text.length > 1) {
+          suggestions.push({
+            index: CIRCLED_DIGITS[counter - 1] || String(counter),
+            text
+          })
+          counter++
+          continue
+        }
+      }
+
+      // 匹配数字序号：1. xxx 或 1、xxx 或 (1) xxx
+      const numMatch = trimmed.match(/^(?:\(?\d+[\.、\)]|\d+\s+)\s*(.+)$/)
+      if (numMatch) {
+        const text = numMatch[1]
+          .replace(/^[①②③④⑤⑥⑦⑧⑨⑩\s]*/, '')
+          .replace(/[；;。，,、\s]+$/, '')
+          .trim()
+        if (text.length > 1) {
+          suggestions.push({
+            index: CIRCLED_DIGITS[counter - 1] || String(counter),
+            text
+          })
+          counter++
+          continue
+        }
+      }
+
+      // 匹配圆圈序号：① xxx
+      const circledMatch = trimmed.match(/^[①②③④⑤⑥⑦⑧⑨⑩]\s*(.+)$/)
+      if (circledMatch) {
+        const text = circledMatch[1].replace(/[；;。，,、\s]+$/, '').trim()
+        if (text.length > 1) {
+          suggestions.push({
+            index: CIRCLED_DIGITS[counter - 1] || String(counter),
+            text
+          })
+          counter++
+          continue
+        }
       }
     }
 
-    // 匹配数字序号列表：1. xxx 或 1、xxx 或 1) xxx
-    const numMatch = trimmed.match(/^(\d+)[\.、\)]\s*(.+)$/)
-    if (numMatch) {
-      const num = parseInt(numMatch[1], 10)
-      const text = numMatch[2].replace(/[；;。，,、\s]+$/, '').trim()
-      if (text.length > 1) {
-        list.push({
-          index: CIRCLED_DIGITS[num - 1] || String(num),
-          text
-        })
-        continue
+    if (suggestions.length === 0) {
+      const circledPattern = /[①②③④⑤⑥⑦⑧⑨⑩][^①②③④⑤⑥⑦⑧⑨⑩\r\n]{2,60}/g
+      const inlineMatches = tail.match(circledPattern) || []
+      for (const m of inlineMatches) {
+        const text = m.slice(1).replace(/[；;。，,、\s]+$/, '').trim()
+        if (text.length > 1) {
+          suggestions.push({
+            index: CIRCLED_DIGITS[suggestions.length] || String(suggestions.length + 1),
+            text
+          })
+        }
+      }
+    }
+
+    if (suggestions.length > 0) {
+      return {
+        body: body || rawContent,
+        suggestions: suggestions.slice(0, 3)
       }
     }
   }
 
-  // 2. 如果行级列表没有匹配到，提取行内的圆圈数字 ①-⑩
-  if (list.length === 0) {
-    const circledPattern = new RegExp(
-      `[${CIRCLED_DIGITS.join('')}][^${CIRCLED_DIGITS.join('')}\n]{2,60}`,
-      'g'
-    )
-    const matches = content.match(circledPattern) || []
-    for (const m of matches) {
-      const idx = m[0]
-      const text = m.slice(1).replace(/[；;。，,、\s]+$/, '').trim()
-      if (text.length > 1) {
-        list.push({ index: idx, text })
+  // 兜底模式：如果在消息末尾存在明确的 1. xxx \n 2. yyy 或 ① xxx \n ② yyy 且前面换行隔离
+  const tailNumberedMatch = rawContent.match(/(?:[\r\n]{2,})((?:[①②③④⑤⑥⑦⑧⑨⑩]|\d+[\.、\)])\s*[^\r\n]+(?:\r?\n(?:[①②③④⑤⑥⑦⑧⑨⑩]|\d+[\.、\)])\s*[^\r\n]+)+)$/)
+  if (tailNumberedMatch) {
+    const tail = tailNumberedMatch[1]
+    const lines = tail.split(/\r?\n/)
+    const suggestions = []
+    for (let i = 0; i < lines.length; i++) {
+      const t = lines[i].replace(/^(?:[①②③④⑤⑥⑦⑧⑨⑩]|\(?\d+[\.、\)]\s*)/, '').replace(/[；;。，,、\s]+$/, '').trim()
+      if (t.length > 1) {
+        suggestions.push({
+          index: CIRCLED_DIGITS[i] || String(i + 1),
+          text: t
+        })
+      }
+    }
+    if (suggestions.length >= 2) {
+      const body = rawContent.slice(0, tailNumberedMatch.index).trimEnd()
+      return {
+        body: body || rawContent,
+        suggestions: suggestions.slice(0, 3)
       }
     }
   }
 
-  // 严格限制只给 3 个建议
-  return list.slice(0, 3)
+  return { body: rawContent, suggestions: [] }
+}
+
+const messageParseCache = new WeakMap()
+
+function getParsed(message) {
+  if (!message) return { body: '', suggestions: [] }
+  if (message.role !== 'assistant') {
+    return { body: message.content || '', suggestions: [] }
+  }
+  if (streaming.value && messages.value[messages.value.length - 1] === message) {
+    return parseMessageContent(message.content || '')
+  }
+  let cached = messageParseCache.get(message)
+  if (!cached || cached.raw !== message.content) {
+    cached = { raw: message.content, ...parseMessageContent(message.content || '') }
+    messageParseCache.set(message, cached)
+  }
+  return cached
+}
+
+function getMessageSuggestions(message) {
+  return getParsed(message).suggestions
 }
 
 /**
@@ -324,10 +402,18 @@ function renderSegments(message) {
     return [{ type: 'text', value: privacyMode.value ? maskContent(raw) : raw }]
   }
   const cached = segmentCache.get(message)
-  if (cached) return cached
-  const chips = detectProjectMentions(message.content || '', projects.value)
-  const segments = buildMentionSegments(message.content || '', chips)
-  segmentCache.set(message, segments)
+  if (cached && cached.raw === message.content) return cached.segments
+
+  const parsed = getParsed(message)
+  const cleanBody = parsed.body
+  const chips = detectProjectMentions(cleanBody, projects.value)
+  const segments = buildMentionSegments(cleanBody, chips).map(s => {
+    if (s.type === 'text' && privacyMode.value) {
+      return { ...s, value: maskContent(s.value) }
+    }
+    return s
+  })
+  segmentCache.set(message, { raw: message.content, segments })
   return segments
 }
 
