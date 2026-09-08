@@ -342,8 +342,17 @@ async function saveAndTest() {
   ui.persistSettings()
   testing.value = true
   try {
-    await executive.refresh()
-    feedback.value = { ok: true, message: '配置已保存，经营数据链路连接正常。' }
+    const isOnline = await fetch(`${serverBaseUrl.value}/`, { method: 'GET', redirect: 'manual' })
+      .then(() => true)
+      .catch(() => false)
+    if (isOnline) {
+      ui.connectionStatus = 'connected'
+      feedback.value = { ok: true, message: '配置已保存，服务器链路连通正常。' }
+      try { await executive.refresh() } catch {}
+    } else {
+      await executive.refresh()
+      feedback.value = { ok: true, message: '配置已保存，经营数据链路连接正常。' }
+    }
   } catch {
     feedback.value = { ok: false, message: '配置已保存，当前未连通远程服务器，已切换为离线快照模式。' }
   } finally {

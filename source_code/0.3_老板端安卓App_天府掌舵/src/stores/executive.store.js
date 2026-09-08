@@ -1,5 +1,6 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
+import { normalizeBaseUrl } from '../api/client'
 import { getCockpitSummary } from '../api/dashboard.api'
 import { getCompanyMatrix } from '../api/companies.api'
 import { getProject360, getProjects } from '../api/projects.api'
