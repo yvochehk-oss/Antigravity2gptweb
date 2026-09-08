@@ -1,6 +1,7 @@
 <template>
   <main class="app-page flex h-[calc(100dvh-7rem)] min-h-0 flex-col px-4 pt-4 !pb-[calc(5.5rem+var(--sab))] max-w-[440px] mx-auto">
     <div
+      ref="scrollContainer"
       class="min-h-0 flex-1 overflow-y-auto overscroll-contain pr-0.5 space-y-4"
       role="log"
       aria-live="polite"
@@ -103,6 +104,9 @@
           <span class="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-amber-400/30 border-t-amber-300" aria-hidden="true" />
           <span>正在穿透经营底账与四流证据…</span>
         </div>
+
+        <!-- 底部滚动对齐锚点 -->
+        <div ref="bottomAnchor" class="h-1 w-full shrink-0" aria-hidden="true" />
       </div>
     </div>
 
@@ -160,7 +164,7 @@
 </template>
 
 <script setup>
-import { ref, watch } from 'vue'
+import { ref, watch, nextTick, onMounted } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useCopilotStore } from '../../stores/copilot.store'
 import { useExecutiveStore } from '../../stores/executive.store'
@@ -177,11 +181,79 @@ const quickQuestions = copilot.quickQuestions
 const { projects } = storeToRefs(executive)
 const query = ref('')
 
+const scrollContainer = ref(null)
+const bottomAnchor = ref(null)
+
 const segmentCache = new Map()
 watch(projects, () => segmentCache.clear(), { deep: true })
 watch(privacyMode, () => segmentCache.clear())
 
 const CIRCLED_DIGITS = ['①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧', '⑨', '⑩']
+
+/**
+ * 自动滚动到对话容器最底部
+ */
+function scrollToBottom(smooth = true) {
+  nextTick(() => {
+    const el = scrollContainer.value
+    if (!el) return
+    if (smooth) {
+      el.scrollTo({
+        top: el.scrollHeight,
+        behavior: 'smooth'
+      })
+    } else {
+      el.scrollTop = el.scrollHeight
+    }
+  })
+}
+
+// 1. 发送新消息（数组长度增加）时，平滑滚动到底部
+watch(
+  () => messages.value.length,
+  () => {
+    scrollToBottom(true)
+  }
+)
+
+// 2. 流式输出过程中，跟随文字生成持续平滑向下滚动
+watch(
+  () => {
+    const last = messages.value[messages.value.length - 1]
+    return last?.content?.length || 0
+  },
+  () => {
+    if (streaming.value) {
+      const el = scrollContainer.value
+      if (!el) return
+      // 如果用户距离底部在 350px 范围内，自动跟随滚动到底部
+      const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+      if (distanceFromBottom < 350) {
+        scrollToBottom(false)
+      }
+    }
+  }
+)
+
+// 3. 进入 loading 状态时滚动到底部
+watch(loading, (val) => {
+  if (val) {
+    scrollToBottom(true)
+  }
+})
+
+// 4. 流式生成结束（从 true 变为 false）时，确保最终生成的建议按钮完全展示
+watch(streaming, (val, oldVal) => {
+  if (oldVal === true && val === false) {
+    setTimeout(() => scrollToBottom(true), 60)
+  }
+})
+
+onMounted(() => {
+  if (messages.value.length > 0) {
+    scrollToBottom(false)
+  }
+})
 
 /**
  * 智能解析 AI 回复中的后续建议问题：
@@ -287,6 +359,7 @@ async function drilldown(chip) {
 async function ask(question) {
   if (loading.value) return
   segmentCache.clear()
+  scrollToBottom(true)
   await copilot.ask(question)
 }
 
@@ -294,6 +367,7 @@ async function submit() {
   const question = query.value.trim()
   if (!question || loading.value) return
   query.value = ''
+  scrollToBottom(true)
   await ask(question)
 }
 
