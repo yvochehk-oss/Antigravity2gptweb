@@ -38,7 +38,7 @@ describe('UI store', () => {
     })
   })
 
-  it('uses the stored serverBaseUrl and falls back to the default localhost URL', () => {
+  it('uses the stored serverBaseUrl and falls back to the Tax 8921 loopback URL', () => {
     localStorage.setItem(SERVER_URL_KEY, 'https://remote.example.com')
     setActivePinia(createPinia())
     const ui = useUiStore()
@@ -52,7 +52,7 @@ describe('UI store', () => {
     )
   })
 
-  it('falls back to localhost when VITE_API_BASE_URL is not configured', async () => {
+  it('falls back to port 8921 when VITE_API_BASE_URL is not configured', async () => {
     vi.resetModules()
     vi.stubEnv('VITE_API_BASE_URL', '')
     const { useUiStore: useFreshUiStore } = await import('../../src/stores/ui.store')
@@ -61,6 +61,18 @@ describe('UI store', () => {
     const fallback = useFreshUiStore()
 
     expect(fallback.serverBaseUrl).toBe('http://127.0.0.1:8921')
+  })
+
+  it('allows localhost and 127.0.0.1 plain HTTP in production server policy', async () => {
+    vi.resetModules()
+    vi.stubEnv('DEV', false)
+    vi.stubEnv('PROD', true)
+    const { getUrlViolationReason, isAllowedServerUrl } = await import('../../src/config/server-policy')
+
+    for (const url of ['http://127.0.0.1:8921', 'http://localhost:8921']) {
+      expect(getUrlViolationReason(url)).toBeNull()
+      expect(isAllowedServerUrl(url)).toBe(true)
+    }
   })
 
   it('ignores a persisted private-LAN URL when the page runs on loopback', () => {
@@ -114,7 +126,7 @@ describe('UI store', () => {
   it('returns descriptive connection text per status and URL pattern', () => {
     const ui = useUiStore()
     ui.connectionStatus = 'offline'
-    ui.serverBaseUrl = 'http://127.0.0.1:8922'
+    ui.serverBaseUrl = 'http://127.0.0.1:8921'
     expect(ui.connectionModeText).toContain('离线快照')
 
     ui.connectionStatus = 'connecting'
@@ -125,7 +137,7 @@ describe('UI store', () => {
     expect(ui.connectionModeText).toContain('5G 远程加密直连')
 
     ui.connectionStatus = 'connected'
-    ui.serverBaseUrl = 'http://127.0.0.1:8922'
+    ui.serverBaseUrl = 'http://127.0.0.1:8921'
     expect(ui.connectionModeText).toContain('本地/局域网直连模式')
   })
 
