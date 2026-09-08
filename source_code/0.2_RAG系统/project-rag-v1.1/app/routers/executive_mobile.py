@@ -263,14 +263,14 @@ _DIRECTION_ALIASES = (
 )
 _INVOICE_NO_ALIASES = ("invoice_no", "invoice_number", "number", "invoice_code")
 _NET_AMOUNT_ALIASES = (
-    "amount_without_tax", "net_amount", "tax_exclusive_amount",
+    "net", "amount_without_tax", "net_amount", "tax_exclusive_amount",
     "amount_excluding_tax", "untaxed_amount", "amount",
 )
 _GROSS_AMOUNT_ALIASES = (
     "amount_with_tax", "gross_amount", "total_amount",
     "amount_tax_included", "tax_inclusive_amount", "invoice_amount",
 )
-_TAX_AMOUNT_ALIASES = ("tax_amount", "vat_amount", "vat_tax", "tax")
+_TAX_AMOUNT_ALIASES = ("vat", "tax_amount", "vat_amount", "vat_tax", "tax")
 _DATE_ALIASES = ("invoice_date", "issue_date", "issued_at", "billing_date", "date")
 _COUNTERPARTY_ALIASES = (
     "counterparty_name", "buyer_name", "seller_name", "vendor_name",
@@ -280,9 +280,13 @@ _COUNTERPARTY_ALIASES = (
 
 def _classify_direction(value: Any) -> str:
     raw = str(value or "").strip().lower()
-    if any(token in raw for token in ("销项", "销", "output", "sale", "sales")):
+    if raw in ("out", "output", "sale", "sales") or any(
+        token in raw for token in ("销项", "销", "output", "sale", "sales")
+    ):
         return "销项"
-    if any(token in raw for token in ("进项", "进", "input", "purchase", "buy")):
+    if raw in ("in", "input", "purchase", "buy") or any(
+        token in raw for token in ("进项", "进", "input", "purchase", "buy")
+    ):
         return "进项"
     return "未标明方向"
 
@@ -321,6 +325,8 @@ def _invoice_ledger_block(rows: List[Dict[str, Any]]) -> Tuple[str, bool]:
         net_total = _sum_field(bucket, net_col)
         gross_total = _sum_field(bucket, gross_col)
         tax_total = _sum_field(bucket, tax_col)
+        if gross_total is None and (net_total is not None or tax_total is not None):
+            gross_total = (net_total or 0.0) + (tax_total or 0.0)
         if net_total is not None:
             parts.append(f"不含税金额 {_fmt_money(net_total)}")
         if gross_total is not None and (net_total is None or abs(gross_total - net_total) > 0.005):
@@ -341,11 +347,13 @@ def _invoice_ledger_block(rows: List[Dict[str, Any]]) -> Tuple[str, bool]:
             if date_col and row.get(date_col):
                 details.append(f"日期 {row.get(date_col)}")
             amount = _to_float(row.get(gross_col)) if gross_col else None
-            if amount is None and net_col:
-                amount = _to_float(row.get(net_col))
+            tax_value = _to_float(row.get(tax_col)) if tax_col else None
+            if amount is None:
+                net_value = _to_float(row.get(net_col)) if net_col else None
+                if net_value is not None or tax_value is not None:
+                    amount = (net_value or 0.0) + (tax_value or 0.0)
             if amount is not None:
                 details.append(f"金额 {_fmt_money(amount)}")
-            tax_value = _to_float(row.get(tax_col)) if tax_col else None
             if tax_value is not None:
                 details.append(f"税额 {_fmt_money(tax_value)}")
             if counterparty_col and row.get(counterparty_col):
