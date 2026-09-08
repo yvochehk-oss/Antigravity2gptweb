@@ -1,5 +1,9 @@
 # 成都建工 AI 财税智控、IDP 与 RAG 中枢 (V3.0)
 
+> ⚠️ **版本维护与分支收敛通告 (Version & Maintenance Notice)**
+> - **V2.0 版本已全面冻结并归档**：历史版本已由永久 Git 标签 [`v2.0`](https://github.com/yvochehk-oss/chengdu-construction-tax-system-v2.0/releases/tag/v2.0) 锁定，停止任何独立的功能迭代与 Bug 修复。
+> - **全部工作统一收敛至 V3.0**：全系统（税务端、RAG 知识中枢、TokenHub AI 决策、孤儿进程清理与 Windows/macOS 控制台）的所有开发、部署与测试统一在 **`main` / `v3.0` / `v3.0-macos` / `v3.0-windows`** 上进行。
+
 本分支为成都建工智能文档与财税系统 **V3.0**。
 
 V3.0 将“业务字段录入”和“知识检索问答”明确拆成两条链路：IDP 负责合同、发票、回单等结构化业务事实进入 PostgreSQL；RAG 负责非结构化知识检索与问答。这样可以在 Windows 16GB、无独显环境下降低常驻模型数量和内存压力。

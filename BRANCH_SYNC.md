@@ -1,33 +1,27 @@
 # 成都建工跨平台分支同步规范
 
+> ⚠️ **重要架构调整**：
+> - **V2.0 已停止维护并归档**：历史版本已由 Tag `v2.0` 与 `archive/v2.0-*` 永久封存，旧 `macos` / `windows` 裸分支已下线废弃；
+> - **V3.0 为唯一活跃生产基线**：GitHub 默认主分支 `main` 与 V3 版本镜像保持一致：
+>   ```text
+>   main == v3.0 == v3.0-macos == v3.0-windows
+>   ```
+
 ## 核心原则
 
 平台分支不是两套业务源码。macOS 与 Windows 只承担部署入口和运行环境差异；Tax、RAG、IDP、数据库迁移、业务规则与 API 必须保持同一套源码。
 
-正式分为两组三分支镜像：
+### 活跃开发组 (V3.0)
 
-### V2 稳定组
-
-- `main`：V2 主体代码基线
-- `macos`：V2 macOS 镜像引用
-- `windows`：V2 Windows 镜像引用
-
-正常状态必须满足：
-
-```text
-main == macos == windows
-```
-
-### V3 开发组
-
-- `v3.0`：V3 主体代码基线
+- `main`：GitHub 默认生产与开发基线
+- `v3.0`：V3 主体代码基线（镜像引用）
 - `v3.0-macos`：V3 macOS 镜像引用
 - `v3.0-windows`：V3 Windows 镜像引用
 
 正常状态必须满足：
 
 ```text
-v3.0 == v3.0-macos == v3.0-windows
+main == v3.0 == v3.0-macos == v3.0-windows
 ```
 
 ## 平台差异如何表达

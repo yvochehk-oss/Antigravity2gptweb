@@ -4,8 +4,6 @@ on:
   push:
     branches:
       - main
-      - macos
-      - windows
       - v3.0
       - v3.0-macos
       - v3.0-windows
@@ -38,11 +36,8 @@ jobs:
 
           SOURCE_BRANCH="${GITHUB_REF_NAME}"
           case "$SOURCE_BRANCH" in
-            main|macos|windows)
-              GROUP=(main macos windows)
-              ;;
-            v3.0|v3.0-macos|v3.0-windows)
-              GROUP=(v3.0 v3.0-macos v3.0-windows)
+            main|v3.0|v3.0-macos|v3.0-windows)
+              GROUP=(main v3.0 v3.0-macos v3.0-windows)
               ;;
             *)
               echo "Unsupported source branch: $SOURCE_BRANCH" >&2
