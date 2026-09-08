@@ -32,7 +32,7 @@ internal static class Program
         using var rootResolver = new ProjectRootResolver(logger);
         using var orchestrator = new ServiceOrchestrator(rootResolver, logger);
         using var monitor = new StatusMonitor(orchestrator, logger);
-        using var context = new TrayApplicationContext(orchestrator, monitor, logger);
+        using var context = new TrayApplicationContext(rootResolver, orchestrator, monitor, logger);
 
         monitor.Start();
         Application.Run(context);
