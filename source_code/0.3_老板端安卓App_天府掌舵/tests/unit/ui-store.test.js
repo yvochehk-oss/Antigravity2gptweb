@@ -48,7 +48,7 @@ describe('UI store', () => {
     setActivePinia(createPinia())
     const fallback = useUiStore()
     expect(fallback.serverBaseUrl).toBe(
-      import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8922'
+      import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8921'
     )
   })
 
@@ -60,7 +60,7 @@ describe('UI store', () => {
     setActivePinia(createPinia())
     const fallback = useFreshUiStore()
 
-    expect(fallback.serverBaseUrl).toBe('http://127.0.0.1:8922')
+    expect(fallback.serverBaseUrl).toBe('http://127.0.0.1:8921')
   })
 
   it('allows localhost and 127.0.0.1 plain HTTP in production server policy', async () => {
@@ -82,7 +82,7 @@ describe('UI store', () => {
     const ui = useUiStore()
 
     expect(ui.serverBaseUrl).toBe(
-      import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8922'
+      import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8921'
     )
   })
 
@@ -102,9 +102,9 @@ describe('UI store', () => {
     expect(useUiStore().serverBaseUrl).toBe('https://api.example.com')
 
     localStorage.clear()
-    localStorage.setItem(SERVER_URL_KEY, 'http://127.0.0.1:8922')
+    localStorage.setItem(SERVER_URL_KEY, 'http://127.0.0.1:8921')
     setActivePinia(createPinia())
-    expect(useUiStore().serverBaseUrl).toBe('http://127.0.0.1:8922')
+    expect(useUiStore().serverBaseUrl).toBe('http://127.0.0.1:8921')
   })
 
   it('keeps the store usable when Web Storage reads and writes throw', () => {
@@ -118,7 +118,7 @@ describe('UI store', () => {
     const ui = useUiStore()
 
     expect(ui.serverBaseUrl).toBe(
-      import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8922'
+      import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8921'
     )
     expect(() => ui.persistSettings()).not.toThrow()
   })
