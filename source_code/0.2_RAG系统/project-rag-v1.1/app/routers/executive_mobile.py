@@ -203,8 +203,7 @@ def _project_business_snapshot(facts, project_name: str, query: str = "") -> str
             "接下来您可以直接问：\n"
             "- 回款与现金缺口\n"
             "- 税负和发票风险\n"
-            "- 与集团其他项目做横向比较\n"
-            "- 切换至集团整体概览"
+            "- 与集团其他项目做横向比较"
         )
 
     # 维度下钻 2：回款与资金缺口
@@ -218,8 +217,7 @@ def _project_business_snapshot(facts, project_name: str, query: str = "") -> str
             "接下来您可以直接问：\n"
             "- 利润为什么高或低\n"
             "- 税负和发票风险\n"
-            "- 与集团其他项目做横向比较\n"
-            "- 切换至集团整体概览"
+            "- 与集团其他项目做横向比较"
         )
 
     # 维度下钻 3：税负与发票合规
@@ -232,8 +230,7 @@ def _project_business_snapshot(facts, project_name: str, query: str = "") -> str
             "接下来您可以直接问：\n"
             "- 利润为什么高或低\n"
             "- 回款与现金缺口\n"
-            "- 与集团其他项目做横向比较\n"
-            "- 切换至集团整体概览"
+            "- 与集团其他项目做横向比较"
         )
 
     # 维度下钻 4：横向比较
@@ -245,8 +242,7 @@ def _project_business_snapshot(facts, project_name: str, query: str = "") -> str
             "接下来您可以直接问：\n"
             "- 哪个项目利润率最低，原因是什么？\n"
             "- 回款与现金缺口\n"
-            "- 税负和发票风险\n"
-            "- 切换至集团整体概览"
+            "- 税负和发票风险"
         )
 
     # 默认综合总览
@@ -259,8 +255,7 @@ def _project_business_snapshot(facts, project_name: str, query: str = "") -> str
         "接下来您可以直接问：\n"
         "- 利润为什么高或低\n"
         "- 回款与现金缺口\n"
-        "- 税负和发票风险\n"
-        "- 与集团其他项目做横向比较"
+        "- 税负和发票风险"
     )
 
 
@@ -306,15 +301,14 @@ def _group_business_snapshot(
         )
         guidance = (
             f"\n\n我识别到您的提问可能涉及：{names}。"
-            "接下来您可以直接问：\n" + "\n".join(f"- 查看{name}的经营内参" for name in names.split("、"))
+            "接下来您可以直接问：\n" + "\n".join(f"- 查看{name}的经营内参" for name in names.split("、")[:3])
         )
     else:
         guidance = (
             "\n\n接下来您可以直接问：\n"
             "- 哪个项目利润率最低，原因是什么？\n"
             "- 天府二期真实利润率是多少？\n"
-            "- 哪些项目回款慢、未来 30 天资金压力最大？\n"
-            "- 按经营、资金、税负、风险四个维度生成本月高管经营内参简报"
+            "- 哪些项目回款慢、未来 30 天资金压力最大？"
         )
 
     return {
