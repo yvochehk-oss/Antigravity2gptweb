@@ -3,6 +3,13 @@ import Foundation
 final class HealthMonitor {
     typealias UpdateHandler = (HealthSnapshot) -> Void
 
+    // Windows fc7c5ad parity: probes may take up to 8 seconds and only become
+    // degraded/slow at 6 seconds.  Keep these internal so regression tests can
+    // lock the cross-platform contract without exposing them in the UI.
+    static let requestTimeout: TimeInterval = 8
+    static let slowThreshold: TimeInterval = 6
+    static let requestGuardTimeout: TimeInterval = 9
+
     private let configuration: ProjectConfiguration
     private let probeQueue = DispatchQueue(
         label: "cn.cdjg.controlpanel.health",
@@ -11,7 +18,7 @@ final class HealthMonitor {
     )
     private let stateLock = NSLock()
     private var refreshInFlight = false
-    /// 标记是否有被丢弃的刷新等待合并执行，确保状态新鲜度延迟不超过一次探测时长（约 0.5 秒）
+    /// 标记是否有被丢弃的刷新等待合并执行，确保状态新鲜度延迟不超过一次探测时长。
     private var pendingRefresh = false
     private let onUpdate: UpdateHandler
 
@@ -23,7 +30,6 @@ final class HealthMonitor {
     func refresh() {
         stateLock.lock()
         if refreshInFlight {
-            // 记录需要合并执行一次刷新，保证状态新鲜度延迟不超过一次探测时长
             pendingRefresh = true
             stateLock.unlock()
             return
@@ -36,13 +42,11 @@ final class HealthMonitor {
             let snapshot = Self.collect(configuration: self.configuration)
             self.stateLock.lock()
             self.refreshInFlight = false
-            // 取出被合并的刷新请求并重置标志
             let hadPending = self.pendingRefresh
             self.pendingRefresh = false
             self.stateLock.unlock()
             DispatchQueue.main.async {
                 self.onUpdate(snapshot)
-                // 立即触发一次被合并的刷新，保证状态新鲜度
                 if hadPending {
                     self.refresh()
                 }
@@ -146,13 +150,19 @@ final class HealthMonitor {
         }
 
         if service == .boss {
-            let state: ServiceState = evidence.listeningConfirmed ? .normal : .partial
+            let slow = response.elapsedSeconds >= slowThreshold
+            let state: ServiceState
             let detail: String
             if evidence.listeningConfirmed {
-                detail = "本地网页服务运行正常"
+                state = slow ? .partial : .normal
+                detail = slow
+                    ? "本地网页服务可用，但响应缓慢（\(formatSeconds(response.elapsedSeconds)) 秒）"
+                    : "本地网页服务运行正常"
             } else if evidence.confirmed {
+                state = .partial
                 detail = "网页可访问，但项目进程未确认监听目标端口"
             } else {
+                state = .partial
                 detail = "网页可访问，但未确认属于本项目的前端进程"
             }
             return ServiceSnapshot(
@@ -168,6 +178,7 @@ final class HealthMonitor {
 
         let payloadStatus = healthStatus(from: response.data)
         let payloadIsDegraded = payloadStatus == "degraded" || payloadStatus == "down"
+        let slow = response.elapsedSeconds >= slowThreshold
         let state: ServiceState
         let detail: String
         if payloadIsDegraded {
@@ -176,8 +187,10 @@ final class HealthMonitor {
                 ? "接口可访问，但依赖状态存在异常"
                 : "接口可访问，但未确认进程归属；依赖状态存在异常"
         } else if evidence.listeningConfirmed {
-            state = .normal
-            detail = "健康接口、目标端口监听者与项目进程均已确认"
+            state = slow ? .partial : .normal
+            detail = slow
+                ? "健康接口、目标端口和项目进程均已确认，但响应缓慢（\(formatSeconds(response.elapsedSeconds)) 秒）"
+                : "健康接口、目标端口监听者与项目进程均已确认"
         } else if evidence.confirmed {
             state = .partial
             detail = "接口可访问，但项目进程未确认监听目标端口"
@@ -232,13 +245,20 @@ final class HealthMonitor {
             )
         }
 
-        let state: ServiceState = evidence.listeningConfirmed ? .normal : .partial
+        let totalElapsed = response.elapsedSeconds + modelResponse.elapsedSeconds
+        let slow = response.elapsedSeconds >= slowThreshold || modelResponse.elapsedSeconds >= slowThreshold
+        let state: ServiceState
         let detail: String
         if evidence.listeningConfirmed {
-            detail = "模型健康接口、目标端口监听者、已加载模型和项目进程均已确认"
+            state = slow ? .partial : .normal
+            detail = slow
+                ? "模型接口、端口、已加载模型和项目进程均已确认，但响应缓慢（合计 \(formatSeconds(totalElapsed)) 秒）"
+                : "模型健康接口、目标端口监听者、已加载模型和项目进程均已确认"
         } else if evidence.confirmed {
+            state = .partial
             detail = "模型接口可用，但项目进程未确认监听目标端口"
         } else {
+            state = .partial
             detail = "模型接口可用，但未确认属于本项目的 llama-server 进程"
         }
         return ServiceSnapshot(
@@ -329,14 +349,14 @@ final class HealthMonitor {
     private struct HTTPResponse {
         let statusCode: Int
         let data: Data
+        let elapsedSeconds: TimeInterval
     }
 
-    /// 新增：共享 URLSession，单例 lazy 初始化
     private static let sharedSession: URLSession = {
         let config = URLSessionConfiguration.ephemeral
         config.httpMaximumConnectionsPerHost = 5
-        config.timeoutIntervalForRequest = 3
-        config.timeoutIntervalForResource = 5
+        config.timeoutIntervalForRequest = requestTimeout
+        config.timeoutIntervalForResource = 10
         config.requestCachePolicy = .reloadIgnoringLocalAndRemoteCacheData
         config.httpShouldSetCookies = false
         config.urlCache = nil
@@ -347,23 +367,32 @@ final class HealthMonitor {
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
-        request.timeoutInterval = 3
+        request.timeoutInterval = requestTimeout
         request.setValue("成都建工控制台/3.0", forHTTPHeaderField: "User-Agent")
 
+        let startedAt = Date()
         let semaphore = DispatchSemaphore(value: 0)
         var response: HTTPResponse?
         let task = sharedSession.dataTask(with: request) { data, urlResponse, _ in
             if let http = urlResponse as? HTTPURLResponse {
-                response = HTTPResponse(statusCode: http.statusCode, data: data ?? Data())
+                response = HTTPResponse(
+                    statusCode: http.statusCode,
+                    data: data ?? Data(),
+                    elapsedSeconds: Date().timeIntervalSince(startedAt)
+                )
             }
             semaphore.signal()
         }
         task.resume()
-        if semaphore.wait(timeout: .now() + 4) == .timedOut {
+        if semaphore.wait(timeout: .now() + requestGuardTimeout) == .timedOut {
             task.cancel()
             return nil
         }
         return response
+    }
+
+    private static func formatSeconds(_ value: TimeInterval) -> String {
+        String(format: "%.1f", value)
     }
 
     private static func healthStatus(from data: Data) -> String? {
