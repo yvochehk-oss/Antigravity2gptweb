@@ -89,7 +89,7 @@ public sealed class ProcessInspector
         var listeningIds = GetListeningProcessIds(definition.Port);
         var effectiveLaunchedIds = ExpandDescendants(launchedProcessIds ?? new HashSet<int>());
         var identityIds = listeningIds.Count == 0
-            ? effectiveLaunchedIds
+            ? effectiveLaunchedIds.ToArray()
             : listeningIds.Concat(effectiveLaunchedIds).Distinct().ToArray();
         var identities = ReadIdentities(identityIds);
         var owned = identities
@@ -1045,7 +1045,7 @@ internal static class NativeCommandLineReader
 {
     private const uint ProcessQueryLimitedInformation = 0x1000;
     private const uint ProcessVmRead = 0x0010;
-    private const int ProcessBasicInformation = 0;
+    private const int ProcessBasicInformationClass = 0;
 
     public static string TryRead(IntPtr processHandle)
     {
@@ -1061,7 +1061,7 @@ internal static class NativeCommandLineReader
             var basicInfo = new ProcessBasicInformation();
             var status = NtQueryInformationProcess(
                 processHandle,
-                ProcessBasicInformation,
+                ProcessBasicInformationClass,
                 ref basicInfo,
                 Marshal.SizeOf<ProcessBasicInformation>(),
                 out _);
@@ -1121,7 +1121,7 @@ internal static class NativeCommandLineReader
             var basicInfo = new ProcessBasicInformation();
             var status = NtQueryInformationProcess(
                 processHandle,
-                ProcessBasicInformation,
+                ProcessBasicInformationClass,
                 ref basicInfo,
                 Marshal.SizeOf<ProcessBasicInformation>(),
                 out _);
