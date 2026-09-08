@@ -363,7 +363,8 @@ app.add_exception_handler(RequestValidationError, request_validation_exception_h
 _DEFAULT_CORS_ORIGINS = (
     "http://localhost:3000,http://127.0.0.1:3000,"
     "http://localhost:5173,http://127.0.0.1:5173,"
-    "http://localhost:8922,http://localhost:8921"
+    "http://localhost:8922,http://127.0.0.1:8922,"
+    "http://localhost:8921,http://127.0.0.1:8921"
 )
 
 
