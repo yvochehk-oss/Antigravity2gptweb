@@ -15,6 +15,12 @@ def _executive_source() -> str:
     return (base_file.read_text(encoding="utf-8") if base_file.exists() else "") + mobile_file.read_text(encoding="utf-8")
 
 
+def test_executive_truth_regression_source_includes_base_file():
+    base_file = ROOT / "app" / "routers" / "_executive_mobile_base.py"
+    assert base_file.exists()
+    assert base_file.read_text(encoding="utf-8") in _executive_source()
+
+
 def test_executive_penetration_does_not_reintroduce_ratio_fabrication():
     source = _executive_source()
 
