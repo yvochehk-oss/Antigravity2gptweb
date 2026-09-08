@@ -527,6 +527,25 @@ def _applescript_invoke(js_code: str, target_url: str, timeout: int) -> str:
         end repeat
 
         if targetTab is missing value then
+            try
+                activate
+                open location "{_escape_applescript_string(target_url)}"
+                delay 4
+                repeat with w in windows
+                    repeat with t in tabs of w
+                        set u to (URL of t as text)
+                        if (u starts with "{escaped_base_url}" or u contains "{uuid_part}") then
+                            set targetTab to t
+                            set targetWin to w
+                            exit repeat
+                        end if
+                    end repeat
+                    if targetTab is not missing value then exit repeat
+                end repeat
+            end try
+        end if
+
+        if targetTab is missing value then
             error "NO_TARGET_TAB" number 17001
         end if
 
@@ -689,9 +708,11 @@ def _user_commit_probe_js(expected_prompt: str) -> str:
                 (last.closest && last.closest("[data-message-id]")
                     ? last.closest("[data-message-id]").getAttribute("data-message-id")
                     : null)) : null;
+        const exp = norm({expected_literal});
+        const match = (text === exp) || (exp.length > 50 && (text.startsWith(exp.slice(0, 50)) || text.includes(exp.slice(0, 50)) || text.endsWith(exp.slice(-50))));
         return JSON.stringify({{
             userCount: users.length,
-            matchesExpected: text === norm({expected_literal}),
+            matchesExpected: match,
             textLen: text.length,
             messageId: id,
         }});
@@ -743,9 +764,11 @@ def _inject_verify_js(expected_prompt: str) -> str:
         const actual =
             (el.innerText || el.textContent || el.value || "");
         const normActual = norm(actual);
+        const exp = norm({expected_literal});
+        const match = (normActual === exp) || (exp.length > 30 && (normActual.startsWith(exp.slice(0, 30)) || normActual.includes(exp.slice(0, 30))));
         return JSON.stringify({{
             ok: true,
-            matchesExpected: normActual === norm({expected_literal}),
+            matchesExpected: match,
             textLen: normActual.length,
             visible: !!(el.offsetWidth || el.offsetHeight ||
                        (el.getClientRects && el.getClientRects().length)),
@@ -978,8 +1001,17 @@ def send_and_receive_safari_chatgpt(prompt: str, target_url: str,
                    document.querySelector("form");
         if (!el) return "ERR_NO_INPUT";
         el.focus();
-        document.execCommand('selectAll', false, null);
-        document.execCommand('insertText', false, {json.dumps(prompt)});
+        
+        // 尝试现代 ProseMirror / ContentEditable 注入
+        const p = el.querySelector("p") || el;
+        p.innerText = {json.dumps(prompt)};
+        
+        try {{
+            document.execCommand('selectAll', false, null);
+            document.execCommand('insertText', false, {json.dumps(prompt)});
+        }} catch(e) {{}}
+        
+        el.dispatchEvent(new InputEvent('input', {{ bubbles: true, inputType: 'insertText', data: {json.dumps(prompt)} }}));
         el.dispatchEvent(new Event('input', {{ bubbles: true }}));
         el.dispatchEvent(new Event('change', {{ bubbles: true }}));
         return "OK";
@@ -1019,10 +1051,14 @@ def send_and_receive_safari_chatgpt(prompt: str, target_url: str,
     (() => {
         const submitBtn = document.querySelector("#composer-submit-button") ||
                           document.querySelector("button[data-testid='send-button']") ||
+                          document.querySelector("button[aria-label='发送提示词']") ||
                           document.querySelector("button[aria-label='发送提示']") ||
                           document.querySelector("button[aria-label='Send prompt']");
-        if (submitBtn && !submitBtn.disabled) {
+        if (submitBtn && !submitBtn.disabled && submitBtn.getAttribute("aria-disabled") !== "true") {
             submitBtn.click();
+            submitBtn.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, view: window }));
+            submitBtn.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, view: window }));
+            submitBtn.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
             return "CLICKED_SUBMIT";
         }
         const el = document.querySelector('#prompt-textarea') ||

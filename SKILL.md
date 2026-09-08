@@ -69,6 +69,17 @@ description: 双层混合 Agent 系统：以 Safari/Chrome ChatGPT 网页端 Cus
     - **GPT 提交后必附检验命令**：GPT 使用 GitHub 直连工具在远端完成该单步的修改与推送后，必须按规范显式给出本地检验命令（`TEST: <命令>` / `EXPECTED: <预期断言与退出码>`）。
     - **本地 Agent 严格执行检验并回传日志**：本地 Agent 执行 `git pull` 同步最新代码后，**必须先完整跑完 GPT 给出的检验命令**，收集标准输出、错误日志与退出码，并通过 bridge 将检验结果回传给 GPT 审查。
     - **GPT 裁决同意后方可推进下一条**：只有当 GPT 审查本地真实测试证据并显式输出 `APPROVED` 确认后，本地 Agent 方可将计划中的**下一条**任务发送给 GPT；未获同意前必须在当前任务内闭环返工，严禁跨步骤抢跑。
+12. **【轮询保活与故障自动重连自愈契约 (Auto-Recovery & Keep-Alive Polling Contract) - P0】**：
+    - **轮询守护进程防中断**：本地 Agent 必须通过常驻 Python 守护进程（如 `poll_safari_chatgpt.py` 或 `orchestrate.py` 轮询循环）对 Safari / Chrome 中的 ChatGPT 状态进行不间断监视。
+    - **异常自动重新拉起 (Auto-Restart / Relaunch)**：若底层 AppleScript/CDP 探针因页面卡顿、超时（如 `SUBMIT_FAIL`）或浏览器窗口丢失等异常中断，轮询进程**必须具备捕获异常并自动重新拉起（Auto-Relaunch）的自愈机制**，严禁让盯盘静默挂起。
+    - **快照续接与防重发**：重新拉起后，须比对上一次获取的 `lastUserMessageId` 或 DOM 文本快照平滑续接，不得重复提交已发送的 Prompt。
+13. **【自动 Git 代码拉取与 HEAD 比对校验契约 (Auto Git Pull & Evidence Sync Contract) - P0】**：
+    - **自动触发 `git pull`**：在 Custom GPT 于 GitHub 远端完成修改并给出 `TEST:` 指令后，本地 Agent（或 `orchestrate.py` 脚本）在跑测前必须**自动触发 `git pull origin <branch>`**（或 `git pull --ff-only origin <branch>`）。
+    - **HEAD 比对与状态防落后**：拉取后通过 `git rev-parse HEAD` 与 `git rev-parse origin/<branch>` 进行基线比对，确保远端提交已被完整同步至本地工作区后再执行测试。
+    - **保持工作树 Clean**：在执行 `git pull` 前确保工作区处于 clean 状态，防止生成非必要的 merge commit。
+14. **【高管经营内参通用文案与零代码黑话铁律 (Executive Briefing & Zero Jargon Contract) - P0】**：
+    - **高管通用视角**：全系统与 AI 交互展示模板统一采用**“高管经营内参”**（如 `**【高管经营内参 · 集团概览】**`），禁止硬编码专属职务字样（如“董事长”）。
+    - **零代码黑话泄漏**：严禁在面向高管与业务人员的界面及 Copilot 回复中泄漏任何代码层英文黑话（如 `Canonical Facts`、`project_id`、`cockpit/summary`、`analytics_*` 等）。
 
 ### 标准调用模式
 

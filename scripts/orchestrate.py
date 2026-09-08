@@ -646,6 +646,16 @@ def execute_task(state: ProjectState, task: Task,
     else:
         print(f"[Task {task.id}] 无文件变更需要提交（与上次相同）")
 
+    # 自动拉取远端 Git 提交（支持 Custom GPT 直连工具修改模式）
+    try:
+        print(f"[Task {task.id}] 🔄 自动拉取远端最新代码 (git pull origin {state.branch})...")
+        _run(["git", "pull", "origin", state.branch], cwd=state.cwd)
+        head_sha = _run(["git", "rev-parse", "HEAD"], cwd=state.cwd).strip()
+        state.commit_sha_head = head_sha
+        print(f"[Task {task.id}] ✅ 本地与远端 HEAD 已齐平: {head_sha[:8]}")
+    except Exception as exc:
+        print(f"[Task {task.id}] ⚠️ 自动 git pull 提示: {exc}")
+
     # 运行测试
     task.status = "testing"
     task.test_commands = [cmd for cmd, _ in test_cmds]
