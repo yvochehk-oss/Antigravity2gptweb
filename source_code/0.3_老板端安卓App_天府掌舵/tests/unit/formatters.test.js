@@ -21,6 +21,8 @@ describe('formatters', () => {
   it('formats decimals and whole-number percentages', () => {
     expect(formatPercent(0.1234)).toBe('12.34%')
     expect(formatPercent(12.34)).toBe('12.34%')
+    expect(formatPercent(0.2095271951793543)).toBe('20.95%')
+    expect(formatPercent(1.08999999999806258)).toBe('1.09%')
     expect(formatPercent(null)).toBe('—')
   })
 

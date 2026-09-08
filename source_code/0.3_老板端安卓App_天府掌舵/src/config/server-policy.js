@@ -44,9 +44,10 @@ export function getUrlViolationReason(url) {
   const isHttp = value.startsWith('http://')
   const isHttps = value.startsWith('https://')
   const isCloudflareTunnel = value.includes('trycloudflare')
+  const isLocalhost = value.startsWith('http://localhost') || value.startsWith('http://127.0.0.1') || value.startsWith('http://192.168.') || value.startsWith('http://10.') || value.startsWith('http://172.')
 
-  if (isHttp && !isHttps && !isCloudflareTunnel && !value.startsWith('http://192.168.')) {
-    return '生产环境禁止使用 http:// 明文协议。请改用 https:// 或 Cloudflare 安全隧道地址。'
+  if (isHttp && !isHttps && !isCloudflareTunnel && !isLocalhost) {
+    return '生产环境禁止使用公网 http:// 明文协议。请改用 https://、Cloudflare 安全隧道或本地/局域网直连。'
   }
 
   return null

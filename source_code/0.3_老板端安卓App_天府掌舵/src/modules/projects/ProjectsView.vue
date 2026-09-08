@@ -190,7 +190,7 @@ import { storeToRefs } from 'pinia'
 import { useExecutiveStore } from '../../stores/executive.store'
 import { PERMISSIONS, useAuthStore } from '../../stores/auth.store'
 import { useUiStore } from '../../stores/ui.store'
-import { formatMoney } from '../../utils/formatters'
+import { formatMoney, formatPercent } from '../../utils/formatters'
 import DataSourceBadge from '../../shared/components/DataSourceBadge.vue'
 
 const executive = useExecutiveStore()
@@ -219,7 +219,7 @@ const filteredProjects = computed(() => {
 })
 
 const money = value => formatMoney(value, privacyMode.value)
-const percent = value => privacyMode.value ? '***' : `${value ?? 0}%`
+const percent = value => value === undefined || value === null ? '—' : formatPercent(value, privacyMode.value)
 const progress = value => Math.max(0, Math.min(100, Number(value) || 0))
 
 function riskClass(status) {

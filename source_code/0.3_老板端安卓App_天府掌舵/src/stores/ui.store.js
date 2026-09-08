@@ -4,7 +4,7 @@ import { isAllowedServerUrl, getUrlViolationReason, isProductionBuild } from '..
 
 const SERVER_URL_KEY = 'cdjg_server_url'
 const SETTINGS_KEY = 'cdjg_executive_settings'
-const DEFAULT_SERVER_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8922'
+const DEFAULT_SERVER_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8921'
 
 function readStorageValue(key) {
   try {
