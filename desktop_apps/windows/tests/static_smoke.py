@@ -87,7 +87,7 @@ def main() -> int:
         "TimeSpan.FromSeconds(5)",
         "UseShellExecute = false",
         "CreateNoWindow = true",
-        "退出控制台（不停止服务）",
+        "退出控制台",
         "数据库保持运行",
         "RollbackStartedThisRound",
         "StopTrackedLaunch",
@@ -263,6 +263,50 @@ def main() -> int:
         "StatusColor(snapshot.OverallCondition)",
     ):
         require(marker in cs, f"缺少统一状态聚合逻辑：{marker}")
+
+    tray = (APP_DIR / "UI/TrayApplicationContext.cs").read_text(encoding="utf-8-sig")
+    root_resolver = (APP_DIR / "Services/ProjectRootResolver.cs").read_text(encoding="utf-8-sig")
+    program = (APP_DIR / "Program.cs").read_text(encoding="utf-8-sig")
+    require('new ToolStripMenuItem("服务状态")' not in tray, "五项服务状态仍被折叠到二级菜单")
+    for marker in (
+        "总体状态：",
+        "项目目录：已连接",
+        "项目目录：未选择",
+        "打开智能财税管理系统",
+        "打开资料输入管理系统",
+        "打开移动端管理系统",
+        "启动全部",
+        "重启全部",
+        "停止全部业务服务（保留数据库）",
+        "重新检查状态",
+        "查看运行日志",
+        "选择项目目录…",
+        "登录后自动运行",
+        "退出控制台",
+        "FolderBrowserDialog",
+        "ShortcutKeyDisplayString",
+        "ShowItemToolTips = true",
+        "BuildServiceToolTip",
+        "status.Process.ProcessIds",
+    ):
+        require(marker in tray, f"缺少 macOS 菜单对齐契约：{marker}")
+    for shortcut in ('Keys.D1, "1"', 'Keys.D2, "2"', 'Keys.D3, "3"', 'Keys.R, "R"', 'Keys.L, "L"', 'Keys.Q, "Q"'):
+        require(shortcut in tray, f"缺少菜单快捷键契约：{shortcut}")
+    for marker in (
+        'RootFileName = "project_root.txt"',
+        '"ChengduConstruction"',
+        "TrySetRoot",
+        "PersistRoot",
+        "File.Move(temporaryPath, _persistencePath, true)",
+        'Path.Combine(full, "windows_scripts")',
+        'Path.Combine(full, "source_code")',
+    ):
+        require(marker in root_resolver, f"缺少项目目录持久化/校验契约：{marker}")
+    require(
+        "new TrayApplicationContext(rootResolver, orchestrator, monitor, logger)" in program,
+        "TrayApplicationContext 没有共享动态 ProjectRootResolver",
+    )
+
     require("http://127.0.0.1" in cs_lower, "健康检查没有限制到本机回环地址")
     require("net8.0-windows" in source, "工程没有配置 Windows 目标框架")
     require("<usewindowsforms>true</usewindowsforms>" in lower_source, "工程没有启用 WinForms")
