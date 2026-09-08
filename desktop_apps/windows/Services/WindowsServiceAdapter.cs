@@ -111,35 +111,46 @@ public sealed class WindowsServiceAdapter
         return info;
     }
 
-    private static ProcessStartInfo BuildBossStartInfo(ServiceDefinition definition, string workingDirectory)
+    private ProcessStartInfo BuildBossStartInfo(ServiceDefinition definition, string workingDirectory)
     {
-        if (!File.Exists(Path.Combine(workingDirectory, "package.json")))
+        if (File.Exists(Path.Combine(workingDirectory, "package.json")) &&
+            Directory.Exists(Path.Combine(workingDirectory, "node_modules")))
         {
-            throw new InvalidOperationException("未找到老板驾驶舱的前端工程，未执行启动。");
+            var commandShell = Environment.GetEnvironmentVariable("ComSpec");
+            if (string.IsNullOrWhiteSpace(commandShell))
+            {
+                commandShell = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "cmd.exe");
+            }
+
+            var info = CreateHiddenProcessInfo(commandShell, workingDirectory);
+            AddArguments(info,
+                "/d", "/s", "/c",
+                $"npm run preview -- --port {definition.Port} --host 0.0.0.0");
+            return info;
         }
 
-        if (!Directory.Exists(Path.Combine(workingDirectory, "node_modules")))
+        var serveWebScript = _rootResolver.ResolvePath(@"windows_scripts\serve_web.py");
+        if (!string.IsNullOrWhiteSpace(serveWebScript) && File.Exists(serveWebScript))
         {
-            throw new InvalidOperationException("未找到老板驾驶舱的已安装前端依赖，控制台不会自动安装依赖。");
+            var taxPython = _rootResolver.ResolvePath(@"source_code\0.1_税务管理\gtp_V1.0_FULL\01_当前完整系统_V1.0\chengdu_construction_tax_system_v1_0\.venv\Scripts\python.exe");
+            var python = (!string.IsNullOrWhiteSpace(taxPython) && File.Exists(taxPython))
+                ? taxPython
+                : "python.exe";
+
+            var pyInfo = CreateHiddenProcessInfo(python, workingDirectory);
+            pyInfo.Environment["PYTHONUNBUFFERED"] = "1";
+            AddArguments(pyInfo, serveWebScript, definition.Port.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            return pyInfo;
         }
 
-        var commandShell = Environment.GetEnvironmentVariable("ComSpec");
-        if (string.IsNullOrWhiteSpace(commandShell))
-        {
-            commandShell = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "cmd.exe");
-        }
-
-        var info = CreateHiddenProcessInfo(commandShell, workingDirectory);
-        AddArguments(info,
-            "/d", "/s", "/c",
-            $"npm run preview -- --port {definition.Port} --host 0.0.0.0");
-        return info;
+        throw new InvalidOperationException("未找到老板驾驶舱的可用前端运行环境（缺少已安装 node_modules 且缺少 serve_web.py）。");
     }
 
     private string? ResolveModelPath()
     {
         foreach (var relativePath in new[]
         {
+            @"models\local-llm\Spark-X2.5-4B-Q4_K_M.gguf",
             @"models\local-llm\Ling-3.0-tiny-Q4_K_M.gguf",
             @"models\local-llm\Qwen3.5-2B-Q4_K_M.gguf",
         })

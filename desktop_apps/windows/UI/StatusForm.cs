@@ -10,6 +10,13 @@ public sealed class StatusForm : Form
     private readonly Dictionary<ServiceKind, (Label Name, Label State, Label Detail)> _rows = new();
     private readonly Func<Task<ServiceSnapshot>> _refreshRequested;
     private readonly Label _rootLabel = new();
+    private readonly ToolTip _toolTip = new()
+    {
+        InitialDelay = 200,
+        ReshowDelay = 100,
+        AutoPopDelay = 15000,
+        ShowAlways = true,
+    };
     private bool _closing;
 
     public StatusForm(IReadOnlyList<ServiceDefinition> definitions, Func<Task<ServiceSnapshot>> refreshRequested)
@@ -17,13 +24,24 @@ public sealed class StatusForm : Form
         _refreshRequested = refreshRequested;
         Text = "成都建工 V3.0 控制台";
         StartPosition = FormStartPosition.CenterScreen;
-        MinimumSize = new Size(620, 420);
-        Size = new Size(760, 520);
-        MaximizeBox = false;
+        MinimumSize = new Size(760, 480);
+        Size = new Size(960, 640);
+        MaximizeBox = true;
+        MinimizeBox = true;
+        FormBorderStyle = FormBorderStyle.Sizable;
         ShowInTaskbar = true;
         AutoScaleMode = AutoScaleMode.Dpi;
         Font = CreateUiFont(10f);
         BackColor = Color.FromArgb(246, 249, 252);
+
+        try
+        {
+            Icon = TrayIconFactory.Create(Color.FromArgb(35, 112, 184));
+        }
+        catch
+        {
+            // Fallback gracefully if icon cannot be created.
+        }
 
         var outer = new TableLayoutPanel
         {
@@ -72,19 +90,30 @@ public sealed class StatusForm : Form
         _checkedLabel.TextAlign = ContentAlignment.MiddleLeft;
         header.Controls.Add(_checkedLabel, 0, 1);
 
+        var tableContainer = new Panel
+        {
+            Dock = DockStyle.Fill,
+            AutoScroll = true,
+            BackColor = Color.White,
+            Margin = new Padding(0),
+        };
+
         _serviceTable.Dock = DockStyle.Fill;
+        _serviceTable.MinimumSize = new Size(0, 310);
         _serviceTable.ColumnCount = 3;
         _serviceTable.RowCount = definitions.Count + 1;
         _serviceTable.CellBorderStyle = TableLayoutPanelCellBorderStyle.Single;
         _serviceTable.BackColor = Color.White;
         _serviceTable.Padding = new Padding(0);
-        _serviceTable.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 190));
-        _serviceTable.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 132));
+        _serviceTable.Margin = new Padding(0);
+        _serviceTable.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 180));
+        _serviceTable.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 140));
         _serviceTable.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        _serviceTable.RowStyles.Add(new RowStyle(SizeType.Absolute, 38));
+        _serviceTable.RowStyles.Add(new RowStyle(SizeType.Absolute, 40));
+        var rowPercent = definitions.Count > 0 ? 100.0f / definitions.Count : 20.0f;
         for (var i = 0; i < definitions.Count; i++)
         {
-            _serviceTable.RowStyles.Add(new RowStyle(SizeType.Absolute, 52));
+            _serviceTable.RowStyles.Add(new RowStyle(SizeType.Percent, rowPercent));
         }
 
         AddHeaderCell("服务", 0, 0);
@@ -103,7 +132,8 @@ public sealed class StatusForm : Form
             _rows[definition.Kind] = (name, state, detail);
         }
 
-        outer.Controls.Add(_serviceTable, 0, 1);
+        tableContainer.Controls.Add(_serviceTable);
+        outer.Controls.Add(tableContainer, 0, 1);
 
         var footer = new TableLayoutPanel
         {
@@ -196,7 +226,13 @@ public sealed class StatusForm : Form
             var color = StatusColor(status.Condition);
             row.State.Text = status.StateText;
             row.State.ForeColor = color;
-            row.Detail.Text = $"{status.PortText}；{status.Detail}";
+            var detailText = $"{status.PortText}；{status.Detail}";
+            row.Detail.Text = detailText;
+
+            var tip = $"{status.Definition.DisplayName}\n状态：{status.StateText}\n端口：{status.PortText}\n详情：{status.Detail}";
+            _toolTip.SetToolTip(row.Name, tip);
+            _toolTip.SetToolTip(row.State, tip);
+            _toolTip.SetToolTip(row.Detail, tip);
         }
     }
 
@@ -225,9 +261,11 @@ public sealed class StatusForm : Form
             Text = text,
             Dock = DockStyle.Fill,
             TextAlign = ContentAlignment.MiddleLeft,
-            Font = CreateUiFont(9f, FontStyle.Bold),
+            Font = CreateUiFont(9.5f, FontStyle.Bold),
             ForeColor = Color.FromArgb(93, 110, 133),
-            Padding = new Padding(8, 0, 8, 0),
+            BackColor = Color.FromArgb(248, 250, 252),
+            Padding = new Padding(12, 0, 12, 0),
+            Margin = new Padding(0),
         };
         _serviceTable.Controls.Add(label, column, row);
     }
@@ -241,7 +279,8 @@ public sealed class StatusForm : Form
             TextAlign = ContentAlignment.MiddleLeft,
             Font = CreateUiFont(10f, bold ? FontStyle.Bold : FontStyle.Regular),
             ForeColor = Color.FromArgb(36, 53, 78),
-            Padding = new Padding(8, 0, 8, 0),
+            Padding = new Padding(12, 0, 12, 0),
+            Margin = new Padding(0),
             AutoEllipsis = true,
         };
     }

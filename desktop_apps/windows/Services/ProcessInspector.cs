@@ -228,6 +228,13 @@ public sealed class ProcessInspector
                 continue;
             }
 
+            if (!listeningIds.Contains(processId) && IsConsoleHostProcess(processId, identity))
+            {
+                // Windows attaches conhost.exe to console processes for stdio.
+                // It does not hold ports and is terminated with the parent process tree.
+                continue;
+            }
+
             var belongsToProject = identity is not null
                 && IsProjectProcess(identity, definition, projectRoot, trackedIds);
             var source = listeningIds.Contains(processId)
@@ -461,6 +468,11 @@ public sealed class ProcessInspector
         var commandMentionsProject = commandLine.Contains(marker, StringComparison.OrdinalIgnoreCase)
             && commandLine.Contains(normalizedRoot, StringComparison.OrdinalIgnoreCase);
 
+        var isBossDirectory = workingDirectoryMatches
+            || (IsPathUnderRoot(workingDirectory, normalizedRoot)
+                && (PathsEqual(workingDirectory, normalizedRoot)
+                    || PathsEqual(workingDirectory, Normalize(Path.Combine(normalizedRoot, "windows_scripts")))));
+
         // A Python/llama process must come from the checkout and carry the
         // service marker. Every process also needs the exact service working
         // directory and port argument. Boss's cmd/node processes are allowed
@@ -469,11 +481,11 @@ public sealed class ProcessInspector
         return definition.Kind switch
         {
             ServiceKind.LocalModel => executableUnderRoot && workingDirectoryMatches && commandMentionsProject,
-            ServiceKind.Tax or ServiceKind.Rag or ServiceKind.Idp => executableUnderRoot
+            ServiceKind.Tax or ServiceKind.Rag or ServiceKind.Idp => (executableUnderRoot || IsAllowedProcessName(identity, definition))
                 && workingDirectoryMatches
                 && commandLine.Contains("uvicorn", StringComparison.OrdinalIgnoreCase)
                 && commandLine.Contains("app.main:app", StringComparison.OrdinalIgnoreCase),
-            ServiceKind.Boss => workingDirectoryMatches
+            ServiceKind.Boss => isBossDirectory
                 && IsBossProcess(identity, definition, expectedWorkingDirectory),
             _ => false,
         };
@@ -526,7 +538,8 @@ public sealed class ProcessInspector
         }
 
         return IsStrictNpmPreviewInvocation(tokens, definition.Port)
-            || IsProjectViteEntrypoint(identity, tokens, bossRoot);
+            || IsProjectViteEntrypoint(identity, tokens, bossRoot)
+            || IsProjectServeWebInvocation(identity, tokens, bossRoot, definition.Port);
     }
 
     private static bool IsStrictNpmPreviewInvocation(
@@ -622,6 +635,84 @@ public sealed class ProcessInspector
             || relative.Contains("\\node_modules\\vite\\", StringComparison.OrdinalIgnoreCase);
     }
 
+    private static bool IsConsoleHostProcess(int processId, ProcessIdentity? identity)
+    {
+        if (identity is not null)
+        {
+            if (string.Equals(identity.ProcessName, "conhost", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(identity.ProcessName, "conhost.exe", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            var fileName = Path.GetFileName(identity.ExecutablePath);
+            if (string.Equals(fileName, "conhost.exe", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        try
+        {
+            using var process = Process.GetProcessById(processId);
+            return string.Equals(process.ProcessName, "conhost", StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool IsProjectServeWebInvocation(
+        ProcessIdentity identity,
+        IReadOnlyList<string> tokens,
+        string bossRoot,
+        int port)
+    {
+        var executableName = Path.GetFileName(identity.ExecutablePath);
+        var isPython = string.Equals(identity.ProcessName, "python", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(identity.ProcessName, "python.exe", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(executableName, "python.exe", StringComparison.OrdinalIgnoreCase);
+        if (!isPython)
+        {
+            return false;
+        }
+
+        var normalizedCommand = Normalize(identity.CommandLine);
+        if (!normalizedCommand.Contains("serve_web.py", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var projectRoot = ResolveProjectRootFromBossRoot(bossRoot);
+        if (!string.IsNullOrWhiteSpace(projectRoot))
+        {
+            var normalizedRoot = Normalize(projectRoot).TrimEnd('\\');
+            var scriptUnderRoot = normalizedCommand.Contains(normalizedRoot, StringComparison.OrdinalIgnoreCase)
+                || IsPathUnderRoot(Normalize(identity.WorkingDirectory), normalizedRoot);
+            if (!scriptUnderRoot)
+            {
+                return false;
+            }
+        }
+
+        return HasExactPortArgument(tokens, port);
+    }
+
+    private static string? ResolveProjectRootFromBossRoot(string bossRoot)
+    {
+        try
+        {
+            var normalized = NormalizeAbsolutePath(bossRoot);
+            var parent = Directory.GetParent(normalized);
+            return parent?.Parent?.FullName;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     private static string ResolveProjectPathToken(string token, string projectRoot)
     {
         var normalized = NormalizeCommandToken(token);
@@ -710,6 +801,11 @@ public sealed class ProcessInspector
 
             if (token.StartsWith("--port=", StringComparison.OrdinalIgnoreCase)
                 && string.Equals(token[7..], portText, StringComparison.Ordinal))
+            {
+                return true;
+            }
+
+            if (string.Equals(token, portText, StringComparison.Ordinal))
             {
                 return true;
             }
@@ -877,6 +973,7 @@ public sealed class ProcessInspector
             $@"--port\s+{portText}(?![0-9A-Za-z])",
             $@"--port={portText}(?![0-9A-Za-z])",
             $@":{portText}(?![0-9A-Za-z])",
+            $@"(?:^|\s){portText}(?![0-9A-Za-z])",
         };
         return patterns.Any(pattern => Regex.IsMatch(
             commandLine,

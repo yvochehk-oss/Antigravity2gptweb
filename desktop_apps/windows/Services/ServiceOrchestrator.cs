@@ -5,7 +5,7 @@ namespace ChengduConstructionController.Services;
 
 public sealed class ServiceOrchestrator : IDisposable
 {
-    private static readonly TimeSpan StartupVerificationTimeout = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan StartupVerificationTimeout = TimeSpan.FromSeconds(90);
     private static readonly TimeSpan StartupVerificationPoll = TimeSpan.FromMilliseconds(500);
     private static readonly TimeSpan PortReleaseTimeout = TimeSpan.FromSeconds(15);
     private static readonly TimeSpan PortReleasePoll = TimeSpan.FromMilliseconds(200);
@@ -1393,7 +1393,7 @@ public sealed class StatusMonitor : IDisposable
         try
         {
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(_cancellation.Token);
-            timeout.CancelAfter(TimeSpan.FromSeconds(4));
+            timeout.CancelAfter(TimeSpan.FromSeconds(10));
             var statuses = await _orchestrator.CheckStatusAsync(timeout.Token).ConfigureAwait(false);
             var snapshot = new ServiceSnapshot(
                 statuses.ToDictionary(status => status.Definition.Kind),

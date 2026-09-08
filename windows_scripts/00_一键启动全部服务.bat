@@ -13,6 +13,19 @@ echo   本地大模型: Ling-3.0-tiny (CPU 离线推理模式)
 echo ==============================================================================
 echo.
 
+:: [0/5] 检查并启动 PostgreSQL 数据库 (Port 54320)
+netstat -ano | findstr ":54320" >nul
+if errorlevel 1 (
+    if exist "F:\projectrag_pgdata\postmaster.pid" (
+        del /f /q "F:\projectrag_pgdata\postmaster.pid" >nul 2>&1
+    )
+    if exist "database\pgsql\bin\pg_ctl.exe" (
+        echo [0/5] 正在启动 PostgreSQL 数据库 (Port 54320)...
+        start "00_PostgreSQL (Port 54320)" /B "database\pgsql\bin\pg_ctl.exe" start -D "F:\projectrag_pgdata" -l "%CD%\logs\postgres.log"
+        timeout /t 2 /nobreak >nul
+    )
+)
+
 echo [1/5] 正在启动本地大模型服务 (Port 8930)...
 start "01_本地大模型服务 (Port 8930)" cmd /k "call "%SCRIPT_DIR%01_START_LLM.bat""
 timeout /t 3 /nobreak >nul

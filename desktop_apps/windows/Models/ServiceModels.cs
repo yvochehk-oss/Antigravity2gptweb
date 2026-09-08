@@ -216,7 +216,7 @@ public static class ServiceCatalog
                 "移动端管理系统",
                 5173,
                 new[] { "/" },
-                new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "node", "node.exe", "npm", "npm.cmd", "cmd", "cmd.exe", "vite", "vite.cmd" },
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "python", "python.exe", "node", "node.exe", "npm", "npm.cmd", "cmd", "cmd.exe", "vite", "vite.cmd" },
                 @"0.3_老板端安卓App_天府掌舵",
                 ServiceStartKind.NpmPreview,
                 @"source_code\0.3_老板端安卓App_天府掌舵",

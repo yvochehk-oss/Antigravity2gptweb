@@ -18,12 +18,12 @@ public sealed class HealthProbe : IDisposable
         {
             UseProxy = false,
             AllowAutoRedirect = false,
-            ConnectTimeout = TimeSpan.FromMilliseconds(900),
+            ConnectTimeout = TimeSpan.FromSeconds(3),
             AutomaticDecompression = System.Net.DecompressionMethods.GZip | System.Net.DecompressionMethods.Deflate,
         };
         _client = new HttpClient(handler)
         {
-            Timeout = TimeSpan.FromMilliseconds(1800),
+            Timeout = TimeSpan.FromSeconds(8),
         };
         _client.DefaultRequestHeaders.UserAgent.ParseAdd("ChengduConstructionController/3.0");
     }
@@ -116,7 +116,7 @@ public sealed class HealthProbe : IDisposable
                 Responded: true,
                 Healthy: healthy,
                 ModelReady: modelReady,
-                Slow: stopwatch.Elapsed >= TimeSpan.FromMilliseconds(800),
+                Slow: stopwatch.Elapsed >= TimeSpan.FromSeconds(6),
                 StatusCode: statusCode,
                 Detail: detail,
                 Endpoint: path,

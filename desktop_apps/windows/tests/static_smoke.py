@@ -103,7 +103,7 @@ def main() -> int:
         "var currentDirectoryOffset = pointerSize == 8 ? 0x38 : 0x24",
         "VerifyStartupAsync",
         "IsStartupReady",
-        "StartupVerificationTimeout = TimeSpan.FromSeconds(30)",
+        "StartupVerificationTimeout = TimeSpan.FromSeconds(90)",
         "StartupVerificationPoll = TimeSpan.FromMilliseconds(500)",
         "ExpectedExecutablePath",
         "ExpectedArguments",

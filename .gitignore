@@ -10,8 +10,13 @@ __pycache__/
 # Large Model Binary Weights (to stay within GitHub size limits)
 models/bge-m3/onnx/*.onnx_data
 models/bge-m3/*.bin
+models/bge-m3/configuration.json
 models/bge-reranker-v2-m3/*.safetensors
 models/bge-reranker-v2-m3/*.bin
+models/bge-reranker-v2-m3/.gitattributes
+models/bge-reranker-v2-m3/assets/
+models/bge-reranker-v2-m3/configuration.json
+models/bge-reranker-v2-m3/README.md
 models/local-llm/
 *.bin
 *.safetensors
@@ -59,3 +64,20 @@ source_code/0.1_税务管理/gtp_V1.0_FULL/01_当前完整系统_V1.0/chengdu_co
 source_code/0.1_税务管理/gtp_V1.0_FULL/01_当前完整系统_V1.0/chengdu_construction_tax_system_v1_0/patch*.py
 source_code/0.1_税务管理/gtp_V1.0_FULL/01_当前完整系统_V1.0/chengdu_construction_tax_system_v1_0/fix*.py
 source_code/0.1_税务管理/gtp_V1.0_FULL/01_当前完整系统_V1.0/chengdu_construction_tax_system_v1_0/alembic.sql
+
+# Windows .NET / C# binaries and build outputs
+[Bb]in/
+[Oo]bj/
+[Pp]ublish/
+desktop_apps/windows/bin/
+desktop_apps/windows/obj/
+desktop_apps/windows/publish/
+*.exe
+!windows_scripts/tools/*.exe
+*.dll
+*.pdb
+.agents/
+models/.lock/
+start_edge.ps1
+*调试器.bat
+

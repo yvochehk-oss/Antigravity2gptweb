@@ -107,3 +107,7 @@ watchfiles==1.2.0
     # via uvicorn
 websockets==17.1
     # via uvicorn
+et-xmlfile==2.0.0
+    # via openpyxl
+openpyxl==3.1.5
+    # via chengdu-construction-tax-system-v0-2 (pyproject.toml)
