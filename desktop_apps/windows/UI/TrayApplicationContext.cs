@@ -43,9 +43,9 @@ public sealed class TrayApplicationContext : ApplicationContext
 
         _overallItem = CreateStatusItem("总体状态：正在检查");
         _projectRootItem = CreateStatusItem("项目目录：未选择");
-        _openTaxItem = CreateActionItem("打开智能财税管理系统", Keys.D1, "1");
-        _openRagItem = CreateActionItem("打开资料输入管理系统", Keys.D2, "2");
-        _openBossItem = CreateActionItem("打开移动端管理系统", Keys.D3, "3");
+        _openTaxItem = CreateActionItem("打开智能财税管理系统", "1");
+        _openRagItem = CreateActionItem("打开资料输入管理系统", "2");
+        _openBossItem = CreateActionItem("打开移动端管理系统", "3");
         _startItem = new ToolStripMenuItem("启动全部");
         _restartItem = new ToolStripMenuItem("重启全部");
         _stopItem = new ToolStripMenuItem("停止全部业务服务（保留数据库）");
@@ -107,7 +107,7 @@ public sealed class TrayApplicationContext : ApplicationContext
         menu.Items.Add(_restartItem);
         menu.Items.Add(_stopItem);
 
-        var refresh = CreateActionItem("重新检查状态", Keys.R, "R");
+        var refresh = CreateActionItem("重新检查状态", "R");
         refresh.Click += async (_, _) =>
         {
             refresh.Enabled = false;
@@ -122,7 +122,7 @@ public sealed class TrayApplicationContext : ApplicationContext
         };
         menu.Items.Add(refresh);
 
-        var openLog = CreateActionItem("查看运行日志", Keys.L, "L");
+        var openLog = CreateActionItem("查看运行日志", "L");
         openLog.Click += (_, _) => OpenLog();
         menu.Items.Add(openLog);
 
@@ -133,9 +133,36 @@ public sealed class TrayApplicationContext : ApplicationContext
 
         menu.Items.Add(_startupItem);
 
-        var exit = CreateActionItem("退出控制台", Keys.Q, "Q");
+        var exit = CreateActionItem("退出控制台", "Q");
         exit.Click += (_, _) => ExitController();
         menu.Items.Add(exit);
+
+        menu.KeyDown += (_, eventArgs) =>
+        {
+            if (eventArgs.Modifiers != Keys.None)
+            {
+                return;
+            }
+
+            var target = eventArgs.KeyCode switch
+            {
+                Keys.D1 or Keys.NumPad1 => _openTaxItem,
+                Keys.D2 or Keys.NumPad2 => _openRagItem,
+                Keys.D3 or Keys.NumPad3 => _openBossItem,
+                Keys.R => refresh,
+                Keys.L => openLog,
+                Keys.Q => exit,
+                _ => null,
+            };
+            if (target is null || !target.Enabled)
+            {
+                return;
+            }
+
+            target.PerformClick();
+            eventArgs.Handled = true;
+            eventArgs.SuppressKeyPress = true;
+        };
         return menu;
     }
 
@@ -150,11 +177,10 @@ public sealed class TrayApplicationContext : ApplicationContext
         };
     }
 
-    private static ToolStripMenuItem CreateActionItem(string text, Keys shortcut, string display)
+    private static ToolStripMenuItem CreateActionItem(string text, string display)
     {
         return new ToolStripMenuItem(text)
         {
-            ShortcutKeys = shortcut,
             ShortcutKeyDisplayString = display,
             ShowShortcutKeys = true,
         };
