@@ -5,9 +5,9 @@
  * Policy:
  *  - DEV mode (DEV=true): allow all URLs (developers may use localhost/LAN)
  *  - PROD mode (import.meta.env.PROD):
- *      ✓ https://  … or trycloudflare tunnel  → ALLOWED
- *      ✗ http://127.0.0.1 or http://localhost  → REJECTED
- *      ✗ http://<any-LAN-IP>                 → REJECTED
+ *      ✓ https:// / trycloudflare tunnel      → ALLOWED
+ *      ✓ http://127.0.0.1 / http://localhost → ALLOWED
+ *      ✗ public plain-http endpoints          → REJECTED
  */
 
 // vitest stubs always produce strings; real Vite injects booleans in production builds.
@@ -28,6 +28,38 @@ export function isProductionBuild() {
   return import.meta.env.PROD === true || import.meta.env.PROD === 'true'
 }
 
+function parseUrl(value) {
+  try {
+    return new URL(String(value || '').trim())
+  } catch {
+    return null
+  }
+}
+
+function isLoopbackHostname(hostname) {
+  const value = String(hostname || '').trim().toLowerCase().replace(/^\[|\]$/g, '')
+  if (value === 'localhost' || value.endsWith('.localhost') || value === '::1') return true
+
+  const octets = value.split('.')
+  return octets.length === 4
+    && octets.every(octet => /^\d+$/.test(octet) && Number(octet) >= 0 && Number(octet) <= 255)
+    && Number(octets[0]) === 127
+}
+
+function isLoopbackHttpUrl(value) {
+  const parsed = parseUrl(value)
+  return Boolean(parsed && parsed.protocol === 'http:' && isLoopbackHostname(parsed.hostname))
+}
+
+function isAllowedPrivateLanHttpUrl(value) {
+  const parsed = parseUrl(value)
+  if (!parsed || parsed.protocol !== 'http:') return false
+  const hostname = parsed.hostname.toLowerCase()
+  return hostname.startsWith('192.168.')
+    || hostname.startsWith('10.')
+    || /^172\.(1[6-9]|2\d|3[01])\./.test(hostname)
+}
+
 /**
  * Returns the reason why `url` is rejected, or null when it is allowed.
  * Used to display a user-facing message in SettingsView.
@@ -41,12 +73,12 @@ export function getUrlViolationReason(url) {
   const value = String(url || '').trim()
   if (!value) return null
 
-  const isHttp = value.startsWith('http://')
-  const isHttps = value.startsWith('https://')
+  const parsed = parseUrl(value)
+  const isHttps = parsed?.protocol === 'https:'
   const isCloudflareTunnel = value.includes('trycloudflare')
-  const isLocalhost = value.startsWith('http://localhost') || value.startsWith('http://127.0.0.1') || value.startsWith('http://192.168.') || value.startsWith('http://10.') || value.startsWith('http://172.')
+  const isLocalDirect = isLoopbackHttpUrl(value) || isAllowedPrivateLanHttpUrl(value)
 
-  if (isHttp && !isHttps && !isCloudflareTunnel && !isLocalhost) {
+  if (parsed?.protocol === 'http:' && !isHttps && !isCloudflareTunnel && !isLocalDirect) {
     return '生产环境禁止使用公网 http:// 明文协议。请改用 https://、Cloudflare 安全隧道或本地/局域网直连。'
   }
 
@@ -65,13 +97,13 @@ export function isAllowedServerUrl(url) {
   const value = String(url || '').trim()
   if (!value) return false
 
-  const isHttps = value.startsWith('https://')
+  const parsed = parseUrl(value)
+  if (!parsed) return false
+
+  const isHttps = parsed.protocol === 'https:'
   const isCloudflareTunnel = value.includes('trycloudflare')
-  const isLocalhost = value.startsWith('http://localhost') || value.startsWith('http://127.0.0.1') || value.startsWith('http://192.168.')
+  const isLocalDirect = isLoopbackHttpUrl(value) || isAllowedPrivateLanHttpUrl(value)
 
-  // Allowed: https://, Cloudflare tunnel, or localhost preview
-  if (isHttps || isCloudflareTunnel || isLocalhost) return true
-
-  // Reject: anything else in production (remote plain http, file://, etc.)
-  return false
+  // Allowed: HTTPS, Cloudflare tunnel, loopback, or approved private-LAN HTTP.
+  return isHttps || isCloudflareTunnel || isLocalDirect
 }
