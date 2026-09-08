@@ -47,11 +47,17 @@ wait_until_ready() {
 
 release_start_lock() {
   if [ "$LOCK_ACQUIRED" = true ]; then
-    rm -rf "$START_LOCK_DIR"
+    local owner
+    owner="$(tr -d '[:space:]' < "$LOCK_OWNER_FILE" 2>/dev/null || :)"
+    if [ "$owner" = "$$" ]; then
+      rm -rf "$START_LOCK_DIR"
+    fi
     LOCK_ACQUIRED=false
   fi
 }
-trap release_start_lock EXIT INT TERM
+trap release_start_lock EXIT
+trap 'release_start_lock; exit 130' INT
+trap 'release_start_lock; exit 143' TERM
 
 if ! command -v pg_ctl >/dev/null 2>&1 || ! command -v pg_isready >/dev/null 2>&1; then
   echo "错误: 未找到 pg_ctl/pg_isready，请检查 PostgreSQL 18 是否安装在 $PGBIN" >&2
