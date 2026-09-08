@@ -5,6 +5,15 @@ final class ServiceController {
     typealias BusyHandler = (Bool) -> Void
     typealias CompletionHandler = (ActionResult) -> Void
 
+    // Windows fc7c5ad parity: a newly launched service/process gets at least
+    // 90 seconds to establish identity/readiness before the controller treats
+    // startup as failed.  The shell orchestrator owns deeper model/BGE health
+    // waits (currently up to 180 seconds per phase), so its enclosing GUI call
+    // must not retain the old 60-second ceiling.
+    static let startupVerificationTimeout: TimeInterval = 90
+    static let coreStartScriptTimeout: TimeInterval = 600
+    static let stopScriptTimeout: TimeInterval = 60
+
     private let configuration: ProjectConfiguration
     private let logStore: LogStore
     private let actionQueue = DispatchQueue(
@@ -14,7 +23,7 @@ final class ServiceController {
     private let stateLock = NSLock()
     private var actionInFlight = false
 
-    private let bossLaunchTimeout: TimeInterval = 30
+    private let bossLaunchTimeout: TimeInterval = ServiceController.startupVerificationTimeout
     private let bossStopTimeout: TimeInterval = 15
 
     var onBusyChange: BusyHandler?
@@ -95,6 +104,7 @@ final class ServiceController {
             configuration.startScriptURL,
             arguments: ["start"],
             action: action,
+            timeout: Self.coreStartScriptTimeout,
             successMessage: "核心服务启动入口已完成；未执行安装或数据库迁移"
         )
         guard core.succeeded else {
@@ -113,6 +123,7 @@ final class ServiceController {
                 configuration.stopScriptURL,
                 arguments: [],
                 action: action,
+                timeout: Self.stopScriptTimeout,
                 successMessage: "核心服务已回滚；PostgreSQL 数据库未操作"
             )
             let rollbackMessage = rollback.succeeded
@@ -145,6 +156,7 @@ final class ServiceController {
             configuration.stopScriptURL,
             arguments: [],
             action: action,
+            timeout: Self.stopScriptTimeout,
             successMessage: "核心业务服务已请求停止；PostgreSQL 数据库未操作"
         )
         return ActionResult(
@@ -422,6 +434,7 @@ final class ServiceController {
         _ scriptURL: URL,
         arguments: [String],
         action: ControlAction,
+        timeout: TimeInterval,
         successMessage: String
     ) -> ActionResult {
         guard ProjectLocator.validatedRoot(configuration.rootURL) != nil,
@@ -457,26 +470,29 @@ final class ServiceController {
             )
         }
 
-        // 60-second hard timeout with polling instead of blocking waitUntilExit().
-        let deadline = Date().addingTimeInterval(60)
-        var terminated = false
-        while Date() < deadline {
-            if process.terminationStatus != -1 {
-                terminated = true
-                break
-            }
+        let deadline = Date().addingTimeInterval(timeout)
+        while process.isRunning && Date() < deadline {
             Thread.sleep(forTimeInterval: 0.2)
         }
 
-        if !terminated && process.terminationStatus == -1 {
-            // Hard timeout: terminateConfirmedBoss as fallback.
-            let cleaned = terminateConfirmedBoss(pidFileURL: configuration.appPIDFileURL)
-            let cleanupMessage = cleaned ? "超时进程已清理" : "未确认超时进程归属，未发送停止信号"
+        if process.isRunning {
+            // This is the exact Process launched above, so terminating it does
+            // not rely on PID-file or port ownership inference.  The runtime
+            // shell's EXIT cleanup remains responsible for processes started
+            // by this invocation.
+            process.terminate()
+            let graceDeadline = Date().addingTimeInterval(2)
+            while process.isRunning && Date() < graceDeadline {
+                Thread.sleep(forTimeInterval: 0.1)
+            }
+            if process.isRunning {
+                _ = kill(process.processIdentifier, SIGKILL)
+            }
             return ActionResult(
                 action: action,
                 succeeded: false,
                 exitCode: nil,
-                message: "控制入口执行超时（60秒）；\(cleanupMessage)"
+                message: "控制入口执行超时（\(Int(timeout))秒）；已停止本次控制脚本"
             )
         }
 
