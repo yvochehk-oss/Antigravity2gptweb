@@ -346,9 +346,9 @@ async function saveAndTest() {
       .then(res => res.status < 500)
       .catch(() => false)
     if (isOnline) {
+      try { await executive.refresh() } catch {}
       ui.connectionStatus = 'connected'
       feedback.value = { ok: true, message: '配置已保存，服务器链路连通正常。' }
-      try { await executive.refresh() } catch {}
     } else {
       await executive.refresh()
       feedback.value = { ok: true, message: '配置已保存，经营数据链路连接正常。' }
