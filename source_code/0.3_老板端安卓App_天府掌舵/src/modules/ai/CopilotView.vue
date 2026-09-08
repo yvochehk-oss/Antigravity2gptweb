@@ -14,7 +14,7 @@
           </div>
           <div class="min-w-0 flex-1">
             <h1 id="copilot-welcome-title" class="page-title text-slate-50 font-bold text-[18px]">
-              董事长，您好
+              高管经营内参，您好
             </h1>
             <p class="mt-1 text-[13px] leading-5 text-slate-300/90">
               我是您的经营智策助理。已连通真实底账、26家法人税务申报与现场证据链，随时为您提供决策支持。
@@ -74,6 +74,27 @@
                 class="ml-1 inline-block h-3.5 w-1.5 align-middle rounded-sm bg-amber-300 animate-pulse"
                 aria-label="正在生成"
               />
+            </div>
+
+            <!-- AI 回复中的后续建议 pills：解析 ①②③④ 渲染为可点击按钮 -->
+            <div
+              v-if="message.role === 'assistant' && !streaming && followUpSuggestions(message.content).length"
+              class="mt-3.5 border-t border-white/10 pt-3 space-y-2"
+            >
+              <p class="text-[11px] font-semibold text-amber-300/80 uppercase tracking-wide">继续深入分析</p>
+              <div class="flex flex-wrap gap-2">
+                <button
+                  v-for="(suggestion, sIdx) in followUpSuggestions(message.content)"
+                  :key="sIdx"
+                  type="button"
+                  :disabled="loading"
+                  class="flex items-center gap-1.5 rounded-xl border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-left text-[12px] font-medium text-amber-200 transition-all hover:border-amber-400/60 hover:bg-amber-400/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/80 active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-40 shadow-sm"
+                  @click="ask(suggestion.text)"
+                >
+                  <span class="shrink-0 flex h-5 w-5 items-center justify-center rounded-full bg-amber-400/20 text-[11px] font-bold text-amber-300">{{ suggestion.index }}</span>
+                  <span>{{ suggestion.text }}</span>
+                </button>
+              </div>
             </div>
 
             <div v-if="message.citations?.length" class="mt-3.5 border-t border-white/10 pt-3">
@@ -160,12 +181,32 @@ watch(projects, () => segmentCache.clear(), { deep: true })
 watch(privacyMode, () => segmentCache.clear())
 
 /**
+ * Parse circled-number follow-up suggestions from AI response text.
+ * Matches ①-⑩ followed by suggestion text (2–60 chars), stopping at the
+ * next circled digit or newline.  Returns array of { index, text }.
+ */
+const CIRCLED_DIGITS = ['①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧', '⑨', '⑩']
+const CIRCLED_PATTERN = new RegExp(
+  `[${CIRCLED_DIGITS.join('')}][^${CIRCLED_DIGITS.join('')}\n]{2,60}`,
+  'g'
+)
+
+function followUpSuggestions(content) {
+  if (!content) return []
+  const matches = content.match(CIRCLED_PATTERN) || []
+  return matches.map(m => {
+    const idx = m[0]
+    const text = m.slice(1).replace(/[；;。，,、\s]+$/, '').trim()
+    return { index: idx, text }
+  }).filter(s => s.text.length > 1)
+}
+
+/**
  * Replace numeric sequences in AI assistant content with "***" when privacy mode is active.
- * Preserves project mention chips (they are rendered separately) and structural markers.
  */
 function maskContent(text) {
   if (!privacyMode.value || !text) return text
-  return text.replace(/\b\d+(?:\.\d+)?(?:[万亿万]?元?|[%％]?)\b/g, '***')
+  return text.replace(/\b\d+(?:\.\d+)?(?:[万亿]?元?|[%％]?)?\b/g, '***')
 }
 
 function renderSegments(message) {

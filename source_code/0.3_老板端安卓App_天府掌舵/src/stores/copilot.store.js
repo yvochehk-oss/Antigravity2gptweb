@@ -12,7 +12,7 @@ export const useCopilotStore = defineStore('copilot', () => {
     '天府二期真实利润率是多少？',
     '全盘进项发票抵扣池缺口多大？',
     '重庆跨省施工预缴63万凭证核销情况',
-    '生成董事长月度经营内参简报'
+    '生成高管月度经营内参简报'
   ]
 
   /** AbortController for the in-flight stream, if any. */

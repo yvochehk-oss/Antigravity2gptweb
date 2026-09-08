@@ -956,7 +956,7 @@ def _build_chat_payload(query: str, facts: Optional[FactsResponse]) -> Dict[str,
     )
 
     if "利润" in q or "毛利" in q or "赚" in q:
-        response_body = """**【董事长经营内参 · 集团利润分析】**
+        response_body = """**【高管经营内参 · 集团利润分析】**
 
 回答必须严格基于上文 Canonical Facts 摘要。请直接引用其中金额/比率，并
 明确指出事实范围以外的信息无法提供。"""
@@ -966,7 +966,7 @@ def _build_chat_payload(query: str, facts: Optional[FactsResponse]) -> Dict[str,
         ]
 
     elif "税" in q or "发票" in q or "预缴" in q or "抵扣" in q:
-        response_body = """**【董事长财税风控内参 · 税务分析】**
+        response_body = """**【高管经营内参 · 财税风控分析】**
 
 回答必须严格基于上文 Canonical Facts 摘要。如需补充进销项发票 / 预缴税款
 等指标，请确认该指标已经在 analytics_project_full 中可用。"""
@@ -976,7 +976,7 @@ def _build_chat_payload(query: str, facts: Optional[FactsResponse]) -> Dict[str,
         ]
 
     elif "风险" in q or "合规" in q or "四流" in q or "三流" in q or "预警" in q:
-        response_body = """**【董事长合规风控内参 · 风险预警】**
+        response_body = """**【高管经营内参 · 合规风控预警】**
 
 风险结论请基于上文 health_score / collection_rate / cash_gap_30d 等指标
 给出。事实之外的风险等级不得推断。"""
@@ -986,7 +986,7 @@ def _build_chat_payload(query: str, facts: Optional[FactsResponse]) -> Dict[str,
         ]
 
     elif "公司" in q or "法人" in q or "abcd" in q:
-        response_body = """**【董事长组织穿透内参 · 法人公司经营矩阵】**
+        response_body = """**【高管经营内参 · 法人公司经营矩阵】**
 
 请通过 /api/v1/executive/entities/matrix 接口获取法人基础信息。
 若需经营/税务指标，请先在 analytics_* 视图中落地后再返回本系统。"""
@@ -995,7 +995,7 @@ def _build_chat_payload(query: str, facts: Optional[FactsResponse]) -> Dict[str,
         ]
 
     else:
-        response_body = """**【董事长 AI 智策助手 · 综合经营分析】**
+        response_body = """**【高管经营内参 · AI 智策助手综合分析】**
 
 请基于上文 Canonical Facts 摘要回答用户问题，并明确指出哪些信息不在事实
 范围内。如事实不足，请直接告知并提示通过 cockpit/summary 接口确认。"""
