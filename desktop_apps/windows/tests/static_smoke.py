@@ -288,9 +288,24 @@ def main() -> int:
         "ShowItemToolTips = true",
         "BuildServiceToolTip",
         "status.Process.ProcessIds",
+        "menu.KeyDown",
+        "target.PerformClick()",
     ):
         require(marker in tray, f"缺少 macOS 菜单对齐契约：{marker}")
-    for shortcut in ('Keys.D1, "1"', 'Keys.D2, "2"', 'Keys.D3, "3"', 'Keys.R, "R"', 'Keys.L, "L"', 'Keys.Q, "Q"'):
+    for shortcut in (
+        'CreateActionItem("打开智能财税管理系统", "1")',
+        'CreateActionItem("打开资料输入管理系统", "2")',
+        'CreateActionItem("打开移动端管理系统", "3")',
+        'CreateActionItem("重新检查状态", "R")',
+        'CreateActionItem("查看运行日志", "L")',
+        'CreateActionItem("退出控制台", "Q")',
+        "Keys.D1 or Keys.NumPad1",
+        "Keys.D2 or Keys.NumPad2",
+        "Keys.D3 or Keys.NumPad3",
+        "Keys.R => refresh",
+        "Keys.L => openLog",
+        "Keys.Q => exit",
+    ):
         require(shortcut in tray, f"缺少菜单快捷键契约：{shortcut}")
     for marker in (
         'RootFileName = "project_root.txt"',
