@@ -1,6 +1,6 @@
 """Model auto-downloader for Windows and offline deployment.
 
-Downloads Ling-3.0-tiny and BGE-M3 from fast domestic mirrors (ModelScope / HF-Mirror).
+Downloads Spark-X2.5-4B Q4_K_M and BGE-M3 from fast mirrors.
 Strictly writes to project local directory (models/), never pollutes ~/.cache.
 """
 import os
@@ -29,7 +29,7 @@ def download_file_with_progress(url: str, output_path: Path):
         print(f"[已存在] {output_path.name} ({size_mb} MB)，跳过下载。")
         return
 
-    print(f"正在从国内镜像源高速下载: {output_path.name}")
+    print(f"正在从镜像源高速下载: {output_path.name}")
     print(f"源地址: {url}")
     
     # Try using curl.exe on Windows for maximum speed and resume support
@@ -108,19 +108,19 @@ def download_hf_or_modelscope_repo(repo_id: str, local_dir: Path, hf_mirror: str
 
 def main():
     print("==================================================================")
-    print("  🏗️  成都建工 V2.0 · Windows 模型全自动高速下载器")
-    print("  🚀 支持中国境内极速 CDN (ModelScope 阿里魔搭满速下载)")
+    print("  🏗️  成都建工 V3.0 · Windows 模型全自动高速下载器")
+    print("  🚀 默认本地模型: Spark-X2.5-4B Q4_K_M")
     print("==================================================================")
     
-    # 1. Download Ling-3.0-tiny (GGUF 4.9GB)
-    print_step("[1/2] 检查并下载本地百灵大模型 (Ling-3.0-tiny-Q4_K_M.gguf)")
-    ling_url = "https://modelscope.cn/models/bartowski/Ling-3.0-tiny-GGUF/resolve/master/Ling-3.0-tiny-Q4_K_M.gguf"
-    ling_fallback_url = "https://hf-mirror.com/bartowski/Ling-3.0-tiny-GGUF/resolve/main/Ling-3.0-tiny-Q4_K_M.gguf"
-    ling_path = MODELS_DIR / "local-llm" / "Ling-3.0-tiny-Q4_K_M.gguf"
+    # 1. Download Spark-X2.5-4B (GGUF Q4_K_M, ~2.6GB)
+    print_step("[1/2] 检查并下载 Spark-X2.5-4B (Spark-X2.5-4B-Q4_K_M.gguf)")
+    spark_url = "https://hf-mirror.com/abenzerps/Spark-X2.5-4B-GGUF/resolve/main/Spark-X2.5-4B-Q4_K_M.gguf"
+    spark_fallback_url = "https://huggingface.co/abenzerps/Spark-X2.5-4B-GGUF/resolve/main/Spark-X2.5-4B-Q4_K_M.gguf"
+    spark_path = MODELS_DIR / "local-llm" / "Spark-X2.5-4B-Q4_K_M.gguf"
     try:
-        download_file_with_progress(ling_url, ling_path)
+        download_file_with_progress(spark_url, spark_path)
     except Exception:
-        download_file_with_progress(ling_fallback_url, ling_path)
+        download_file_with_progress(spark_fallback_url, spark_path)
 
     # 2. Download BGE-M3 (Vector Embedding Model)
     print_step("[2/2] 检查并下载全文向量检索模型 (BAAI/bge-m3)")
