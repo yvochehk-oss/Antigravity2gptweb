@@ -63,15 +63,15 @@ export const useCopilotStore = defineStore('copilot', () => {
             messages.value[bubbleIndex] = { ...messages.value[bubbleIndex], citations }
           } else if (event.type === 'meta') {
             dataSource = event.data?.data_source
-          } else if (event.type === 'error' || event.type === 'done') {
-            if (dataSource === 'unavailable' || event.type === 'error') {
+          } else if (event.type === 'error') {
+            if (!reply) {
               messages.value[bubbleIndex] = {
                 role: 'assistant',
                 content: 'AI 服务暂时不可用，请稍后再试。',
                 citations: []
               }
-              break
             }
+            break
           }
         }
       } catch {
