@@ -2,13 +2,17 @@ import { normalizeBaseUrl } from './client'
 
 const DEFAULT_TIMEOUT = 30_000
 
-export async function askExecutiveCopilot(baseUrl, message, accessToken) {
+export async function askExecutiveCopilot(baseUrl, message, accessToken, projectId = null) {
   const { apiRequest } = await import('./client')
+  const payload = { message }
+  if (projectId !== null && projectId !== undefined) {
+    payload.project_id = projectId
+  }
   return apiRequest(baseUrl, '/api/v1/executive/ai/chat', {
     method: 'POST',
     accessToken,
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ message })
+    body: JSON.stringify(payload)
   })
 }
 
@@ -32,7 +36,7 @@ export class CopilotStreamAbortError extends Error {
  * The iterator resolves cleanly on abort and will not throw a network
  * error in that case.
  */
-export async function* streamExecutiveCopilot(baseUrl, message, accessToken, signal) {
+export async function* streamExecutiveCopilot(baseUrl, message, accessToken, signal, projectId = null) {
   const url = `${normalizeBaseUrl(baseUrl)}/api/v1/executive/ai/chat/stream`
   const controller = new AbortController()
   const timeoutId = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT)
@@ -48,6 +52,11 @@ export async function* streamExecutiveCopilot(baseUrl, message, accessToken, sig
     }
   }
 
+  const payload = { message }
+  if (projectId !== null && projectId !== undefined) {
+    payload.project_id = projectId
+  }
+
   try {
     const response = await fetch(url, {
       method: 'POST',
@@ -56,7 +65,7 @@ export async function* streamExecutiveCopilot(baseUrl, message, accessToken, sig
         'Content-Type': 'application/json',
         ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {})
       },
-      body: JSON.stringify({ message }),
+      body: JSON.stringify(payload),
       signal: controller.signal
     })
 

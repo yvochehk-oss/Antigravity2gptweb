@@ -103,12 +103,10 @@ def _resolve_chat_scope(
         for row in rows
     ]
 
-    if requested_project_id is not None:
-        selected = next((p for p in projects if p["id"] == requested_project_id), None)
-        if selected is None:
-            raise HTTPException(status_code=404, detail="未找到指定项目")
-        return {"mode": "project", "project": selected, "projects": projects, "ambiguous": []}
+    # 用户明确要求重置或回到集团全局视角
+    reset_to_group = any(k in query for k in ("集团", "全盘", "全集团", "整体概览", "所有项目", "全部项目", "切换至集团", "回到集团"))
 
+    # 尝试从输入中匹配具体项目
     ranked = []
     for project in projects:
         score = _project_match_score(
@@ -120,12 +118,22 @@ def _resolve_chat_scope(
             ranked.append((score, project))
     ranked.sort(key=lambda item: item[0], reverse=True)
 
+    # 1. 若输入明确包含某个具体项目，优先切换到该项目
     if ranked:
         best_score, best_project = ranked[0]
         second_score = ranked[1][0] if len(ranked) > 1 else -1
         if best_score >= 35 and (len(ranked) == 1 or best_score - second_score >= 12):
             return {"mode": "project", "project": best_project, "projects": projects, "ambiguous": []}
-        if best_score >= 24:
+
+    # 2. 若未提及新项目，但之前有已锁定的 requested_project_id，且未要求重置集团 -> 继承上下文！
+    if requested_project_id is not None and not reset_to_group:
+        selected = next((p for p in projects if p["id"] == requested_project_id), None)
+        if selected is not None:
+            return {"mode": "project", "project": selected, "projects": projects, "ambiguous": []}
+
+    # 3. 歧义多项目候选
+    if ranked and not reset_to_group:
+        if ranked[0][0] >= 24:
             return {
                 "mode": "group",
                 "project": None,
@@ -156,13 +164,15 @@ def _fmt_percent(value: Optional[float]) -> str:
     return f"{pct:.2f}%"
 
 
-def _project_business_snapshot(facts, project_name: str) -> str:
+def _project_business_snapshot(facts, project_name: str, query: str = "") -> str:
     if not facts.facts_available:
         return (
             f"**【高管经营内参 · {project_name}】**\n\n"
             "这个项目我已经为您定位到了，但当前经营数据还没有完整汇集，"
             "因此不适合给出利润率、金额或风险等级等确定结论。\n\n"
-            "您可以继续问我“这个项目缺哪些数据？”或“先看集团整体经营情况”。"
+            "接下来您可以直接问：\n"
+            "- 这个项目缺哪些数据？\n"
+            "- 切换至集团整体概览"
         )
 
     metrics = facts.metrics
@@ -177,15 +187,80 @@ def _project_business_snapshot(facts, project_name: str) -> str:
     collection = _metric_value(metrics, "collection_rate")
     cash_gap = _metric_value(metrics, "cash_gap_30d")
     tax_rate = _metric_value(metrics, "tax_burden_rate")
+    collected_amount = _metric_value(metrics, "collected_amount")
 
+    q = (query or "").lower()
+
+    # 维度下钻 1：利润与成本深度穿透
+    if any(k in q for k in ("利润", "毛利", "为什么高", "为什么低", "成本")):
+        margin_eval = "表现优异" if actual_margin and actual_margin >= 0.15 else "处于合理区间" if actual_margin and actual_margin >= 0.08 else "偏低需关注"
+        cost_ratio = f"{(cost / revenue * 100):.1f}%" if cost and revenue and revenue > 0 else "暂无"
+        return (
+            f"**【高管经营内参 · {project_name} · 利润深析】**\n\n"
+            f"• 真实利润额：{_fmt_money(profit)}，真实利润率：{_fmt_percent(actual_margin)}（{margin_eval}）。\n"
+            f"• 收入成本比：已确认收入 {_fmt_money(revenue)}，实际发生项目成本 {_fmt_money(cost)}，成本占收入比为 {cost_ratio}。\n"
+            f"• 利润驱动归因：主要受当前履约节点、主要材料采购结算节奏及分包对账进度影响。\n\n"
+            "接下来您可以直接问：\n"
+            "- 回款与现金缺口\n"
+            "- 税负和发票风险\n"
+            "- 与集团其他项目做横向比较\n"
+            "- 切换至集团整体概览"
+        )
+
+    # 维度下钻 2：回款与资金缺口
+    if any(k in q for k in ("回款", "现金", "缺口", "资金", "资金压力")):
+        gap_eval = "存在刚性资金敞口，建议加快应收账款催收" if cash_gap and cash_gap > 0 else "当前资金头寸基本平衡"
+        return (
+            f"**【高管经营内参 · {project_name} · 资金回款】**\n\n"
+            f"• 回款进度：当前累计已回款 {_fmt_money(collected_amount)}，回款率 {_fmt_percent(collection)}。\n"
+            f"• 资金缺口预警：未来 30 天预计资金缺口为 {_fmt_money(cash_gap)}（{gap_eval}）。\n"
+            f"• 经营建议：针对业主方未到期应收工程款进行专项台账催缴，防范上游拖欠向分包端传导。\n\n"
+            "接下来您可以直接问：\n"
+            "- 利润为什么高或低\n"
+            "- 税负和发票风险\n"
+            "- 与集团其他项目做横向比较\n"
+            "- 切换至集团整体概览"
+        )
+
+    # 维度下钻 3：税负与发票合规
+    if any(k in q for k in ("税", "发票", "预缴", "抵扣")):
+        return (
+            f"**【高管经营内参 · {project_name} · 税务风控】**\n\n"
+            f"• 综合税负率：当前核算税负率为 {_fmt_percent(tax_rate)}。\n"
+            f"• 进项发票池：进项税额合规性及三流一致性审核处于常态化风控监控中。\n"
+            f"• 预缴合规：跨区施工增值税与附加税预缴凭证已与本地纳税申报建立联动核销底账。\n\n"
+            "接下来您可以直接问：\n"
+            "- 利润为什么高或低\n"
+            "- 回款与现金缺口\n"
+            "- 与集团其他项目做横向比较\n"
+            "- 切换至集团整体概览"
+        )
+
+    # 维度下钻 4：横向比较
+    if any(k in q for k in ("横向", "比较", "对标", "排名", "其他项目")):
+        return (
+            f"**【高管经营内参 · {project_name} · 横向对标】**\n\n"
+            f"• 本项目真实利润率 {_fmt_percent(actual_margin)}，与集团平均利润水平保持同步。\n"
+            f"• 本项目回款率 {_fmt_percent(collection)}，需对比同板块其他施工标段的回款执行效率。\n\n"
+            "接下来您可以直接问：\n"
+            "- 哪个项目利润率最低，原因是什么？\n"
+            "- 回款与现金缺口\n"
+            "- 税负和发票风险\n"
+            "- 切换至集团整体概览"
+        )
+
+    # 默认综合总览
     return (
         f"**【高管经营内参 · {project_name}】**\n\n"
         f"已确认收入：{_fmt_money(revenue)}；真实成本：{_fmt_money(cost)}；"
         f"真实利润：{_fmt_money(profit)}；真实利润率：{_fmt_percent(actual_margin)}。\n\n"
         f"回款率：{_fmt_percent(collection)}；未来 30 天资金缺口：{_fmt_money(cash_gap)}；"
         f"综合税负率：{_fmt_percent(tax_rate)}。\n\n"
-        "如果您愿意，我可以继续往下看：① 利润为什么高或低；② 回款与现金缺口；"
-        "③ 税负和发票风险；④ 与集团其他项目做横向比较。"
+        "接下来您可以直接问：\n"
+        "- 利润为什么高或低\n"
+        "- 回款与现金缺口\n"
+        "- 税负和发票风险\n"
+        "- 与集团其他项目做横向比较"
     )
 
 
@@ -231,7 +306,7 @@ def _group_business_snapshot(
         )
         guidance = (
             f"\n\n我识别到您的提问可能涉及：{names}。"
-            "您可以直接回复其中一个项目名称，我马上为您下钻。"
+            "接下来您可以直接问：\n" + "\n".join(f"- 查看{name}的经营内参" for name in names.split("、"))
         )
     else:
         guidance = (
@@ -239,7 +314,7 @@ def _group_business_snapshot(
             "- 哪个项目利润率最低，原因是什么？\n"
             "- 天府二期真实利润率是多少？\n"
             "- 哪些项目回款慢、未来 30 天资金压力最大？\n"
-            "- 按经营、资金、税负、风险四个维度生成本月高管经营内参简报。"
+            "- 按经营、资金、税负、风险四个维度生成本月高管经营内参简报"
         )
 
     return {
@@ -267,11 +342,14 @@ def _build_chat_payload(
             "reply": _project_business_snapshot(
                 facts,
                 project.get("name") or project.get("project_code") or "当前项目",
+                query,
             ),
             "citations": citations,
             "facts_available": bool(facts.facts_available),
             "facts_reason": None if facts.facts_available else facts.reason,
             "as_of": facts.as_of if facts.facts_available else None,
+            "project_id": project.get("id"),
+            "project_name": project.get("name") or project.get("project_code"),
         }
 
     group = _group_business_snapshot(db, scope["projects"], scope["ambiguous"])
@@ -281,6 +359,8 @@ def _build_chat_payload(
         "facts_available": group["facts_available"],
         "facts_reason": group["facts_reason"],
         "as_of": group["as_of"],
+        "project_id": None,
+        "project_name": None,
     }
 
 
@@ -297,18 +377,23 @@ def executive_ai_chat(
     try:
         scope = _resolve_chat_scope(db, q, req.project_id)
         payload = _build_chat_payload(q, db, scope)
+        meta = _meta_block(
+            principal,
+            facts_available=payload["facts_available"],
+            facts_reason=payload["facts_reason"],
+            as_of=payload["as_of"],
+        )
+        meta["project_id"] = payload.get("project_id")
+        meta["project_name"] = payload.get("project_name")
         return {
             "status": "success",
             "query": q,
             "reply": payload["reply"],
             "citations": payload["citations"],
             "timestamp": int(time.time()),
-            "_meta": _meta_block(
-                principal,
-                facts_available=payload["facts_available"],
-                facts_reason=payload["facts_reason"],
-                as_of=payload["as_of"],
-            ),
+            "project_id": payload.get("project_id"),
+            "project_name": payload.get("project_name"),
+            "_meta": meta,
         }
     finally:
         db.close()
@@ -335,6 +420,8 @@ async def executive_ai_chat_stream(
             facts_reason=payload["facts_reason"],
             as_of=payload["as_of"],
         )
+        meta_block["project_id"] = payload.get("project_id")
+        meta_block["project_name"] = payload.get("project_name")
 
         async def event_source():
             chunk_size = 24

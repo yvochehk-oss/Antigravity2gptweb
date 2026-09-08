@@ -76,7 +76,7 @@
               />
             </div>
 
-            <!-- AI 回复中的后续建议 pills：解析 ①②③④ 渲染为可点击按钮 -->
+            <!-- AI 回复中的后续建议快捷操作 pills：支持 ①②③④、列表项 -、数字标号等 -->
             <div
               v-if="message.role === 'assistant' && !streaming && followUpSuggestions(message.content).length"
               class="mt-3.5 border-t border-white/10 pt-3 space-y-2"
@@ -96,23 +96,6 @@
                 </button>
               </div>
             </div>
-
-            <div v-if="message.citations?.length" class="mt-3.5 border-t border-white/10 pt-3">
-              <div class="flex items-center gap-1.5">
-                <span class="inline-block h-1.5 w-1.5 rounded-full bg-amber-400" aria-hidden="true" />
-                <p class="text-[11px] font-bold uppercase tracking-wider text-amber-300">底层数据证据源</p>
-              </div>
-              <ul class="mt-2 space-y-1.5">
-                <li
-                  v-for="(citation, citationIndex) in message.citations"
-                  :key="`${citation.title}-${citationIndex}`"
-                  class="flex items-start gap-2 text-[12px] leading-5 text-slate-300"
-                >
-                  <span class="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400/80" aria-hidden="true" />
-                  <span class="min-w-0 break-words font-medium">{{ privacyMode ? '***' : citation.title }}</span>
-                </li>
-              </ul>
-            </div>
           </div>
         </div>
 
@@ -123,9 +106,27 @@
       </div>
     </div>
 
+    <!-- 上下文聚焦条（当锁定了具体项目时显示，方便高管知晓并可一键切回集团） -->
+    <div
+      v-if="activeProject"
+      class="mt-2 flex items-center justify-between gap-2 px-3 py-1.5 text-[12px] text-amber-200 bg-amber-400/10 border border-amber-400/25 rounded-xl shrink-0 shadow-sm"
+    >
+      <div class="flex items-center gap-1.5 min-w-0">
+        <span class="inline-block h-2 w-2 rounded-full bg-emerald-400 animate-pulse" aria-hidden="true" />
+        <span class="truncate">当前对话聚焦项目：<strong class="text-amber-100 font-semibold">{{ activeProject.name }}</strong></span>
+      </div>
+      <button
+        type="button"
+        class="shrink-0 text-[11px] font-medium text-slate-300 hover:text-amber-200 transition-colors px-2 py-0.5 rounded-lg bg-white/10 hover:bg-white/20 active:scale-95"
+        @click="resetToGroup"
+      >
+        切回集团概览 ✕
+      </button>
+    </div>
+
     <!-- 提问输入栏 -->
     <form
-      class="mt-3 flex min-h-14 shrink-0 items-center gap-2 rounded-2xl border border-white/15 bg-gradient-to-b from-[#152338] to-[#0d1728] p-1.5 shadow-[0_12px_32px_rgba(0,0,0,0.5)]"
+      class="mt-2 flex min-h-14 shrink-0 items-center gap-2 rounded-2xl border border-white/15 bg-gradient-to-b from-[#152338] to-[#0d1728] p-1.5 shadow-[0_12px_32px_rgba(0,0,0,0.5)]"
       aria-label="向智策助手提问"
       @submit.prevent="submit"
     >
@@ -170,7 +171,7 @@ import MentionChip from '../../shared/components/MentionChip.vue'
 const copilot = useCopilotStore()
 const executive = useExecutiveStore()
 const ui = useUiStore()
-const { messages, loading, streaming } = storeToRefs(copilot)
+const { messages, loading, streaming, activeProject } = storeToRefs(copilot)
 const { privacyMode } = storeToRefs(ui)
 const quickQuestions = copilot.quickQuestions
 const { projects } = storeToRefs(executive)
@@ -180,25 +181,77 @@ const segmentCache = new Map()
 watch(projects, () => segmentCache.clear(), { deep: true })
 watch(privacyMode, () => segmentCache.clear())
 
-/**
- * Parse circled-number follow-up suggestions from AI response text.
- * Matches ①-⑩ followed by suggestion text (2–60 chars), stopping at the
- * next circled digit or newline.  Returns array of { index, text }.
- */
 const CIRCLED_DIGITS = ['①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧', '⑨', '⑩']
-const CIRCLED_PATTERN = new RegExp(
-  `[${CIRCLED_DIGITS.join('')}][^${CIRCLED_DIGITS.join('')}\n]{2,60}`,
-  'g'
-)
 
+/**
+ * 智能解析 AI 回复中的后续建议问题：
+ * 1. 支持 Markdown 列表（以 -、*、• 开头）
+ * 2. 支持数字编号列表（1. xxx、1、xxx）
+ * 3. 支持行内圆圈数字（① xxx；② xxx）
+ */
 function followUpSuggestions(content) {
   if (!content) return []
-  const matches = content.match(CIRCLED_PATTERN) || []
-  return matches.map(m => {
-    const idx = m[0]
-    const text = m.slice(1).replace(/[；;。，,、\s]+$/, '').trim()
-    return { index: idx, text }
-  }).filter(s => s.text.length > 1)
+  const list = []
+
+  // 1. 优先尝试从行首列表提取（以 -、*、•、1.、1、开头的行）
+  const lines = content.split('\n')
+  let itemCounter = 1
+
+  for (const line of lines) {
+    const trimmed = line.trim()
+    if (!trimmed) continue
+
+    // 忽略引导语本身
+    if (/^(接下来您可以直接问|建议您可以继续|如果您愿意|您可以继续问|推荐关注)[：:]?$/.test(trimmed)) {
+      continue
+    }
+
+    // 匹配列表项：- xxx 或 * xxx 或 • xxx
+    const bulletMatch = trimmed.match(/^[-*•]\s+(.+)$/)
+    if (bulletMatch) {
+      const text = bulletMatch[1].replace(/[；;。，,、\s]+$/, '').trim()
+      if (text.length > 1) {
+        list.push({
+          index: CIRCLED_DIGITS[itemCounter - 1] || String(itemCounter),
+          text
+        })
+        itemCounter++
+        continue
+      }
+    }
+
+    // 匹配数字序号列表：1. xxx 或 1、xxx 或 1) xxx
+    const numMatch = trimmed.match(/^(\d+)[\.、\)]\s*(.+)$/)
+    if (numMatch) {
+      const num = parseInt(numMatch[1], 10)
+      const text = numMatch[2].replace(/[；;。，,、\s]+$/, '').trim()
+      if (text.length > 1) {
+        list.push({
+          index: CIRCLED_DIGITS[num - 1] || String(num),
+          text
+        })
+        continue
+      }
+    }
+  }
+
+  // 2. 如果行级列表没有匹配到，提取行内的圆圈数字 ①-⑩
+  if (list.length === 0) {
+    const circledPattern = new RegExp(
+      `[${CIRCLED_DIGITS.join('')}][^${CIRCLED_DIGITS.join('')}\n]{2,60}`,
+      'g'
+    )
+    const matches = content.match(circledPattern) || []
+    for (const m of matches) {
+      const idx = m[0]
+      const text = m.slice(1).replace(/[；;。，,、\s]+$/, '').trim()
+      if (text.length > 1) {
+        list.push({ index: idx, text })
+      }
+    }
+  }
+
+  return list
 }
 
 /**
@@ -242,6 +295,11 @@ async function submit() {
   if (!question || loading.value) return
   query.value = ''
   await ask(question)
+}
+
+function resetToGroup() {
+  copilot.resetToGroup()
+  ask('切换至集团整体概览')
 }
 
 function cancel() {
