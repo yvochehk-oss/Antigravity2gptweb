@@ -36,7 +36,7 @@ export class CopilotStreamAbortError extends Error {
  * The iterator resolves cleanly on abort and will not throw a network
  * error in that case.
  */
-export async function* streamExecutiveCopilot(baseUrl, message, accessToken, signal, projectId = null) {
+export async function* streamExecutiveCopilot(baseUrl, message, accessToken, signal, projectId = null, options = {}) {
   const url = `${normalizeBaseUrl(baseUrl)}/api/v1/executive/ai/chat/stream`
   const controller = new AbortController()
   const timeoutId = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT)
@@ -70,6 +70,19 @@ export async function* streamExecutiveCopilot(baseUrl, message, accessToken, sig
     })
 
     if (!response.ok || !response.body) {
+      if (response.status === 401 && !options?._retry) {
+        try {
+          const { useAuthStore } = await import('../stores/auth.store')
+          const auth = useAuthStore()
+          const refreshed = await auth.refreshSession()
+          if (refreshed && auth.session?.accessToken) {
+            yield* streamExecutiveCopilot(baseUrl, message, auth.session.accessToken, signal, projectId, { _retry: true })
+            return
+          }
+        } catch {
+          // fallback to error
+        }
+      }
       yield { type: 'error', data: `智策流式通道失败 (${response.status})` }
       return
     }

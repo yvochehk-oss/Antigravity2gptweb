@@ -162,9 +162,32 @@ async def api_token(
 
 
 @_api_router.post("/refresh")
-def api_refresh(refresh_token: str) -> JSONResponse:
-    """用 refresh token 换新 access + refresh token 对。"""
-    result = refresh_access_token(refresh_token)
+async def api_refresh(request: Request) -> JSONResponse:
+    """用 refresh token 换新 access + refresh token 对，支持 JSON Body、Form 或 Query 参数。"""
+    content_type = request.headers.get("content-type", "")
+    token = ""
+    if "application/json" in content_type:
+        try:
+            body = await request.json()
+            token = body.get("refresh_token", "") if isinstance(body, dict) else ""
+        except Exception:
+            pass
+    if not token:
+        token = request.query_params.get("refresh_token", "")
+    if not token:
+        try:
+            form = await request.form()
+            token = form.get("refresh_token", "")
+        except Exception:
+            pass
+
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="缺少 refresh_token",
+        )
+
+    result = refresh_access_token(token)
     if result is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

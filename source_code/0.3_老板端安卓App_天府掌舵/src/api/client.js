@@ -92,6 +92,23 @@ export async function apiRequest(baseUrl, path, options = {}) {
     })
 
     if (!response.ok) {
+      if (response.status === 401 && !options._retry) {
+        try {
+          const { useAuthStore } = await import('../stores/auth.store')
+          const auth = useAuthStore()
+          const refreshed = await auth.refreshSession()
+          if (refreshed && auth.session?.accessToken) {
+            return await apiRequest(baseUrl, path, {
+              ...options,
+              _retry: true,
+              accessToken: auth.session.accessToken
+            })
+          }
+        } catch {
+          // fallback to regular error
+        }
+      }
+
       const hint = (
         response.status === 401 ? '（会话已过期，请重新登录）'
         : response.status === 403 ? '（当前角色无权访问）'
