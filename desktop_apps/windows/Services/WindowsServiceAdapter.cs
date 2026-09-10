@@ -121,6 +121,11 @@ public sealed class WindowsServiceAdapter
 
         var info = CreateHiddenProcessInfo(python, workingDirectory);
         info.Environment["PYTHONUNBUFFERED"] = "1";
+        var p5432 = ProcessInspector.GetListeningProcessIdsResult(5432);
+        var p54320 = ProcessInspector.GetListeningProcessIdsResult(54320);
+        var activePort = p5432.ProcessIds.Count > 0 ? 5432 : (p54320.ProcessIds.Count > 0 ? 54320 : 5432);
+        info.Environment["DATABASE_URL"] = $"postgresql://postgres@127.0.0.1:{activePort}/projectrag";
+        info.Environment["PROJECT_RAG_DB_URL"] = $"postgresql://postgres@127.0.0.1:{activePort}/projectrag";
         AddArguments(info,
             "-m", "uvicorn", "app.main:app",
             "--host", "127.0.0.1",

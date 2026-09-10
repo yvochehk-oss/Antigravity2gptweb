@@ -1,22 +1,22 @@
-ï»¿@echo off
-@chcp 65001 >nul
-title æˆéƒ½å»ºå·¥ V3.0 - RAGäº‹å®ä¸­å° (Port 8922)
+@echo off
+@chcp 936 >nul 2>&1
+title ³É¶¼½¨¹¤ V3.0 - RAGÊÂÊµÖĞÌ¨ (Port 8922)
 setlocal enabledelayedexpansion
 
 set "SCRIPT_DIR=%~dp0"
 cd /d "%SCRIPT_DIR%.."
 
 echo ==============================================================================
-echo   æˆéƒ½å»ºå·¥ V3.0 - RAG æ™ºèƒ½æ–‡æ¡£ä¸äº‹å®ä¸­å° (Port 8922)
-echo   å‘é‡æ£€ç´¢: BGE-M3 (CPUåŠ é€Ÿ) - 4å¹¶å‘ Worker (Python 3.14)
-echo   æœ¬æœºè®¿é—®: http://127.0.0.1:8922/docs
+echo   ³É¶¼½¨¹¤ V3.0 - RAG ÖÇÄÜÎÄµµÓëÊÂÊµÖĞÌ¨ (Port 8922)
+echo   ÏòÁ¿¼ìË÷: BGE-M3 (CPU¼ÓËÙ) - 4²¢·¢ Worker (Python 3.14)
+echo   ±¾»ú·ÃÎÊ: http://127.0.0.1:8922/docs
 echo ==============================================================================
 
-cd "source_code\0.2_RAGç³»ç»Ÿ\project-rag-v1.1"
+cd "source_code\0.2_RAGÏµÍ³\project-rag-v1.1"
 
 set "PYTHON_EXE=.venv\Scripts\python.exe"
 if not exist "%PYTHON_EXE%" (
-    echo [é”™è¯¯] æœªæ‰¾åˆ°è™šæ‹Ÿç¯å¢ƒï¼Œè¯·å…ˆè¿è¡Œ 06_ä¸€é”®é…ç½®Python314ç¯å¢ƒ.batï¼
+    echo [´íÎó] Î´ÕÒµ½ĞéÄâ»·¾³£¬ÇëÏÈÔËĞĞ 06_Ò»¼üÅäÖÃPython314»·¾³.bat£¡
     pause
     exit /b 1
 )

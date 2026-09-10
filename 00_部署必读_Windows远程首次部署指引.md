@@ -36,17 +36,17 @@
 目标电脑**无需预先手动安装和配置 Python**！
 
 1. 进入 `windows_scripts` 目录；
-2. 双击运行 **`06_一键配置Python314环境.bat`**；
-3. 脚本将自动调用内置的 `uv.exe` 自动下载并配置 Python 3.14 运行内核，并通过阿里云加速源安装所需依赖包（通常 1~2 分钟即可完成）。
+2. 双击运行 **`06_SETUP_ENV.bat`**（或 `06_一键配置Python314环境.bat`）；
+3. 脚本将自动调用内置的 `uv.exe` 自动下载并配置官方标准的 Python 3.12 稳定运行内核，并通过国内加速源安装所需依赖包（通常 1~2 分钟即可完成）。
 
 ---
 
 ### 第三步：一键还原 PostgreSQL 数据库与切片
-系统需要连接 PostgreSQL（推荐 PG 14/15/16/17，已安装 `pgvector` 扩展）。
+系统内置开箱即用的绿色便携版 PostgreSQL（位于 `database\pgsql`，默认端口 `54320`，已集成 `pgvector` 扩展），**目标电脑无需单独安装外部 PostgreSQL 数据库**！
 
-1. 确认本机 PostgreSQL 服务已启动（默认端口 `5432` 或 `54320`）；
+1. 确认数据库正在运行（启动脚本 `windows_scripts\00_START_POSTGRES.bat` 会自动守护拉起便携版 54320）；
 2. 双击运行 **`database\restore_database_windows.bat`**（或 `windows_scripts\07_一键还原PostgreSQL数据库.bat`）；
-3. 根据提示确认端口与用户名（默认回车即可）：
+3. 根据提示确认端口与用户名（默认回车即可，自动优先连接 54320 便携版）：
    * 脚本会自动使用 **UTF-8 编码 (`-E UTF8 -T template0`)** 建立 `projectrag` 数据库，避免中文乱码；
    * 自动启用 `vector`、`btree_gist`、`pgcrypto`、`pg_trgm` 四大扩展；
    * 自动将 `projectrag_latest.dump` 中的表结构、切片与事实数据还原到位；

@@ -11,22 +11,25 @@ def _normalize_db_url(url: str) -> str:
     url = url.strip()
     try:
         parsed = make_url(url)
-        if parsed.host in ("127.0.0.1", "localhost") and parsed.port == 54320:
-            import socket
-            sock = socket.socket()
-            sock.settimeout(0.3)
-            try:
-                sock.connect((parsed.host, 54320))
-                sock.close()
-            except Exception:
+        if parsed.host in ("127.0.0.1", "localhost"):
+            curr_port = parsed.port or 5432
+            if curr_port in (5432, 54320):
+                import socket
+                sock = socket.socket()
+                sock.settimeout(0.3)
                 try:
-                    sock2 = socket.socket()
-                    sock2.settimeout(0.3)
-                    sock2.connect((parsed.host, 5432))
-                    sock2.close()
-                    url = url.replace(":54320", ":5432")
+                    sock.connect((parsed.host, curr_port))
+                    sock.close()
                 except Exception:
-                    pass
+                    alt_port = 54320 if curr_port == 5432 else 5432
+                    try:
+                        sock2 = socket.socket()
+                        sock2.settimeout(0.3)
+                        sock2.connect((parsed.host, alt_port))
+                        sock2.close()
+                        url = url.replace(f":{curr_port}", f":{alt_port}")
+                    except Exception:
+                        pass
     except Exception:
         pass
     if url.startswith("postgresql://"):
@@ -35,10 +38,37 @@ def _normalize_db_url(url: str) -> str:
         return "postgresql+psycopg://" + url[len("postgres://"):]
     return url
 
+import socket
+from urllib.parse import urlparse, urlunparse
+
+def _resolve_port(raw_url: str) -> str:
+    if not raw_url:
+        return raw_url
+    try:
+        parsed = urlparse(raw_url)
+        host = parsed.hostname or ""
+        if host in ("127.0.0.1", "localhost"):
+            curr_port = parsed.port or 5432
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.settimeout(0.2)
+                if s.connect_ex((host, curr_port)) != 0:
+                    alt_port = 5432 if curr_port != 5432 else 54320
+                    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s_alt:
+                        s_alt.settimeout(0.2)
+                        if s_alt.connect_ex((host, alt_port)) == 0:
+                            user_info = parsed.username or "postgres"
+                            if parsed.password:
+                                user_info += f":{parsed.password}"
+                            netloc = f"{user_info}@{host}:{alt_port}"
+                            return urlunparse(parsed._replace(netloc=netloc))
+    except Exception:
+        pass
+    return raw_url
+
 env_file = Path(__file__).resolve().parent.parent / ".env"
 if env_file.exists():
     load_dotenv(dotenv_path=env_file, override=False)
-URL = os.getenv("DATABASE_URL", "").strip()
+URL = _resolve_port(os.getenv("DATABASE_URL", "").strip())
 if not URL:
     raise RuntimeError("DATABASE_URL is required; Tax is PostgreSQL-only")
 backend = make_url(URL).get_backend_name()

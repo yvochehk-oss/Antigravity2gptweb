@@ -33,9 +33,37 @@ except ValueError as exc:
     ) from exc
 
 # Database
-DB_URL = (os.getenv("PROJECT_RAG_DB_URL", "").strip() or os.getenv("DATABASE_URL", "").strip())
-if not DB_URL:
+import socket
+from urllib.parse import urlparse, urlunparse
+
+def _resolve_database_url(raw_url: str) -> str:
+    if not raw_url:
+        return raw_url
+    try:
+        parsed = urlparse(raw_url)
+        host = parsed.hostname or ""
+        if host in ("127.0.0.1", "localhost"):
+            curr_port = parsed.port or 5432
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.settimeout(0.2)
+                if s.connect_ex((host, curr_port)) != 0:
+                    alt_port = 5432 if curr_port != 5432 else 54320
+                    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s_alt:
+                        s_alt.settimeout(0.2)
+                        if s_alt.connect_ex((host, alt_port)) == 0:
+                            user_info = parsed.username or "postgres"
+                            if parsed.password:
+                                user_info += f":{parsed.password}"
+                            netloc = f"{user_info}@{host}:{alt_port}"
+                            return urlunparse(parsed._replace(netloc=netloc))
+    except Exception:
+        pass
+    return raw_url
+
+_RAW_DB_URL = (os.getenv("PROJECT_RAG_DB_URL", "").strip() or os.getenv("DATABASE_URL", "").strip())
+if not _RAW_DB_URL:
     raise RuntimeError("PROJECT_RAG_DB_URL or DATABASE_URL is required; ProjectRAG is PostgreSQL-only")
+DB_URL = _resolve_database_url(_RAW_DB_URL)
 from sqlalchemy.engine import make_url
 _backend = make_url(DB_URL).get_backend_name()
 if _backend not in {"postgresql", "postgres"}:

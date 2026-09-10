@@ -1,22 +1,31 @@
-ï»¿@echo off
-@chcp 65001 >nul
-title æˆéƒ½å»ºå·¥ V3.0 - ç¨åŠ¡ç®¡ç†ç³»ç»Ÿåç«¯ (Port 8921)
+@echo off
+@chcp 936 >nul 2>&1
+title ³É¶¼½¨¹¤ V3.0 - Ë°ÎñÏµÍ³ºó¶Ë (Port 8921)
 setlocal enabledelayedexpansion
 
 set "SCRIPT_DIR=%~dp0"
 cd /d "%SCRIPT_DIR%.."
 
 echo ==============================================================================
-echo   æˆéƒ½å»ºå·¥ V3.0 - ç¨åŠ¡ç®¡ç†ä¸é£æ§ä¸­æ¢ (Port 8921)
-echo   ä¸šåŠ¡é€»è¾‘: è´¢ç¨ç¡®å®šæ€§è®¡ç®— - è¿›é”€é¡¹å‘ç¥¨å°è´¦ - å››æµåˆè§„å¤æ ¸
-echo   æœ¬æœºè®¿é—®: http://127.0.0.1:8921/healthz
+echo   ³É¶¼½¨¹¤ V3.0 - Ë°Îñ¹ÜÀíÖĞÌ¨ (Port 8921)
+echo   ÒµÎñÂß¼­: ¼ÆË°È·¶¨ĞÔÆõÔ¼ - ÏúÏî·¢Æ±Ì¨ÕË - ºÏ¹æ´©Í¸Éó¼Æ
+echo   ·şÎñ×´Ì¬: http://127.0.0.1:8921/healthz
 echo ==============================================================================
 
-cd "source_code\0.1_ç¨åŠ¡ç®¡ç†\gtp_V1.0_FULL\01_å½“å‰å®Œæ•´ç³»ç»Ÿ_V1.0\chengdu_construction_tax_system_v1_0"
+:: ÖÇÄÜÌ½²â²¢ÊÊÅä»îÔ¾ PostgreSQL ¶Ë¿Ú (5432 vs 54320)
+set "ACTIVE_PG_PORT=5432"
+netstat -ano | findstr /i ":54320 " | findstr /i "LISTENING" >nul && set "ACTIVE_PG_PORT=54320"
+netstat -ano | findstr /i ":5432 " | findstr /i "LISTENING" >nul && set "ACTIVE_PG_PORT=5432"
+set "DATABASE_URL=postgresql://postgres@127.0.0.1:!ACTIVE_PG_PORT!/projectrag"
+echo [Êı¾İ¿â] ×Ô¶¯¶Ô½Ó PostgreSQL ¶Ë¿Ú: !ACTIVE_PG_PORT!
+
+set "TARGET_DIR=source_code\0.1_Ë°Îñ¹ÜÀí\gtp_V1.0_FULL\01_µ±Ç°ÍêÕûÏµÍ³_V1.0\chengdu_construction_tax_system_v1_0"
+if not exist "%TARGET_DIR%" set "TARGET_DIR=source_code\0.1_Ë°Îñ¹ÜÀí\chengdu_construction_tax_system_v1_0"
+cd /d "%SCRIPT_DIR%..\%TARGET_DIR%"
 
 set "PYTHON_EXE=.venv\Scripts\python.exe"
 if not exist "%PYTHON_EXE%" (
-    echo [é”™è¯¯] æœªæ‰¾åˆ°è™šæ‹Ÿç¯å¢ƒï¼Œè¯·å…ˆè¿è¡Œ 06_ä¸€é”®é…ç½®Python314ç¯å¢ƒ.batï¼
+    echo [´íÎó] Î´ÕÒµ½ĞéÄâ»·¾³£¬ÇëÏÈÔËĞĞ 06_SETUP_ENV.bat£¡
     pause
     exit /b 1
 )

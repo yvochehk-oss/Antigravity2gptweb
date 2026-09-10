@@ -300,3 +300,35 @@ def test_security_headers_retention():
     assert resp2.headers.get("x-content-type-options") == "nosniff"
     assert resp2.headers.get("x-frame-options") == "DENY"
     assert resp2.headers.get("referrer-policy") == "same-origin"
+
+
+def test_form_post_with_csrf_in_body_succeeds(monkeypatch):
+    class FakeUser:
+        id = 1
+        username = "admin"
+        role = "admin"
+        display_name = "管理员"
+        active = True
+
+    monkeypatch.setattr(
+        middleware_module,
+        "current_user_from_request",
+        lambda request: FakeUser(),
+    )
+
+    app = FastAPI()
+    app.add_middleware(AuthMiddleware)
+
+    @app.post("/test-form")
+    async def test_form_endpoint(request: Request):
+        form = await request.form()
+        return {"name": form.get("name"), "csrf": form.get("_csrf")}
+
+    client = TestClient(app, cookies={CSRF_COOKIE_NAME: "test-token-123", COOKIE_NAME: "session-123"})
+    resp = client.post(
+        "/test-form",
+        data={"name": "test-model", "_csrf": "test-token-123"},
+        headers={"Origin": "http://testserver"},
+    )
+    assert resp.status_code == 200
+    assert resp.json() == {"name": "test-model", "csrf": "test-token-123"}

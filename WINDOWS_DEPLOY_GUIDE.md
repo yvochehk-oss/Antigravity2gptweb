@@ -42,9 +42,9 @@
 * **⚠️ 安装要点**：安装第一步必须**勾选 `Add Python to PATH`**（将 Python 添加到系统环境变量）。
 * **自动化说明**：在 Windows 运行 `setup_environment_windows.bat` 时，`uv` 会自动为 RAG 系统与税务系统拉取 **Python 3.14** 运行内核，确保 4 并发 Worker 无 GIL 全速运行。
 
-### (2) PostgreSQL 15 或 16 + pgvector
-* **下载地址**：[PostgreSQL Windows 官方安装包](https://www.enterprisedb.com/downloads/postgres-postgresql-downloads)
-* **向量扩展**：安装后在 pgAdmin 或命令行执行 `CREATE EXTENSION IF NOT EXISTS vector;`。
+### (2) PostgreSQL 数据库（内置绿色免安装，端口 54320）
+* **免安装说明**：本系统已在 `database/pgsql` 内置开箱即用的绿色便携版 PostgreSQL，数据目录位于 `database/data`（默认端口 `54320`），并预置了 `pgvector` 扩展与业务底账数据，**目标电脑无需自行下载或安装 PostgreSQL 软件**。
+* **启动方式**：运行一键启动脚本时会自动拉起内置数据库，亦可通过 `windows_scripts\00_START_POSTGRES.bat` 单独守护启动。
 
 ### (3) Node.js 18+ (LTS)
 * **下载地址**：[Node.js 官方 LTS 安装包](https://nodejs.org/zh-cn/download)

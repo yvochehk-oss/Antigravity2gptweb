@@ -12,10 +12,17 @@ function Check-Port($port) {
 
 # 1. PostgreSQL (54320 / 5432)
 if (-not (Check-Port 54320) -and -not (Check-Port 5432)) {
-    $pgCtl = Join-Path $RootDir "database\pgsql\bin\pg_ctl.exe"
-    if (Test-Path $pgCtl) {
-        $pgData = "F:\projectrag_pgdata"
-        Start-Process -FilePath $pgCtl -ArgumentList "start -D `"$pgData`"" -WorkingDirectory $RootDir -WindowStyle Hidden
+    $pgBat = Join-Path $RootDir "windows_scripts\00_START_POSTGRES.bat"
+    if (Test-Path $pgBat) {
+        Start-Process -FilePath "cmd.exe" -ArgumentList "/c `"$pgBat`"" -WorkingDirectory $RootDir -WindowStyle Hidden -Wait
+    } else {
+        $pgCtl = Join-Path $RootDir "database\pgsql\bin\pg_ctl.exe"
+        if (Test-Path $pgCtl) {
+            $drive = (Get-Item $RootDir).PSDrive.Name
+            $pgData = "$($drive):\projectrag_pgdata"
+            if (-not (Test-Path $pgData)) { $pgData = Join-Path $RootDir "database\data" }
+            Start-Process -FilePath $pgCtl -ArgumentList "start -D `"$pgData`"" -WorkingDirectory $RootDir -WindowStyle Hidden
+        }
     }
 }
 

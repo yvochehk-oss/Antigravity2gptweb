@@ -125,6 +125,7 @@ public sealed class ServiceOrchestrator : IDisposable
             }
             else
             {
+                EnsurePostgresRunning();
                 foreach (var definition in _definitions)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
@@ -1311,6 +1312,39 @@ public sealed class ServiceOrchestrator : IDisposable
         }
 
         _operationGate.Dispose();
+    }
+
+    private void EnsurePostgresRunning()
+    {
+        try
+        {
+            var p5432 = ProcessInspector.GetListeningProcessIdsResult(5432);
+            var p54320 = ProcessInspector.GetListeningProcessIdsResult(54320);
+            if (p5432.ProcessIds.Count > 0 || p54320.ProcessIds.Count > 0)
+            {
+                return;
+            }
+
+            var bat = _rootResolver.ResolvePath(@"windows_scripts\00_START_POSTGRES.bat");
+            if (!string.IsNullOrWhiteSpace(bat) && File.Exists(bat))
+            {
+                _logger.Info("检测到 PostgreSQL 未运行，正在调用 00_START_POSTGRES.bat 自动拉起...");
+                var psi = new ProcessStartInfo
+                {
+                    FileName = "cmd.exe",
+                    Arguments = $"/c \"\"{bat}\"\"",
+                    WorkingDirectory = _rootResolver.Root ?? "",
+                    CreateNoWindow = true,
+                    UseShellExecute = false,
+                };
+                using var proc = Process.Start(psi);
+                proc?.WaitForExit(6000);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.Warn($"自动拉起 PostgreSQL 提示: {ex.Message}");
+        }
     }
 
     private sealed class TrackedLaunch

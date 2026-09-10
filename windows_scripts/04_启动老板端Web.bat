@@ -1,17 +1,17 @@
-ï»¿@echo off
-@chcp 65001 >nul
-title æˆéƒ½å»ºå·¥ V3.0 - è€æ¿ç«¯Webé©¾é©¶èˆ± (Port 5173)
+@echo off
+@chcp 936 >nul 2>&1
+title ³É¶¼½¨¹¤ V3.0 - ÀÏ°å¶ËWeb¼İÊ»²Õ (Port 5173)
 setlocal enabledelayedexpansion
 
 set "SCRIPT_DIR=%~dp0"
 cd /d "%SCRIPT_DIR%.."
 
 echo ==============================================================================
-echo   æˆéƒ½å»ºå·¥ V3.0 - è€æ¿ç«¯ç§»åŠ¨é©¾é©¶èˆ± Web (Port 5173)
-echo   è®¿é—®å…¥å£: http://127.0.0.1:5173
+echo   ³É¶¼½¨¹¤ V3.0 - ÀÏ°å¶ËÒÆ¶¯¼İÊ»²Õ Web (Port 5173)
+echo   ·ÃÎÊÈë¿Ú: http://127.0.0.1:5173
 echo ==============================================================================
 
-set "PYTHON_EXE=source_code\0.1_ç¨åŠ¡ç®¡ç†\gtp_V1.0_FULL\01_å½“å‰å®Œæ•´ç³»ç»Ÿ_V1.0\chengdu_construction_tax_system_v1_0\.venv\Scripts\python.exe"
+set "PYTHON_EXE=source_code\0.1_Ë°Îñ¹ÜÀí\gtp_V1.0_FULL\01_µ±Ç°ÍêÕûÏµÍ³_V1.0\chengdu_construction_tax_system_v1_0\.venv\Scripts\python.exe"
 if not exist "%PYTHON_EXE%" set "PYTHON_EXE=python"
 
 "%PYTHON_EXE%" windows_scripts\serve_web.py 5173

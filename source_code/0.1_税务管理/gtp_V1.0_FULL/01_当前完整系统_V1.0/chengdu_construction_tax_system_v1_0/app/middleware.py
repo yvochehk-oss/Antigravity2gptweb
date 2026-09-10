@@ -64,23 +64,46 @@ def _unauthenticated_requires_json(request: Request) -> bool:
     return request.method.upper() not in _SAFE_METHODS
 
 
-def _csrf_allowed(request: Request) -> bool:
+from urllib.parse import parse_qs
+
+
+async def _csrf_allowed(request: Request) -> tuple[bool, Request]:
     if request.method.upper() in _SAFE_METHODS:
-        return True
+        return True, request
 
     cookie_token = request.cookies.get(CSRF_COOKIE_NAME)
+    if not cookie_token:
+        return False, request
+
     request_token = (
         request.headers.get("X-CSRF-Token")
         or request.headers.get("X-XSRF-TOKEN")
     )
 
-    if not cookie_token or not request_token:
-        return False
+    if not request_token:
+        content_type = request.headers.get("content-type", "").lower()
+        if "application/x-www-form-urlencoded" in content_type:
+            try:
+                body = await request.body()
+                parsed = parse_qs(body.decode("utf-8", errors="ignore"))
+                token_list = parsed.get("_csrf") or parsed.get("csrf_token")
+                if token_list and token_list[0]:
+                    request_token = token_list[0]
+
+                async def receive():
+                    return {"type": "http.request", "body": body}
+
+                request = Request(request.scope, receive=receive)
+            except Exception:
+                pass
+
+    if not request_token:
+        return False, request
 
     try:
-        return secrets.compare_digest(cookie_token, request_token)
+        return secrets.compare_digest(cookie_token, str(request_token)), request
     except (TypeError, ValueError):
-        return False
+        return False, request
 
 
 def _same_origin_ok(request: Request) -> bool:
@@ -193,7 +216,8 @@ class AuthMiddleware(BaseHTTPMiddleware):
                         content={"detail": "跨站请求被拒绝"},
                     ))
 
-                if not _csrf_allowed(request):
+                csrf_ok, request = await _csrf_allowed(request)
+                if not csrf_ok:
                     return _attach_security_headers(JSONResponse(
                         status_code=403,
                         content={"detail": "CSRF 校验失败"},

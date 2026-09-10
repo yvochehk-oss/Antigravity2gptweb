@@ -1,78 +1,68 @@
 @echo off
-@chcp 65001 >nul
-title æˆéƒ½å»ºå·¥ V3.0 - ä¸€é”®å¯åŠ¨å…¨éƒ¨æœåŠ¡
+@chcp 936 >nul 2>&1
+title ³É¶¼½¨¹¤ V3.0 - Ò»¼üÆô¶¯È«²¿·þÎñ
 setlocal enabledelayedexpansion
 
 set "SCRIPT_DIR=%~dp0"
 cd /d "%SCRIPT_DIR%.."
 
 echo ==============================================================================
-echo   ðŸ—ï¸ æˆéƒ½å»ºå·¥ V3.0 è´¢ç¨Žæ™ºæŽ§ä¸Ž IDP ç©¿é€ä¸­æž¢ [Windows ä¸€é”®å¯åŠ¨]
-echo   ç¡¬ä»¶é€‚é…: Intel/AMD CPU (AVX2åŠ é€Ÿ) + 16GB+ å†…å­˜ / æ”¯æŒç¦»çº¿æŽ¨ç†
-echo   æœ¬åœ°å¤§æ¨¡åž‹: æ˜Ÿç« Spark-X2.5-4B (CPU AVX2åŠ é€Ÿç¦»çº¿æŽ¨ç†)
+echo   [³É¶¼½¨¹¤] ³É¶¼½¨¹¤ V3.0 ²ÆË°ÖÇ¿ØÓë IDP ´©Í¸ÖÐÊà [Windows Ò»¼üÆô¶¯]
+echo   Ó²¼þÊÊÅä: Intel/AMD CPU (AVX2¼ÓËÙ) + 16GB+ ÄÚ´æ / Ö§³ÖÀëÏßÍÆÀí
+echo   ±¾µØ´óÄ£ÐÍ: ÐÇ»ð Spark-X2.5-4B (CPU AVX2¼ÓËÙÀëÏßÍÆÀí)
 echo ==============================================================================
 echo.
 
-:: [0/5] æ£€æŸ¥å¹¶å¯åŠ¨ PostgreSQL æ•°æ®åº“ (Port 54320 æˆ– 5432)
-set "PG_RUNNING=0"
-netstat -ano | findstr ":54320" >nul && set "PG_RUNNING=1"
-netstat -ano | findstr ":5432 " >nul && set "PG_RUNNING=1"
-
-if "!PG_RUNNING!"=="0" (
-    set "PGDATA_DIR="
-    if exist "%~d0\projectrag_pgdata" set "PGDATA_DIR=%~d0\projectrag_pgdata"
-    if not defined PGDATA_DIR if exist "%CD%\database\data" set "PGDATA_DIR=%CD%\database\data"
-    if not defined PGDATA_DIR if exist "C:\projectrag_pgdata" set "PGDATA_DIR=C:\projectrag_pgdata"
-
-    if defined PGDATA_DIR (
-        if exist "!PGDATA_DIR!\postmaster.pid" (
-            del /f /q "!PGDATA_DIR!\postmaster.pid" >nul 2>&1
-        )
-        if exist "database\pgsql\bin\pg_ctl.exe" (
-            echo [0/5] æ­£åœ¨å¯åŠ¨ PostgreSQL æ•°æ®åº“ (Port 54320)...
-            start "00_PostgreSQL (Port 54320)" /B "database\pgsql\bin\pg_ctl.exe" start -D "!PGDATA_DIR!" -l "%CD%\logs\postgres.log"
-            timeout /t 2 /nobreak >nul
-        )
-    )
+:: [0/5] ¼ì²é²¢Æô¶¯ PostgreSQL Êý¾Ý¿â
+if exist "%SCRIPT_DIR%00_START_POSTGRES.bat" (
+    call "%SCRIPT_DIR%00_START_POSTGRES.bat"
 )
 
-echo [1/5] æ­£åœ¨å¯åŠ¨æœ¬åœ°å¤§æ¨¡åž‹æœåŠ¡ (Port 8930)...
-start "01_æœ¬åœ°å¤§æ¨¡åž‹æœåŠ¡ (Port 8930)" cmd /k "call "%SCRIPT_DIR%01_START_LLM.bat""
+:: ÖÇÄÜÌ½²â²¢ÊÊÅä»îÔ¾ PostgreSQL ¶Ë¿Ú (5432 vs 54320)
+set "ACTIVE_PG_PORT=5432"
+netstat -ano | findstr /i ":54320 " | findstr /i "LISTENING" >nul && set "ACTIVE_PG_PORT=54320"
+netstat -ano | findstr /i ":5432 " | findstr /i "LISTENING" >nul && set "ACTIVE_PG_PORT=5432"
+set "DATABASE_URL=postgresql://postgres@127.0.0.1:!ACTIVE_PG_PORT!/projectrag"
+set "PROJECT_RAG_DB_URL=postgresql://postgres@127.0.0.1:!ACTIVE_PG_PORT!/projectrag"
+echo [Êý¾Ý¿â] È«¾Ö×Ô¶¯°ó¶¨»îÔ¾ PostgreSQL ¶Ë¿Ú: !ACTIVE_PG_PORT!
+
+echo [1/5] ÕýÔÚÆô¶¯±¾µØ´óÄ£ÐÍ·þÎñ (Port 8930)...
+start "01_±¾µØ´óÄ£ÐÍ·þÎñ (Port 8930)" cmd /k "call "%SCRIPT_DIR%01_START_LLM.bat""
 timeout /t 3 /nobreak >nul
 
-echo [2/5] æ­£åœ¨å¯åŠ¨ RAG çŸ¥è¯†è¯æ®ä¸­æž¢ (Port 8922)...
-start "02_RAGäº‹å®žä¸­å° (Port 8922)" cmd /k "call "%SCRIPT_DIR%02_START_RAG.bat""
+echo [2/5] ÕýÔÚÆô¶¯ RAG ÖªÊ¶Ö¤¾ÝÖÐÊà (Port 8922)...
+start "02_RAGÊÂÊµÖÐÌ¨ (Port 8922)" cmd /k "call "%SCRIPT_DIR%02_START_RAG.bat""
 timeout /t 2 /nobreak >nul
 
-echo [3/5] æ­£åœ¨å¯åŠ¨ IDP ç©¿é€å¼å½•å…¥å¼•æ“Ž (Port 8933)...
+echo [3/5] ÕýÔÚÆô¶¯ IDP ´©Í¸Ê½Â¼ÈëÒýÇæ (Port 8933)...
 set "IDP_PORT=8933"
-start "03_IDPæ–‡æ¡£å½•å…¥å¼•æ“Ž (Port 8933)" cmd /k "call "%SCRIPT_DIR%..\source_code\0.4_IDPæ–‡æ¡£å½•å…¥å¼•æ“Ž_V3.0\START_IDP_WINDOWS.bat""
+start "03_IDPÎÄµµÂ¼ÈëÒýÇæ (Port 8933)" cmd /k "call "%SCRIPT_DIR%..\source_code\0.4_IDPÎÄµµÂ¼ÈëÒýÇæ_V3.0\START_IDP_WINDOWS.bat""
 timeout /t 2 /nobreak >nul
 
-echo [4/5] æ­£åœ¨å¯åŠ¨ ç¨ŽåŠ¡ç®¡ç†ä¸Ž Native V3 Boss API (Port 8921)...
-start "04_ç¨ŽåŠ¡ç®¡ç†ç³»ç»Ÿ (Port 8921)" cmd /k "call "%SCRIPT_DIR%03_START_TAX.bat""
+echo [4/5] ÕýÔÚÆô¶¯ Ë°Îñ¹ÜÀíÓë Native V3 Boss API (Port 8921)...
+start "04_Ë°Îñ¹ÜÀíÏµÍ³ (Port 8921)" cmd /k "call "%SCRIPT_DIR%03_START_TAX.bat""
 timeout /t 2 /nobreak >nul
 
-echo [5/5] æ­£åœ¨å¯åŠ¨ è€æ¿ç«¯ Web ç§»åŠ¨é©¾é©¶èˆ± (Port 5173)...
-start "05_è€æ¿ç«¯Web (Port 5173)" cmd /k "call "%SCRIPT_DIR%04_START_WEB.bat""
+echo [5/5] ÕýÔÚÆô¶¯ ÀÏ°å¶Ë Web ÒÆ¶¯¼ÝÊ»²Õ (Port 5173)...
+start "05_ÀÏ°å¶ËWeb (Port 5173)" cmd /k "call "%SCRIPT_DIR%04_START_WEB.bat""
 timeout /t 3 /nobreak >nul
 
 echo.
 echo ==============================================================================
-echo   ðŸŽ‰ æˆéƒ½å»ºå·¥ V3.0 å…¨ç³»ç»Ÿå·²æˆåŠŸæ‹‰èµ·ï¼
-echo   ã€æ ¸å¿ƒä¸šåŠ¡è®¿é—®å…¥å£ã€‘
-echo   ðŸ“± è€æ¿ç«¯ç§»åŠ¨é©¾é©¶èˆ±:    http://127.0.0.1:5173 (æŽ¨è)
-echo   ðŸ¢ ç¨ŽåŠ¡ç®¡ç†ä¸­å° Web:    http://127.0.0.1:8921
-echo   ðŸ§  RAG çŸ¥è¯†è¯æ®ä¸­æž¢:    http://127.0.0.1:8922
-echo   ðŸ“„ IDP æ–‡æ¡£å½•å…¥ä¸Žå®¡è®¡:  http://127.0.0.1:8933
-echo   ðŸ¤– æ˜Ÿç« Spark-X2.5-4B:  http://127.0.0.1:8930/v1
-echo   ðŸ—„ï¸ PostgreSQL æ•°æ®åº“:   127.0.0.1:54320 / 5432 (projectrag)
+echo   [Íê³É] ³É¶¼½¨¹¤ V3.0 È«ÏµÍ³ÒÑ³É¹¦À­Æð£¡
+echo   ¡¾ºËÐÄÒµÎñ·ÃÎÊÈë¿Ú¡¿
+echo   [ÒÆ¶¯¶Ë] ÀÏ°å¶ËÒÆ¶¯¼ÝÊ»²Õ:    http://127.0.0.1:5173 (ÍÆ¼ö)
+echo   [½¨¹¤]   Ë°Îñ¹ÜÀíÖÐÌ¨ Web:    http://127.0.0.1:8921
+echo   [ÖÇÄÔ]   RAG ÖªÊ¶Ö¤¾ÝÖÐÊà:    http://127.0.0.1:8922
+echo   [ÎÄµµ]   IDP ÎÄµµÂ¼ÈëÓëÉó¼Æ:  http://127.0.0.1:8933
+echo   [AI]     ÐÇ»ð Spark-X2.5-4B:  http://127.0.0.1:8930/v1
+echo   [Êý¾Ý¿â] PostgreSQL Êý¾Ý¿â:   127.0.0.1:!ACTIVE_PG_PORT! (projectrag)
 echo ------------------------------------------------------------------------------
-echo   ðŸ”‘ é»˜è®¤æ¼”ç¤ºç™»å½•è´¦å·ï¼šadmin  /  å¯†ç ï¼šå¯†ç åŒç”¨æˆ·å
-echo   ðŸ“š OpenAPI æŽ¥å£æ–‡æ¡£ï¼šhttp://127.0.0.1:8921/docs
+echo   [ÃØÔ¿] Ä¬ÈÏÑÝÊ¾µÇÂ¼ÕËºÅ£ºadmin  /  ÃÜÂë£ºÃÜÂëÍ¬ÓÃ»§Ãû
+echo   [ÖªÊ¶¿â] OpenAPI ½Ó¿ÚÎÄµµ£ºhttp://127.0.0.1:8921/docs
 echo ==============================================================================
 echo.
-echo æ­£åœ¨è‡ªåŠ¨æ‰“å¼€æµè§ˆå™¨...
+echo ÕýÔÚ×Ô¶¯´ò¿ªä¯ÀÀÆ÷...
 start http://127.0.0.1:5173
 start http://127.0.0.1:8921
 pause

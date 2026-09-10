@@ -1,10 +1,10 @@
 @echo off
-@chcp 65001 >nul
+@chcp 936 >nul 2>&1
 setlocal
 cd /d "%~dp0..\.."
 
 echo ==============================================================================
-echo   ðŸ—ï¸ æ­£åœ¨ç¼–è¯‘ æˆéƒ½å»ºå·¥ V3.0 Windows æ‰˜ç›˜æŽ§åˆ¶ä¸­å¿ƒ (Native WinExe)...
+echo   [³É¶¼½¨¹¤] ÕýÔÚ±àÒë ³É¶¼½¨¹¤ V3.0 Windows ÍÐÅÌ¿ØÖÆÖÐÐÄ (Native WinExe)...
 echo ==============================================================================
 
 set "CSC_EXE=C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
@@ -13,7 +13,7 @@ if not exist "%CSC_EXE%" (
 )
 
 if not exist "%CSC_EXE%" (
-    echo [é”™è¯¯] æœªæ‰¾åˆ° Windows å†…ç½® C# ç¼–è¯‘å™¨ csc.exeï¼
+    echo [´íÎó] Î´ÕÒµ½ Windows ÄÚÖÃ C# ±àÒëÆ÷ csc.exe£¡
     pause
     exit /b 1
 )
@@ -21,15 +21,15 @@ if not exist "%CSC_EXE%" (
 "%CSC_EXE%" /target:winexe /win32icon:"desktop_apps\windows\app.ico" /out:"desktop_apps\windows_tray\ChengduConstructionTray.exe" /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.dll /optimize+ "desktop_apps\windows_tray\ChengduConstructionTray.cs"
 
 if errorlevel 1 (
-    echo [é”™è¯¯] ç¼–è¯‘å¤±è´¥ï¼
+    echo [´íÎó] ±àÒëÊ§°Ü£¡
     exit /b 2
 )
 
 copy /y "desktop_apps\windows_tray\ChengduConstructionTray.exe" "desktop_apps\windows\ChengduConstructionTray.exe" >nul
-copy /y "desktop_apps\windows_tray\ChengduConstructionTray.exe" "æˆéƒ½å»ºå·¥V3.0æ‰˜ç›˜æŽ§åˆ¶å°.exe" >nul
+copy /y "desktop_apps\windows_tray\ChengduConstructionTray.exe" "³É¶¼½¨¹¤V3.0ÍÐÅÌ¿ØÖÆÌ¨.exe" >nul
 copy /y "desktop_apps\windows_tray\ChengduConstructionTray.exe" "ChengduConstructionTray.exe" >nul
 
-echo [æˆåŠŸ] æ‰˜ç›˜æŽ§åˆ¶å°ç¼–è¯‘å°±ç»ª:
-echo        - æˆéƒ½å»ºå·¥V3.0æ‰˜ç›˜æŽ§åˆ¶å°.exe
+echo [³É¹¦] ÍÐÅÌ¿ØÖÆÌ¨±àÒë¾ÍÐ÷:
+echo        - ³É¶¼½¨¹¤V3.0ÍÐÅÌ¿ØÖÆÌ¨.exe
 echo ==============================================================================
 exit /b 0

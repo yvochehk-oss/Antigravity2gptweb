@@ -1,3 +1,3 @@
 @echo off
-chcp 65001 >nul
+@chcp 936 >nul 2>&1
 call windows_scripts\sync_from_macos.bat

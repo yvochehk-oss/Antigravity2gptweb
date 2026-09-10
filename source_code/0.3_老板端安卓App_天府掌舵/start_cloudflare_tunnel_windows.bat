@@ -1,23 +1,23 @@
 @echo off
-chcp 65001 >nul
-title æˆéƒ½å»ºå·¥ Cloudflare è¿œç¨‹å®‰å…¨ç©¿é€éš§é“ (Windows)
+@chcp 936 >nul 2>&1
+title ³É¶¼½¨¹¤ Cloudflare Ô¶³Ì°²È«´©Í¸ËíµÀ (Windows)
 echo ==============================================================================
-echo   ğŸš€ æ­£åœ¨å¯åŠ¨ æˆéƒ½å»ºå·¥ Cloudflare è¿œç¨‹å®‰å…¨ç©¿é€éš§é“ (Windows)
+echo   [Æô¶¯] ÕıÔÚÆô¶¯ ³É¶¼½¨¹¤ Cloudflare Ô¶³Ì°²È«´©Í¸ËíµÀ (Windows)
 echo ==============================================================================
 
 where cloudflared >nul 2>&1
 if %ERRORLEVEL% NEQ 0 (
-    echo [1/2] æœªæ£€æµ‹åˆ° cloudflared.exeï¼Œæ­£åœ¨è‡ªåŠ¨ä¸‹è½½å®˜æ–¹å®¢æˆ·ç«¯...
+    echo [1/2] Î´¼ì²âµ½ cloudflared.exe£¬ÕıÔÚ×Ô¶¯ÏÂÔØ¹Ù·½¿Í»§¶Ë...
     powershell -Command "Invoke-WebRequest -Uri 'https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe' -OutFile 'cloudflared.exe'"
     set CLOUDFLARED_BIN=cloudflared.exe
 ) else (
     set CLOUDFLARED_BIN=cloudflared
 )
 
-echo [2/2] æ­£åœ¨åˆ›å»ºå…¬ç½‘å®‰å…¨éš§é“ (ç›´è¿æœ¬åœ° 8922 ç«¯å£)...
+echo [2/2] ÕıÔÚ´´½¨¹«Íø°²È«ËíµÀ (Ö±Á¬±¾µØ 8922 ¶Ë¿Ú)...
 echo.
 echo ------------------------------------------------------------------------------
-echo ğŸ’¡ å¤åˆ¶ä¸‹æ–¹å‡ºç°çš„ https://xxxx.trycloudflare.com é“¾æ¥åˆ°æ‰‹æœº App è®¾ç½®ä¸­å³å¯ï¼
+echo [ÌáÊ¾] ¸´ÖÆÏÂ·½³öÏÖµÄ https://xxxx.trycloudflare.com Á´½Óµ½ÊÖ»ú App ÉèÖÃÖĞ¼´¿É£¡
 echo ------------------------------------------------------------------------------
 %CLOUDFLARED_BIN% tunnel --url http://127.0.0.1:8922
 pause

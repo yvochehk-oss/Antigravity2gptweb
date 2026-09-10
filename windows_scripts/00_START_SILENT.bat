@@ -1,5 +1,5 @@
 @echo off
-@chcp 65001 >nul
+@chcp 936 >nul 2>&1
 setlocal enabledelayedexpansion
 
 set "SCRIPT_DIR=%~dp0"
@@ -37,29 +37,29 @@ if errorlevel 1 (
 :: 3. RAG (8922)
 netstat -ano | findstr "LISTENING" | findstr ":8922" >nul
 if errorlevel 1 (
-    set "PYTHON_RAG=%CD%\source_code\0.2_RAG绯荤粺\project-rag-v1.1\.venv\Scripts\python.exe"
-    start "02_RAG" /D "%CD%\source_code\0.2_RAG绯荤粺\project-rag-v1.1" /B "!PYTHON_RAG!" -m uvicorn app.main:app --host 127.0.0.1 --port 8922 > "%CD%\logs\rag.log" 2>&1
+    set "PYTHON_RAG=%CD%\source_code\0.2_RAG系统\project-rag-v1.1\.venv\Scripts\python.exe"
+    start "02_RAG" /D "%CD%\source_code\0.2_RAG系统\project-rag-v1.1" /B "!PYTHON_RAG!" -m uvicorn app.main:app --host 127.0.0.1 --port 8922 > "%CD%\logs\rag.log" 2>&1
 )
 
 :: 4. IDP (8933)
 netstat -ano | findstr "LISTENING" | findstr ":8933" >nul
 if errorlevel 1 (
-    set "PYTHON_IDP=%CD%\source_code\0.4_IDP鏂囨。褰曞叆寮曟搸_V3.0\.venv\Scripts\python.exe"
-    start "03_IDP" /D "%CD%\source_code\0.4_IDP鏂囨。褰曞叆寮曟搸_V3.0" /B "!PYTHON_IDP!" -m uvicorn app.main:app --host 127.0.0.1 --port 8933 > "%CD%\logs\idp.log" 2>&1
+    set "PYTHON_IDP=%CD%\source_code\0.4_IDP文档录入引擎_V3.0\.venv\Scripts\python.exe"
+    start "03_IDP" /D "%CD%\source_code\0.4_IDP文档录入引擎_V3.0" /B "!PYTHON_IDP!" -m uvicorn app.main:app --host 127.0.0.1 --port 8933 > "%CD%\logs\idp.log" 2>&1
 )
 
 :: 5. TAX (8921)
 netstat -ano | findstr "LISTENING" | findstr ":8921" >nul
 if errorlevel 1 (
-    set "PYTHON_TAX=%CD%\source_code\0.1_绋庡姟绠＄悊\gtp_V1.0_FULL\01_褰撳墠瀹屾暣绯荤粺_V1.0\chengdu_construction_tax_system_v1_0\.venv\Scripts\python.exe"
-    start "04_TAX" /D "%CD%\source_code\0.1_绋庡姟绠＄悊\gtp_V1.0_FULL\01_褰撳墠瀹屾暣绯荤粺_V1.0\chengdu_construction_tax_system_v1_0" /B "!PYTHON_TAX!" -m uvicorn app.main:app --host 127.0.0.1 --port 8921 > "%CD%\logs\tax.log" 2>&1
+    set "PYTHON_TAX=%CD%\source_code\0.1_税务管理\gtp_V1.0_FULL\01_当前完整系统_V1.0\chengdu_construction_tax_system_v1_0\.venv\Scripts\python.exe"
+    start "04_TAX" /D "%CD%\source_code\0.1_税务管理\gtp_V1.0_FULL\01_当前完整系统_V1.0\chengdu_construction_tax_system_v1_0" /B "!PYTHON_TAX!" -m uvicorn app.main:app --host 127.0.0.1 --port 8921 > "%CD%\logs\tax.log" 2>&1
 )
 
 :: 6. WEB (5173)
 netstat -ano | findstr "LISTENING" | findstr ":5173" >nul
 if errorlevel 1 (
-    set "PYTHON_TAX=%CD%\source_code\0.1_绋庡姟绠＄悊\gtp_V1.0_FULL\01_褰撳墠瀹屾暣绯荤粺_V1.0\chengdu_construction_tax_system_v1_0\.venv\Scripts\python.exe"
-    start "05_WEB" /D "%CD%\source_code\0.3_鑰佹澘绔畨鍗揂pp_澶╁簻鎺岃埖" /B "!PYTHON_TAX!" "%CD%\windows_scripts\serve_web.py" 5173 > "%CD%\logs\web.log" 2>&1
+    set "PYTHON_TAX=%CD%\source_code\0.1_税务管理\gtp_V1.0_FULL\01_当前完整系统_V1.0\chengdu_construction_tax_system_v1_0\.venv\Scripts\python.exe"
+    start "05_WEB" /D "%CD%\source_code\0.3_老板端安卓App_天府掌舵" /B "!PYTHON_TAX!" "%CD%\windows_scripts\serve_web.py" 5173 > "%CD%\logs\web.log" 2>&1
 )
 
 exit /b 0

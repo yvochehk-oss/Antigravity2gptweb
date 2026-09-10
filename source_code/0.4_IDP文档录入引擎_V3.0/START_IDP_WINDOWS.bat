@@ -1,4 +1,5 @@
 @echo off
+@chcp 936 >nul 2>&1
 setlocal
 cd /d "%~dp0"
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0platform\windows\setup_and_start.ps1"

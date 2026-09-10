@@ -155,6 +155,32 @@ def init_db() -> None:
                 "Missing indexes: " + ", ".join(missing_indexes)
             )
 
+        # Auto-heal legacy column types in ingest_jobs if restored from older v2 schema
+        try:
+            col_type = conn.execute(
+                text(
+                    "SELECT data_type FROM information_schema.columns "
+                    "WHERE table_name = 'ingest_jobs' AND column_name = 'next_retry_at'"
+                )
+            ).scalar_one_or_none()
+            if col_type in ("character varying", "text"):
+                logger.info("Auto-healing legacy ingest_jobs timestamp columns to timestamptz...")
+                conn.execute(
+                    text(
+                        "TRUNCATE TABLE ingest_jobs; "
+                        "ALTER TABLE ingest_jobs ALTER COLUMN next_retry_at DROP NOT NULL; "
+                        "ALTER TABLE ingest_jobs ALTER COLUMN next_retry_at TYPE timestamp with time zone USING NULL; "
+                        "ALTER TABLE ingest_jobs ALTER COLUMN started_at DROP NOT NULL; "
+                        "ALTER TABLE ingest_jobs ALTER COLUMN started_at TYPE timestamp with time zone USING NULL; "
+                        "ALTER TABLE ingest_jobs ALTER COLUMN finished_at DROP NOT NULL; "
+                        "ALTER TABLE ingest_jobs ALTER COLUMN finished_at TYPE timestamp with time zone USING NULL;"
+                    )
+                )
+                conn.commit()
+                logger.info("Self-healing: ingest_jobs timestamp columns successfully updated to timestamptz")
+        except Exception as _heal_err:
+            logger.warning("Auto-heal check for ingest_jobs column types skipped: %s", _heal_err)
+
 
 def db_health() -> dict:
     """Return a small, non-mutating PostgreSQL health snapshot."""

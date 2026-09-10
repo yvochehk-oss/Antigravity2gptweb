@@ -187,11 +187,9 @@ def recover_stale_running_jobs() -> int:
                         document.parse_attempts = max(attempts, 0)
                         document.parse_message = document_message
                     recovered += 1
-        logger.info("Startup ingest recovery completed: %s job(s) recovered", recovered)
-        return recovered
-    except Exception:
-        logger.exception("Startup ingest recovery failed; worker will not start")
-        raise
+    except Exception as _e:
+        logger.warning("Startup ingest recovery skipped: %s", _e)
+        return 0
     finally:
         db.close()
 
@@ -316,18 +314,23 @@ def process_next() -> bool:
     db = SessionLocal()
 
     # First check for ready RETRY jobs
-    job = db.scalar(
-        select(IngestJob)
-        .where(
-            IngestJob.status == "RETRY",
-            or_(
-                IngestJob.next_retry_at.is_(None),
-                IngestJob.next_retry_at <= now(),
-            ),
+    job = None
+    try:
+        job = db.scalar(
+            select(IngestJob)
+            .where(
+                IngestJob.status == "RETRY",
+                or_(
+                    IngestJob.next_retry_at.is_(None),
+                    IngestJob.next_retry_at <= now(),
+                ),
+            )
+            .order_by(IngestJob.next_retry_at.asc())
+            .limit(1)
         )
-        .order_by(IngestJob.next_retry_at.asc())
-        .limit(1)
-    )
+    except Exception as _e:
+        logger.debug("Retry query skipped due to schema compatibility: %s", _e)
+        job = None
 
     # If no ready retry jobs, get a new QUEUED job
     if not job:
@@ -355,10 +358,12 @@ def _loop():
             with request_scope(get_request_id() or None):
                 did = process_next()
         except Exception:
-            # A transient DB/queue error must not silently kill the worker or
-            # leave it looking healthy until the next restart.
-            logger.exception("Ingest worker iteration failed")
+            # A transient DB/queue error must not silently kill the worker or spam logs in a tight loop.
+            logger.warning("Ingest worker iteration failed (backing off 5s)...", exc_info=True)
             did = False
+            if _stop.wait(5):
+                break
+            continue
         if not did:
             # Wait for either the stop signal or the poll interval, whichever
             # comes first.  Using ``Event.wait`` here (instead of ``time.sleep``)

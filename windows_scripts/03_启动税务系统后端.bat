@@ -1,22 +1,22 @@
-ï»¿@echo off
-@chcp 65001 >nul
-title æˆéƒ½å»ºå·¥ V3.0 - ç¨åŠ¡ç®¡ç†ç³»ç»Ÿåç«¯ (Port 8921)
+@echo off
+@chcp 936 >nul 2>&1
+title ³É¶¼½¨¹¤ V3.0 - Ë°Îñ¹ÜÀíÏµÍ³ºó¶Ë (Port 8921)
 setlocal enabledelayedexpansion
 
 set "SCRIPT_DIR=%~dp0"
 cd /d "%SCRIPT_DIR%.."
 
 echo ==============================================================================
-echo   æˆéƒ½å»ºå·¥ V3.0 - ç¨åŠ¡ç®¡ç†ä¸é£æ§ä¸­æ¢ (Port 8921)
-echo   ä¸šåŠ¡é€»è¾‘: è´¢ç¨ç¡®å®šæ€§è®¡ç®— - è¿›é”€é¡¹å‘ç¥¨å°è´¦ - å››æµåˆè§„å¤æ ¸
-echo   æœ¬æœºè®¿é—®: http://127.0.0.1:8921/healthz
+echo   ³É¶¼½¨¹¤ V3.0 - Ë°Îñ¹ÜÀíÓë·ç¿ØÖĞÊà (Port 8921)
+echo   ÒµÎñÂß¼­: ²ÆË°È·¶¨ĞÔ¼ÆËã - ½øÏúÏî·¢Æ±Ì¨ÕË - ËÄÁ÷ºÏ¹æ¸´ºË
+echo   ±¾»ú·ÃÎÊ: http://127.0.0.1:8921/healthz
 echo ==============================================================================
 
-cd "source_code\0.1_ç¨åŠ¡ç®¡ç†\gtp_V1.0_FULL\01_å½“å‰å®Œæ•´ç³»ç»Ÿ_V1.0\chengdu_construction_tax_system_v1_0"
+cd "source_code\0.1_Ë°Îñ¹ÜÀí\gtp_V1.0_FULL\01_µ±Ç°ÍêÕûÏµÍ³_V1.0\chengdu_construction_tax_system_v1_0"
 
 set "PYTHON_EXE=.venv\Scripts\python.exe"
 if not exist "%PYTHON_EXE%" (
-    echo [é”™è¯¯] æœªæ‰¾åˆ°è™šæ‹Ÿç¯å¢ƒï¼Œè¯·å…ˆè¿è¡Œ 06_ä¸€é”®é…ç½®Python314ç¯å¢ƒ.batï¼
+    echo [´íÎó] Î´ÕÒµ½ĞéÄâ»·¾³£¬ÇëÏÈÔËĞĞ 06_Ò»¼üÅäÖÃPython314»·¾³.bat£¡
     pause
     exit /b 1
 )

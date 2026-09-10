@@ -1,9 +1,9 @@
 @echo off
-chcp 65001 >nul
+@chcp 936 >nul 2>&1
 setlocal
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0build.ps1" %*
 set "EXIT_CODE=%ERRORLEVEL%"
 if not "%EXIT_CODE%"=="0" (
-  echo Windows æŽ§åˆ¶å°æž„å»ºå¤±è´¥ï¼Œé€€å‡ºç  %EXIT_CODE%ã€‚
+  echo Windows ¿ØÖÆÌ¨¹¹½¨Ê§°Ü£¬ÍË³öÂë %EXIT_CODE%¡£
 )
 exit /b %EXIT_CODE%

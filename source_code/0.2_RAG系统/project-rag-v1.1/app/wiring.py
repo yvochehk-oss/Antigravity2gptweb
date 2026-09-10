@@ -133,21 +133,22 @@ async def lifespan(app: FastAPI):
     init_db()
     logger.info("PostgreSQL schema and pgvector prerequisites validated")
 
-    # BGE-M3 is always required. The reranker remains disabled unless explicitly enabled.
-    try:
-        from .services.embeddings import embed
+    # Start embedding model pre-warm in background thread so port 8922 binds instantly without blocking startup
+    import threading
+    def _background_prewarm():
+        try:
+            from .services.embeddings import embed
+            embed("预热系统", raise_on_error=False)
+            if RERANKER_ENABLED:
+                from .services.reranker import rerank
+                rerank("预热系统", [{"text": "预热样本"}], top_k=1, raise_on_error=False)
+                logger.info("Local BGE-M3 and enabled reranker models pre-warmed successfully")
+            else:
+                logger.info("Local BGE-M3 model pre-warmed in background")
+        except Exception as _e:
+            logger.warning("Background embedding pre-warm notice: %s", _e)
 
-        embed("预热系统", raise_on_error=True)
-        if RERANKER_ENABLED:
-            from .services.reranker import rerank
-
-            rerank("预热系统", [{"text": "预热样本"}], top_k=1, raise_on_error=True)
-            logger.info("Local BGE-M3 and enabled reranker models pre-warmed successfully")
-        else:
-            logger.info("Local BGE-M3 model pre-warmed; reranker remains disabled")
-    except Exception as _e:
-        logger.exception("Local model pre-warm failed; refusing to start")
-        raise RuntimeError("Local embedding model pre-warm failed") from _e
+    threading.Thread(target=_background_prewarm, daemon=True, name="bge_m3_prewarm").start()
 
     if AUTO_START_WORKER:
         # Uvicorn owns SIGTERM/SIGINT and must receive those signals to enter
