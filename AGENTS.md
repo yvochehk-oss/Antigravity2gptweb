@@ -1,12 +1,29 @@
-# 成都建工 V2.0 Agent 开发与分支同步规则 (AGENTS.md)
+# 成都建工 V3.0 Agent 开发与分支同步规则 (AGENTS.md)
 
 本文件规定了 AI Agent 在本项目中进行代码修改、Git 同步、版本提交和跨平台治理的核心原则与行为准则。
 
 ---
 
+## 0. V3.0 分支架构速查表（Agent 必读，禁止弄错分支）
+
+> ⚠️ **Agent 每次操作前必须核对当前所在分支，严禁推送到已废弃的旧分支！**
+
+| 分支名 | 角色 | 当前状态 | Agent 是否可推送 |
+|---|---|---|---|
+| `v3.0-windows` | **本机（Windows）唯一工作分支** | ✅ 活跃 | ✅ **必须推送此分支** |
+| `v3.0-macos` | macOS 端对应分支 | ✅ 活跃 | ❌ 非本机，禁止操作 |
+| `v3.0` | V3.0 主开发线 | ✅ 活跃 | 由 CI 自动同步 |
+| `main` | 规范基线 | ✅ 活跃 | 由 CI 自动同步 |
+| `windows` | **V2.0 时代遗留分支（已废弃）** | ❌ 废弃 | ❌ **严禁推送** |
+| `macos` | **V2.0 时代遗留分支（已废弃）** | ❌ 废弃 | ❌ **严禁推送** |
+
+**核心记忆规则（只记这一句）：Windows 本机 → 只推 `v3.0-windows`，其他一律不碰。**
+
+---
+
 ## 1. 单一主体代码与分支镜像架构 (Canonical Branch Mirror)
 
-* **唯一代码基线**：`main` 是项目的唯一主体基线。`windows` 和 `macos` 是对同一代码基线的镜像引用。三者正常情况下必须始终指向**同一个 Commit SHA**。
+* **唯一代码基线**：`main` 是项目的唯一主体基线。`v3.0-windows` 和 `v3.0-macos` 是对同一 V3.0 代码基线的平台镜像引用。
 * **业务源码零分叉**：所有子系统（`0.1_税务管理`、`0.2_RAG系统`、`0.3_老板端安卓App_天府掌舵`、前端 UI、数据库模型与迁移）在 Windows 与 macOS 上共用**同一套共享源码**。
 * **平台差异严格收敛在启动脚本**：
   * macOS / Linux：`start_all.sh`、`stop_all.sh` 等 Shell 脚本；
@@ -18,11 +35,12 @@
 ## 2. Agent 提交与推送原则
 
 1. **工作分支**：
-   * 在 Windows 机器上开发时，本地处于 `windows` 分支；
+   * 在 Windows 机器上开发时，本地必须处于 **`v3.0-windows`** 分支（`windows` 为 V2.0 遗留废弃分支，**严禁推送**）；
+   * 提交前务必执行 `git branch` 确认当前分支，确认输出为 `* v3.0-windows` 后再推送；
    * 提交代码必须使用标准清晰的 Conventional Commits 格式（如 `feat(tax): ...`、`fix(rag): ...`、`docs(sync): ...`）。
 2. **快速线性提交与自动镜像**：
-   * 本地提交后直接推送到远程：`git push origin windows`；
-   * 远程 GitHub Actions（`.github/workflows/cross-platform-sync.yml`）会自动触发 **Canonical Branch Mirror**，在校验通过后以 fast-forward 方式将 `main` 和 `macos` 原子同步至同一 Commit SHA。
+   * 本地提交后直接推送到远程：`git push origin v3.0-windows`；
+   * 远程 GitHub Actions（`.github/workflows/cross-platform-sync.yml`）会自动触发 **Canonical Branch Mirror**，在校验通过后以 fast-forward 方式将 `main` 和 `v3.0` 原子同步至同一 Commit SHA。
 3. **安全同步命令**：
    * 本地拉取远程最新代码时，必须使用 **`--ff-only`** 线性快进同步（或运行 `windows_scripts/sync_from_macos.bat`），避免生成无意义的 merge commit。
 
@@ -31,6 +49,7 @@
 ## 3. 严格禁止的破坏性操作 (Prohibited Actions)
 
 Agent 在任何情况下**绝对禁止**执行以下操作：
+❌ **禁止** `git push origin windows` 或 `git push origin macos`——这两个是 V2.0 遗留废弃分支，推送到此处不会触发 V3.0 的 CI 镜像流水线，修复将永远不会进入生产线！
 ❌ **禁止** 使用 `git checkout --theirs source_code/` 或 `git checkout --ours source_code/` 盲目覆盖业务代码。
 ❌ **禁止** 在发生冲突时未经业务代码逐行审查直接 `git add -A` 并无脑 commit。
 ❌ **禁止** 使用 `--allow-unrelated-histories` 强行将不同历史的分支拼接到一起。
@@ -44,7 +63,7 @@ Agent 在任何情况下**绝对禁止**执行以下操作：
 此时的处理流程为：
 1. 检出 `main` 分支，人工审查并精准整合双端的有效业务修改；
 2. 运行系统全量回归验证与测试；
-3. 将统一后的提交同步到 `main`，并依次将 `windows` 和 `macos` 以 `--ff-only` 恢复为相同 SHA。
+3. 将统一后的提交同步到 `main`，并依次将 `v3.0-windows` 和 `v3.0-macos` 以 `--ff-only` 恢复为相同 SHA。
 
 ---
 
