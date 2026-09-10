@@ -1,14 +1,14 @@
-﻿@echo off
+@echo off
 @chcp 65001 >nul
-title 成都建工 V2.0 - AI模型高速下载
+title 成都建工 V3.0 - AI模型高速下载
 setlocal enabledelayedexpansion
 
 set "SCRIPT_DIR=%~dp0"
 cd /d "%SCRIPT_DIR%.."
 
 echo ==============================================================================
-echo   成都建工 V2.0 - AI 模型极速自动下载器
-echo   支持国内阿里魔搭 ModelScope 满速节点 - 自动下载 Ling-3.0 与 BGE 向量模型
+echo   成都建工 V3.0 - AI 模型极速自动下载器
+echo   支持国内阿里魔搭 ModelScope 满速节点 - 自动下载 星火 Spark-X2.5-4B 与 BGE-M3 向量模型
 echo ==============================================================================
 echo.
 

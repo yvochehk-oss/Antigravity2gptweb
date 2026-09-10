@@ -9,7 +9,7 @@ if exist "成都建工V3.0托盘控制台.exe" (
     start "" "desktop_apps\windows\ChengduConstructionTray.exe"
 ) else (
     echo [提示] 正在自动编译托盘控制台...
-    call "desktop_apps\windows\build_tray.bat"
+    call "desktop_apps\windows_tray\build_tray.bat"
     start "" "成都建工V3.0托盘控制台.exe"
 )
 exit /b 0

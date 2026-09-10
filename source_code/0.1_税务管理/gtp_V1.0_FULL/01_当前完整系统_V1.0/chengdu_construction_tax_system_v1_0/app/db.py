@@ -9,6 +9,26 @@ from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 def _normalize_db_url(url: str) -> str:
     url = url.strip()
+    try:
+        parsed = make_url(url)
+        if parsed.host in ("127.0.0.1", "localhost") and parsed.port == 54320:
+            import socket
+            sock = socket.socket()
+            sock.settimeout(0.3)
+            try:
+                sock.connect((parsed.host, 54320))
+                sock.close()
+            except Exception:
+                try:
+                    sock2 = socket.socket()
+                    sock2.settimeout(0.3)
+                    sock2.connect((parsed.host, 5432))
+                    sock2.close()
+                    url = url.replace(":54320", ":5432")
+                except Exception:
+                    pass
+    except Exception:
+        pass
     if url.startswith("postgresql://"):
         return "postgresql+psycopg://" + url[len("postgresql://"):]
     if url.startswith("postgres://"):

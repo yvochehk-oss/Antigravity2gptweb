@@ -1,13 +1,13 @@
 ﻿@echo off
 @chcp 65001 >nul
-title 成都建工 V2.0 - RAG事实中台 (Port 8922)
+title 成都建工 V3.0 - RAG事实中台 (Port 8922)
 setlocal enabledelayedexpansion
 
 set "SCRIPT_DIR=%~dp0"
 cd /d "%SCRIPT_DIR%.."
 
 echo ==============================================================================
-echo   成都建工 V2.0 - RAG 智能文档与事实中台 (Port 8922)
+echo   成都建工 V3.0 - RAG 智能文档与事实中台 (Port 8922)
 echo   向量检索: BGE-M3 (CPU加速) - 4并发 Worker (Python 3.14)
 echo   本机访问: http://127.0.0.1:8922/docs
 echo ==============================================================================

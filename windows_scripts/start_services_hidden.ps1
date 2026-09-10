@@ -1,4 +1,4 @@
-﻿$ErrorActionPreference = "SilentlyContinue"
+$ErrorActionPreference = "SilentlyContinue"
 $RootDir = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 Set-Location $RootDir
 
@@ -22,10 +22,18 @@ if (-not (Check-Port 54320) -and -not (Check-Port 5432)) {
 # 2. LLM (8930)
 if (-not (Check-Port 8930)) {
     $serverBin = Join-Path $RootDir "models\local-llm\runtime-win-cpu-x64\llama-server.exe"
-    $modelFile = Join-Path $RootDir "models\local-llm\Ling-3.0-tiny-Q4_K_M.gguf"
-    if (-not (Test-Path $modelFile)) { $modelFile = Join-Path $RootDir "models\local-llm\Qwen3.5-2B-Q4_K_M.gguf" }
+    $modelFile = Join-Path $RootDir "models\local-llm\Spark-X2.5-4B-Q4_K_M.gguf"
+    $modelAlias = "spark-x2.5-4b"
+    if (-not (Test-Path $modelFile)) { 
+        $modelFile = Join-Path $RootDir "models\local-llm\Qwen3.5-2B-Q4_K_M.gguf"
+        $modelAlias = "qwen3.5-2b"
+    }
+    if (-not (Test-Path $modelFile)) { 
+        $modelFile = Join-Path $RootDir "models\local-llm\Ling-3.0-tiny-Q4_K_M.gguf"
+        $modelAlias = "ling-3.0-tiny"
+    }
     if (Test-Path $serverBin) {
-        $args = "--model `"$modelFile`" --host 127.0.0.1 --port 8930 --alias ling-3.0-tiny --ctx-size 16384 --threads 4 --threads-batch 4 --batch-size 512 --ubatch-size 256 --gpu-layers 0 --reasoning off --parallel 1 --jinja"
+        $args = "--model `"$modelFile`" --host 127.0.0.1 --port 8930 --alias `"$modelAlias`" --ctx-size 16384 --threads 4 --threads-batch 4 --batch-size 512 --ubatch-size 256 --gpu-layers 0 --reasoning off --parallel 1 --jinja"
         $llmLog = Join-Path $LogsDir "llm.log"
         Start-Process -FilePath $serverBin -ArgumentList $args -WorkingDirectory $RootDir -WindowStyle Hidden -RedirectStandardOutput $llmLog -RedirectStandardError $llmLog
     }
@@ -64,11 +72,12 @@ if (-not (Check-Port 8921)) {
 # 6. WEB (5173)
 if (-not (Check-Port 5173)) {
     $taxDir = Join-Path $RootDir "source_code\0.1_税务管理\gtp_V1.0_FULL\01_当前完整系统_V1.0\chengdu_construction_tax_system_v1_0"
+    $bossDir = Join-Path $RootDir "source_code\0.3_老板端安卓App_天府掌舵"
     $pyTax = Join-Path $taxDir ".venv\Scripts\python.exe"
     $webScript = Join-Path $RootDir "windows_scripts\serve_web.py"
     if ((Test-Path $pyTax) -and (Test-Path $webScript)) {
         $webLog = Join-Path $LogsDir "web.log"
-        Start-Process -FilePath $pyTax -ArgumentList "`"$webScript`" 5173" -WorkingDirectory $RootDir -WindowStyle Hidden -RedirectStandardOutput $webLog -RedirectStandardError $webLog
+        Start-Process -FilePath $pyTax -ArgumentList "`"$webScript`" 5173" -WorkingDirectory $bossDir -WindowStyle Hidden -RedirectStandardOutput $webLog -RedirectStandardError $webLog
     }
 }
 

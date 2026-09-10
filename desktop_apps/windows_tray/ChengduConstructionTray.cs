@@ -394,8 +394,8 @@ namespace ChengduConstruction.TrayApp
                 if (!IsPortListening(PORT_DB_PRIMARY) && !IsPortListening(PORT_DB_FALLBACK))
                 {
                     string pgCtl = Path.Combine(rootDir, @"database\pgsql\bin\pg_ctl.exe");
-                    string pgData = @"F:\projectrag_pgdata";
-                    if (File.Exists(pgCtl) && Directory.Exists(pgData))
+                    string pgData = FindPgDataDir();
+                    if (File.Exists(pgCtl) && !string.IsNullOrEmpty(pgData) && Directory.Exists(pgData))
                     {
                         string pgCmd = string.Format("\"{0}\" start -D \"{1}\" -l \"{2}\"", pgCtl, pgData, Path.Combine(logsDir, "postgres.log"));
                         LaunchCmdDetached(pgCmd, rootDir);
@@ -403,26 +403,49 @@ namespace ChengduConstruction.TrayApp
                     }
                 }
 
-                // 1. LLM
+                // 1. LLM (优先星火 Spark-X2.5-4B，兼容 Ling 与 Qwen)
                 if (!IsPortListening(PORT_LLM))
                 {
                     string llmExe = Path.Combine(rootDir, @"models\local-llm\runtime-win-cpu-x64\llama-server.exe");
-                    string modelPath = Path.Combine(rootDir, @"models\local-llm\Ling-3.0-tiny-Q4_K_M.gguf");
-                    if (!File.Exists(modelPath)) modelPath = Path.Combine(rootDir, @"models\local-llm\Qwen3.5-2B-Q4_K_M.gguf");
-                    string llmLog = Path.Combine(logsDir, "llm.log");
+                    string modelPath = null;
+                    string modelAlias = "spark-x2.5-4b";
 
-                    string llmCmd = string.Format("\"{0}\" --model \"{1}\" --host 127.0.0.1 --port 8930 --alias ling-3.0-tiny --ctx-size 16384 --threads 4 --threads-batch 4 --batch-size 512 --ubatch-size 256 --gpu-layers 0 --reasoning off --parallel 1 --jinja > \"{2}\" 2>&1",
-                        llmExe, modelPath, llmLog);
+                    string sparkPath = Path.Combine(rootDir, @"models\local-llm\Spark-X2.5-4B-Q4_K_M.gguf");
+                    string lingPath = Path.Combine(rootDir, @"models\local-llm\Ling-3.0-tiny-Q4_K_M.gguf");
+                    string qwenPath = Path.Combine(rootDir, @"models\local-llm\Qwen3.5-2B-Q4_K_M.gguf");
 
-                    LaunchCmdDetached(llmCmd, rootDir);
-                    Thread.Sleep(1000);
+                    if (File.Exists(sparkPath))
+                    {
+                        modelPath = sparkPath;
+                        modelAlias = "spark-x2.5-4b";
+                    }
+                    else if (File.Exists(lingPath))
+                    {
+                        modelPath = lingPath;
+                        modelAlias = "ling-3.0-tiny";
+                    }
+                    else if (File.Exists(qwenPath))
+                    {
+                        modelPath = qwenPath;
+                        modelAlias = "qwen3.5-2b";
+                    }
+
+                    if (File.Exists(llmExe) && modelPath != null)
+                    {
+                        string llmLog = Path.Combine(logsDir, "llm.log");
+                        string llmCmd = string.Format("\"{0}\" --model \"{1}\" --host 127.0.0.1 --port 8930 --alias \"{2}\" --ctx-size 16384 --threads 4 --threads-batch 4 --batch-size 512 --ubatch-size 256 --gpu-layers 0 --reasoning off --parallel 1 --jinja > \"{3}\" 2>&1",
+                            llmExe, modelPath, modelAlias, llmLog);
+
+                        LaunchCmdDetached(llmCmd, rootDir);
+                        Thread.Sleep(1000);
+                    }
                 }
 
                 // 2. RAG
                 if (!IsPortListening(PORT_RAG))
                 {
                     string ragDir = Path.Combine(rootDir, @"source_code\0.2_RAG系统\project-rag-v1.1");
-                    string pyRag = Path.Combine(ragDir, @".venv\Scripts\python.exe");
+                    string pyRag = FindPythonExecutable(ragDir);
                     string ragLog = Path.Combine(logsDir, "rag.log");
 
                     string ragCmd = string.Format("\"{0}\" -m uvicorn app.main:app --host 127.0.0.1 --port 8922 > \"{1}\" 2>&1",
@@ -436,7 +459,7 @@ namespace ChengduConstruction.TrayApp
                 if (!IsPortListening(PORT_IDP))
                 {
                     string idpDir = Path.Combine(rootDir, @"source_code\0.4_IDP文档录入引擎_V3.0");
-                    string pyIdp = Path.Combine(idpDir, @".venv\Scripts\python.exe");
+                    string pyIdp = FindPythonExecutable(idpDir);
                     string idpLog = Path.Combine(logsDir, "idp.log");
 
                     string idpCmd = string.Format("\"{0}\" -m uvicorn app.main:app --host 127.0.0.1 --port 8933 > \"{1}\" 2>&1",
@@ -450,7 +473,7 @@ namespace ChengduConstruction.TrayApp
                 if (!IsPortListening(PORT_TAX))
                 {
                     string taxDir = Path.Combine(rootDir, @"source_code\0.1_税务管理\gtp_V1.0_FULL\01_当前完整系统_V1.0\chengdu_construction_tax_system_v1_0");
-                    string pyTax = Path.Combine(taxDir, @".venv\Scripts\python.exe");
+                    string pyTax = FindPythonExecutable(taxDir);
                     string taxLog = Path.Combine(logsDir, "tax.log");
 
                     string taxCmd = string.Format("\"{0}\" -m uvicorn app.main:app --host 127.0.0.1 --port 8921 > \"{1}\" 2>&1",
@@ -463,12 +486,12 @@ namespace ChengduConstruction.TrayApp
                 // 5. WEB
                 if (!IsPortListening(PORT_WEB))
                 {
-                    string pyTax = Path.Combine(rootDir, @"source_code\0.1_税务管理\gtp_V1.0_FULL\01_当前完整系统_V1.0\chengdu_construction_tax_system_v1_0\.venv\Scripts\python.exe");
+                    string pyWeb = FindPythonExecutable(Path.Combine(rootDir, @"source_code\0.1_税务管理\gtp_V1.0_FULL\01_当前完整系统_V1.0\chengdu_construction_tax_system_v1_0"));
                     string webScript = Path.Combine(rootDir, @"windows_scripts\serve_web.py");
                     string webLog = Path.Combine(logsDir, "web.log");
 
                     string webCmd = string.Format("\"{0}\" \"{1}\" 5173 > \"{2}\" 2>&1",
-                        pyTax, webScript, webLog);
+                        pyWeb, webScript, webLog);
 
                     LaunchCmdDetached(webCmd, rootDir);
                 }
@@ -480,6 +503,67 @@ namespace ChengduConstruction.TrayApp
                     CheckAllServicesAsync();
                 }
             });
+        }
+
+        private string FindPgDataDir()
+        {
+            try
+            {
+                string driveRoot = Path.GetPathRoot(rootDir);
+                string[] candidates = new string[]
+                {
+                    Path.Combine(driveRoot, "projectrag_pgdata"),
+                    Path.Combine(rootDir, @"database\data"),
+                    Path.Combine(rootDir, "projectrag_pgdata"),
+                    @"C:\projectrag_pgdata",
+                    @"D:\projectrag_pgdata",
+                    @"E:\projectrag_pgdata",
+                    @"F:\projectrag_pgdata"
+                };
+                foreach (string path in candidates)
+                {
+                    if (!string.IsNullOrEmpty(path) && Directory.Exists(path) && File.Exists(Path.Combine(path, "PG_VERSION")))
+                    {
+                        return path;
+                    }
+                }
+                foreach (string path in candidates)
+                {
+                    if (!string.IsNullOrEmpty(path) && Directory.Exists(path))
+                    {
+                        return path;
+                    }
+                }
+            }
+            catch { }
+            return null;
+        }
+
+        private string FindPythonExecutable(string preferredDir)
+        {
+            try
+            {
+                if (!string.IsNullOrEmpty(preferredDir))
+                {
+                    string localPy = Path.Combine(preferredDir, @".venv\Scripts\python.exe");
+                    if (File.Exists(localPy)) return localPy;
+                }
+
+                string[] searchDirs = new string[]
+                {
+                    Path.Combine(rootDir, @"source_code\0.2_RAG系统\project-rag-v1.1"),
+                    Path.Combine(rootDir, @"source_code\0.1_税务管理\gtp_V1.0_FULL\01_当前完整系统_V1.0\chengdu_construction_tax_system_v1_0"),
+                    Path.Combine(rootDir, @"source_code\0.4_IDP文档录入引擎_V3.0")
+                };
+
+                foreach (string dir in searchDirs)
+                {
+                    string py = Path.Combine(dir, @".venv\Scripts\python.exe");
+                    if (File.Exists(py)) return py;
+                }
+            }
+            catch { }
+            return "python.exe";
         }
 
         private void LaunchCmdDetached(string commandWithRedirect, string workingDir)

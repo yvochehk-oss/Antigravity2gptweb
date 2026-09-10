@@ -4,7 +4,11 @@ from pathlib import Path
 import http.server
 import socketserver
 
-dist_dir = Path(__file__).resolve().parent.parent / "source_code" / "0.1_税务管理" / "gtp_V1.0_FULL" / "01_当前完整系统_V1.0" / "chengdu_construction_tax_system_v1_0" / "app" / "static_dist"
+boss_dist = Path(__file__).resolve().parent.parent / "source_code" / "0.3_老板端安卓App_天府掌舵" / "dist"
+if boss_dist.exists() and (boss_dist / "index.html").exists():
+    dist_dir = boss_dist
+else:
+    dist_dir = Path(__file__).resolve().parent.parent / "source_code" / "0.1_税务管理" / "gtp_V1.0_FULL" / "01_当前完整系统_V1.0" / "chengdu_construction_tax_system_v1_0" / "app" / "static_dist"
 
 class SPAHandler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):

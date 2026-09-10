@@ -17,9 +17,10 @@
     <Version>3.0.0</Version>
     <AssemblyTitle>成都建工控制台</AssemblyTitle>
     <AssemblyProduct>成都建工 V3.0</AssemblyProduct>
-    <Description>成都建工 V3.0 Windows 系统托盘控制台</Description>
+    <Description>成都建工 V3.0 Windows 桌面控制台</Description>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <PublishSingleFile Condition="'$(PublishSingleFile)' == ''">true</PublishSingleFile>
-    <SelfContained Condition="'$(SelfContained)' == ''">false</SelfContained>
+    <SelfContained Condition="'$(SelfContained)' == ''">true</SelfContained>
   </PropertyGroup>
 
 </Project>

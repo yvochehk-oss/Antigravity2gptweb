@@ -13,9 +13,10 @@ echo   硬件优化: Intel/AMD x64 CPU / AVX2 优先
 echo   监听端口: http://127.0.0.1:8930
 echo ==============================================================================
 
-set "SERVER_BIN=models\local-llm\runtime-win-cpu-x64\llama-server.exe"
+set "ROOT_DIR=%CD%"
+set "SERVER_BIN=%ROOT_DIR%\models\local-llm\runtime-win-cpu-x64\llama-server.exe"
 set "MIN_LLAMA_BUILD=10828"
-set "MODEL_FILE=models\local-llm\Spark-X2.5-4B-Q4_K_M.gguf"
+set "MODEL_FILE=%ROOT_DIR%\models\local-llm\Spark-X2.5-4B-Q4_K_M.gguf"
 set "MODEL_ALIAS=spark-x2.5-4b"
 set "REQUIRES_SPARK25=1"
 
@@ -29,7 +30,7 @@ if not exist "%SERVER_BIN%" (
 if not exist "%MODEL_FILE%" (
     echo [警告] 未找到 Spark-X2.5-4B 主模型文件: %MODEL_FILE%
     echo [提示] 尝试查找 Qwen3.5-2B 兜底模型...
-    set "MODEL_FILE=models\local-llm\Qwen3.5-2B-Q4_K_M.gguf"
+    set "MODEL_FILE=%ROOT_DIR%\models\local-llm\Qwen3.5-2B-Q4_K_M.gguf"
     set "MODEL_ALIAS=qwen3.5-2b"
     set "REQUIRES_SPARK25=0"
 )

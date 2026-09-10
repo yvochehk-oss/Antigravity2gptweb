@@ -5,12 +5,21 @@ Set-Location $RootDir
 
 $VenvPython = Join-Path $RootDir ".venv\Scripts\python.exe"
 if (-not (Test-Path $VenvPython)) {
-    if (Get-Command py -ErrorAction SilentlyContinue) {
+    $UvBin = Join-Path $RootDir "..\..\windows_scripts\tools\uv.exe"
+    if (Test-Path $UvBin) {
+        Write-Host "Using bundled uv to create Python 3.14 venv for IDP..."
+        & $UvBin venv --python 3.14 .venv
+    } elseif (Get-Command py -ErrorAction SilentlyContinue) {
         & py -3 -m venv .venv
     } elseif (Get-Command python -ErrorAction SilentlyContinue) {
         & python -m venv .venv
     } else {
-        throw "Python 3 not found. Install Python 3.11+ and retry."
+        $RagPython = Join-Path $RootDir "..\0.2_RAG系统\project-rag-v1.1\.venv\Scripts\python.exe"
+        if (Test-Path $RagPython) {
+            $VenvPython = $RagPython
+        } else {
+            throw "未找到可用 Python 3 环境。请先双击运行 windows_scripts\06_一键配置Python314环境.bat。"
+        }
     }
 }
 

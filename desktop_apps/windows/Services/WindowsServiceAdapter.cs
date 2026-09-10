@@ -76,12 +76,22 @@ public sealed class WindowsServiceAdapter
             throw new InvalidOperationException("未找到已安装的本地语言模型，控制台不会自动下载模型。");
         }
 
+        var alias = "spark-x2.5-4b";
+        if (model.Contains("Ling", StringComparison.OrdinalIgnoreCase))
+        {
+            alias = "ling-3.0-tiny";
+        }
+        else if (model.Contains("Qwen", StringComparison.OrdinalIgnoreCase))
+        {
+            alias = "qwen3.5-2b";
+        }
+
         var info = CreateHiddenProcessInfo(executable, workingDirectory);
         AddArguments(info,
             "--model", model,
             "--host", "127.0.0.1",
             "--port", definition.Port.ToString(System.Globalization.CultureInfo.InvariantCulture),
-            "--alias", "ling-3.0-tiny",
+            "--alias", alias,
             "--ctx-size", "16384",
             "--threads", "4",
             "--threads-batch", "4",
@@ -99,7 +109,14 @@ public sealed class WindowsServiceAdapter
         var python = Path.Combine(workingDirectory, ".venv", "Scripts", "python.exe");
         if (!File.Exists(python))
         {
-            throw new InvalidOperationException($"未找到{definition.DisplayName}的 Windows Python 环境，控制台不会自动安装依赖。");
+            var ragPython = _rootResolver.ResolvePath(@"source_code\0.2_RAG系统\project-rag-v1.1\.venv\Scripts\python.exe");
+            var taxPython = _rootResolver.ResolvePath(@"source_code\0.1_税务管理\gtp_V1.0_FULL\01_当前完整系统_V1.0\chengdu_construction_tax_system_v1_0\.venv\Scripts\python.exe");
+            if (File.Exists(ragPython)) python = ragPython;
+            else if (File.Exists(taxPython)) python = taxPython;
+            else
+            {
+                throw new InvalidOperationException($"未找到{definition.DisplayName}的 Windows Python 环境，请先运行 06_一键配置Python314环境.bat。");
+            }
         }
 
         var info = CreateHiddenProcessInfo(python, workingDirectory);

@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
     [switch] $RunSmokeTests
 )
@@ -8,8 +8,14 @@ $AppDirectory = (Resolve-Path (Join-Path $PSScriptRoot ".")).Path
 $ProjectFile = Join-Path $AppDirectory "ChengduConstructionController.csproj"
 $PublishDirectory = Join-Path $AppDirectory "publish\win-x64"
 
+$dotnetCmd = "dotnet"
 if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) {
-    throw "未找到 dotnet SDK。请在 Windows 上安装 .NET 8 SDK 后重新运行此脚本。"
+    $bundledDotnet = Join-Path $AppDirectory "..\..\windows_scripts\tools\dotnet\dotnet.exe"
+    if (Test-Path $bundledDotnet) {
+        $dotnetCmd = (Resolve-Path $bundledDotnet).Path
+    } else {
+        throw "未找到 dotnet SDK。请在 Windows 上安装 .NET 8 SDK 后重新运行此脚本。"
+    }
 }
 
 if ($RunSmokeTests) {
@@ -28,12 +34,12 @@ if ($RunSmokeTests) {
 }
 
 New-Item -ItemType Directory -Path $PublishDirectory -Force | Out-Null
-& dotnet restore $ProjectFile --ignore-failed-sources
+& $dotnetCmd restore $ProjectFile -r win-x64 --ignore-failed-sources
 if ($LASTEXITCODE -ne 0) {
     throw "dotnet restore 失败。"
 }
 
-& dotnet publish $ProjectFile --configuration Release --runtime win-x64 --self-contained false --no-restore --output $PublishDirectory -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=None
+& $dotnetCmd publish $ProjectFile --configuration Release --runtime win-x64 --self-contained true --no-restore --output $PublishDirectory -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=None
 if ($LASTEXITCODE -ne 0) {
     throw "Windows 发布构建失败。"
 }
@@ -43,4 +49,6 @@ if (-not (Test-Path $publishedExe)) {
     throw "发布目录没有生成 成都建工控制台.exe。"
 }
 
-Write-Host "已生成：$publishedExe"
+$rootExe = Join-Path $AppDirectory "..\..\成都建工控制台.exe"
+Copy-Item $publishedExe $rootExe -Force
+Write-Host "已生成并同步至根目录：$rootExe"

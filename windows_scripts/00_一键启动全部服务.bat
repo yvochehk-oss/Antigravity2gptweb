@@ -9,20 +9,30 @@ cd /d "%SCRIPT_DIR%.."
 echo ==============================================================================
 echo   🏗️ 成都建工 V3.0 财税智控与 IDP 穿透中枢 [Windows 一键启动]
 echo   硬件适配: Intel/AMD CPU (AVX2加速) + 16GB+ 内存 / 支持离线推理
-echo   本地大模型: Ling-3.0-tiny (CPU 离线推理模式)
+echo   本地大模型: 星火 Spark-X2.5-4B (CPU AVX2加速离线推理)
 echo ==============================================================================
 echo.
 
-:: [0/5] 检查并启动 PostgreSQL 数据库 (Port 54320)
-netstat -ano | findstr ":54320" >nul
-if errorlevel 1 (
-    if exist "F:\projectrag_pgdata\postmaster.pid" (
-        del /f /q "F:\projectrag_pgdata\postmaster.pid" >nul 2>&1
-    )
-    if exist "database\pgsql\bin\pg_ctl.exe" (
-        echo [0/5] 正在启动 PostgreSQL 数据库 (Port 54320)...
-        start "00_PostgreSQL (Port 54320)" /B "database\pgsql\bin\pg_ctl.exe" start -D "F:\projectrag_pgdata" -l "%CD%\logs\postgres.log"
-        timeout /t 2 /nobreak >nul
+:: [0/5] 检查并启动 PostgreSQL 数据库 (Port 54320 或 5432)
+set "PG_RUNNING=0"
+netstat -ano | findstr ":54320" >nul && set "PG_RUNNING=1"
+netstat -ano | findstr ":5432 " >nul && set "PG_RUNNING=1"
+
+if "!PG_RUNNING!"=="0" (
+    set "PGDATA_DIR="
+    if exist "%~d0\projectrag_pgdata" set "PGDATA_DIR=%~d0\projectrag_pgdata"
+    if not defined PGDATA_DIR if exist "%CD%\database\data" set "PGDATA_DIR=%CD%\database\data"
+    if not defined PGDATA_DIR if exist "C:\projectrag_pgdata" set "PGDATA_DIR=C:\projectrag_pgdata"
+
+    if defined PGDATA_DIR (
+        if exist "!PGDATA_DIR!\postmaster.pid" (
+            del /f /q "!PGDATA_DIR!\postmaster.pid" >nul 2>&1
+        )
+        if exist "database\pgsql\bin\pg_ctl.exe" (
+            echo [0/5] 正在启动 PostgreSQL 数据库 (Port 54320)...
+            start "00_PostgreSQL (Port 54320)" /B "database\pgsql\bin\pg_ctl.exe" start -D "!PGDATA_DIR!" -l "%CD%\logs\postgres.log"
+            timeout /t 2 /nobreak >nul
+        )
     )
 )
 
@@ -55,8 +65,8 @@ echo   📱 老板端移动驾驶舱:    http://127.0.0.1:5173 (推荐)
 echo   🏢 税务管理中台 Web:    http://127.0.0.1:8921
 echo   🧠 RAG 知识证据中枢:    http://127.0.0.1:8922
 echo   📄 IDP 文档录入与审计:  http://127.0.0.1:8933
-echo   🤖 Ling-3.0 办事员接口: http://127.0.0.1:8930/v1
-echo   🗄️ PostgreSQL 数据库:   127.0.0.1:5432 (projectrag)
+echo   🤖 星火 Spark-X2.5-4B:  http://127.0.0.1:8930/v1
+echo   🗄️ PostgreSQL 数据库:   127.0.0.1:54320 / 5432 (projectrag)
 echo ------------------------------------------------------------------------------
 echo   🔑 默认演示登录账号：admin  /  密码：密码同用户名
 echo   📚 OpenAPI 接口文档：http://127.0.0.1:8921/docs

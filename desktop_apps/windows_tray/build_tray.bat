@@ -18,16 +18,16 @@ if not exist "%CSC_EXE%" (
     exit /b 1
 )
 
-"%CSC_EXE%" /target:winexe /win32icon:"desktop_apps\windows\app.ico" /out:"desktop_apps\windows\ChengduConstructionTray.exe" /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.dll /optimize+ "desktop_apps\windows\ChengduConstructionTray.cs"
+"%CSC_EXE%" /target:winexe /win32icon:"desktop_apps\windows\app.ico" /out:"desktop_apps\windows_tray\ChengduConstructionTray.exe" /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.dll /optimize+ "desktop_apps\windows_tray\ChengduConstructionTray.cs"
 
 if errorlevel 1 (
     echo [错误] 编译失败！
-    pause
     exit /b 2
 )
 
-copy /y "desktop_apps\windows\ChengduConstructionTray.exe" "成都建工V3.0托盘控制台.exe" >nul
-copy /y "desktop_apps\windows\ChengduConstructionTray.exe" "ChengduConstructionTray.exe" >nul
+copy /y "desktop_apps\windows_tray\ChengduConstructionTray.exe" "desktop_apps\windows\ChengduConstructionTray.exe" >nul
+copy /y "desktop_apps\windows_tray\ChengduConstructionTray.exe" "成都建工V3.0托盘控制台.exe" >nul
+copy /y "desktop_apps\windows_tray\ChengduConstructionTray.exe" "ChengduConstructionTray.exe" >nul
 
 echo [成功] 托盘控制台编译就绪:
 echo        - 成都建工V3.0托盘控制台.exe
