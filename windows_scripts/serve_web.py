@@ -43,8 +43,24 @@ class QuietTCPServer(socketserver.TCPServer):
         super().handle_error(request, client_address)
 
 if __name__ == "__main__":
+    import time
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 5173
-    with QuietTCPServer(("0.0.0.0", port), SPAHandler) as httpd:
-        print(f"Serving static web on http://127.0.0.1:{port} from {dist_dir}...")
-        sys.stdout.flush()
-        httpd.serve_forever()
+    httpd = None
+    # 优雅重试退避（最多重试 10 次 / 5 秒，规避 Windows 刚杀掉旧进程时的 TCP TIME_WAIT 端口竞争）
+    for attempt in range(10):
+        try:
+            httpd = QuietTCPServer(("0.0.0.0", port), SPAHandler)
+            break
+        except OSError as e:
+            if attempt < 9:
+                time.sleep(0.5)
+            else:
+                sys.stderr.write(f"[错误] 绑定端口 {port} 失败（可能端口仍被占用或处于 TIME_WAIT）: {e}\n")
+                sys.stderr.flush()
+                raise
+
+    if httpd:
+        with httpd:
+            print(f"Serving static web on http://127.0.0.1:{port} from {dist_dir}...")
+            sys.stdout.flush()
+            httpd.serve_forever()

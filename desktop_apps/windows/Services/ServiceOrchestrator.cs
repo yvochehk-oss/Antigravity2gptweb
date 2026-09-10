@@ -806,6 +806,25 @@ public sealed class ServiceOrchestrator : IDisposable
         foreach (var launch in launches.Reverse())
         {
             var definition = _definitions.First(item => item.Kind == launch.Kind);
+
+            // 保护策略：若大模型（8930）已经成功加载并处于健康状态，回滚时豁免杀死，避免重复耗费数十秒重新加载 2.6GB 权重
+            if (launch.Kind == ServiceKind.LocalModel)
+            {
+                try
+                {
+                    var probeResult = _healthProbe.ProbeAsync(definition, CancellationToken.None).GetAwaiter().GetResult();
+                    if (probeResult.Healthy)
+                    {
+                        _logger.Info("回滚安全保护：本地大模型 (8930) 运行健康，已予以保留豁免，无需重新加载模型。");
+                        skipped.Add($"{definition.DisplayName}（已就绪并予以保留）");
+                        continue;
+                    }
+                }
+                catch
+                {
+                }
+            }
+
             var result = StopTrackedLaunch(launch, definition);
             if (result.Success)
             {
@@ -1318,17 +1337,18 @@ public sealed class ServiceOrchestrator : IDisposable
     {
         try
         {
-            var p5432 = ProcessInspector.GetListeningProcessIdsResult(5432);
+            // 优先检查项目自带便携版数据库 (Port 54320)
             var p54320 = ProcessInspector.GetListeningProcessIdsResult(54320);
-            if (p5432.ProcessIds.Count > 0 || p54320.ProcessIds.Count > 0)
+            if (p54320.ProcessIds.Count > 0)
             {
                 return;
             }
 
+            // 若 54320 未运行，必须尝试拉起便携版 54320（业务系统 .env 默认依赖 54320）
             var bat = _rootResolver.ResolvePath(@"windows_scripts\00_START_POSTGRES.bat");
             if (!string.IsNullOrWhiteSpace(bat) && File.Exists(bat))
             {
-                _logger.Info("检测到 PostgreSQL 未运行，正在调用 00_START_POSTGRES.bat 自动拉起...");
+                _logger.Info("检测到便携版数据库 (Port 54320) 未运行，正在调用 00_START_POSTGRES.bat 自动拉起...");
                 var psi = new ProcessStartInfo
                 {
                     FileName = "cmd.exe",
@@ -1338,7 +1358,7 @@ public sealed class ServiceOrchestrator : IDisposable
                     UseShellExecute = false,
                 };
                 using var proc = Process.Start(psi);
-                proc?.WaitForExit(6000);
+                proc?.WaitForExit(8000);
             }
         }
         catch (Exception ex)
