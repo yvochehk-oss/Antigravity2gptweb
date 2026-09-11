@@ -1,5 +1,7 @@
 namespace ChengduConstructionController.Services;
 
+using ChengduConstructionController.Models;
+
 /// <summary>
 /// Watchdog that prevents restart storms when a service keeps crashing.
 ///
