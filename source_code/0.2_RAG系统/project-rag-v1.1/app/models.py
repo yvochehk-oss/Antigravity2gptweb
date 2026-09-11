@@ -55,6 +55,9 @@ class Project(Base):
     expected_end_date: Mapped[str] = mapped_column(String(20), default="")
     location: Mapped[str] = mapped_column(String(200), nullable=False)
     project_type: Mapped[str] = mapped_column(String(32), default="")
+    # 合同/付款日期用于自动生成项目编号（地点首字母 + YYYYMMDD）
+    contract_date: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    first_payment_date: Mapped[str | None] = mapped_column(String(20), nullable=True)
     note: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=True)
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=True)

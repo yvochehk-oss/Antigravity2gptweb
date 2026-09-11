@@ -480,3 +480,88 @@ def promote_document_to_canonical_facts(db, doc: Document) -> list[int]:
 
     candidate = build_candidate(doc, fact_type, fields)
     return [_persist_candidate(db, doc, candidate)]
+
+
+# ============================================================
+# 项目编号日期查询
+# ============================================================
+
+def get_project_contract_and_payment_dates(db, project_id: int) -> tuple[str | None, str | None]:
+    """从 canonical_facts 中查询项目的最早合同日期和第一笔付款日期。
+
+    合同日期：fact_type='contract' 且 payload.contract_date 有值，取最早日期。
+    付款日期：fact_type='payment' 且 payload.payment_date 有值，取最早日期。
+
+    Returns (contract_date: str | None, first_payment_date: str | None)，日期格式均为 YYYY-MM-DD。
+    """
+    from sqlalchemy import select, func
+    from ..models import CanonicalFact  # noqa: via db.py alias
+
+    # Use raw SQL via text() to safely query JSONB payload
+    def min_date_for_type(fact_type: str, date_key: str) -> str | None:
+        stmt = text(
+            f"""
+            SELECT MIN((payload ->> :key)::text)
+            FROM canonical_facts
+            WHERE project_id = :pid
+              AND fact_type = :ft
+              AND status = 'accepted'
+              AND payload ? :key
+              AND (payload ->> :key) IS NOT NULL
+              AND (payload ->> :key) ~ :date_regex
+            """
+        )
+        row = db.execute(stmt, {"pid": project_id, "ft": fact_type, "key": date_key, "date_regex": r"^\d{4}-\d{2}-\d{2}$"}).scalar()
+        return row if row else None
+
+    contract_date = min_date_for_type("contract", "contract_date")
+    payment_date = min_date_for_type("payment", "payment_date")
+    return contract_date, payment_date
+
+
+def update_project_code_and_dates(db, project_id: int) -> str | None:
+    """根据 canonical_facts 中的合同/付款日期更新项目编号和日期字段。
+
+    编号规则：地点首字母 + YYYYMMDD（优先合同日期，找不到则用第一笔付款日期）。
+    若无日期信息则跳过更新，返回 None。
+    若日期已存在则不覆盖（避免文档重扫导致编号变化）。
+    """
+    from ..models import Project
+
+    project: Project | None = db.get(Project, project_id)
+    if not project:
+        return None
+
+    contract_date, payment_date = get_project_contract_and_payment_dates(db, project_id)
+
+    # 日期来源：合同日期优先，找不到则用付款日期
+    effective_date = contract_date or payment_date
+
+    # 若日期字段已有值，不覆盖
+    if effective_date and not project.contract_date and not project.first_payment_date:
+        date_str = effective_date.replace("-", "")  # YYYYMMDD
+        location_initial = project.location[0] if project.location else "待定"
+        new_code = f"{location_initial}{date_str}"
+        project.contract_date = contract_date
+        project.first_payment_date = payment_date
+
+        # 编号去重：若新编号被占用则追加 -1 -2 ...
+        base_code = new_code
+        suffix = 1
+        while True:
+            existing = db.get(Project, project_id)
+            conflict = db.execute(
+                text("SELECT id FROM projects WHERE project_code = :code AND id != :pid"),
+                {"code": new_code, "pid": project_id}
+            ).scalar()
+            if not conflict:
+                break
+            new_code = f"{base_code}-{suffix}"
+            suffix += 1
+
+        project.project_code = new_code
+        db.commit()
+        return new_code
+
+    return None
+

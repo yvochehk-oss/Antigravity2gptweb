@@ -21,12 +21,24 @@ _VIRTUAL_ENTITY_CODES = frozenset({"A", "B", "C", "D", "甲", "乙", "丙", "丁
 
 
 class ProjectCreate(BaseModel):
-    """Create a business project in the shared Tax/RAG PostgreSQL master."""
+    """Create a business project in the shared Tax/RAG PostgreSQL master.
+
+    项目名称格式：地点 + 项目名称（由系统自动拼接，用户可自行修改）。
+    项目编号格式：地点首字母 + 合同签订日期（YYYYMMDD），无合同则用第一笔付款日期。
+    """
 
     project_code: str = Field(min_length=1, max_length=64)
     name: str = Field(min_length=1, max_length=160)
     contract_amount: Decimal = Field(gt=0, description="Contract amount in CNY; must be an explicit business fact")
-    location: str = Field(min_length=1, max_length=200)
+    location: str = Field(min_length=1, max_length=200, description="项目所在地点（省/市/区），用于生成项目编号")
+    contract_date: Optional[str] = Field(
+        default=None,
+        description="甲方签订合同日期 YYYY-MM-DD；若为空则在文档扫描后自动填入 canonical_facts 中的最早合同日期",
+    )
+    first_payment_date: Optional[str] = Field(
+        default=None,
+        description="第一笔付款日期 YYYY-MM-DD；找不到合同时作为编号依据",
+    )
     entity_code: Optional[str] = Field(
         default=None, description="Optional lead entity; multi-entity participation lives in transaction facts"
     )
@@ -52,7 +64,8 @@ class ProjectCreate(BaseModel):
 class ProjectSync(ProjectCreate):
     """Idempotently sync a project from an external business system."""
 
-    pass
+    contract_date: Optional[str] = Field(default=None)
+    first_payment_date: Optional[str] = Field(default=None)
 
 
 class ProjectDeleteRequest(BaseModel):
