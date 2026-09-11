@@ -4,7 +4,7 @@
   "DataDir": "F:\\073_成都建工_V3.1_Windows\\database\\data",
   "ProjectRoot": "F:\\073_成都建工_V3.1_Windows",
   "PostmasterPid": 23252,
-  "StartedAt": "2026-09-11T14:42:15.0574074+00:00",
+  "StartedAt": "2026-09-11T18:46:19.289325+00:00",
   "PostgresVersion": "16.4",
   "PostgresConnectionString": "postgresql://postgres@127.0.0.1:54320/projectrag",
   "ProjectRagConnectionString": "postgresql://postgres@127.0.0.1:54320/projectrag"

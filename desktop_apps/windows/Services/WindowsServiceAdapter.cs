@@ -182,6 +182,11 @@ public sealed class WindowsServiceAdapter
         info.Environment["DATABASE_URL"] = databaseUrl;
         info.Environment["PROJECT_RAG_DB_URL"] = databaseUrl;
 
+        // Inject UTF-8 encoding environment variables for Python and Postgres
+        info.Environment["PYTHONIOENCODING"] = "utf-8";
+        info.Environment["PGCLIENTENCODING"] = "utf-8";
+        info.Environment["PYTHONUTF8"] = "1";
+
         // Inject consistent JWT secret so Tax and RAG share the exact same signature
         info.Environment["JWT_SECRET_KEY"] = "cdjg_v3_shared_jwt_secret_key_2026";
 
