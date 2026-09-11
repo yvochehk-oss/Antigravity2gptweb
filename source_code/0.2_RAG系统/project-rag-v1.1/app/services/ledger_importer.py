@@ -8,17 +8,26 @@ ledger_importer.py — 台账（Ledger）批量导入服务
     documents       发票/合同台账（带税务字段）
     external_parties 供应商/往来单位台账
     entities        内部单位台账（复用 entity_importer.py）
+    entities_or_external 自动路由：系统内 → entities，系统外 → external_parties
 
 每个表的列映射通过 HEADER_ALIASES 定义，支持中文表头模糊匹配，
 允许用户在 Excel 中使用自己的列名（如"项目代码"/"项目编号"/"编号"都可映射到 project_code）。
 
+台账单位自动路由规则（entities_or_external）：
+  1. entity_code 匹配 A01-A11 / B01-B10 / C01-C02 / D01-D03  → entities（内部单位）
+  2. entity_code 匹配 E01-E03 / EA01-EA02 / EB01-EB03 / EC01 / ED01 → external_parties（已知外部单位）
+  3. 名称/简称匹配已知外部单位预设别名                         → external_parties
+  4. 新外部单位（无代码、无法定代表为个人）                    → external_parties
+  5. 新单位（有名称、税号，无法官代码）                       → entities + 自动分配下一可用代码
+
 使用方式（CLI）：
-    python -m app.scripts.ledger_import --table projects --path ./data/项目台账.xlsx
-    python -m app.scripts.ledger_import --table documents --path ./data/发票台账.xlsx --project-id 3
+    python -m scripts.ledger_import --table projects --path ./data/项目台账.xlsx
+    python -m scripts.ledger_import --table documents --path ./data/发票台账.xlsx --project-id 3
+    python -m scripts.ledger_import --path ./data/单位台账.xlsx --auto-route   # 自动路由
 
 使用方式（API / 内部调用）：
     from app.services.ledger_importer import import_ledger
-    result = import_ledger("projects", "/path/to/file.xlsx", project_id=3, db=session)
+    result = import_ledger("entities_or_external", "/path/to/file.xlsx", db=session)
 """
 from __future__ import annotations
 
@@ -132,8 +141,190 @@ ENTITIES_ALIASES: dict[str, list[str]] = {
     "status": ["状态", "status"],
 }
 
-# 允许的表名
-VALID_TABLES = frozenset({"projects", "documents", "external_parties", "entities"})
+# 允许的表名（含虚拟路由表）
+VALID_TABLES = frozenset({"projects", "documents", "external_parties", "entities", "entities_or_external"})
+
+# ---------------------------------------------------------------------------
+# 实体自动路由（entities_or_external）
+# ---------------------------------------------------------------------------
+
+# 内部单位代码前缀
+_INTERNAL_CODE_PREFIXES = ("A", "B", "C", "D")
+
+# 已知外部单位预设代码（来自 domain/entities.py EXTERNAL_ENTITY_PRESETS）
+# 兼容旧格式 E01-E03 / EA01-EA02 / EB01-EB03 / EC01 / ED01
+_KNOWN_EXTERNAL_CODES = frozenset((
+    "E01", "E02", "E03",
+    "EA01", "EA02",
+    "EB01", "EB02", "EB03",
+    "EC01",
+    "ED01",
+))
+
+# 外部单位代码前缀层级（用于自动分配，可扩展至 EA/EB/EC/ED/F...）
+_EXTERNAL_CODE_SERIES = ["E", "EA", "EB", "EC", "ED", "F", "FA", "FB"]
+_EXTERNAL_CODE_POOL_SIZE = 999  # 每系列最多 999 家)
+
+
+def _is_canonical_internal_code(code: str | None) -> bool:
+    """判断是否为系统内部单位代码 A01-D03。"""
+    if not code:
+        return False
+    c = code.strip().upper()
+    if len(c) != 3:
+        return False
+    prefix, num = c[0], c[1:]
+    if prefix not in _INTERNAL_CODE_PREFIXES:
+        return False
+    try:
+        n = int(num)
+    except ValueError:
+        return False
+    ranges = {"A": (1, 11), "B": (1, 10), "C": (1, 2), "D": (1, 3)}
+    lo, hi = ranges.get(prefix, (0, 0))
+    return lo <= n <= hi
+
+
+def _is_known_external_code(code: str | None) -> bool:
+    """判断是否为已知外部单位代码 E01-E03 / EA01-EA02 / EB01-EB03 / EC01 / ED01。"""
+    if not code:
+        return False
+    return code.strip().upper() in _KNOWN_EXTERNAL_CODES
+
+
+def _match_external_preset(name: str | None, short_name: str | None = None) -> bool:
+    """判断名称/简称是否匹配已知外部单位预设别名。"""
+    if not name:
+        return False
+    # 懒加载避免循环导入
+    from ..domain.entities import EXTERNAL_ALIAS_TO_CODE
+    candidates = [name.strip().upper()]
+    if short_name:
+        candidates.append(short_name.strip().upper())
+    for c in candidates:
+        if c in EXTERNAL_ALIAS_TO_CODE:
+            return True
+    return False
+
+
+def _route_entity_record(record: dict[str, Any]) -> str:
+    """根据记录内容自动路由到 entities 或 external_parties 表。
+
+    路由优先级：
+      1. 有 canonical 内部代码  → entities
+      2. 有已知外部单位代码      → external_parties
+      3. 名称匹配已知外部单位别名 → external_parties
+      4. 无代码、有法人代表且为个人姓名 → external_parties（推断为自然人挂靠）
+      5. 其他所有情况            → entities（待人工补编代码）
+    """
+    code = record.get("entity_code") or record.get("code") or ""
+    code = str(code).strip().upper()
+    name = record.get("name", "")
+    short_name = record.get("short_name", "")
+
+    if _is_canonical_internal_code(code):
+        return "entities"
+    if _is_known_external_code(code):
+        return "external_parties"
+    if _match_external_preset(name, short_name):
+        return "external_parties"
+    # 无代码：根据法人代表判断（自然人挂靠 → 外部）
+    legal_rep = record.get("legal_representative", "") or ""
+    if legal_rep and len(legal_rep) <= 4 and not any(k in legal_rep for k in ("公司", "集团", "有限", "企业", "事业单位")):
+        return "external_parties"
+    return "entities"
+
+
+def _auto_assign_entity_code(db, role: str = "A") -> str | None:
+    """为新内部单位自动分配下一个可用 A/B/C/D canonical 代码。"""
+    from sqlalchemy import select
+    from ..models import Entity
+    prefix_ranges = {
+        "A": [f"A{i:02d}" for i in range(1, 12)],
+        "B": [f"B{i:02d}" for i in range(1, 11)],
+        "C": [f"C{i:02d}" for i in range(1, 3)],
+        "D": [f"D{i:02d}" for i in range(1, 4)],
+    }
+    candidates = prefix_ranges.get(role, prefix_ranges["A"])
+    existing = set(
+        db.scalars(select(Entity.entity_code).where(Entity.entity_code.is_not(None))).all()
+    )
+    for code in candidates:
+        if code not in existing:
+            return code
+    return None
+
+
+def _auto_assign_external_code(db) -> str | None:
+    """为新外部单位自动分配下一个可用 E 系列代码（支持 1000+ 家）。
+
+    分配顺序：E001 → E999 → EA001 → EA999 → EB001 → ...
+    每系列 999 个，全部用完后自动切换到下一个字母前缀。
+    """
+    from sqlalchemy import select
+    from ..models import ExternalParty
+
+    existing_codes: set[str] = set(
+        db.scalars(select(ExternalParty.code).where(ExternalParty.code.is_not(None))).all()
+    )
+
+    for series_prefix in _EXTERNAL_CODE_SERIES:
+        # 收集该系列已有的编号
+        prefix_pattern = f"{series_prefix}000"  # e.g. "E000" for "E001"
+        used_nums: set[int] = set()
+        for code in existing_codes:
+            if code and code.upper().startswith(series_prefix):
+                try:
+                    num_str = code[len(series_prefix):]
+                    n = int(num_str)
+                    used_nums.add(n)
+                except ValueError:
+                    pass
+
+        # 分配下一个可用编号
+        for n in range(1, _EXTERNAL_CODE_POOL_SIZE + 1):
+            if n not in used_nums:
+                return f"{series_prefix}{n:03d}"  # E001, EA001, EB001, ...
+
+    # 全系列用尽，抛出异常
+    raise RuntimeError(
+        f"外部单位代码库已满（{len(_EXTERNAL_CODE_SERIES)} 系列 × {_EXTERNAL_CODE_POOL_SIZE} = "
+        f"{len(_EXTERNAL_CODE_SERIES) * _EXTERNAL_CODE_POOL_SIZE} 家上限），请联系管理员扩展。"
+    )
+
+
+def _find_existing_record(db, record: dict[str, Any], table: str) -> int | None:
+    """按 tax_id 或 name 查找数据库中是否已有记录，返回其 ID。"""
+    from sqlalchemy import or_, select
+    if table == "entities":
+        from ..models import Entity
+        tax_id = record.get("tax_id")
+        name = record.get("name", "").strip()
+        q = select(Entity.id)
+        conditions = []
+        if tax_id:
+            conditions.append(Entity.tax_id == tax_id)
+        if name:
+            conditions.append(Entity.name == name)
+        if not conditions:
+            return None
+        row = db.scalars(q.where(or_(*conditions)).limit(1)).first()
+        return int(row) if row else None
+    elif table == "external_parties":
+        from ..models import ExternalParty
+        tax_id = record.get("tax_id")
+        name = record.get("name", "").strip()
+        q = select(ExternalParty.id)
+        conditions = []
+        if tax_id:
+            conditions.append(ExternalParty.tax_id == tax_id)
+        if name:
+            conditions.append(ExternalParty.name == name)
+        if not conditions:
+            return None
+        row = db.scalars(q.where(or_(*conditions)).limit(1)).first()
+        return int(row) if row else None
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -371,24 +562,111 @@ def _write_ledger_to_db(
     db,
     dry_run: bool = False,
 ) -> dict[str, Any]:
-    """将已解析的行写入数据库（内部使用，由 scripts/ledger_import.py 调用）。"""
+    """将已解析的行写入数据库（内部使用，由 scripts/ledger_import.py 调用）。
+
+    当 table == "entities_or_external" 时，对每行自动路由到 entities 或 external_parties，
+    并对去重后确认是新增的记录写入数据库。
+    """
     from sqlalchemy import select
     from ..models import Document, Entity, ExternalParty, Project
 
     written = 0
     skipped = 0
+    upserted = 0
     errors: list[dict[str, Any]] = []
     ids: list[int] = []
+    routing_summary: dict[str, int] = {}
 
-    model_map = {
-        "projects": Project,
-        "documents": Document,
-        "external_parties": ExternalParty,
-        "entities": Entity,
+    # entities_or_external 时，先把每行路由目标记录下来
+    if table == "entities_or_external":
+        for record in rows:
+            target = _route_entity_record(record)
+            record["_target_table"] = target
+            routing_summary[target] = routing_summary.get(target, 0) + 1
+
+    for record in rows:
+        row_num = record.pop("_row", "?")
+        target_table = record.pop("_target_table", table)
+
+        try:
+            if dry_run:
+                skipped += 1
+                continue
+
+            model_map = {
+                "projects": Project,
+                "documents": Document,
+                "external_parties": ExternalParty,
+                "entities": Entity,
+            }
+            Model = model_map.get(target_table)
+            if Model is None:
+                errors.append({"row": row_num, "error": f"未知目标表: {target_table}"})
+                skipped += 1
+                continue
+
+            # 去重检查
+            existing_id = _find_existing_record(db, record, target_table)
+            if existing_id is not None:
+                skipped += 1
+                ids.append(existing_id)
+                continue
+
+            # entities 表：自动分配 canonical 代码（如果缺失）
+            if target_table == "entities" and not record.get("entity_code"):
+                # 根据名称推断角色
+                role = "A"
+                name = record.get("name", "")
+                if any(k in name for k in ("劳务", "劳动力", "施工队")):
+                    role = "C"
+                elif any(k in name for k in ("租赁", "机械", "设备")):
+                    role = "D"
+                elif any(k in name for k in ("商贸", "贸易", "物资", "建材")):
+                    role = "B"
+                assigned = _auto_assign_entity_code(db, role)
+                if assigned:
+                    record["entity_code"] = assigned
+                    record["note"] = (record.get("note") or "") + f" [自动分配代码:{assigned}]"
+                else:
+                    errors.append({
+                        "row": row_num,
+                        "error": f"无法为{name}自动分配代码，所有代码已用尽",
+                        "skipped": True,
+                    })
+                    skipped += 1
+                    continue
+
+            # external_parties 表：自动分配 E 系列代码（支持 1000+ 家）
+            if target_table == "external_parties" and not record.get("code"):
+                short = record.get("short_name") or record.get("name", "")[:4]
+                record["short_name"] = short
+                record["code"] = _auto_assign_external_code(db)
+
+            # 过滤掉非模型字段
+            allowed = {k: v for k, v in record.items()
+                       if k in Model.__table__.columns}
+
+            obj = Model(**allowed)
+            db.add(obj)
+            db.flush()  # 获取主键
+            ids.append(obj.id)
+            written += 1
+            upserted += 1
+        except Exception as exc:
+            errors.append({"row": row_num, "error": str(exc)})
+            skipped += 1
+
+    if not dry_run:
+        db.commit()
+
+    return {
+        "written": written,
+        "upserted": upserted,
+        "skipped": skipped,
+        "errors": errors,
+        "ids": ids,
+        "routing_summary": routing_summary if table == "entities_or_external" else None,
     }
-    Model = model_map.get(table)
-    if Model is None:
-        raise ValueError(f"未知表: {table}")
 
     for record in rows:
         row_num = record.pop("_row", "?")

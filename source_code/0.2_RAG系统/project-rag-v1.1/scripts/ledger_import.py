@@ -168,6 +168,10 @@ def _render_preview(rows: list[dict], max_show: int = 10) -> str:
     help=f"目标数据库表：{', '.join(sorted(VALID_TABLES))}"
 )
 @click.option(
+    "--auto-route", is_flag=True,
+    help="自动识别系统内/外单位并路由到正确表（entities 或 external_parties）"
+)
+@click.option(
     "--project-id", "-pid", type=int, default=None,
     help="所属项目 ID（documents 表必须指定）"
 )
@@ -202,6 +206,7 @@ def _render_preview(rows: list[dict], max_show: int = 10) -> str:
 def cli(
     path: str,
     table: str | None,
+    auto_route: bool,
     project_id: int | None,
     sheet: int,
     header_row: int,
@@ -238,7 +243,10 @@ def cli(
     file_tables: list[tuple[str, str]] = []  # (file_path, table)
     for fp in files:
         t = table
-        if not t:
+        if auto_route:
+            t = "entities_or_external"
+            logger.info("  [%s] → entities_or_external（自动路由）", Path(fp).name)
+        elif not t:
             if scan and auto_detect:
                 t = _auto_table_type(fp)
                 if t:
@@ -247,7 +255,7 @@ def cli(
                     logger.warning("  [%s] 无法自动识别台账类型，跳过", Path(fp).name)
                     continue
             else:
-                click.echo(f"❌ 需要 --table 参数指定目标表，或使用 --scan --auto-detect 自动识别", err=True)
+                click.echo(f"❌ 需要 --table 参数指定目标表，或使用 --scan --auto-detect 自动识别，或使用 --auto-route 自动路由", err=True)
                 sys.exit(1)
         file_tables.append((fp, t))
 
@@ -286,6 +294,19 @@ def cli(
     click.echo(f"📊 汇总：共 {len(all_results)} 个文件，{total_rows} 行数据（预览模式）")
     if dry_run:
         click.echo("💡 如确认无误，加上 --commit 参数即可实际写入数据库")
+    if auto_route or (file_tables and file_tables[0][1] == "entities_or_external"):
+        click.echo("🔀 自动路由预览：")
+        for fp, t in file_tables:
+            if t == "entities_or_external":
+                # 从解析结果中找到对应文件的路由摘要
+                for r in all_results:
+                    if r.get("file", "").replace("/", "\\") == fp.replace("/", "\\"):
+                        rows = r.get("rows", [])
+                        internal = sum(1 for row in rows if row.get("entity_code") and
+                                       row.get("entity_code", "").strip().upper()[:1] in list("ABCD"))
+                        external = len(rows) - internal
+                        click.echo(f"   {Path(fp).name}: {internal} 家内 → entities, {external} 家外 → external_parties")
+                        break
     click.echo(f"{'=' * 60}")
 
     # 5. 保存 JSON（如指定）
@@ -315,6 +336,9 @@ def cli(
                 total_errors += len(errors)
                 click.echo(f"  ✅ {Path(fp).name}: 写入 {written} 行" +
                            (f"，{len(errors)} 个错误" if errors else ""))
+                routing = db_write.get("routing_summary")
+                if routing:
+                    click.echo(f"     路由：{routing.get('entities', 0)} → entities，{routing.get('external_parties', 0)} → external_parties")
                 for err in errors[:3]:
                     click.echo(f"     行 {err['row']}: {err['error']}")
             except Exception as exc:
