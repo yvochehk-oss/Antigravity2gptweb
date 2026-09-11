@@ -137,18 +137,13 @@ public sealed class WindowsServiceAdapter
             throw new InvalidOperationException($"便携 PostgreSQL {dbPort} 未就绪，拒绝启动依赖数据库的 Python 服务。");
         }
 
-        var python = Path.Combine(workingDirectory, ".venv", "Scripts", "python.exe");
-        if (!File.Exists(python))
+        var python = ResolvePythonExecutable(definition, workingDirectory);
+        if (string.IsNullOrWhiteSpace(python) || !File.Exists(python))
         {
-            var ragPython = _rootResolver.ResolvePath(@"source_code\0.2_RAG系统\project-rag-v1.1\.venv\Scripts\python.exe");
-            var taxPython = _rootResolver.ResolvePath(@"source_code\0.1_税务管理\gtp_V1.0_FULL\01_当前完整系统_V1.0\chengdu_construction_tax_system_v1_0\.venv\Scripts\python.exe");
-            if (File.Exists(ragPython)) python = ragPython;
-            else if (File.Exists(taxPython)) python = taxPython;
-            else
-            {
-                throw new InvalidOperationException($"未找到{definition.DisplayName}的 Windows Python 环境，请先运行 06_一键配置Python314环境.bat。");
-            }
+            throw new InvalidOperationException($"未找到{definition.DisplayName}的 Windows Python 环境，请先运行 06_一键配置Python314环境.bat 或运行 build_embedded_python.py 制作嵌入式运行时。");
         }
+
+        _logger.Info($"[Python] 使用解释器：{python}");
 
         var info = CreateHiddenProcessInfo(python, workingDirectory);
         info.Environment["PYTHONUNBUFFERED"] = "1";
@@ -319,6 +314,51 @@ public sealed class WindowsServiceAdapter
     }
 
     private string ResolveManagedModelAlias() => ResolveModel()?.Alias ?? "spark-x2.5-4b";
+
+    /// <summary>
+    /// Resolves the Python executable path using a priority chain.
+    ///
+    /// Priority order:
+    ///   1. Embedded portable Python runtime (v3.1+: runtime/python/Scripts/python.exe).
+    ///      This is a trimmed-down venv (~600MB) for offline deployment.
+    ///   2. Service-local .venv (most common during development).
+    ///   3. RAG system venv (legacy fallback).
+    ///   4. Tax system venv (legacy fallback).
+    ///
+    /// Returns the first existing path, or empty string if none found.
+    /// </summary>
+    private string ResolvePythonExecutable(ServiceDefinition definition, string workingDirectory)
+    {
+        // Priority 1: embedded portable Python runtime.
+        var embeddedPython = _rootResolver.ResolvePath(@"runtime\python\Scripts\python.exe");
+        if (!string.IsNullOrWhiteSpace(embeddedPython) && File.Exists(embeddedPython))
+        {
+            return embeddedPython;
+        }
+
+        // Priority 2: service-local .venv.
+        var localVenv = Path.Combine(workingDirectory, ".venv", "Scripts", "python.exe");
+        if (File.Exists(localVenv))
+        {
+            return localVenv;
+        }
+
+        // Priority 3: RAG system venv.
+        var ragPython = _rootResolver.ResolvePath(@"source_code\0.2_RAG系统\project-rag-v1.1\.venv\Scripts\python.exe");
+        if (!string.IsNullOrWhiteSpace(ragPython) && File.Exists(ragPython))
+        {
+            return ragPython;
+        }
+
+        // Priority 4: Tax system venv.
+        var taxPython = _rootResolver.ResolvePath(@"source_code\0.1_税务管理\gtp_V1.0_FULL\01_当前完整系统_V1.0\chengdu_construction_tax_system_v1_0\.venv\Scripts\python.exe");
+        if (!string.IsNullOrWhiteSpace(taxPython) && File.Exists(taxPython))
+        {
+            return taxPython;
+        }
+
+        return string.Empty;
+    }
 
     private static void EnsureSparkRuntimeCompatible(string executable)
     {
