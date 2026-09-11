@@ -66,7 +66,10 @@ def run_migrations_offline():
 
 def run_migrations_online():
     connectable = engine_from_config(
-        config.get_section(config.config_ini_section) or {}, prefix="sqlalchemy.", poolclass=pool.NullPool
+        config.get_section(config.config_ini_section) or {},
+        prefix="sqlalchemy.",
+        poolclass=pool.NullPool,
+        connect_args={"client_encoding": "utf8"},
     )
     with connectable.connect() as connection:
         _ensure_version_table_capacity(connection)

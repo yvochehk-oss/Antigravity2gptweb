@@ -46,9 +46,9 @@ if not url:
 if make_url(url).get_backend_name() not in {"postgresql", "postgres"}:
     raise RuntimeError("Alembic is PostgreSQL-only")
 if url.startswith("postgresql://"):
-    url = "postgresql+psycopg://" + url[len("postgresql://") :]
+    url = "postgresql+psycopg2://" + url[len("postgresql://") :]
 elif url.startswith("postgres://"):
-    url = "postgresql+psycopg://" + url[len("postgres://") :]
+    url = "postgresql+psycopg2://" + url[len("postgres://") :]
 config.set_main_option("sqlalchemy.url", url)
 
 target_metadata = Base.metadata
@@ -121,6 +121,7 @@ def run_migrations_online() -> None:
         config.get_section(config.config_ini_section) or {},
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
+        connect_args={"client_encoding": "utf8"},
     )
     with connectable.connect() as connection:
         # Keep the technical version-table probe/resize in its own explicit

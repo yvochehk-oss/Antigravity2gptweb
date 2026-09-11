@@ -71,7 +71,7 @@ BEGIN
   NEW.location := COALESCE(NULLIF(NEW.location, ''), NEW.city, '');
   NEW.tax_method := COALESCE(NULLIF(NEW.tax_method, ''), 'general');
 
-  IF NEW.status IS NULL OR btrim(NEW.status) = '' OR lower(btrim(NEW.status)) IN ('unknown', '未知') THEN
+  IF NEW.status IS NULL OR btrim(NEW.status) = '' OR lower(btrim(NEW.status)) = 'unknown' THEN
     NEW.status := 'ACTIVE';
   ELSIF lower(btrim(NEW.status)) = 'active' THEN
     NEW.status := 'ACTIVE';
@@ -291,7 +291,7 @@ def upgrade() -> None:
         raise RuntimeError("PostgreSQL-only migration")
 
     _ensure_status_contract(bind)
-    op.execute(PROJECT_TRIGGER)
+    op.execute(sa.text(PROJECT_TRIGGER))
     _align_guangyuan_code(bind)
 
     for project in CANONICAL_PROJECTS:

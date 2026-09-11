@@ -102,7 +102,7 @@ typing-inspection==0.4.4
 uvicorn==0.52.4
     # via chengdu-construction-tax-system-v0-2 (pyproject.toml)
 uvloop==0.22.1; sys_platform != "win32"
-    # via uvicorn (Windows下自动跳过，uvicorn回退asyncio事件循环)
+    # via uvicorn (Windowsuvicornasyncio)
 watchfiles==1.2.0
     # via uvicorn
 websockets==17.1
