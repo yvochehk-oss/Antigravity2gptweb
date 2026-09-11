@@ -1,4 +1,4 @@
-﻿@echo off
+@echo off
 @chcp 936 >nul 2>&1
 title 成都建工 V3.1 - Windows 环境一键初始化 (Python 3.12)
 setlocal enabledelayedexpansion

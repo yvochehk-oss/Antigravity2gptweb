@@ -1,4 +1,4 @@
-﻿@echo off
+@echo off
 @chcp 936 >nul 2>&1
 title 鎴愰兘寤哄伐 V3.1 - 涓€閿惎鍔ㄥ叏閮ㄦ湇鍔?
 setlocal EnableExtensions EnableDelayedExpansion
@@ -120,9 +120,9 @@ for /l %%I in (1,1,!_WAIT_TRIES!) do (
         exit /b 0
     )
     if %%I LEQ 10 (
-        timeout /t 1 /nobreak >nul
+        ping 127.0.0.1 -n 2 >nul
     ) else (
-        timeout /t 2 /nobreak >nul
+        ping 127.0.0.1 -n 3 >nul
     )
 )
 echo [閿欒] !_WAIT_NAME! 鍦ㄩ€€閬跨瓑寰呯獥鍙ｅ唴鏈洃鍚鍙?!_WAIT_PORT!锛屽仠姝㈠惎鍔ㄩ摼銆?

@@ -1,4 +1,4 @@
-﻿@echo off
+@echo off
 @chcp 936 >nul 2>&1
 title 鎴愰兘寤哄伐 V3.1 - RAG鐭ヨ瘑涓彴 (Port 8922)
 setlocal EnableExtensions EnableDelayedExpansion
@@ -54,9 +54,9 @@ set "_NAME=%~3"
 for /l %%I in (1,1,!_TRIES!) do (
     netstat -ano | findstr /i ":!_PORT! " | findstr /i "LISTENING" >nul 2>&1 && exit /b 0
     if %%I LEQ 10 (
-        timeout /t 1 /nobreak >nul
+        ping 127.0.0.1 -n 2 >nul
     ) else (
-        timeout /t 2 /nobreak >nul
+        ping 127.0.0.1 -n 3 >nul
     )
 )
 echo [閿欒] !_NAME! 鍦ㄧ瓑寰呯獥鍙ｅ唴鏈洃鍚?!_PORT!銆?

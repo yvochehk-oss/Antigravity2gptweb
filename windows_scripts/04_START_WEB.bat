@@ -48,9 +48,9 @@ set "_NAME=%~3"
 for /l %%I in (1,1,!_TRIES!) do (
     netstat -ano | findstr /i ":!_PORT! " | findstr /i "LISTENING" >nul 2>&1 && exit /b 0
     if %%I LEQ 10 (
-        timeout /t 1 /nobreak >nul
+        ping 127.0.0.1 -n 2 >nul
     ) else (
-        timeout /t 2 /nobreak >nul
+        ping 127.0.0.1 -n 3 >nul
     )
 )
 echo [错误] !_NAME! 在等待窗口内未监听 !_PORT!。

@@ -1,4 +1,4 @@
-﻿@echo off
+@echo off
 @chcp 936 >nul 2>&1
 title 成都建工 V3.1 - 本地大模型服务 (Port 8930)
 setlocal enabledelayedexpansion
@@ -22,34 +22,28 @@ set "REQUIRES_SPARK25=1"
 
 if not exist "%SERVER_BIN%" (
     echo [错误] 未找到 Windows llama-server 运行时: %SERVER_BIN%
-    echo [修复] 请运行: python scripts\download_models.py --runtime-only
+    echo [修复] 请执行: python scripts\download_models.py --runtime-only
     pause
     exit /b 1
 )
 
 if not exist "%MODEL_FILE%" (
-    echo [警告] 未找到 Spark-X2.5-4B 主模型文件: %MODEL_FILE%
-    echo [提示] 尝试查找 Qwen3.5-2B 兜底模型...
+    echo [提示] 未找到 Spark-X2.5-4B 主模型文件: %MODEL_FILE%
+    echo [提示] 尝试降级为 Qwen3.5-2B 模型...
     set "MODEL_FILE=%ROOT_DIR%\models\local-llm\Qwen3.5-2B-Q4_K_M.gguf"
     set "MODEL_ALIAS=qwen3.5-2b"
     set "REQUIRES_SPARK25=0"
 )
 
 if not exist "%MODEL_FILE%" (
-    echo [错误] 未找到任何 GGUF 模型文件！
-    echo [提示] 请先运行 05_一键下载AI模型_国内魔搭.bat 自动下载模型！
+    echo [错误] 未找到任何 GGUF 模型文件
+    echo [提示] 请运行 05_一键下载AI模型_国内魔搭.bat 自动下载模型。
     pause
     exit /b 1
 )
 
 if "%REQUIRES_SPARK25%"=="1" (
-    where powershell.exe >nul 2>&1
-    if errorlevel 1 (
-        echo [错误] 无法执行 Spark2_5 runtime 兼容性检查：系统未找到 powershell.exe。
-        exit /b 2
-    )
-
-    powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$p=(Resolve-Path $env:SERVER_BIN).Path; $v=^& $p --version 2^>^&1 ^| Out-String; if ($v -notmatch 'build\s+(\d+)') { Write-Host '[错误] 无法识别 llama.cpp build 版本'; exit 11 }; $b=[int]$Matches[1]; Write-Host ('[信息] llama.cpp build: ' + $b); if ($b -lt [int]$env:MIN_LLAMA_BUILD) { exit 10 }"
+    "%SERVER_BIN%" --version 2>&1 | findstr /i "build 10828" >nul
     if errorlevel 1 (
         echo [错误] 当前 llama.cpp runtime 不支持 Spark2_5 架构。
         echo [要求] Spark-X2.5 至少需要 llama.cpp b10828 / build 10828。
@@ -63,7 +57,7 @@ echo [1/1] 正在启动 llama-server (4 线程 CPU 并行加速，16K 上下文)
 "%SERVER_BIN%" --model "%MODEL_FILE%" --host 127.0.0.1 --port 8930 --alias "%MODEL_ALIAS%" --ctx-size 16384 --threads 4 --threads-batch 4 --batch-size 512 --ubatch-size 256 --gpu-layers 0 --reasoning off --parallel 1 --jinja
 
 if errorlevel 1 (
-    echo [错误] llama-server 启动失败，退出码 !ERRORLEVEL!。
+    echo [错误] llama-server 异常退出，退出码 !ERRORLEVEL!。
     exit /b !ERRORLEVEL!
 )
 

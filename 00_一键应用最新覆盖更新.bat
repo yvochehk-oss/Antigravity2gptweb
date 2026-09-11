@@ -1,4 +1,4 @@
-﻿@echo off
+@echo off
 @chcp 936 >nul 2>&1
 title 成都建工 V3.1 - 一键应用最新覆盖更新
 setlocal enabledelayedexpansion
@@ -19,7 +19,7 @@ if exist "STOP_WINDOWS.bat" (
 ) else if exist "windows_scripts\99_STOP_ALL.bat" (
     call "windows_scripts\99_STOP_ALL.bat" >nul 2>&1
 )
-timeout /t 2 /nobreak >nul
+ping 127.0.0.1 -n 3 >nul
 
 :: 2. 清理税务静态目录历史残留污染文件
 echo [2/5] 正在清理 8921 税务静态目录中的历史残留旧文件...

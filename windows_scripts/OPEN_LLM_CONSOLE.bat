@@ -1,4 +1,4 @@
-﻿@echo off
+@echo off
 @chcp 936 >nul 2>&1
 title 成都建工 V3.1 - 本地大模型实时输出控制台 (Port 8930)
 cd /d "%~dp0.."

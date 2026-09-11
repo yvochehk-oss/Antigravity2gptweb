@@ -1,4 +1,4 @@
-﻿@echo off
+@echo off
 @chcp 936 >nul 2>&1
 title 修复数据库字段类型 (ingest_jobs)
 cd /d "%~dp0"

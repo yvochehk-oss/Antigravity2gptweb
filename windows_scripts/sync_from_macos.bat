@@ -1,4 +1,4 @@
-﻿@echo off
+@echo off
 setlocal EnableExtensions EnableDelayedExpansion
 @chcp 936 >nul 2>&1
 cd /d "%~dp0.."
