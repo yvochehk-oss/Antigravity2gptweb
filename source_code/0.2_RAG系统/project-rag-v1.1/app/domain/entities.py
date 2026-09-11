@@ -53,8 +53,9 @@ def is_canonical_internal_code(value: str | None) -> bool:
 
 
 CANONICAL_EXTERNAL_CODE_RE = re.compile(
-    r"^(?:E(?:00[1-9]|0[1-9]\d|[1-9]\d{2,})|"
-    r"[EA-ED](?:00[1-9]|0[1-9]\d|[1-9]\d{2,}))$",
+    r"^(?:E[1-9]\d*|"   # E1 / E100 / E12222 / E999999（无零填充）
+    r"[EA-ED][1-9]\d*)"  # EA1 / EB1 / EC1 / ED1 / EA1000000 ...
+    r"$",
     re.IGNORECASE,
 )
 

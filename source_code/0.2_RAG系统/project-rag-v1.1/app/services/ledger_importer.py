@@ -20,7 +20,7 @@ ledger_importer.py — 台账（Ledger）批量导入服务
   4. 新外部单位（无代码、无法定代表为个人）                    → external_parties
   5. 新单位（有名称、税号，无法官代码）                       → entities + 自动分配下一可用代码
      新外部单位（有名称）                                      → external_parties + 自动分配 E 系列代码
-     外部代码容量：E000001–E999999（每系列 999,999 家，8 系列合计近 800 万家）
+     外部代码格式：E1–E999999（无零填充，每系列 999,999 家，8 系列合计近 800 万家）
 
 使用方式（CLI）：
     python -m scripts.ledger_import --table projects --path ./data/项目台账.xlsx
@@ -153,8 +153,8 @@ VALID_TABLES = frozenset({"projects", "documents", "external_parties", "entities
 # 内部单位代码前缀
 _INTERNAL_CODE_PREFIXES = ("A", "B", "C", "D")
 
-# 已知外部单位预设代码（来自 domain/entities.py EXTERNAL_ENTITY_PRESETS）
-# 兼容旧格式 E01-E03 / EA01-EA02 / EB01-EB03 / EC01 / ED01
+# 已知外部单位预设代码（来自 domain/entities.py EXTERNAL_ENTITY_PRESETS，预设格式为 EA01 等，历史数据兼容）
+# 自动分配格式：E1 / E100 / E12222（无零填充）
 _KNOWN_EXTERNAL_CODES = frozenset((
     "E01", "E02", "E03",
     "EA01", "EA02",
@@ -165,7 +165,7 @@ _KNOWN_EXTERNAL_CODES = frozenset((
 
 # 外部单位代码前缀层级（用于自动分配，可扩展至 EA/EB/EC/ED/F...）
 _EXTERNAL_CODE_SERIES = ["E", "EA", "EB", "EC", "ED", "F", "FA", "FB"]
-_EXTERNAL_CODE_POOL_SIZE = 999_999  # 每系列最多 999,999 家)
+_EXTERNAL_CODE_POOL_SIZE = 999_999  # 每系列最多 999,999 家
 
 
 def _is_canonical_internal_code(code: str | None) -> bool:
@@ -258,10 +258,11 @@ def _auto_assign_entity_code(db, role: str = "A") -> str | None:
 
 
 def _auto_assign_external_code(db) -> str | None:
-    """为新外部单位自动分配下一个可用 E 系列代码（支持 1000+ 家）。
+    """为新外部单位自动分配下一个可用 E 系列代码（支持近 800 万家）。
 
-    分配顺序：E001 → E999 → EA001 → EA999 → EB001 → ...
-    每系列 999 个，全部用完后自动切换到下一个字母前缀。
+    分配顺序：E1 → E999999 → EA1 → EA999999 → EB1 → ...
+    每系列 999,999 个，全部用完后自动切换到下一个字母前缀。
+    格式：E1 / E100 / E12222（无零填充，数字直接拼接前缀）。
     """
     from sqlalchemy import select
     from ..models import ExternalParty
@@ -272,7 +273,6 @@ def _auto_assign_external_code(db) -> str | None:
 
     for series_prefix in _EXTERNAL_CODE_SERIES:
         # 收集该系列已有的编号
-        prefix_pattern = f"{series_prefix}000"  # e.g. "E000" for "E001"
         used_nums: set[int] = set()
         for code in existing_codes:
             if code and code.upper().startswith(series_prefix):
@@ -286,7 +286,7 @@ def _auto_assign_external_code(db) -> str | None:
         # 分配下一个可用编号
         for n in range(1, _EXTERNAL_CODE_POOL_SIZE + 1):
             if n not in used_nums:
-                return f"{series_prefix}{n:06d}"  # E000001, EA000001, EB000001, ...
+                return f"{series_prefix}{n}"  # E1, EA1, EB1, ...
 
     # 全系列用尽，抛出异常
     raise RuntimeError(
