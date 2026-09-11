@@ -1,6 +1,6 @@
 @echo off
 @chcp 936 >nul 2>&1
-title ɶ V3.1 - PostgreSQL ػ
+title ? V3.1 - PostgreSQL ?
 setlocal EnableExtensions EnableDelayedExpansion
 
 set "SCRIPT_DIR=%~dp0"
@@ -8,10 +8,10 @@ cd /d "%SCRIPT_DIR%.."
 set "ROOT_DIR=%CD%"
 
 rem ============================================================
-rem ˿· SSOT:
-rem   - ˿ڡdata dirpostmaster pid ȫ PostgreSqlPortNegotiator д
-rem     runtime\state\postgres.jsonBAT ϽӲ˿ںš
-rem   - ֻȡʵǷ pg_ctl
+rem ?�� SSOT:
+rem   - ??data dirpostmaster pid ? PostgreSqlPortNegotiator ��
+rem     runtime\state\postgres.jsonBAT ?????
+rem   - ???? pg_ctl
 rem ============================================================
 
 set "STATE_FILE=%ROOT_DIR%\runtime\state\postgres.json"
@@ -37,18 +37,18 @@ if exist "%STATE_FILE%" (
 )
 
 if "%PORT%"=="0" (
-    rem ûЭ̽ C# ֻ׵ȴ˳
-    echo [PostgreSQL] δʵ runtime\state\postgres.jsonȴ̨ PostgreSqlPortNegotiator Э̡
+    rem ?��? C# ????
+    echo [PostgreSQL] ��? runtime\state\postgres.json?? PostgreSqlPortNegotiator ��?
     exit /b 0
 )
 
-echo [PostgreSQL] ȡʵ˿ %PORT%Ŀ¼ %DATA_DIR%
+echo [PostgreSQL] ??? %PORT%?? %DATA_DIR%
 
 set "PG_CTL="
 if exist "%ROOT_DIR%\database\pgsql\bin\pg_ctl.exe" set "PG_CTL=%ROOT_DIR%\database\pgsql\bin\pg_ctl.exe"
 
 if not defined PG_CTL (
-    echo [PostgreSQL] : δҵЯ pg_ctl.exeݿⲻܱжΪɹ
+    echo [PostgreSQL] : ��?�� pg_ctl.exe???��??
     exit /b 2
 )
 
@@ -61,45 +61,45 @@ if not exist "logs" mkdir "logs" >nul 2>&1
 
 call :IS_READY
 if not errorlevel 1 (
-    echo [PostgreSQL] Я PostgreSQL  127.0.0.1:%PORT% 
+    echo [PostgreSQL] �� PostgreSQL  127.0.0.1:%PORT% 
     exit /b 0
 )
 
 if exist "!DATA_DIR!\postmaster.pid" (
     "!PG_CTL!" status -D "!DATA_DIR!" >nul 2>&1
     if not errorlevel 1 (
-        echo [PostgreSQL] : Ŀ¼Ӧ PostgreSQL Դ %PORT% δ
-        echo [PostgreSQL] Ϊɾʵ postmaster.pidѰȫֹ
+        echo [PostgreSQL] : ??? PostgreSQL ?? %PORT% ��
+        echo [PostgreSQL] ???? postmaster.pid???
         exit /b 4
     )
-    echo [PostgreSQL] ⵽ʧЧ postmaster.pid...
+    echo [PostgreSQL] ??�� postmaster.pid...
     del /f /q "!DATA_DIR!\postmaster.pid" >nul 2>&1
     if exist "!DATA_DIR!\postmaster.pid" (
-        echo [PostgreSQL] : ޷ʧЧ postmaster.pid
+        echo [PostgreSQL] : ??�� postmaster.pid
         exit /b 5
     )
 )
 
-echo [PostgreSQL] ݿʵ 127.0.0.1:%PORT%...
+echo [PostgreSQL] ?? 127.0.0.1:%PORT%...
 "!PG_CTL!" start -D "!DATA_DIR!" -l "%ROOT_DIR%\logs\postgres.log" -o "-h 127.0.0.1 -p %PORT%" >nul 2>&1
 if errorlevel 1 (
-    echo [PostgreSQL] : pg_ctl ʧܣ鿴 logs\postgres.log
+    echo [PostgreSQL] : pg_ctl ??? logs\postgres.log
     exit /b 6
 )
 
 for /l %%K in (1,1,30) do (
     call :IS_READY
     if not errorlevel 1 (
-        echo [PostgreSQL] Яݿ 127.0.0.1:%PORT% 
+        echo [PostgreSQL] ��? 127.0.0.1:%PORT% 
         exit /b 0
     )
     ping 127.0.0.1 -n 2 >nul
 )
 
-echo [PostgreSQL] :  30 δ %PORT% ִаȫع
+echo [PostgreSQL] :  30 �� %PORT% ?��??
 "!PG_CTL!" status -D "!DATA_DIR!" >nul 2>&1
 if not errorlevel 1 "!PG_CTL!" stop -D "!DATA_DIR!" -m fast >nul 2>&1
-echo [PostgreSQL] 鿴 logs\postgres.log ȡϸ־
+echo [PostgreSQL] ? logs\postgres.log ???
 exit /b 8
 
 :IS_READY

@@ -1,16 +1,16 @@
 @echo off
 @chcp 936 >nul 2>&1
-title æˆéƒ½å»ºå·¥ V3.1 - æœ¬åœ°å¤§æ¨¡å‹æœåŠ¡ (Port 8930)
+title ³É¶¼½¨¹¤ V3.1 - ±¾µØ´óÄ£ĞÍ·şÎñ (Port 8930)
 setlocal enabledelayedexpansion
 
 set "SCRIPT_DIR=%~dp0"
 cd /d "%SCRIPT_DIR%.."
 
 echo ==============================================================================
-echo   æˆéƒ½å»ºå·¥ V3.1 - æœ¬åœ°å¤§æ¨¡å‹æœåŠ¡ (llama-server CPU æ¨¡å¼)
-echo   é»˜è®¤æ¨¡å‹: Spark-X2.5-4B Q4_K_M (~2.6GB)
-echo   ç¡¬ä»¶ä¼˜åŒ–: Intel/AMD x64 CPU / AVX2 ä¼˜å…ˆ
-echo   ç›‘å¬ç«¯å£: http://127.0.0.1:8930
+echo   ³É¶¼½¨¹¤ V3.1 - ±¾µØ´óÄ£ĞÍ·şÎñ (llama-server CPU Ä£Ê½)
+echo   Ä¬ÈÏÄ£ĞÍ: Spark-X2.5-4B Q4_K_M (~2.6GB)
+echo   Ó²¼şÓÅ»¯: Intel/AMD x64 CPU / AVX2 ÓÅÏÈ
+echo   ¼àÌı¶Ë¿Ú: http://127.0.0.1:8930
 echo ==============================================================================
 
 set "ROOT_DIR=%CD%"
@@ -21,23 +21,23 @@ set "MODEL_ALIAS=spark-x2.5-4b"
 set "REQUIRES_SPARK25=1"
 
 if not exist "%SERVER_BIN%" (
-    echo [é”™è¯¯] æœªæ‰¾åˆ° Windows llama-server è¿è¡Œæ—¶: %SERVER_BIN%
-    echo [ä¿®å¤] è¯·æ‰§è¡Œ: python scripts\download_models.py --runtime-only
+    echo [´íÎó] Î´ÕÒµ½ Windows llama-server ÔËĞĞÊ±: %SERVER_BIN%
+    echo [ĞŞ¸´] ÇëÖ´ĞĞ: python scripts\download_models.py --runtime-only
     pause
     exit /b 1
 )
 
 if not exist "%MODEL_FILE%" (
-    echo [æç¤º] æœªæ‰¾åˆ° Spark-X2.5-4B ä¸»æ¨¡å‹æ–‡ä»¶: %MODEL_FILE%
-    echo [æç¤º] å°è¯•é™çº§ä¸º Qwen3.5-2B æ¨¡å‹...
+    echo [ÌáÊ¾] Î´ÕÒµ½ Spark-X2.5-4B Ö÷Ä£ĞÍÎÄ¼ş: %MODEL_FILE%
+    echo [ÌáÊ¾] ³¢ÊÔ½µ¼¶Îª Qwen3.5-2B Ä£ĞÍ...
     set "MODEL_FILE=%ROOT_DIR%\models\local-llm\Qwen3.5-2B-Q4_K_M.gguf"
     set "MODEL_ALIAS=qwen3.5-2b"
     set "REQUIRES_SPARK25=0"
 )
 
 if not exist "%MODEL_FILE%" (
-    echo [é”™è¯¯] æœªæ‰¾åˆ°ä»»ä½• GGUF æ¨¡å‹æ–‡ä»¶
-    echo [æç¤º] è¯·è¿è¡Œ 05_ä¸€é”®ä¸‹è½½AIæ¨¡å‹_å›½å†…é­”æ­.bat è‡ªåŠ¨ä¸‹è½½æ¨¡å‹ã€‚
+    echo [´íÎó] Î´ÕÒµ½ÈÎºÎ GGUF Ä£ĞÍÎÄ¼ş
+    echo [ÌáÊ¾] ÇëÔËĞĞ 05_Ò»¼üÏÂÔØAIÄ£ĞÍ_¹úÄÚÄ§´î.bat ×Ô¶¯ÏÂÔØÄ£ĞÍ¡£
     pause
     exit /b 1
 )
@@ -45,19 +45,19 @@ if not exist "%MODEL_FILE%" (
 if "%REQUIRES_SPARK25%"=="1" (
     "%SERVER_BIN%" --version 2>&1 | findstr /i "build 10828" >nul
     if errorlevel 1 (
-        echo [é”™è¯¯] å½“å‰ llama.cpp runtime ä¸æ”¯æŒ Spark2_5 æ¶æ„ã€‚
-        echo [è¦æ±‚] Spark-X2.5 è‡³å°‘éœ€è¦ llama.cpp b10828 / build 10828ã€‚
-        echo [ä¿®å¤] è¯·å…ˆåœæ­¢æœ¬åœ°æ¨¡å‹æœåŠ¡ï¼Œç„¶åæ‰§è¡Œ:
+        echo [´íÎó] µ±Ç° llama.cpp runtime ²»Ö§³Ö Spark2_5 ¼Ü¹¹¡£
+        echo [ÒªÇó] Spark-X2.5 ÖÁÉÙĞèÒª llama.cpp b10828 / build 10828¡£
+        echo [ĞŞ¸´] ÇëÏÈÍ£Ö¹±¾µØÄ£ĞÍ·şÎñ£¬È»ºóÖ´ĞĞ:
         echo        python scripts\download_models.py --runtime-only
         exit /b 2
     )
 )
 
-echo [1/1] æ­£åœ¨å¯åŠ¨ llama-server (4 çº¿ç¨‹ CPU å¹¶è¡ŒåŠ é€Ÿï¼Œ16K ä¸Šä¸‹æ–‡)...
+echo [1/1] ÕıÔÚÆô¶¯ llama-server (4 Ïß³Ì CPU ²¢ĞĞ¼ÓËÙ£¬16K ÉÏÏÂÎÄ)...
 "%SERVER_BIN%" --model "%MODEL_FILE%" --host 127.0.0.1 --port 8930 --alias "%MODEL_ALIAS%" --ctx-size 16384 --threads 4 --threads-batch 4 --batch-size 512 --ubatch-size 256 --gpu-layers 0 --reasoning off --parallel 1 --jinja
 
 if errorlevel 1 (
-    echo [é”™è¯¯] llama-server å¼‚å¸¸é€€å‡ºï¼Œé€€å‡ºç  !ERRORLEVEL!ã€‚
+    echo [´íÎó] llama-server Òì³£ÍË³ö£¬ÍË³öÂë !ERRORLEVEL!¡£
     exit /b !ERRORLEVEL!
 )
 

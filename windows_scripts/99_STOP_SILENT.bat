@@ -1,6 +1,6 @@
 @echo off
 @chcp 936 >nul 2>&1
-title 鎴愰兘寤哄伐 V3.1 - 鍚庡彴闈欓粯鍋滄
+title 成都建工 V3.1 - 后台静默停止
 setlocal enabledelayedexpansion
 
 set "SCRIPT_DIR=%~dp0"

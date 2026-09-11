@@ -1,6 +1,6 @@
 @echo off
 @chcp 936 >nul 2>&1
-title æˆéƒ½å»ºå·¥ V3.1 - è€æ¿ç«¯ Web é©¾é©¶èˆ± (Port 5173)
+title ³É¶¼½¨¹¤ V3.1 - ÀÏ°å¶Ë Web ¼ÝÊ»²Õ (Port 5173)
 setlocal EnableExtensions EnableDelayedExpansion
 
 set "SCRIPT_DIR=%~dp0"
@@ -8,34 +8,34 @@ cd /d "%SCRIPT_DIR%.."
 set "ROOT_DIR=%CD%"
 
 echo ==============================================================================
-echo   æˆéƒ½å»ºå·¥ V3.1 - è€æ¿ç«¯ç§»åŠ¨é©¾é©¶èˆ± Web (Port 5173)
-echo   Runtime: çº¯ Python serve_web.pyï¼ˆé›¶ Node è¿è¡Œæ—¶ä¾èµ–ï¼‰
+echo   ³É¶¼½¨¹¤ V3.1 - ÀÏ°å¶ËÒÆ¶¯¼ÝÊ»²Õ Web (Port 5173)
+echo   Runtime: ´¿ Python serve_web.py£¨Áã Node ÔËÐÐÊ±ÒÀÀµ£©
 echo   Backend: http://127.0.0.1:8921
 echo ==============================================================================
 
-call :WAIT_PORT 8921 30 "ç¨ŽåŠ¡ä¸­å°"
+call :WAIT_PORT 8921 30 "Ë°ÎñÖÐÌ¨"
 if errorlevel 1 (
-    echo [é”™è¯¯] ç¨ŽåŠ¡ä¸­å° 8921 æœªå°±ç»ªï¼Œè€æ¿ç«¯ Web ç¦æ­¢å¯åŠ¨ã€‚
+    echo [´íÎó] Ë°ÎñÖÐÌ¨ 8921 Î´¾ÍÐ÷£¬ÀÏ°å¶Ë Web ½ûÖ¹Æô¶¯¡£
     exit /b 11
 )
 
 set "VITE_API_BASE_URL=http://127.0.0.1:8921"
-set "PYTHON_EXE=%ROOT_DIR%\source_code\0.1_ç¨ŽåŠ¡ç®¡ç†\gtp_V1.0_FULL\01_å½“å‰å®Œæ•´ç³»ç»Ÿ_V1.0\chengdu_construction_tax_system_v1_0\.venv\Scripts\python.exe"
+set "PYTHON_EXE=%ROOT_DIR%\source_code\0.1_Ë°Îñ¹ÜÀí\gtp_V1.0_FULL\01_µ±Ç°ÍêÕûÏµÍ³_V1.0\chengdu_construction_tax_system_v1_0\.venv\Scripts\python.exe"
 if not exist "%PYTHON_EXE%" set "PYTHON_EXE=python"
 
 rem ============================================================
-rem [V3.1] å®Œå…¨ç§»é™¤ npm/vite preview è¿è¡Œä¾èµ–ã€‚å®¢æˆ·æœºä¸éœ€è¦å®‰è£… Node.jsã€‚
-rem   1. è‹¥å­˜åœ¨ source_code/.../distï¼ˆInstaller / å¼€å‘æœŸæž„å»ºäº§ç‰©ï¼‰ï¼Œç›´æŽ¥æœåŠ¡
-rem   2. å¦åˆ™å›žé€€åˆ° models/boss-dist/ï¼ˆInstaller éšåŒ…èµ„æºï¼‰
-rem   3. serve_web.py å·²å†…ç½® SPA è·¯ç”±å›žé€€åˆ° index.html ä¸Žç«¯å£ TIME_WAIT é€€é¿
+rem [V3.1] ÍêÈ«ÒÆ³ý npm/vite preview ÔËÐÐÒÀÀµ¡£¿Í»§»ú²»ÐèÒª°²×° Node.js¡£
+rem   1. Èô´æÔÚ source_code/.../dist£¨Installer / ¿ª·¢ÆÚ¹¹½¨²úÎï£©£¬Ö±½Ó·þÎñ
+rem   2. ·ñÔò»ØÍËµ½ models/boss-dist/£¨Installer Ëæ°ü×ÊÔ´£©
+rem   3. serve_web.py ÒÑÄÚÖÃ SPA Â·ÓÉ»ØÍËµ½ index.html Óë¶Ë¿Ú TIME_WAIT ÍË±Ü
 rem ============================================================
-set "BOSS_DIST=%ROOT_DIR%\source_code\0.3_è€æ¿ç«¯å®‰å“App_å¤©åºœæŽŒèˆµ\dist"
+set "BOSS_DIST=%ROOT_DIR%\source_code\0.3_ÀÏ°å¶Ë°²×¿App_Ìì¸®ÕÆ¶æ\dist"
 if not exist "%BOSS_DIST%\index.html" set "BOSS_DIST=%ROOT_DIR%\models\boss-dist"
 if not exist "%BOSS_DIST%\index.html" (
-    echo [é”™è¯¯] æ‰¾ä¸åˆ°è€æ¿ç«¯ dist èµ„æºï¼šè¯·ç¡®è®¤ dist å·²æž„å»ºæˆ– Installer å·²éƒ¨ç½² models\boss-distã€‚
+    echo [´íÎó] ÕÒ²»µ½ÀÏ°å¶Ë dist ×ÊÔ´£ºÇëÈ·ÈÏ dist ÒÑ¹¹½¨»ò Installer ÒÑ²¿Êð models\boss-dist¡£
     exit /b 12
 )
-echo [V3.1] è€æ¿ç«¯ dist: %BOSS_DIST%
+echo [V3.1] ÀÏ°å¶Ë dist: %BOSS_DIST%
 
 "%PYTHON_EXE%" "%ROOT_DIR%\windows_scripts\serve_web.py" 5173
 set "EXIT_CODE=%ERRORLEVEL%"
@@ -53,6 +53,6 @@ for /l %%I in (1,1,!_TRIES!) do (
         ping 127.0.0.1 -n 3 >nul
     )
 )
-echo [é”™è¯¯] !_NAME! åœ¨ç­‰å¾…çª—å£å†…æœªç›‘å¬ !_PORT!ã€‚
+echo [´íÎó] !_NAME! ÔÚµÈ´ý´°¿ÚÄÚÎ´¼àÌý !_PORT!¡£
 exit /b 1
 

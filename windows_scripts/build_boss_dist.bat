@@ -1,65 +1,65 @@
 @echo off
 REM ============================================================
-REM è€æ¿ç«¯å‰ç«¯ dist é™æ€æ‰“åŒ…è„šæœ¬ (v3.1-windows)
-REM ç”¨é€”ï¼šåœ¨ç›®æ ‡æœºä¸Šæ— éœ€ Node.js çš„å‰æä¸‹ï¼Œä¸€æ¬¡æ€§æ„å»º dist é™æ€æ–‡ä»¶
-REM è¾“å‡ºï¼šsource_code\0.3_è€æ¿ç«¯å®‰å“App_å¤©åºœæŒèˆµ\dist\
-REM è°ƒç”¨ï¼šä»…å½“ dist ç›®å½•ç¼ºå¤±æ—¶ï¼Œç”±æ¡Œé¢æ§åˆ¶å°è‡ªåŠ¨è°ƒç”¨
+REM ÀÏ°å¶ËÇ°¶Ë dist ¾²Ì¬´ò°ü½Å±¾ (v3.1-windows)
+REM ÓÃÍ¾£ºÔÚÄ¿±ê»úÉÏÎŞĞè Node.js µÄÇ°ÌáÏÂ£¬Ò»´ÎĞÔ¹¹½¨ dist ¾²Ì¬ÎÄ¼ş
+REM Êä³ö£ºsource_code\0.3_ÀÏ°å¶Ë°²×¿App_Ìì¸®ÕÆ¶æ\dist\
+REM µ÷ÓÃ£º½öµ± dist Ä¿Â¼È±Ê§Ê±£¬ÓÉ×ÀÃæ¿ØÖÆÌ¨×Ô¶¯µ÷ÓÃ
 REM ============================================================
 
 setlocal enabledelayedexpansion
 
-set "BOSS_DIR=%~dp0..\source_code\0.3_è€æ¿ç«¯å®‰å“App_å¤©åºœæŒèˆµ"
+set "BOSS_DIR=%~dp0..\source_code\0.3_ÀÏ°å¶Ë°²×¿App_Ìì¸®ÕÆ¶æ"
 set "DIST_DIR=%BOSS_DIR%\dist"
 
-echo [BossBuild] å·¥ä½œç›®å½•ï¼š%BOSS_DIR%
+echo [BossBuild] ¹¤×÷Ä¿Â¼£º%BOSS_DIR%
 
-REM ---- æ­¥éª¤ 1ï¼šæ£€æŸ¥æ˜¯å¦å·²ç»å­˜åœ¨ distï¼Œè·³è¿‡æ„å»º ----
+REM ---- ²½Öè 1£º¼ì²éÊÇ·ñÒÑ¾­´æÔÚ dist£¬Ìø¹ı¹¹½¨ ----
 if exist "%DIST_DIR%\index.html" (
-    echo [BossBuild] dist å·²å­˜åœ¨ï¼Œè·³è¿‡æ„å»ºã€‚
+    echo [BossBuild] dist ÒÑ´æÔÚ£¬Ìø¹ı¹¹½¨¡£
     exit /b 0
 )
 
-echo [BossBuild] dist ä¸å­˜åœ¨ï¼Œå¼€å§‹æ„å»º...
+echo [BossBuild] dist ²»´æÔÚ£¬¿ªÊ¼¹¹½¨...
 
-REM ---- æ­¥éª¤ 2ï¼šæ£€æŸ¥ Node.js æ˜¯å¦å¯ç”¨ ----
+REM ---- ²½Öè 2£º¼ì²é Node.js ÊÇ·ñ¿ÉÓÃ ----
 where node >nul 2>&1
 if errorlevel 1 (
-    echo [é”™è¯¯] æœªæ£€æµ‹åˆ° Node.jsã€‚è¯·å…ˆå®‰è£… Node.js 22.12.0 æˆ–æ›´é«˜ç‰ˆæœ¬ã€‚
+    echo [´íÎó] Î´¼ì²âµ½ Node.js¡£ÇëÏÈ°²×° Node.js 22.12.0 »ò¸ü¸ß°æ±¾¡£
     exit /b 1
 )
 
-REM ---- æ­¥éª¤ 3ï¼šæ£€æŸ¥ npm æ˜¯å¦å¯ç”¨ ----
+REM ---- ²½Öè 3£º¼ì²é npm ÊÇ·ñ¿ÉÓÃ ----
 where npm >nul 2>&1
 if errorlevel 1 (
-    echo [é”™è¯¯] æœªæ£€æµ‹åˆ° npmã€‚
+    echo [´íÎó] Î´¼ì²âµ½ npm¡£
     exit /b 1
 )
 
-REM ---- æ­¥éª¤ 4ï¼šæ£€æŸ¥ node_modules æ˜¯å¦å­˜åœ¨ï¼Œä¸å­˜åœ¨åˆ™å®‰è£… ----
+REM ---- ²½Öè 4£º¼ì²é node_modules ÊÇ·ñ´æÔÚ£¬²»´æÔÚÔò°²×° ----
 if not exist "%BOSS_DIR%\node_modules" (
-    echo [BossBuild] node_modules ç¼ºå¤±ï¼Œæ‰§è¡Œ npm install...
+    echo [BossBuild] node_modules È±Ê§£¬Ö´ĞĞ npm install...
     cd /d "%BOSS_DIR%"
     call npm install --no-audit --no-fund --prefer-offline
     if errorlevel 1 (
-        echo [é”™è¯¯] npm install å¤±è´¥ã€‚
+        echo [´íÎó] npm install Ê§°Ü¡£
         exit /b 1
     )
 )
 
-REM ---- æ­¥éª¤ 5ï¼šæ‰§è¡Œ npm run build ----
-echo [BossBuild] æ‰§è¡Œ npm run build ç”Ÿæˆ dist...
+REM ---- ²½Öè 5£ºÖ´ĞĞ npm run build ----
+echo [BossBuild] Ö´ĞĞ npm run build Éú³É dist...
 cd /d "%BOSS_DIR%"
 call npm run build
 if errorlevel 1 (
-    echo [é”™è¯¯] npm run build å¤±è´¥ã€‚
+    echo [´íÎó] npm run build Ê§°Ü¡£
     exit /b 1
 )
 
-REM ---- æ­¥éª¤ 6ï¼šéªŒè¯ dist å·²ç”Ÿæˆ ----
+REM ---- ²½Öè 6£ºÑéÖ¤ dist ÒÑÉú³É ----
 if not exist "%DIST_DIR%\index.html" (
-    echo [é”™è¯¯] æ„å»ºåä»æœªæ‰¾åˆ° dist\index.htmlã€‚
+    echo [´íÎó] ¹¹½¨ºóÈÔÎ´ÕÒµ½ dist\index.html¡£
     exit /b 1
 )
 
-echo [BossBuild] dist æ„å»ºæˆåŠŸï¼š%DIST_DIR%
+echo [BossBuild] dist ¹¹½¨³É¹¦£º%DIST_DIR%
 exit /b 0

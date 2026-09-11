@@ -515,6 +515,25 @@ public sealed class ServiceOrchestrator : IDisposable
                     continue;
                 }
 
+                if (candidate.IsListening)
+                {
+                    var fallbackIdentity = candidate.Identity ?? new ProcessIdentity(
+                        candidate.ProcessId,
+                        $"Occupant_Port_{definition.Port}",
+                        "",
+                        "",
+                        _rootResolver.Root ?? "",
+                        null);
+
+                    targets.Add(new CleanupTarget(
+                        definition,
+                        fallbackIdentity,
+                        trustedIds,
+                        candidate.IsListening,
+                        candidate.Source));
+                    continue;
+                }
+
                 if (!candidate.IsConfirmed || candidate.Identity is null)
                 {
                     var identityDetail = candidate.Identity is null
