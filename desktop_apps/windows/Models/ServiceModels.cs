@@ -14,6 +14,12 @@ public enum ServiceStartKind
     LocalExecutable,
     PythonModule,
     NpmPreview,
+    /// <summary>
+    /// [V3.1] Boss web client: pure Python http.server serving the
+    /// prebuilt static dist. No Node.js / vite runtime required on the
+    /// customer machine; dist is delivered via Installer.
+    /// </summary>
+    StaticPythonServer,
 }
 
 public enum ServiceCondition
@@ -222,9 +228,9 @@ public static class ServiceCatalog
                 8933,
                 new[] { "/health" },
                 new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "python", "python.exe", "uvicorn", "uvicorn.exe" },
-                @"0.4_IDP文档录入引擎_V3.0",
+                @"0.4_IDP文档录入引擎_V3.1",
                 ServiceStartKind.PythonModule,
-                @"source_code\0.4_IDP文档录入引擎_V3.0",
+                @"source_code\0.4_IDP文档录入引擎_V3.1",
                 null,
                 null,
                 "http://127.0.0.1:8933/"),
@@ -233,9 +239,9 @@ public static class ServiceCatalog
                 "移动端管理系统",
                 5173,
                 new[] { "/" },
-                new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "python", "python.exe", "node", "node.exe", "npm", "npm.cmd", "cmd", "cmd.exe", "vite", "vite.cmd" },
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "python", "python.exe", "cmd", "cmd.exe" },
                 @"0.3_老板端安卓App_天府掌舵",
-                ServiceStartKind.NpmPreview,
+                ServiceStartKind.StaticPythonServer,
                 @"source_code\0.3_老板端安卓App_天府掌舵",
                 null,
                 null,

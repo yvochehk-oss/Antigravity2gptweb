@@ -1,22 +1,22 @@
-@echo off
+ï»¿@echo off
 @chcp 936 >nul 2>&1
-title ³É¶¼½¨¹¤ V3.0 - ÍĞÅÌ¿ØÖÆÖĞĞÄ
+title æˆéƒ½å»ºå·¥ V3.1 - æ‰˜ç›˜æ§åˆ¶ä¸­å¿ƒ
 cd /d "%~dp0"
 
-:: Æô¶¯¿ØÖÆÌ¨Ç°£¬ÏÈÈ·±£ºóÌ¨±ãĞ¯°æÊı¾İ¿â (Port 54320) ÒÑ¾²Ä¬À­Æğ
+:: å¯åŠ¨æ§åˆ¶å°å‰ï¼Œå…ˆç¡®ä¿åå°ä¾¿æºç‰ˆæ•°æ®åº“ (Port 54320) å·²é™é»˜æ‹‰èµ·
 if exist "windows_scripts\00_START_POSTGRES.bat" (
     call "windows_scripts\00_START_POSTGRES.bat"
 )
 
-if exist "³É¶¼½¨¹¤¿ØÖÆÌ¨.exe" (
-    start "" "³É¶¼½¨¹¤¿ØÖÆÌ¨.exe"
-) else if exist "³É¶¼½¨¹¤V3.0ÍĞÅÌ¿ØÖÆÌ¨.exe" (
-    start "" "³É¶¼½¨¹¤V3.0ÍĞÅÌ¿ØÖÆÌ¨.exe"
+if exist "æˆéƒ½å»ºå·¥æ§åˆ¶å°.exe" (
+    start "" "æˆéƒ½å»ºå·¥æ§åˆ¶å°.exe"
+) else if exist "æˆéƒ½å»ºå·¥V3.1æ‰˜ç›˜æ§åˆ¶å°.exe" (
+    start "" "æˆéƒ½å»ºå·¥V3.1æ‰˜ç›˜æ§åˆ¶å°.exe"
 ) else if exist "desktop_apps\windows\ChengduConstructionTray.exe" (
     start "" "desktop_apps\windows\ChengduConstructionTray.exe"
 ) else (
-    echo [ÌáÊ¾] ÕıÔÚ×Ô¶¯±àÒëÍĞÅÌ¿ØÖÆÌ¨...
+    echo [æç¤º] æ­£åœ¨è‡ªåŠ¨ç¼–è¯‘æ‰˜ç›˜æ§åˆ¶å°...
     call "desktop_apps\windows_tray\build_tray.bat"
-    start "" "³É¶¼½¨¹¤V3.0ÍĞÅÌ¿ØÖÆÌ¨.exe"
+    start "" "æˆéƒ½å»ºå·¥V3.1æ‰˜ç›˜æ§åˆ¶å°.exe"
 )
 exit /b 0

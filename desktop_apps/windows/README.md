@@ -1,4 +1,4 @@
-# 成都建工 V3.0 Windows 控制台
+# 成都建工 V3.1 Windows 控制台
 
 这是一个原生 .NET 8 WinForms 系统托盘应用，发布后文件名为“成都建工控制台.exe”。应用常驻 Windows 右下角系统托盘，关闭控制台不会停止业务服务。
 
@@ -17,7 +17,7 @@
 
 在 Windows PowerShell 中运行：
 
-    cd .\V3.0\desktop_apps\windows
+    cd .\V3.1\desktop_apps\windows
     .\build.ps1 -RunSmokeTests
 
 也可以双击或在命令提示符中运行：

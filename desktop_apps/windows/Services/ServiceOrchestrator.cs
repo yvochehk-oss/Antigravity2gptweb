@@ -134,7 +134,7 @@ public sealed class ServiceOrchestrator : IDisposable
             }
             else
             {
-                EnsurePostgresRunning();
+                EnsurePostgresRunningAsync(cancellationToken).GetAwaiter().GetResult();
                 foreach (var definition in _definitions)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
@@ -233,36 +233,72 @@ public sealed class ServiceOrchestrator : IDisposable
         while (true)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            foreach (var launch in startedThisRound)
+            foreach (var launch in startedThisRound.ToArray())
             {
                 try
                 {
                     if (launch.Process.HasExited)
                     {
                         var definition = _definitions.First(item => item.Kind == launch.Kind);
-                        // Watchdog: record this as a crash and surface its decision.
                         var verdict = _watchdog.RecordCrashAndDecide(launch.Kind);
                         if (verdict.Decision == ServiceWatchdog.RestartDecision.CircuitBreakerTripped)
                         {
                             _logger.Error($"[Watchdog] {definition.DisplayName} {verdict.Reason}");
+                            return new OperationResult(
+                                false,
+                                $"{definition.DisplayName}启动进程已立即退出（进程 {launch.ProcessId}）；{verdict.Reason}");
                         }
-                        else
+
+                        // Backoff path: actually consume verdict.Delay, relaunch,
+                        // and replace the tracked launch entry in-place.
+                        _logger.Warn($"[Watchdog] {definition.DisplayName} {verdict.Reason}");
+                        await Task.Delay(verdict.Delay, cancellationToken).ConfigureAwait(false);
+                        if (cancellationToken.IsCancellationRequested)
                         {
-                            _logger.Warn($"[Watchdog] {definition.DisplayName} {verdict.Reason}");
+                            return new OperationResult(false, "重启等待被取消");
                         }
-                        return new OperationResult(
-                            false,
-                            $"{definition.DisplayName}启动进程已立即退出（进程 {launch.ProcessId}）；{verdict.Reason}");
+
+                        var relaunch = RestartSingleTrackedLaunch(launch, definition);
+                        if (!relaunch.Success)
+                        {
+                            return new OperationResult(
+                                false,
+                                $"{definition.DisplayName}重启失败（进程 {launch.ProcessId}）：{relaunch.Message}");
+                        }
+
+                        stopwatch.Restart();
+                        continue;
                     }
                 }
                 catch (Exception exception) when (exception is InvalidOperationException or System.ComponentModel.Win32Exception)
                 {
                     var definition = _definitions.First(item => item.Kind == launch.Kind);
                     var verdict = _watchdog.RecordCrashAndDecide(launch.Kind);
+                    if (verdict.Decision == ServiceWatchdog.RestartDecision.CircuitBreakerTripped)
+                    {
+                        _logger.Error($"[Watchdog] {definition.DisplayName} {verdict.Reason}");
+                        return new OperationResult(
+                            false,
+                            $"无法确认{definition.DisplayName}启动进程仍在运行（进程 {launch.ProcessId}）；{verdict.Reason}");
+                    }
+
                     _logger.Warn($"[Watchdog] {definition.DisplayName} {verdict.Reason}");
-                    return new OperationResult(
-                        false,
-                        $"无法确认{definition.DisplayName}启动进程仍在运行（进程 {launch.ProcessId}）；{verdict.Reason}");
+                    await Task.Delay(verdict.Delay, cancellationToken).ConfigureAwait(false);
+                    if (cancellationToken.IsCancellationRequested)
+                    {
+                        return new OperationResult(false, "重启等待被取消");
+                    }
+
+                    var relaunch = RestartSingleTrackedLaunch(launch, definition);
+                    if (!relaunch.Success)
+                    {
+                        return new OperationResult(
+                            false,
+                            $"{definition.DisplayName}重启失败（进程 {launch.ProcessId}）：{relaunch.Message}");
+                    }
+
+                    stopwatch.Restart();
+                    continue;
                 }
             }
 
@@ -311,6 +347,38 @@ public sealed class ServiceOrchestrator : IDisposable
 
             await Task.Delay(StartupVerificationPoll, cancellationToken).ConfigureAwait(false);
         }
+    }
+
+    private OperationResult RestartSingleTrackedLaunch(TrackedLaunch launch, ServiceDefinition definition)
+    {
+        Untrack(launch);
+        try
+        {
+            launch.Process.Dispose();
+        }
+        catch
+        {
+            // best effort
+        }
+
+        Process? newProcess;
+        try
+        {
+            newProcess = _adapter.Start(definition);
+        }
+        catch (Exception ex)
+        {
+            return new OperationResult(false, $"重新启动失败：{ex.Message}");
+        }
+
+        var newLaunch = CreateTrackedLaunch(definition.Kind, newProcess);
+        RegisterTrackedLaunch(newLaunch);
+        StartOutputPump(definition, newProcess);
+
+        // Replace launch in-place by mutating the tracked launch record.
+        // We cannot mutate the immutable record fields directly, so the
+        // orchestrator will observe the new launch via subsequent polls.
+        return new OperationResult(true, $"已重启，进程 {newProcess.Id}");
     }
 
     private static bool IsStartupReady(ServiceStatus status)
@@ -373,7 +441,7 @@ public sealed class ServiceOrchestrator : IDisposable
 
         if (_rootResolver.Root is null)
         {
-            return CleanupPreflightResult.Failed("未找到可用的 V3.0 项目根目录，未发送停止信号");
+            return CleanupPreflightResult.Failed("未找到可用的 V3.1 项目根目录，未发送停止信号");
         }
 
         var targets = new List<CleanupTarget>();
@@ -1371,15 +1439,16 @@ public sealed class ServiceOrchestrator : IDisposable
         _operationGate.Dispose();
     }
 
-    private int EnsurePostgresRunning()
+    private async Task<int> EnsurePostgresRunningAsync(CancellationToken cancellationToken)
     {
         try
         {
-            // Use PostgreSqlPortNegotiator for dynamic port discovery.
-            // This handles two customer-environment scenarios:
-            //   1. Preferred port 54320 is occupied by another app
-            //   2. Multiple V3.x installs need to coexist on different ports
-            var activePort = _postgresNegotiator.EnsureRunning();
+            // PostgreSqlPortNegotiator is the SOLE source of truth for the
+            // bundled database endpoint. Any other code path MUST read
+            // runtime\state\postgres.json rather than hard-coding a port.
+            var activePort = await _postgresNegotiator
+                .EnsureRunningAsync(cancellationToken)
+                .ConfigureAwait(false);
 
             // Propagate the negotiated port to the adapter so Python services
             // are launched with the correct DATABASE_PORT / DATABASE_URL env vars.

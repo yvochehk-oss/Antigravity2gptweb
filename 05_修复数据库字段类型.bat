@@ -1,14 +1,14 @@
-@echo off
+ï»¿@echo off
 @chcp 936 >nul 2>&1
-title ĞŞ¸´Êı¾İ¿â×Ö¶ÎÀàĞÍ (ingest_jobs)
+title ä¿®å¤æ•°æ®åº“å­—æ®µç±»å‹ (ingest_jobs)
 cd /d "%~dp0"
 echo ==============================================================================
-echo   ³É¶¼½¨¹¤ V3.0 - ×Ô¶¯Êı¾İ¿â×ÔÓúÓë×Ö¶ÎĞŞ¸´
+echo   æˆéƒ½å»ºå·¥ V3.1 - è‡ªåŠ¨æ•°æ®åº“è‡ªæ„ˆä¸å­—æ®µä¿®å¤
 echo ==============================================================================
 echo.
-set "PYTHON_EXE=source_code\0.2_RAGÏµÍ³\project-rag-v1.1\.venv\Scripts\python.exe"
+set "PYTHON_EXE=source_code\0.2_RAGç³»ç»Ÿ\project-rag-v1.1\.venv\Scripts\python.exe"
 if not exist "%PYTHON_EXE%" (
-    set "PYTHON_EXE=source_code\0.1_Ë°Îñ¹ÜÀí\gtp_V1.0_FULL\01_µ±Ç°ÍêÕûÏµÍ³_V1.0\chengdu_construction_tax_system_v1_0\.venv\Scripts\python.exe"
+    set "PYTHON_EXE=source_code\0.1_ç¨åŠ¡ç®¡ç†\gtp_V1.0_FULL\01_å½“å‰å®Œæ•´ç³»ç»Ÿ_V1.0\chengdu_construction_tax_system_v1_0\.venv\Scripts\python.exe"
 )
 if not exist "%PYTHON_EXE%" (
     set "PYTHON_EXE=python"

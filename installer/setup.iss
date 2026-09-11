@@ -61,6 +61,7 @@ chinesesimp.WebView2Missing=未检测到 Microsoft Edge WebView2 Runtime。系�
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 Name: "autoStartup"; Description: "随 Windows 启动自动运行控制台（托盘后台）"; GroupDescription: "系统集成:"; Flags: unchecked
+Name: "purgeUserDataOnUninstall"; Description: "[V3.1] 卸载时一并清除用户数据目录（默认仅卸载安装目录）"; GroupDescription: "数据保留:"; Flags: unchecked
 
 [Files]
 ; 主程序
@@ -69,14 +70,22 @@ Source: "..\desktop_apps\windows\bin\Release\{#MyAppExeName}"; DestDir: "{app}";
 Source: "..\desktop_apps\windows\Resources\*"; DestDir: "{app}\Resources"; Flags: ignoreallsources recursesubdirs createallsubdirs
 ; 启动脚本
 Source: "..\windows_scripts\*"; DestDir: "{app}\windows_scripts"; Flags: ignoreallsources recursesubdirs createallsubdirs
-; 服务模型与数据库
+; 服务模型与数据库（默认 OFF；数据库由运行时 initdb 脚本生成于用户数据目录，
+; 不再随安装包分发，规避 .git 大文件与长路径问题）
 Source: "..\database\*"; DestDir: "{app}\database"; Flags: ignoreallsources recursesubdirs createallsubdirs; Check: IncludePortableDatabase
 ; 大模型运行时（不含 GGUF 权重，由下载脚本按需获取）
 Source: "..\models\local-llm\runtime-win-cpu-x64\*"; DestDir: "{app}\models\local-llm\runtime-win-cpu-x64"; Flags: ignoreallsources recursesubdirs createallsubdirs; Check: IncludeLlamaRuntime
 ; 嵌入式 Python 运行时（v3.1 新增）
 Source: "..\runtime\python\*"; DestDir: "{app}\runtime\python"; Flags: ignoreallsources recursesubdirs createallsubdirs; Check: IncludeEmbeddedPython
-; 前端 dist（v3.1 新增，零 Node.js 依赖）
+; 业务源码（RAG / Tax / IDP / Boss frontend — v3.1 必须随安装包分发，
+; 因为我们走本地嵌入式 Python 直接 import 业务包，不再依赖外部 dev 服务）
+Source: "..\source_code\0.2_RAG系统\*"; DestDir: "{app}\source_code\0.2_RAG系统"; Flags: ignoreallsources recursesubdirs createallsubdirs; Excludes: "**\.venv\**;**\__pycache__\**;**\*.pyc;**\*.pyo;**\.pytest_cache\**;**\.mypy_cache\**;**\.ruff_cache\**"
+Source: "..\source_code\0.1_税务管理\*"; DestDir: "{app}\source_code\0.1_税务管理"; Flags: ignoreallsources recursesubdirs createallsubdirs; Excludes: "**\.venv\**;**\__pycache__\**;**\*.pyc;**\*.pyo;**\.pytest_cache\**;**\.mypy_cache\**;**\.ruff_cache\**"
+Source: "..\source_code\0.4_IDP文档录入引擎_V3.0\*"; DestDir: "{app}\source_code\0.4_IDP文档录入引擎_V3.0"; Flags: ignoreallsources recursesubdirs createallsubdirs; Excludes: "**\.venv\**;**\__pycache__\**;**\*.pyc;**\*.pyo;**\.pytest_cache\**;**\.mypy_cache\**;**\.ruff_cache\**"
+; 老板端静态 dist（v3.1 新增，零 Node.js 依赖）+ 嵌入式资源目录
 Source: "..\source_code\0.3_老板端安卓App_天府掌舵\dist\*"; DestDir: "{app}\source_code\0.3_老板端安卓App_天府掌舵\dist"; Flags: ignoreallsources recursesubdirs createallsubdirs; Check: IncludeBossDist
+; Boss 静态 dist 的安装期镜像拷贝（备援路径；与上面的源路径二选一即可）
+Source: "..\models\boss-dist\*"; DestDir: "{app}\models\boss-dist"; Flags: ignoreallsources recursesubdirs createallsubdirs; Check: IncludeBossDist
 ; 文档
 Source: "..\docs\install-postlude.md"; DestDir: "{app}\docs"; Flags: ignoreversion
 
@@ -84,7 +93,18 @@ Source: "..\docs\install-postlude.md"; DestDir: "{app}\docs"; Flags: ignoreversi
 ; 创建必要的空目录
 Name: "{app}\logs"
 Name: "{app}\runtime"
+Name: "{app}\runtime\state"
 Name: "{app}\models\local-llm"
+; 用户数据目录（数据库 + 运行事实）——位于用户 LOCALAPPDATA，
+; 卸载不会丢失数据
+Name: "{localappdata}\ChengduConstructionConsole"
+Name: "{localappdata}\ChengduConstructionConsole\database"
+Name: "{localappdata}\ChengduConstructionConsole\database\data"
+Name: "{localappdata}\ChengduConstructionConsole\database\logs"
+Name: "{localappdata}\ChengduConstructionConsole\database\backups"
+Name: "{localappdata}\ChengduConstructionConsole\runtime"
+Name: "{localappdata}\ChengduConstructionConsole\runtime\state"
+Name: "{localappdata}\ChengduConstructionConsole\logs"
 
 [Icons]
 ; 开始菜单快捷方式
@@ -101,7 +121,8 @@ Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchAfterInstall}"; Flags
 ; 卸载时清理日志和临时文件（保留数据库）
 Type: filesandordirs; Name: "{app}\logs"
 Type: filesandordirs; Name: "{app}\temp"
-; 不删除：{app}\database（用户数据保留）
+; 不删除：{app}\database（用户数据保留）。如需一并删除，请勾选「卸载时一并清除用户数据目录」。
+Type: filesandordirs; Name: "{localappdata}\ChengduConstructionConsole"; Check: ShouldPurgeUserDataOnUninstall
 
 [Code]
 // ============================================================
@@ -196,4 +217,11 @@ end;
 function IncludeBossDist: Boolean;
 begin
   Result := ExpandConstant('{param:IncludeBossDist|true}') <> 'false';
+end;
+
+function ShouldPurgeUserDataOnUninstall: Boolean;
+begin
+  // 默认 False（保留用户数据）；用户可在安装时勾选「一并清除」，
+  // Inno Setup 会把这个 Task 状态传进来。
+  Result := ExpandConstant('{param:PurgeUserData|false}') = 'true';
 end;

@@ -1,78 +1,87 @@
-using System.Runtime.InteropServices;
+using System.Runtime.Intrinsics;
+using System.Runtime.Intrinsics.X86;
 
 namespace ChengduConstructionController.Services;
 
 /// <summary>
-/// Detects CPU hardware instruction set capabilities (AVX2/SSE4.2) and routes
-/// to the appropriate llama-server binary to prevent 0xC000001D illegal
-/// instruction crashes on older CPUs (Celeron, Pentium, etc.).
+/// Detects CPU hardware instruction set capabilities and routes to the
+/// appropriate llama-server binary. The resolution chain is strictly:
+///
+///   1. AVX2        → llama-server-avx2.exe   (Intel Haswell+, AMD Excavator+)
+///   2. SSE4.2      → llama-server-sse42.exe  (Intel Nehalem+, AMD Bulldozer+)
+///   3. Generic SSE2→ llama-server-generic.exe
+///   4. Fail-Closed → no binary, the caller MUST refuse to start the LLM
+///
+/// We use <see cref="System.Runtime.Intrinsics"/>.IsSupported properties so
+/// every decision is backed by an authoritative CPUID feature bit rather
+/// than by absence-of-AVX2 inference (which falsely assumes SSE4.2).
 /// </summary>
 public static class CpuFeatureDetector
 {
-    // PF_AVX2_INSTRUCTIONS_AVAILABLE = 40
-    private const int PfAvx2InstructionsAvailable = 40;
+    public enum CpuTier
+    {
+        Avx2,
+        Sse42,
+        Generic,
+        Unsupported,
+    }
 
-    // PF_XMMI64_INSTRUCTIONS_AVAILABLE = 10  (SSE2, baseline for x64)
-    private const int PfSse2InstructionsAvailable = 10;
+    /// <summary>
+    /// Returns the highest supported CPU instruction set tier.
+    /// </summary>
+    public static CpuTier ResolveCpuTier()
+    {
+        if (Avx2.IsSupported)
+        {
+            return CpuTier.Avx2;
+        }
+        if (Sse42.IsSupported)
+        {
+            return CpuTier.Sse42;
+        }
+        if (Sse2.IsSupported)
+        {
+            return CpuTier.Generic;
+        }
 
-    // PFSSSE3_INSTRUCTIONS_AVAILABLE = 41  (SSE4.1, required for llama-server-sse42)
-    private const int PfSsse3InstructionsAvailable = 41;
-
-    // PF SSE4.1 is reported as available on all 64-bit Intel/AMD CPUs after 2008.
-    // llama-server-sse42 requires at minimum: SSE3 + SSSE3 + SSE4.1 + SSE4.2.
-    // Modern x64 CPUs (Intel Nehalem+, AMD Bulldozer+) support SSE4.2 natively.
-    // The absence of AVX2 on a 64-bit system almost always means SSE4.2 IS available.
-
-    [DllImport("kernel32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool IsProcessorFeaturePresent(int dwProcessorFeature);
+        return CpuTier.Unsupported;
+    }
 
     /// <summary>
     /// Returns true if the CPU supports AVX2 (Haswell+ Intel, Excavator+ AMD).
-    /// Returns false for older CPUs (Sandy Bridge, Ivy Bridge, Haswell without AVX2,
-    /// Celeron/Pentium Silver, etc.).
     /// </summary>
-    public static bool SupportsAvx2()
-    {
-        try
-        {
-            // AVX2 detection via kernel32 API — no external dependencies.
-            // Works reliably on Windows 7+ without admin rights.
-            return IsProcessorFeaturePresent(PfAvx2InstructionsAvailable);
-        }
-        catch (Exception)
-        {
-            // Fail-safe: if detection throws, assume no AVX2 and use SSE4.2 binary.
-            return false;
-        }
-    }
+    public static bool SupportsAvx2() => Avx2.IsSupported;
+
+    /// <summary>
+    /// Returns true if the CPU supports SSE4.2 (Nehalem+ Intel, Bulldozer+ AMD).
+    /// </summary>
+    public static bool SupportsSse42() => Sse42.IsSupported;
 
     /// <summary>
     /// Returns a human-readable description of the detected CPU instruction set level.
     /// </summary>
-    public static string GetCpuFeatureLevel()
+    public static string GetCpuFeatureLevel() => ResolveCpuTier() switch
     {
-        return SupportsAvx2() ? "AVX2" : "SSE4.2";
-    }
+        CpuTier.Avx2 => "AVX2",
+        CpuTier.Sse42 => "SSE4.2",
+        CpuTier.Generic => "Generic (SSE2 baseline)",
+        _ => "Unsupported (will fail-closed)",
+    };
 
     /// <summary>
     /// Resolves the appropriate llama-server executable path based on detected CPU features.
     ///
     /// Resolution order:
-    /// 1. AVX2 binary  → llama-server-avx2.exe  (Intel Haswell+, AMD Excavator+)
-    /// 2. SSE4.2 binary → llama-server-sse42.exe (Intel Nehalem+, AMD Bulldozer+)
-    /// 3. Default      → llama-server.exe        (no detection / fallback)
+    ///   1. llama-server-avx2.exe
+    ///   2. llama-server-sse42.exe
+    ///   3. llama-server-generic.exe
+    ///   4. llama-server.exe       (only as a final fallback if the tier-specific
+    ///                              binary is genuinely missing)
     ///
-    /// Expected runtime directory layout:
-    ///   models\local-llm\runtime-win-cpu-x64\
-    ///     ├── llama-server.exe        (generic, may not exist)
-    ///     ├── llama-server-avx2.exe   (AVX2 build)
-    ///     └── llama-server-sse42.exe  (SSE4.2 build)
+    /// Returns an empty string when the caller must refuse to start the LLM
+    /// (CPU tier unsupported OR no compatible binary on disk).
     /// </summary>
     /// <param name="runtimeDirectory">Path to the runtime-win-cpu-x64 folder.</param>
-    /// <returns>
-    /// Full path to the best-matching executable, or an empty string if none found.
-    /// </returns>
     public static string ResolveLlamaServerExecutable(string runtimeDirectory)
     {
         if (string.IsNullOrWhiteSpace(runtimeDirectory) || !Directory.Exists(runtimeDirectory))
@@ -80,34 +89,46 @@ public static class CpuFeatureDetector
             return string.Empty;
         }
 
-        var hasAvx2 = SupportsAvx2();
-        var preferredBinary = hasAvx2 ? "llama-server-avx2.exe" : "llama-server-sse42.exe";
-        var preferredPath = Path.Combine(runtimeDirectory, preferredBinary);
-
-        if (File.Exists(preferredPath))
+        var tier = ResolveCpuTier();
+        if (tier == CpuTier.Unsupported)
         {
-            return preferredPath;
+            // Fail-Closed: do not start llama-server on a CPU that lacks SSE2.
+            return string.Empty;
         }
 
-        // Preferred binary not found. Check for generic default.
-        var defaultPath = Path.Combine(runtimeDirectory, "llama-server.exe");
-        if (File.Exists(defaultPath))
+        var orderedCandidates = tier switch
         {
-            // Warn that the architecture-optimal binary is missing.
-            // The default binary may still work if it was compiled for a baseline ISA.
-            return defaultPath;
+            CpuTier.Avx2 => new[] { "llama-server-avx2.exe", "llama-server-sse42.exe", "llama-server-generic.exe" },
+            CpuTier.Sse42 => new[] { "llama-server-sse42.exe", "llama-server-generic.exe" },
+            _ => new[] { "llama-server-generic.exe" },
+        };
+
+        foreach (var candidate in orderedCandidates)
+        {
+            var candidatePath = Path.Combine(runtimeDirectory, candidate);
+            if (File.Exists(candidatePath))
+            {
+                return candidatePath;
+            }
         }
 
-        // Neither preferred nor default found.
-        return string.Empty;
+        // Last-resort fallback: a stock llama-server.exe may still work if the
+        // operator built it for a baseline ISA. We do NOT silently fall back to
+        // this for higher tiers because it could Illegal Instruction (0xC000001D)
+        // on AVX2-requiring builds.
+        var stockPath = Path.Combine(runtimeDirectory, "llama-server.exe");
+        return File.Exists(stockPath) ? stockPath : string.Empty;
     }
 
     /// <summary>
     /// Returns the expected binary name for the current CPU without path resolution.
     /// Useful for logging which binary would be selected.
     /// </summary>
-    public static string GetPreferredBinaryName()
+    public static string GetPreferredBinaryName() => ResolveCpuTier() switch
     {
-        return SupportsAvx2() ? "llama-server-avx2.exe" : "llama-server-sse42.exe";
-    }
+        CpuTier.Avx2 => "llama-server-avx2.exe",
+        CpuTier.Sse42 => "llama-server-sse42.exe",
+        CpuTier.Generic => "llama-server-generic.exe",
+        _ => string.Empty,
+    };
 }

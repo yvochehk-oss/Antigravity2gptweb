@@ -3,7 +3,7 @@ using ChengduConstructionController.Models;
 namespace ChengduConstructionController.Services;
 
 /// <summary>
-/// Resolves the V3.0 checkout at runtime. The published app may live below the
+/// Resolves the V3.1 checkout at runtime. The published app may live below the
 /// checkout or in a separate folder with CHENGDU_JIANGONG_ROOT configured; no
 /// developer machine path is compiled into the application. A root selected in
 /// the tray UI is persisted under LocalApplicationData and can be switched at
@@ -27,7 +27,7 @@ public sealed class ProjectRootResolver : IDisposable
         _root = ResolveRoot();
         if (_root is null)
         {
-            _logger.Warn("未找到 V3.0 项目根目录；可从托盘菜单选择项目目录，或设置 CHENGDU_JIANGONG_ROOT。");
+            _logger.Warn("未找到 V3.1 项目根目录；可从托盘菜单选择项目目录，或设置 CHENGDU_JIANGONG_ROOT。");
         }
     }
 
@@ -78,7 +78,7 @@ public sealed class ProjectRootResolver : IDisposable
     {
         if (!IsProjectRoot(candidate, out var normalizedRoot) || normalizedRoot is null)
         {
-            message = "所选目录不是有效的成都建工 V3.0 根目录；必须同时包含 windows_scripts 和 source_code。";
+            message = "所选目录不是有效的成都建工 V3.1 根目录；必须同时包含 windows_scripts 和 source_code。";
             return false;
         }
 

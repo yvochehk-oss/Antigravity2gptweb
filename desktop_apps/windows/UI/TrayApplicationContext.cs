@@ -57,7 +57,7 @@ public sealed class TrayApplicationContext : ApplicationContext
 
         _notifyIcon = new NotifyIcon
         {
-            Text = "成都建工 V3.0 控制台",
+            Text = "成都建工 V3.1 控制台",
             Visible = true,
             ContextMenuStrip = BuildMenu(),
         };
@@ -265,7 +265,7 @@ public sealed class TrayApplicationContext : ApplicationContext
 
         using var dialog = new FolderBrowserDialog
         {
-            Description = "请选择成都建工 V3.0 项目根目录（目录内必须包含 windows_scripts 和 source_code）",
+            Description = "请选择成都建工 V3.1 项目根目录（目录内必须包含 windows_scripts 和 source_code）",
             ShowNewFolderButton = false,
             UseDescriptionForTitle = true,
         };

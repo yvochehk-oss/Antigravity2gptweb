@@ -1,29 +1,52 @@
 @echo off
 @chcp 936 >nul 2>&1
-title 成都建工 V3.0 - PostgreSQL 54320 守护
+title 成都建工 V3.1 - PostgreSQL 守护
 setlocal EnableExtensions EnableDelayedExpansion
 
 set "SCRIPT_DIR=%~dp0"
 cd /d "%SCRIPT_DIR%.."
 set "ROOT_DIR=%CD%"
-set "PORT=54320"
-set "WATCHDOG=%ROOT_DIR%\scripts\database\windows\postgres_watchdog.ps1"
-set "PG_CTL="
-set "PG_ISREADY="
 
-call :IS_READY
-if not errorlevel 1 (
-    echo [PostgreSQL] 便携版 PostgreSQL 已在 127.0.0.1:%PORT% 就绪。
-    call :START_WATCHDOG
-    if errorlevel 1 exit /b 7
+rem ============================================================
+rem 端口与路径 SSOT:
+rem   - 端口、data dir、postmaster pid 全部由 PostgreSqlPortNegotiator 写入
+rem     runtime\state\postgres.json。BAT 严禁自行硬编码端口号。
+rem   - 这里只读取并按运行事实决定是否启动 pg_ctl。
+rem ============================================================
+
+set "STATE_FILE=%ROOT_DIR%\runtime\state\postgres.json"
+set "PORT=0"
+set "DATA_DIR="
+
+if exist "%STATE_FILE%" (
+    for /f "usebackq tokens=*" %%L in ("%STATE_FILE%") do (
+        echo %%L | findstr /i "\"Port\"" >nul && (
+            for /f "tokens=2 delims=:," %%P in ("%%L") do (
+                set "PORT=%%P"
+                set "PORT=!PORT: =!"
+                set "PORT=!PORT:,=!"
+            )
+        )
+        echo %%L | findstr /i "\"DataDir\"" >nul && (
+            for /f "tokens=2 delims=:, " %%P in ("%%L") do (
+                if not defined DATA_DIR set "DATA_DIR=!DATA_DIR!%%P"
+                if defined DATA_DIR goto :DATA_DONE
+            )
+        )
+    )
+    :DATA_DONE
+)
+
+if "%PORT%"=="0" (
+    rem 没有协商结果。让 C# 控制器后续拉起；这里只做兜底等待并退出。
+    echo [PostgreSQL] 未发现运行事实 runtime\state\postgres.json；等待控制台调用 PostgreSqlPortNegotiator 进行协商。
     exit /b 0
 )
 
-echo [PostgreSQL] 正在检查并启动便携版 PostgreSQL (Port %PORT%)...
+echo [PostgreSQL] 读取运行事实：端口 %PORT%；数据目录 %DATA_DIR%
 
-if exist "database\pgsql\bin\pg_ctl.exe" set "PG_CTL=%ROOT_DIR%\database\pgsql\bin\pg_ctl.exe"
-if not defined PG_CTL if exist "pgsql\bin\pg_ctl.exe" set "PG_CTL=%ROOT_DIR%\pgsql\bin\pg_ctl.exe"
-if not defined PG_CTL if exist "M:\database\pgsql\bin\pg_ctl.exe" set "PG_CTL=M:\database\pgsql\bin\pg_ctl.exe"
+set "PG_CTL="
+if exist "%ROOT_DIR%\database\pgsql\bin\pg_ctl.exe" set "PG_CTL=%ROOT_DIR%\database\pgsql\bin\pg_ctl.exe"
 
 if not defined PG_CTL (
     echo [PostgreSQL] 错误: 未找到便携版 pg_ctl.exe，数据库不能被判定为成功启动。
@@ -31,31 +54,16 @@ if not defined PG_CTL (
 )
 
 for %%I in ("!PG_CTL!") do set "PG_BIN=%%~dpI"
+if not defined DATA_DIR set "DATA_DIR=%ROOT_DIR%\database\data"
+
 if exist "!PG_BIN!pg_isready.exe" set "PG_ISREADY=!PG_BIN!pg_isready.exe"
 
-set "DATA_DIR="
-if exist "%~d0\projectrag_pgdata" set "DATA_DIR=%~d0\projectrag_pgdata"
-if not defined DATA_DIR if exist "C:\projectrag_pgdata" set "DATA_DIR=C:\projectrag_pgdata"
-if not defined DATA_DIR if exist "M:\database\data" set "DATA_DIR=M:\database\data"
-if not defined DATA_DIR if exist "%ROOT_DIR%\database\data" (
-    subst M: /d >nul 2>&1
-    subst M: "%ROOT_DIR%" >nul 2>&1
-    if exist "M:\database\data" (
-        set "DATA_DIR=M:\database\data"
-        if exist "M:\database\pgsql\bin\pg_ctl.exe" (
-            set "PG_CTL=M:\database\pgsql\bin\pg_ctl.exe"
-            set "PG_BIN=M:\database\pgsql\bin\"
-            if exist "M:\database\pgsql\bin\pg_isready.exe" set "PG_ISREADY=M:\database\pgsql\bin\pg_isready.exe"
-        )
-        echo [PostgreSQL] 已将项目临时映射为 M 盘以规避 Windows 长路径限制。
-    ) else (
-        set "DATA_DIR=%ROOT_DIR%\database\data"
-    )
-)
+if not exist "logs" mkdir "logs" >nul 2>&1
 
-if not defined DATA_DIR (
-    echo [PostgreSQL] 错误: 未找到数据库数据目录，请确认便携数据库已经初始化。
-    exit /b 3
+call :IS_READY
+if not errorlevel 1 (
+    echo [PostgreSQL] 便携版 PostgreSQL 已在 127.0.0.1:%PORT% 就绪。
+    exit /b 0
 )
 
 if exist "!DATA_DIR!\postmaster.pid" (
@@ -73,8 +81,7 @@ if exist "!DATA_DIR!\postmaster.pid" (
     )
 )
 
-if not exist "logs" mkdir "logs" >nul 2>&1
-echo [PostgreSQL] 启动数据库实例并强制绑定 127.0.0.1:%PORT%...
+echo [PostgreSQL] 启动数据库实例并绑定 127.0.0.1:%PORT%...
 "!PG_CTL!" start -D "!DATA_DIR!" -l "%ROOT_DIR%\logs\postgres.log" -o "-h 127.0.0.1 -p %PORT%" >nul 2>&1
 if errorlevel 1 (
     echo [PostgreSQL] 错误: pg_ctl 启动失败，请查看 logs\postgres.log。
@@ -85,8 +92,6 @@ for /l %%K in (1,1,30) do (
     call :IS_READY
     if not errorlevel 1 (
         echo [PostgreSQL] 便携版数据库已在 127.0.0.1:%PORT% 就绪。
-        call :START_WATCHDOG
-        if errorlevel 1 exit /b 7
         exit /b 0
     )
     timeout /t 1 /nobreak >nul
@@ -105,16 +110,3 @@ if defined PG_ISREADY if exist "!PG_ISREADY!" (
 )
 netstat -ano | findstr /i ":%PORT% " | findstr /i "LISTENING" >nul 2>&1
 exit /b !ERRORLEVEL!
-
-:START_WATCHDOG
-if not exist "%WATCHDOG%" (
-    echo [PostgreSQL] 错误: 缺少自愈守护脚本 %WATCHDOG%。
-    exit /b 1
-)
-where powershell.exe >nul 2>&1
-if errorlevel 1 (
-    echo [PostgreSQL] 错误: 未找到 powershell.exe，无法启动数据库自愈守护。
-    exit /b 1
-)
-start "" /B powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "%WATCHDOG%" -RootDir "%ROOT_DIR%" -Port %PORT% >nul 2>&1
-exit /b 0

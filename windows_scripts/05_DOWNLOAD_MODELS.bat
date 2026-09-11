@@ -1,23 +1,23 @@
-@echo off
+ï»¿@echo off
 @chcp 936 >nul 2>&1
-title ³É¶¼½¨¹¤ V3.0 - AIÄ£ĞÍ¸ßËÙÏÂÔØ
+title æˆéƒ½å»ºå·¥ V3.1 - AIæ¨¡å‹é«˜é€Ÿä¸‹è½½
 setlocal enabledelayedexpansion
 
 set "SCRIPT_DIR=%~dp0"
 cd /d "%SCRIPT_DIR%.."
 
 echo ==============================================================================
-echo   ³É¶¼½¨¹¤ V3.0 - AI Ä£ĞÍ¼«ËÙ×Ô¶¯ÏÂÔØÆ÷
-echo   Ö§³Ö¹úÄÚ°¢ÀïÄ§´î ModelScope ÂúËÙ½Úµã - ×Ô¶¯ÏÂÔØ ĞÇ»ğ Spark-X2.5-4B Óë BGE-M3 ÏòÁ¿Ä£ĞÍ
+echo   æˆéƒ½å»ºå·¥ V3.1 - AI æ¨¡å‹æé€Ÿè‡ªåŠ¨ä¸‹è½½å™¨
+echo   æ”¯æŒå›½å†…é˜¿é‡Œé­”æ­ ModelScope æ»¡é€ŸèŠ‚ç‚¹ - è‡ªåŠ¨ä¸‹è½½ æ˜Ÿç« Spark-X2.5-4B ä¸ BGE-M3 å‘é‡æ¨¡å‹
 echo ==============================================================================
 echo.
 
 set "UV_BIN=%SCRIPT_DIR%tools\uv.exe"
-set "VENV_DIR=%SCRIPT_DIR%..\source_code\0.2_RAGÏµÍ³\project-rag-v1.1\.venv"
-set "VENV_PY=%SCRIPT_DIR%..\source_code\0.2_RAGÏµÍ³\project-rag-v1.1\.venv\Scripts\python.exe"
+set "VENV_DIR=%SCRIPT_DIR%..\source_code\0.2_RAGç³»ç»Ÿ\project-rag-v1.1\.venv"
+set "VENV_PY=%SCRIPT_DIR%..\source_code\0.2_RAGç³»ç»Ÿ\project-rag-v1.1\.venv\Scripts\python.exe"
 
 if exist "%UV_BIN%" (
-    echo [1/2] ÕıÔÚÊ¹ÓÃ uv °²×°ÏÂÔØÆ÷ÒÀÀµ modelscope Óë huggingface_hub...
+    echo [1/2] æ­£åœ¨ä½¿ç”¨ uv å®‰è£…ä¸‹è½½å™¨ä¾èµ– modelscope ä¸ huggingface_hub...
     if exist "%VENV_DIR%" (
         "%UV_BIN%" pip install --python "%VENV_DIR%" -i https://mirrors.aliyun.com/pypi/simple/ modelscope huggingface_hub
     ) else (
@@ -26,7 +26,7 @@ if exist "%UV_BIN%" (
 )
 
 echo.
-echo [2/2] ÕıÔÚÆô¶¯¹úÄÚÄ£ĞÍÏÂÔØÆ÷...
+echo [2/2] æ­£åœ¨å¯åŠ¨å›½å†…æ¨¡å‹ä¸‹è½½å™¨...
 if exist "%VENV_PY%" (
     "%VENV_PY%" scripts\download_models.py
 ) else (
@@ -39,7 +39,7 @@ if exist "%VENV_PY%" (
 
 echo.
 echo ==============================================================================
-echo   Ä£ĞÍÏÂÔØÁ÷³ÌÖ´ĞĞÍê±Ï£¡
+echo   æ¨¡å‹ä¸‹è½½æµç¨‹æ‰§è¡Œå®Œæ¯•ï¼
 echo ==============================================================================
 echo.
 pause

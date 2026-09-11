@@ -22,7 +22,7 @@ public sealed class StatusForm : Form
     public StatusForm(IReadOnlyList<ServiceDefinition> definitions, Func<Task<ServiceSnapshot>> refreshRequested)
     {
         _refreshRequested = refreshRequested;
-        Text = "成都建工 V3.0 控制台";
+        Text = "成都建工 V3.1 控制台";
         StartPosition = FormStartPosition.CenterScreen;
         MinimumSize = new Size(760, 480);
         Size = new Size(960, 640);

@@ -25,7 +25,7 @@ public sealed class HealthProbe : IDisposable
         {
             Timeout = TimeSpan.FromSeconds(8),
         };
-        _client.DefaultRequestHeaders.UserAgent.ParseAdd("ChengduConstructionController/3.0");
+        _client.DefaultRequestHeaders.UserAgent.ParseAdd("ChengduConstructionController/3.1");
     }
 
     public async Task<HttpProbeResult> ProbeAsync(ServiceDefinition definition, CancellationToken cancellationToken)

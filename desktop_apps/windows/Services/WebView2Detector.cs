@@ -138,6 +138,8 @@ public static class WebView2Detector
     /// <summary>
     /// Installs the WebView2 Runtime silently using the provided bootstrapper.
     /// Uses --per-user mode so it works for non-administrator user accounts.
+    /// Elevation is intentionally NOT requested so a non-admin user can still
+    /// complete the install via the per-user scope.
     ///
     /// Bootstrapper can be obtained from:
     ///   https://developer.microsoft.com/en-us/microsoft-edge/webview2/
@@ -163,14 +165,14 @@ public static class WebView2Detector
             var psi = new System.Diagnostics.ProcessStartInfo
             {
                 FileName = bootstrapperPath,
-                // /silent  - no UI shown
-                // /install - install the runtime
-                // --per-user - install for current user only (no admin required)
-                Arguments = "/silent /install",
+                // /silent        - no UI shown
+                // /install       - install the runtime
+                // --per-user     - install for current user only (no admin required)
+                // No Verb="runas" - per-user install must NOT request elevation.
+                Arguments = "/silent /install --per-user",
                 UseShellExecute = true,
                 CreateNoWindow = true,
                 WindowStyle = System.Diagnostics.ProcessWindowStyle.Hidden,
-                Verb = "runas",  // attempt elevation if available; silently skips if not
             };
 
             using var process = System.Diagnostics.Process.Start(psi);

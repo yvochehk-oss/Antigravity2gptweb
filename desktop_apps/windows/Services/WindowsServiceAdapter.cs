@@ -16,6 +16,7 @@ public sealed class WindowsServiceAdapter
 
     private readonly ProjectRootResolver _rootResolver;
     private readonly SafeLogger _logger;
+    private readonly RequiredPythonPathResolver _pythonResolver;
 
     /// <summary>
     /// The currently negotiated PostgreSQL port. Defaults to 54320 (preferred)
@@ -24,10 +25,14 @@ public sealed class WindowsServiceAdapter
     /// </summary>
     public int DatabasePort { get; set; } = 54320;
 
-    public WindowsServiceAdapter(ProjectRootResolver rootResolver, SafeLogger logger)
+    public WindowsServiceAdapter(
+        ProjectRootResolver rootResolver,
+        SafeLogger logger,
+        RequiredPythonPathResolver? pythonResolver = null)
     {
         _rootResolver = rootResolver;
         _logger = logger;
+        _pythonResolver = pythonResolver ?? new RequiredPythonPathResolver(rootResolver, logger);
     }
 
     public Process Start(ServiceDefinition definition)
@@ -66,6 +71,7 @@ public sealed class WindowsServiceAdapter
             ServiceStartKind.LocalExecutable => BuildLocalModelStartInfo(definition, workingDirectory),
             ServiceStartKind.PythonModule => BuildPythonStartInfo(definition, workingDirectory),
             ServiceStartKind.NpmPreview => BuildBossStartInfo(definition, workingDirectory),
+            ServiceStartKind.StaticPythonServer => BuildBossStartInfo(definition, workingDirectory),
             _ => throw new InvalidOperationException($"{definition.DisplayName}没有可用的 Windows 启动方式。"),
         };
     }
@@ -140,10 +146,31 @@ public sealed class WindowsServiceAdapter
         var python = ResolvePythonExecutable(definition, workingDirectory);
         if (string.IsNullOrWhiteSpace(python) || !File.Exists(python))
         {
-            throw new InvalidOperationException($"未找到{definition.DisplayName}的 Windows Python 环境，请先运行 06_一键配置Python314环境.bat 或运行 build_embedded_python.py 制作嵌入式运行时。");
+            throw new InvalidOperationException(
+                $"未找到 {definition.DisplayName} 的嵌入式 Python 运行时（runtime\\python\\Scripts\\python.exe）。"
+                + "请确认 Installer 已部署嵌入式 Python；开发期可用 .venv 临时回退。");
         }
 
-        _logger.Info($"[Python] 使用解释器：{python}");
+        // Fail-Closed: prefer embedded runtime. If a non-embedded venv is
+        // being used, log a loud warning so customers know their deployment
+        // is misconfigured (e.g. missing Installer step).
+        var embeddedPython = _rootResolver.ResolvePath(@"runtime\python\Scripts\python.exe");
+        if (string.IsNullOrWhiteSpace(embeddedPython) || !File.Exists(embeddedPython))
+        {
+            _logger.Warn(
+                $"[Python] {definition.DisplayName} 启动时使用非嵌入式 Python（{python}）；"
+                + "Installer 部署后必须存在 runtime\\python\\Scripts\\python.exe。");
+        }
+
+        // Probe the interpreter before launching the long-lived service. If
+        // the binary is corrupted or wrong architecture the probe will fail.
+        var (probeOk, probeDetail) = RequiredPythonPathResolver.ProbeVersion(python);
+        if (!probeOk)
+        {
+            throw new InvalidOperationException(
+                $"Python 解释器无法启动：{probeDetail}（路径：{python}）");
+        }
+        _logger.Info($"[Python] 使用解释器 {probeDetail}：{python}");
 
         var info = CreateHiddenProcessInfo(python, workingDirectory);
         info.Environment["PYTHONUNBUFFERED"] = "1";
@@ -185,67 +212,80 @@ public sealed class WindowsServiceAdapter
         var distDirectory = Path.Combine(workingDirectory, "dist");
         var distIndexPath = Path.Combine(distDirectory, "index.html");
 
-        // 优先级 1：dist 已存在 → 直接使用 serve_web.py（零 Node.js 依赖）
+        // ============================================================
+        // [V3.1] 老板端 Web 永远不允许 Node.js 运行时依赖。
+        // 优先级：
+        //   1. dist 已存在（开发期构建 / Installer 部署）
+        //   2. 从 models\boss-dist 拷贝（Installer 随包资源）
+        //   3. 仍然缺失 → 报错并拒绝启动（Fail-Closed）
+        // ============================================================
         if (Directory.Exists(distDirectory) && File.Exists(distIndexPath))
         {
             _logger.Info($"[Boss] 发现 dist 静态包，使用 serve_web.py（无需 Node.js）");
             return BuildServeWebProcessInfo(definition, workingDirectory);
         }
 
-        // 优先级 2：dist 不存在 → 尝试自动构建
-        var buildBat = _rootResolver.ResolvePath(@"windows_scripts\build_boss_dist.bat");
-        if (!string.IsNullOrWhiteSpace(buildBat) && File.Exists(buildBat))
+        var bundledDist = _rootResolver.ResolvePath(@"models\boss-dist");
+        if (!string.IsNullOrWhiteSpace(bundledDist)
+            && Directory.Exists(bundledDist)
+            && File.Exists(Path.Combine(bundledDist, "index.html")))
         {
-            _logger.Info($"[Boss] dist 缺失，触发自动构建脚本：{buildBat}");
-            var buildOk = RunBossBuildScript(buildBat);
-            if (buildOk && Directory.Exists(distDirectory) && File.Exists(distIndexPath))
+            var targetDist = distDirectory;
+            try
             {
-                _logger.Info($"[Boss] 自动构建成功，切换到 serve_web.py 静态伺服");
+                Directory.CreateDirectory(targetDist);
+                // Mirror bundled dist into source_code/.../dist so serve_web.py
+                // finds it on its canonical path. We use a simple recursive copy
+                // because the directory only ships with the Installer and is
+                // immutable at runtime.
+                CopyDirectory(bundledDist, targetDist);
+                _logger.Info($"[Boss] 已从 models/boss-dist 同步到 {targetDist}");
+            }
+            catch (Exception ex)
+            {
+                _logger.Warn($"[Boss] 拷贝内置 dist 失败：{ex.Message}");
+            }
+
+            if (File.Exists(Path.Combine(targetDist, "index.html")))
+            {
                 return BuildServeWebProcessInfo(definition, workingDirectory);
             }
-            _logger.Warn($"[Boss] 自动构建失败，回退到下一优先级。");
         }
 
-        // 优先级 3：有 node_modules 但 dist 缺失 → 使用 npm run preview
-        if (File.Exists(Path.Combine(workingDirectory, "package.json")) &&
-            Directory.Exists(Path.Combine(workingDirectory, "node_modules")))
+        // We intentionally do NOT fall back to npm run preview / vite.
+        // Customers must never be asked to install Node.js at runtime.
+        throw new InvalidOperationException(
+            "老板端静态 dist 缺失：请通过 Vite 在开发期构建 dist，或确认 Installer 已部署 models\\boss-dist。"
+            + "（V3.1 已移除 npm preview 兜底，不支持客户机运行时安装 Node.js。）");
+    }
+
+    private static void CopyDirectory(string source, string destination)
+    {
+        Directory.CreateDirectory(destination);
+        foreach (var file in Directory.EnumerateFiles(source, "*", SearchOption.AllDirectories))
         {
-            _logger.Warn($"[Boss] 回退到 npm run preview（目标机需要 Node.js）");
-            var commandShell = Environment.GetEnvironmentVariable("ComSpec");
-            if (string.IsNullOrWhiteSpace(commandShell))
-            {
-                commandShell = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "cmd.exe");
-            }
-
-            var info = CreateHiddenProcessInfo(commandShell, workingDirectory);
-            info.Environment["VITE_API_BASE_URL"] = "http://127.0.0.1:8921";
-            AddArguments(info,
-                "/d", "/s", "/c",
-                $"npm run preview -- --port {definition.Port} --host 0.0.0.0");
-            return info;
+            var relative = Path.GetRelativePath(source, file);
+            var target = Path.Combine(destination, relative);
+            Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+            File.Copy(file, target, overwrite: true);
         }
-
-        // 兜底：尝试 serve_web.py（即使 dist 不存在，serve_web.py 也有 tax 静态目录回退）
-        var serveWebScript = _rootResolver.ResolvePath(@"windows_scripts\serve_web.py");
-        if (!string.IsNullOrWhiteSpace(serveWebScript) && File.Exists(serveWebScript))
-        {
-            _logger.Info($"[Boss] 兜底使用 serve_web.py（可能回退到税务系统静态目录）");
-            return BuildServeWebProcessInfo(definition, workingDirectory);
-        }
-
-        throw new InvalidOperationException("未找到老板驾驶舱的可用前端运行环境（缺少 dist、node_modules 且缺少 serve_web.py）。");
     }
 
     /// <summary>
     /// Builds the ProcessStartInfo for the static Python HTTP server (serve_web.py).
+    /// Python interpreter MUST come from the embedded runtime. Falling back to
+    /// the system PATH python.exe is explicitly forbidden.
     /// </summary>
     private ProcessStartInfo BuildServeWebProcessInfo(ServiceDefinition definition, string workingDirectory)
     {
         var serveWebScript = _rootResolver.ResolvePath(@"windows_scripts\serve_web.py");
-        var taxPython = _rootResolver.ResolvePath(@"source_code\0.1_税务管理\gtp_V1.0_FULL\01_当前完整系统_V1.0\chengdu_construction_tax_system_v1_0\.venv\Scripts\python.exe");
-        var python = (!string.IsNullOrWhiteSpace(taxPython) && File.Exists(taxPython))
-            ? taxPython
-            : "python.exe";
+        var python = _pythonResolver.TryResolve(definition, workingDirectory);
+        if (string.IsNullOrWhiteSpace(python))
+        {
+            throw new InvalidOperationException(
+                $"未找到嵌入式 Python 运行时（runtime\\python\\Scripts\\python.exe）。"
+                + $"{definition.DisplayName} 静态伺服无法启动；请确认 Installer 已正确部署。");
+        }
 
         var pyInfo = CreateHiddenProcessInfo(python, workingDirectory);
         pyInfo.Environment["PYTHONUNBUFFERED"] = "1";
@@ -254,51 +294,13 @@ public sealed class WindowsServiceAdapter
         return pyInfo;
     }
 
-    /// <summary>
-    /// Runs the boss frontend dist build script synchronously.
-    /// Returns true on successful exit, false on failure.
-    /// </summary>
-    private bool RunBossBuildScript(string buildBatPath)
-    {
-        try
-        {
-            var psi = new ProcessStartInfo
-            {
-                FileName = "cmd.exe",
-                Arguments = $"/d /s /c \"\"{buildBatPath}\"\"",
-                WorkingDirectory = Path.GetDirectoryName(buildBatPath) ?? string.Empty,
-                CreateNoWindow = true,
-                UseShellExecute = false,
-                RedirectStandardOutput = false,
-                RedirectStandardError = false,
-            };
-            using var proc = Process.Start(psi);
-            if (proc is null)
-            {
-                return false;
-            }
-            // Build can take several minutes on slow machines.
-            if (!proc.WaitForExit(600_000))  // 10 minutes max
-            {
-                try { proc.Kill(entireProcessTree: true); } catch { }
-                return false;
-            }
-            return proc.ExitCode == 0;
-        }
-        catch (Exception ex)
-        {
-            _logger.Warn($"[Boss] 构建脚本执行失败：{ex.Message}");
-            return false;
-        }
-    }
-
     private (string Path, string Alias, bool RequiresSpark25)? ResolveModel()
     {
         var candidates = new[]
         {
             (RelativePath: @"models\local-llm\Spark-X2.5-4B-Q4_K_M.gguf", Alias: "spark-x2.5-4b", RequiresSpark25: true),
             (RelativePath: @"models\local-llm\Qwen3.5-2B-Q4_K_M.gguf", Alias: "qwen3.5-2b", RequiresSpark25: false),
-            (RelativePath: @"models\local-llm\Ling-3.0-tiny-Q4_K_M.gguf", Alias: "ling-3.0-tiny", RequiresSpark25: false),
+            (RelativePath: @"models\local-llm\Ling-3.1-tiny-Q4_K_M.gguf", Alias: "ling-3.1-tiny", RequiresSpark25: false),
         };
 
         foreach (var candidate in candidates)
@@ -316,48 +318,21 @@ public sealed class WindowsServiceAdapter
     private string ResolveManagedModelAlias() => ResolveModel()?.Alias ?? "spark-x2.5-4b";
 
     /// <summary>
-    /// Resolves the Python executable path using a priority chain.
+    /// Resolves the Python executable path using a strict priority chain.
     ///
     /// Priority order:
-    ///   1. Embedded portable Python runtime (v3.1+: runtime/python/Scripts/python.exe).
-    ///      This is a trimmed-down venv (~600MB) for offline deployment.
-    ///   2. Service-local .venv (most common during development).
-    ///   3. RAG system venv (legacy fallback).
-    ///   4. Tax system venv (legacy fallback).
+    ///   1. Embedded portable Python runtime (runtime/python/Scripts/python.exe)
+    ///      — REQUIRED for customer deployments. The Installer must ship this.
+    ///   2. Service-local .venv (development only; logged as a warning when used)
+    ///   3. Legacy RAG/Tax .venv (development only)
     ///
-    /// Returns the first existing path, or empty string if none found.
+    /// Returns empty string when no path is available so callers can fail-closed
+    /// with a precise error. This method deliberately does NOT fall back to
+    /// the system PATH's python.exe.
     /// </summary>
     private string ResolvePythonExecutable(ServiceDefinition definition, string workingDirectory)
     {
-        // Priority 1: embedded portable Python runtime.
-        var embeddedPython = _rootResolver.ResolvePath(@"runtime\python\Scripts\python.exe");
-        if (!string.IsNullOrWhiteSpace(embeddedPython) && File.Exists(embeddedPython))
-        {
-            return embeddedPython;
-        }
-
-        // Priority 2: service-local .venv.
-        var localVenv = Path.Combine(workingDirectory, ".venv", "Scripts", "python.exe");
-        if (File.Exists(localVenv))
-        {
-            return localVenv;
-        }
-
-        // Priority 3: RAG system venv.
-        var ragPython = _rootResolver.ResolvePath(@"source_code\0.2_RAG系统\project-rag-v1.1\.venv\Scripts\python.exe");
-        if (!string.IsNullOrWhiteSpace(ragPython) && File.Exists(ragPython))
-        {
-            return ragPython;
-        }
-
-        // Priority 4: Tax system venv.
-        var taxPython = _rootResolver.ResolvePath(@"source_code\0.1_税务管理\gtp_V1.0_FULL\01_当前完整系统_V1.0\chengdu_construction_tax_system_v1_0\.venv\Scripts\python.exe");
-        if (!string.IsNullOrWhiteSpace(taxPython) && File.Exists(taxPython))
-        {
-            return taxPython;
-        }
-
-        return string.Empty;
+        return _pythonResolver.TryResolve(definition, workingDirectory) ?? string.Empty;
     }
 
     private static void EnsureSparkRuntimeCompatible(string executable)

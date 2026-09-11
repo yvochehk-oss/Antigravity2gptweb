@@ -1,15 +1,15 @@
-@echo off
+ï»¿@echo off
 @chcp 936 >nul 2>&1
-title ³É¶¼½¨¹¤ V3.0 - Windows »·¾³Ò»¼ü³õÊ¼»¯ (Python 3.12)
+title æˆéƒ½å»ºå·¥ V3.1 - Windows ç¯å¢ƒä¸€é”®åˆå§‹åŒ– (Python 3.12)
 setlocal enabledelayedexpansion
 
 set "SCRIPT_DIR=%~dp0"
 cd /d "%SCRIPT_DIR%.."
 
 echo ==============================================================================
-echo   ³É¶¼½¨¹¤ V3.0 - Windows ÔËĞĞ»·¾³³õÊ¼»¯¹¤¾ß
-echo   ÔËĞĞÄÚºË: Python 3.12 (ÎÈ¶¨°æ, È«ÒÀÀµ¼æÈİ)
-echo   ÊÊÓÃÓ²¼ş: Intel/AMD x64 CPU (AVX2¼ÓËÙ) + 16GB+ ÄÚ´æ
+echo   æˆéƒ½å»ºå·¥ V3.1 - Windows è¿è¡Œç¯å¢ƒåˆå§‹åŒ–å·¥å…·
+echo   è¿è¡Œå†…æ ¸: Python 3.12 (ç¨³å®šç‰ˆ, å…¨ä¾èµ–å…¼å®¹)
+echo   é€‚ç”¨ç¡¬ä»¶: Intel/AMD x64 CPU (AVX2åŠ é€Ÿ) + 16GB+ å†…å­˜
 echo ==============================================================================
 echo.
 
@@ -21,13 +21,13 @@ if not exist "%UV_BIN%" (
 )
 
 if "%UV_BIN%"=="" (
-    echo [´íÎó] Î´ÕÒµ½ uv.exe£¡
+    echo [é”™è¯¯] æœªæ‰¾åˆ° uv.exeï¼
     pause
     exit /b 1
 )
 
-echo [1/3] ÕıÔÚÅäÖÃ RAG ÊÂÊµÖĞÌ¨ĞéÄâ»·¾³ (Python 3.12)...
-cd "source_code\0.2_RAGÏµÍ³\project-rag-v1.1"
+echo [1/3] æ­£åœ¨é…ç½® RAG äº‹å®ä¸­å°è™šæ‹Ÿç¯å¢ƒ (Python 3.12)...
+cd "source_code\0.2_RAGç³»ç»Ÿ\project-rag-v1.1"
 "%UV_BIN%" venv --python 3.12 .venv
 call .venv\Scripts\activate.bat
 "%UV_BIN%" pip install -i https://mirrors.aliyun.com/pypi/simple/ -r requirements.txt
@@ -35,8 +35,8 @@ call deactivate
 cd /d "%SCRIPT_DIR%.."
 
 echo.
-echo [2/3] ÕıÔÚÅäÖÃ Ë°Îñ¹ÜÀíÏµÍ³ĞéÄâ»·¾³ (Python 3.12)...
-cd "source_code\0.1_Ë°Îñ¹ÜÀí\gtp_V1.0_FULL\01_µ±Ç°ÍêÕûÏµÍ³_V1.0\chengdu_construction_tax_system_v1_0"
+echo [2/3] æ­£åœ¨é…ç½® ç¨åŠ¡ç®¡ç†ç³»ç»Ÿè™šæ‹Ÿç¯å¢ƒ (Python 3.12)...
+cd "source_code\0.1_ç¨åŠ¡ç®¡ç†\gtp_V1.0_FULL\01_å½“å‰å®Œæ•´ç³»ç»Ÿ_V1.0\chengdu_construction_tax_system_v1_0"
 "%UV_BIN%" venv --python 3.12 .venv
 call .venv\Scripts\activate.bat
 "%UV_BIN%" pip install -i https://mirrors.aliyun.com/pypi/simple/ -r requirements.txt
@@ -44,8 +44,8 @@ call deactivate
 cd /d "%SCRIPT_DIR%.."
 
 echo.
-echo [3/3] ÕıÔÚÅäÖÃ IDP ÎÄµµÂ¼ÈëÒıÇæĞéÄâ»·¾³ (Python 3.12)...
-cd "source_code\0.4_IDPÎÄµµÂ¼ÈëÒıÇæ_V3.0"
+echo [3/3] æ­£åœ¨é…ç½® IDP æ–‡æ¡£å½•å…¥å¼•æ“è™šæ‹Ÿç¯å¢ƒ (Python 3.12)...
+cd "source_code\0.4_IDPæ–‡æ¡£å½•å…¥å¼•æ“_V3.1"
 "%UV_BIN%" venv --python 3.12 .venv
 call .venv\Scripts\activate.bat
 "%UV_BIN%" pip install -i https://mirrors.aliyun.com/pypi/simple/ -r requirements-v3.txt
@@ -54,9 +54,9 @@ cd /d "%SCRIPT_DIR%.."
 
 echo.
 echo ==============================================================================
-echo   Python 3.12 ÔËĞĞ»·¾³È«²¿³õÊ¼»¯³É¹¦£¡
-echo   ÒÑÎª RAGÖĞÌ¨¡¢Ë°Îñ¹ÜÀí¡¢IDPÎÄµµÂ¼ÈëÒıÇæ ÅäÖÃ¶ÀÁ¢ĞéÄâ»·¾³£¡
-echo   ÏÖÔÚÄú¿ÉÒÔÖ±½ÓÔËĞĞ ¡¾00_START_ALL.bat¡¿ »ò ¡¾00_Ò»¼üÆô¶¯È«²¿·şÎñ.bat¡¿£¡
+echo   Python 3.12 è¿è¡Œç¯å¢ƒå…¨éƒ¨åˆå§‹åŒ–æˆåŠŸï¼
+echo   å·²ä¸º RAGä¸­å°ã€ç¨åŠ¡ç®¡ç†ã€IDPæ–‡æ¡£å½•å…¥å¼•æ“ é…ç½®ç‹¬ç«‹è™šæ‹Ÿç¯å¢ƒï¼
+echo   ç°åœ¨æ‚¨å¯ä»¥ç›´æ¥è¿è¡Œ ã€00_START_ALL.batã€‘ æˆ– ã€00_ä¸€é”®å¯åŠ¨å…¨éƒ¨æœåŠ¡.batã€‘ï¼
 echo ==============================================================================
 echo.
 pause

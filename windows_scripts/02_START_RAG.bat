@@ -1,6 +1,6 @@
-@echo off
+﻿@echo off
 @chcp 936 >nul 2>&1
-title 成都建工 V3.0 - RAG知识中台 (Port 8922)
+title 鎴愰兘寤哄伐 V3.1 - RAG鐭ヨ瘑涓彴 (Port 8922)
 setlocal EnableExtensions EnableDelayedExpansion
 
 set "SCRIPT_DIR=%~dp0"
@@ -8,19 +8,19 @@ cd /d "%SCRIPT_DIR%.."
 set "ROOT_DIR=%CD%"
 
 echo ==============================================================================
-echo   成都建工 V3.0 - RAG 文档与知识中台 (Port 8922)
+echo   鎴愰兘寤哄伐 V3.1 - RAG 鏂囨。涓庣煡璇嗕腑鍙?(Port 8922)
 echo   PostgreSQL: 127.0.0.1:54320 ^| Local LLM: 127.0.0.1:8930/v1
 echo ==============================================================================
 
 call "%SCRIPT_DIR%00_START_POSTGRES.bat"
 if errorlevel 1 (
-    echo [错误] PostgreSQL 54320 未就绪，RAG 禁止启动。
+    echo [閿欒] PostgreSQL 54320 鏈氨缁紝RAG 绂佹鍚姩銆?
     exit /b 11
 )
 
-call :WAIT_PORT 8930 30 "本地大模型"
+call :WAIT_PORT 8930 30 "鏈湴澶фā鍨?
 if errorlevel 1 (
-    echo [错误] 本地大模型 8930 未就绪。请先运行 01_START_LLM.bat。
+    echo [閿欒] 鏈湴澶фā鍨?8930 鏈氨缁€傝鍏堣繍琛?01_START_LLM.bat銆?
     exit /b 12
 )
 
@@ -35,11 +35,11 @@ if not exist "%ROOT_DIR%\models\local-llm\Spark-X2.5-4B-Q4_K_M.gguf" if exist "%
     set "RAG_LLM_LOCAL_MODEL=qwen3.5-2b"
 )
 
-echo [契约] DB=54320, LLM=8930/!RAG_LLM_MODEL!
-cd /d "%ROOT_DIR%\source_code\0.2_RAG系统\project-rag-v1.1"
+echo [濂戠害] DB=54320, LLM=8930/!RAG_LLM_MODEL!
+cd /d "%ROOT_DIR%\source_code\0.2_RAG绯荤粺\project-rag-v1.1"
 set "PYTHON_EXE=.venv\Scripts\python.exe"
 if not exist "%PYTHON_EXE%" (
-    echo [错误] 未找到 RAG 虚拟环境，请先运行 06_SETUP_ENV.bat。
+    echo [閿欒] 鏈壘鍒?RAG 铏氭嫙鐜锛岃鍏堣繍琛?06_SETUP_ENV.bat銆?
     exit /b 13
 )
 
@@ -59,5 +59,5 @@ for /l %%I in (1,1,!_TRIES!) do (
         timeout /t 2 /nobreak >nul
     )
 )
-echo [错误] !_NAME! 在等待窗口内未监听 !_PORT!。
+echo [閿欒] !_NAME! 鍦ㄧ瓑寰呯獥鍙ｅ唴鏈洃鍚?!_PORT!銆?
 exit /b 1

@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net8.0-windows</TargetFramework>
+    <TargetFramework>net10.0-windows</TargetFramework>
     <UseWindowsForms>true</UseWindowsForms>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <Nullable>enable</Nullable>
@@ -22,5 +22,13 @@
     <PublishSingleFile Condition="'$(PublishSingleFile)' == ''">true</PublishSingleFile>
     <SelfContained Condition="'$(SelfContained)' == ''">true</SelfContained>
   </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Exclude the Tests project subdirectory from this project; Tests has its
+         own .csproj and should not be compiled into the controller binary. -->
+    <Compile Remove="Tests\**\*.cs" />
+    <None Remove="Tests\**\*.cs" />
+    <EmbeddedResource Remove="Tests\**" />
+  </ItemGroup>
 
 </Project>
