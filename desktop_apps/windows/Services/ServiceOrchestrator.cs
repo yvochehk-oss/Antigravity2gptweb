@@ -259,7 +259,7 @@ public sealed class ServiceOrchestrator : IDisposable
                             return new OperationResult(false, "重启等待被取消");
                         }
 
-                        var (relaunch, newLaunch) = RestartSingleTrackedLaunch(launch, definition);
+                        var (relaunch, newLaunch) = await RestartSingleTrackedLaunchAsync(launch, definition, cancellationToken).ConfigureAwait(false);
                         if (!relaunch.Success || newLaunch is null)
                         {
                             return new OperationResult(
@@ -291,7 +291,7 @@ public sealed class ServiceOrchestrator : IDisposable
                         return new OperationResult(false, "重启等待被取消");
                     }
 
-                    var (relaunch, newLaunch) = RestartSingleTrackedLaunch(launch, definition);
+                    var (relaunch, newLaunch) = await RestartSingleTrackedLaunchAsync(launch, definition, cancellationToken).ConfigureAwait(false);
                     if (!relaunch.Success || newLaunch is null)
                     {
                         return new OperationResult(
@@ -358,7 +358,10 @@ public sealed class ServiceOrchestrator : IDisposable
         }
     }
 
-    private (OperationResult Result, TrackedLaunch? NewLaunch) RestartSingleTrackedLaunch(TrackedLaunch launch, ServiceDefinition definition)
+    private async Task<(OperationResult Result, TrackedLaunch? NewLaunch)> RestartSingleTrackedLaunchAsync(
+        TrackedLaunch launch,
+        ServiceDefinition definition,
+        CancellationToken cancellationToken)
     {
         Untrack(launch);
         try
@@ -384,7 +387,19 @@ public sealed class ServiceOrchestrator : IDisposable
         RegisterTrackedLaunch(newLaunch);
         StartOutputPump(definition, newProcess);
 
-        return (new OperationResult(true, $"已重启，进程 {newProcess.Id}"), newLaunch);
+        var identityResult = await EstablishTrackedLaunchAsync(
+            newLaunch,
+            definition,
+            cancellationToken).ConfigureAwait(false);
+
+        if (!identityResult.Success)
+        {
+            StopTrackedLaunch(newLaunch, definition);
+            Untrack(newLaunch);
+            return (new OperationResult(false, $"重启后进程身份验证失败：{identityResult.Message}"), null);
+        }
+
+        return (new OperationResult(true, $"已重启并确认身份，进程 {newProcess.Id}"), newLaunch);
     }
 
     private static bool IsStartupReady(ServiceStatus status)
