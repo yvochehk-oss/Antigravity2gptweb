@@ -1,6 +1,4 @@
 @echo off
-@chcp 936 >nul 2>&1
-title 成都建工 V3.1 - �?�?��动全部服�?
 setlocal EnableExtensions EnableDelayedExpansion
 
 set "SCRIPT_DIR=%~dp0"
@@ -8,26 +6,23 @@ cd /d "%SCRIPT_DIR%.."
 set "ROOT_DIR=%CD%"
 
 echo ==============================================================================
-echo   [成都建工] V3.1 Windows 全服务启动控制面
-echo   PostgreSQL: runtime\state\postgres.json ^| LLM:8930 ^| RAG:8922 ^| Tax:8921 ^| Web:5173
+echo   Chengdu Construction V3.1 - Windows service launcher
+echo   PostgreSQL runtime state ^| LLM:8930 ^| RAG:8922 ^| IDP:8933 ^| Tax:8921 ^| Web:5173
 echo ==============================================================================
 echo.
 
-rem ============================================================
-rem [0/5] PostgreSQL �?��系统�?���?��失败时�?止继�?��起业务服务�??
-rem �?��从运行事实�?取；00_START_POSTGRES.bat 不再�?���?54320�?
-rem ============================================================
+rem [0/5] PostgreSQL is a hard prerequisite.
 if not exist "%SCRIPT_DIR%00_START_POSTGRES.bat" (
-    echo [错�?] 缺少 PostgreSQL canonical launcher: %SCRIPT_DIR%00_START_POSTGRES.bat
+    echo [ERROR] Missing PostgreSQL launcher: %SCRIPT_DIR%00_START_POSTGRES.bat
     exit /b 10
 )
 call "%SCRIPT_DIR%00_START_POSTGRES.bat"
 if errorlevel 1 (
-    echo [错�?] PostgreSQL �?��门�?�??�过，已�??后续服务�?
+    echo [ERROR] PostgreSQL readiness gate failed. Aborting service chain.
     exit /b 11
 )
 
-rem �?��、URL 都从 postgres.json 读取；�?果状态文件不存在�?fallback 到默�?54320�?
+rem Read the negotiated PostgreSQL port when available; default remains 54320.
 set "DB_PORT=54320"
 set "DB_HOST=127.0.0.1"
 if exist "%ROOT_DIR%\runtime\state\postgres.json" (
@@ -37,16 +32,6 @@ if exist "%ROOT_DIR%\runtime\state\postgres.json" (
                 set "DB_PORT=%%P"
                 set "DB_PORT=!DB_PORT: =!"
                 set "DB_PORT=!DB_PORT:,=!"
-            )
-        )
-        echo %%L | findstr /i "\"Host\"" >nul && (
-            for /f "tokens=2 delims=:, " %%P in ("%%L") do (
-                if not defined DB_HOST_PARSED (
-                    set "DB_HOST=%%P"
-                    set "DB_HOST=!DB_HOST: =!"
-                    set "DB_HOST=!DB_HOST:,=!"
-                    set "DB_HOST_PARSED=1"
-                )
             )
         )
     )
@@ -67,44 +52,60 @@ if not exist "%ROOT_DIR%\models\local-llm\Spark-X2.5-4B-Q4_K_M.gguf" if exist "%
     set "LING_MODEL=qwen3.5-2b"
 )
 
-echo [数据库] PostgreSQL 协商�?�� = %DB_PORT% (%DB_HOST%)
+echo [DB] PostgreSQL endpoint = %DB_HOST%:%DB_PORT%
 echo.
 
-echo [1/5] 正在�?���?��大模型服�?(Port 8930)...
-start "01_�?��大模型服�?(Port 8930)" cmd.exe /d /c call "%SCRIPT_DIR%01_START_LLM.bat"
-call :WAIT_PORT 8930 45 "�?��大模�?
+echo [1/5] Starting local LLM service on port 8930...
+start "01_LLM_8930" cmd.exe /d /c call "%SCRIPT_DIR%01_START_LLM.bat"
+call :WAIT_PORT 8930 45 "LLM"
 if errorlevel 1 exit /b 21
 
-echo [2/5] 正在�?�� RAG 知识证据�?�� (Port 8922)...
-start "02_RAG事实�?�� (Port 8922)" cmd.exe /d /c call "%SCRIPT_DIR%02_START_RAG.bat"
-call :WAIT_PORT 8922 45 "RAG知识�?��"
+echo [2/5] Starting RAG service on port 8922...
+start "02_RAG_8922" cmd.exe /d /c call "%SCRIPT_DIR%02_START_RAG.bat"
+call :WAIT_PORT 8922 45 "RAG"
 if errorlevel 1 exit /b 22
 
-echo [3/5] 正在�?�� IDP 文档录入引擎 (Port 8933)...
+echo [3/5] Resolving and starting IDP service on port 8933...
 set "IDP_PORT=8933"
-start "03_IDP文档录入引擎 (Port 8933)" cmd.exe /d /c call "%ROOT_DIR%\source_code\0.4_IDP文档录入引擎_V3.1\START_IDP_WINDOWS.bat"
-call :WAIT_PORT 8933 90 "IDP文档录入引擎"
+set "IDP_SCRIPT="
+
+rem Canonical physical directory is V3.0. Keep V3.1 as a compatibility fallback.
+for /d %%D in ("%ROOT_DIR%\source_code\0.4_IDP*_V3.0") do (
+    if not defined IDP_SCRIPT if exist "%%~fD\START_IDP_WINDOWS.bat" set "IDP_SCRIPT=%%~fD\START_IDP_WINDOWS.bat"
+)
+if not defined IDP_SCRIPT (
+    for /d %%D in ("%ROOT_DIR%\source_code\0.4_IDP*_V3.1") do (
+        if not defined IDP_SCRIPT if exist "%%~fD\START_IDP_WINDOWS.bat" set "IDP_SCRIPT=%%~fD\START_IDP_WINDOWS.bat"
+    )
+)
+if not defined IDP_SCRIPT (
+    echo [ERROR] IDP launcher not found under source_code\0.4_IDP*_V3.0 or V3.1.
+    exit /b 23
+)
+
+echo [IDP] Using launcher: !IDP_SCRIPT!
+start "03_IDP_8933" cmd.exe /d /c call "!IDP_SCRIPT!"
+call :WAIT_PORT 8933 90 "IDP"
 if errorlevel 1 exit /b 23
 
-echo [4/5] 正在�?��税务�?�� (Port 8921)...
-start "04_税务管理系统 (Port 8921)" cmd.exe /d /c call "%SCRIPT_DIR%03_START_TAX.bat"
-call :WAIT_PORT 8921 45 "税务�?��"
+echo [4/5] Starting Tax service on port 8921...
+start "04_TAX_8921" cmd.exe /d /c call "%SCRIPT_DIR%03_START_TAX.bat"
+call :WAIT_PORT 8921 45 "Tax"
 if errorlevel 1 exit /b 24
 
-echo [5/5] 正在�?��老板�?Web (Port 5173)...
-start "05_老板端Web (Port 5173)" cmd.exe /d /c call "%SCRIPT_DIR%04_START_WEB.bat"
-call :WAIT_PORT 5173 30 "老板端Web"
+echo [5/5] Starting Boss Web on port 5173...
+start "05_WEB_5173" cmd.exe /d /c call "%SCRIPT_DIR%04_START_WEB.bat"
+call :WAIT_PORT 5173 30 "Boss Web"
 if errorlevel 1 exit /b 25
 
 echo.
 echo ==============================================================================
-echo   [完成] 成都建工 V3.1 全服务�?口门禁已全部通过�?
-echo   [移动端] 老板�?��动驾驶舱:    http://127.0.0.1:5173
-echo   [建工]   税务管理�?��:        http://127.0.0.1:8921
-echo   [智脑]   RAG 知识证据�?��:    http://127.0.0.1:8922
-echo   [文档]   IDP 文档录入与�?�?  http://127.0.0.1:8933
-echo   [AI]     �?��大模�?OpenAI API: http://127.0.0.1:8930/v1
-echo   [数据库] PostgreSQL:           %DB_HOST%:%DB_PORT%/projectrag
+echo   All V3.1 Windows service readiness gates passed.
+echo   Boss Web: http://127.0.0.1:5173
+echo   Tax:      http://127.0.0.1:8921
+echo   RAG:      http://127.0.0.1:8922
+echo   IDP:      http://127.0.0.1:8933
+echo   LLM:      http://127.0.0.1:8930/v1
 echo ==============================================================================
 start "" http://127.0.0.1:5173
 start "" http://127.0.0.1:8921
@@ -116,7 +117,7 @@ set "_WAIT_TRIES=%~2"
 set "_WAIT_NAME=%~3"
 for /l %%I in (1,1,!_WAIT_TRIES!) do (
     netstat -ano | findstr /i ":!_WAIT_PORT! " | findstr /i "LISTENING" >nul 2>&1 && (
-        echo [就绪] !_WAIT_NAME! 已监�??�?!_WAIT_PORT!�?
+        echo [READY] !_WAIT_NAME! is listening on port !_WAIT_PORT!.
         exit /b 0
     )
     if %%I LEQ 10 (
@@ -125,5 +126,5 @@ for /l %%I in (1,1,!_WAIT_TRIES!) do (
         ping 127.0.0.1 -n 3 >nul
     )
 )
-echo [错�?] !_WAIT_NAME! 在�??避等待窗口内�?���??�?!_WAIT_PORT!，停止启动链�?
+echo [ERROR] !_WAIT_NAME! did not listen on port !_WAIT_PORT! before timeout.
 exit /b 1
