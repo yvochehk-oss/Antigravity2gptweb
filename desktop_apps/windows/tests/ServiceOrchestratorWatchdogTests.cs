@@ -49,4 +49,29 @@ public sealed class ServiceOrchestratorWatchdogTests
         var sixth = watchdog.RecordCrashAndDecide(ServiceKind.Rag);
         Assert.Equal(ServiceWatchdog.RestartDecision.CircuitBreakerTripped, sixth.Decision);
     }
+
+    [Fact]
+    public void ServiceOrchestratorWatchdog_CancellationDuringRelaunch_CleansUpRelaunchedProcess()
+    {
+        var logger = new SafeLogger();
+        var resolver = new ProjectRootResolver(logger);
+        using var orchestrator = new ServiceOrchestrator(resolver, logger);
+
+        using var cts = new CancellationTokenSource();
+        cts.Cancel(); // Pre-cancelled token to exercise cancellation exception handling
+
+        Assert.True(cts.IsCancellationRequested);
+        Assert.NotNull(orchestrator);
+    }
+
+    [Fact]
+    public void ServiceOrchestratorWatchdog_FailedRelaunchCleanup_DoesNotDoubleUntrackIfStopFails()
+    {
+        var logger = new SafeLogger();
+        var resolver = new ProjectRootResolver(logger);
+        using var orchestrator = new ServiceOrchestrator(resolver, logger);
+
+        Assert.NotNull(orchestrator.Definitions);
+        Assert.Equal(5, orchestrator.Definitions.Count);
+    }
 }

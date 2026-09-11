@@ -385,21 +385,35 @@ public sealed class ServiceOrchestrator : IDisposable
 
         var newLaunch = CreateTrackedLaunch(definition.Kind, newProcess);
         RegisterTrackedLaunch(newLaunch);
-        StartOutputPump(definition, newProcess);
-
-        var identityResult = await EstablishTrackedLaunchAsync(
-            newLaunch,
-            definition,
-            cancellationToken).ConfigureAwait(false);
-
-        if (!identityResult.Success)
+        try
         {
-            StopTrackedLaunch(newLaunch, definition);
-            Untrack(newLaunch);
-            return (new OperationResult(false, $"重启后进程身份验证失败：{identityResult.Message}"), null);
-        }
+            var identityResult = await EstablishTrackedLaunchAsync(
+                newLaunch,
+                definition,
+                cancellationToken).ConfigureAwait(false);
 
-        return (new OperationResult(true, $"已重启并确认身份，进程 {newProcess.Id}"), newLaunch);
+            if (!identityResult.Success)
+            {
+                var cleanup = StopTrackedLaunch(newLaunch, definition);
+                return (
+                    new OperationResult(
+                        false,
+                        $"重启后进程身份验证失败：{identityResult.Message}；清理：{cleanup.Message}"),
+                    null);
+            }
+
+            return (new OperationResult(true, $"已重启并确认身份，进程 {newProcess.Id}"), newLaunch);
+        }
+        catch (OperationCanceledException)
+        {
+            var cleanup = StopTrackedLaunch(newLaunch, definition);
+            if (!cleanup.Success)
+            {
+                _logger.Error(
+                    $"取消重启时未能安全清理进程 {newLaunch.ProcessId}：{cleanup.Message}");
+            }
+            throw;
+        }
     }
 
     private static bool IsStartupReady(ServiceStatus status)
