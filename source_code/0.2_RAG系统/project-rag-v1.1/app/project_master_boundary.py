@@ -23,7 +23,12 @@ _FORBIDDEN_PROJECT_MASTER_ROUTES: frozenset[tuple[str, str]] = frozenset(
         ("POST", "/api/v1/projects"),
         ("POST", "/api/v1/projects/sync"),
         ("DELETE", "/api/v1/projects/{project_id}"),
-        ("POST", "/api/v1/projects/{project_id}/delete"),
+        # NOTE: POST /api/v1/projects/{project_id}/delete is intentionally NOT
+        # listed here.  It is implemented in app/routers/project_delete.py,
+        # registered BEFORE enforce_project_master_read_only, and delegates to
+        # Tax for the authoritative Project Master mutation while wiping RAG-owned
+        # documentary resources locally.  This preserves the SSOT boundary:
+        # RAG never writes to the projects table directly.
         ("POST", "/projects"),
     }
 )

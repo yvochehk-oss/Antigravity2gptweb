@@ -15,12 +15,18 @@ from .project_master_boundary import (
 from .routers.health import install_health_routes
 from .routers.phase3_retirement import install_phase3_retirement
 from .routers.phase4_canonical import router as phase4_canonical_router
+from .routers.project_delete import router as project_delete_router
 from .time_types import apply_timezone_types
 
 # The legacy route surface has imported the full mapped model graph at this
 # point. Upgrade legacy *_at mappings before the application starts serving.
 apply_timezone_types()
 app = _legacy.app
+
+# Register project-delete router FIRST so the route is available before the SSOT
+# boundary validation runs.  The route is the only permitted RAG mutation that
+# reaches the project scope; it forwards to Tax for the authoritative write.
+app.include_router(project_delete_router)
 
 # Tax owns Project Master.  Retire the remaining legacy RAG create/sync/delete
 # endpoints before any additional canonical routers are composed.  The final
