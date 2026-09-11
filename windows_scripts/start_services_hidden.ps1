@@ -1,91 +1,75 @@
-$ErrorActionPreference = "SilentlyContinue"
+$ErrorActionPreference = "Stop"
 $RootDir = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 Set-Location $RootDir
 
 $LogsDir = Join-Path $RootDir "logs"
-if (-not (Test-Path $LogsDir)) { New-Item -ItemType Directory -Path $LogsDir -Force | Out-Null }
+New-Item -ItemType Directory -Path $LogsDir -Force | Out-Null
 
-function Check-Port($port) {
-    $c = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue
-    return ($null -ne $c)
-}
-
-# 1. PostgreSQL (54320 / 5432)
-if (-not (Check-Port 54320) -and -not (Check-Port 5432)) {
-    $pgBat = Join-Path $RootDir "windows_scripts\00_START_POSTGRES.bat"
-    if (Test-Path $pgBat) {
-        Start-Process -FilePath "cmd.exe" -ArgumentList "/c `"$pgBat`"" -WorkingDirectory $RootDir -WindowStyle Hidden -Wait
-    } else {
-        $pgCtl = Join-Path $RootDir "database\pgsql\bin\pg_ctl.exe"
-        if (Test-Path $pgCtl) {
-            $drive = (Get-Item $RootDir).PSDrive.Name
-            $pgData = "$($drive):\projectrag_pgdata"
-            if (-not (Test-Path $pgData)) { $pgData = Join-Path $RootDir "database\data" }
-            Start-Process -FilePath $pgCtl -ArgumentList "start -D `"$pgData`"" -WorkingDirectory $RootDir -WindowStyle Hidden
-        }
+function Test-Port([int]$Port) {
+    try {
+        return $null -ne (Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction Stop | Select-Object -First 1)
+    } catch {
+        return $false
     }
 }
 
-# 2. LLM (8930)
-if (-not (Check-Port 8930)) {
-    $serverBin = Join-Path $RootDir "models\local-llm\runtime-win-cpu-x64\llama-server.exe"
-    $modelFile = Join-Path $RootDir "models\local-llm\Spark-X2.5-4B-Q4_K_M.gguf"
-    $modelAlias = "spark-x2.5-4b"
-    if (-not (Test-Path $modelFile)) { 
-        $modelFile = Join-Path $RootDir "models\local-llm\Qwen3.5-2B-Q4_K_M.gguf"
-        $modelAlias = "qwen3.5-2b"
+function Wait-Port([int]$Port, [int]$MaxAttempts, [string]$Name) {
+    for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
+        if (Test-Port $Port) { return }
+        $delaySeconds = if ($attempt -le 10) { 1 } else { 2 }
+        Start-Sleep -Seconds $delaySeconds
     }
-    if (-not (Test-Path $modelFile)) { 
-        $modelFile = Join-Path $RootDir "models\local-llm\Ling-3.0-tiny-Q4_K_M.gguf"
-        $modelAlias = "ling-3.0-tiny"
-    }
-    if (Test-Path $serverBin) {
-        $args = "--model `"$modelFile`" --host 127.0.0.1 --port 8930 --alias `"$modelAlias`" --ctx-size 16384 --threads 4 --threads-batch 4 --batch-size 512 --ubatch-size 256 --gpu-layers 0 --reasoning off --parallel 1 --jinja"
-        $llmLog = Join-Path $LogsDir "llm.log"
-        Start-Process -FilePath $serverBin -ArgumentList $args -WorkingDirectory $RootDir -WindowStyle Hidden -RedirectStandardOutput $llmLog -RedirectStandardError $llmLog
-    }
+    throw "$Name did not listen on port $Port within the bounded startup window"
 }
 
-# 3. RAG (8922)
-if (-not (Check-Port 8922)) {
-    $ragDir = Join-Path $RootDir "source_code\0.2_RAG系统\project-rag-v1.1"
-    $pyRag = Join-Path $ragDir ".venv\Scripts\python.exe"
-    if (Test-Path $pyRag) {
-        $ragLog = Join-Path $LogsDir "rag.log"
-        Start-Process -FilePath $pyRag -ArgumentList "-m uvicorn app.main:app --host 127.0.0.1 --port 8922" -WorkingDirectory $ragDir -WindowStyle Hidden -RedirectStandardOutput $ragLog -RedirectStandardError $ragLog
+function Start-CanonicalBatch([string]$RelativePath, [string]$LogStem) {
+    $script = Join-Path $RootDir $RelativePath
+    if (-not (Test-Path -LiteralPath $script)) {
+        throw "canonical launcher not found: $script"
     }
+
+    $stdout = Join-Path $LogsDir "$LogStem.out.log"
+    $stderr = Join-Path $LogsDir "$LogStem.err.log"
+    $args = @('/d', '/s', '/c', ('call "{0}"' -f $script))
+    return Start-Process -FilePath "cmd.exe" -ArgumentList $args -WorkingDirectory $RootDir -WindowStyle Hidden -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru
 }
 
-# 4. IDP (8933)
-if (-not (Check-Port 8933)) {
-    $idpDir = Join-Path $RootDir "source_code\0.4_IDP文档录入引擎_V3.0"
-    $pyIdp = Join-Path $idpDir ".venv\Scripts\python.exe"
-    if (Test-Path $pyIdp) {
-        $idpLog = Join-Path $LogsDir "idp.log"
-        Start-Process -FilePath $pyIdp -ArgumentList "-m uvicorn app.main:app --host 127.0.0.1 --port 8933" -WorkingDirectory $idpDir -WindowStyle Hidden -RedirectStandardOutput $idpLog -RedirectStandardError $idpLog
-    }
+# PostgreSQL is synchronous and fail-closed. The canonical launcher also
+# ensures the single-instance self-heal watchdog is running.
+$pgLauncher = Join-Path $RootDir "windows_scripts\00_START_POSTGRES.bat"
+if (-not (Test-Path -LiteralPath $pgLauncher)) {
+    throw "PostgreSQL launcher missing: $pgLauncher"
 }
-
-# 5. TAX (8921)
-if (-not (Check-Port 8921)) {
-    $taxDir = Join-Path $RootDir "source_code\0.1_税务管理\gtp_V1.0_FULL\01_当前完整系统_V1.0\chengdu_construction_tax_system_v1_0"
-    $pyTax = Join-Path $taxDir ".venv\Scripts\python.exe"
-    if (Test-Path $pyTax) {
-        $taxLog = Join-Path $LogsDir "tax.log"
-        Start-Process -FilePath $pyTax -ArgumentList "-m uvicorn app.main:app --host 127.0.0.1 --port 8921" -WorkingDirectory $taxDir -WindowStyle Hidden -RedirectStandardOutput $taxLog -RedirectStandardError $taxLog
-    }
+$pgArgs = @('/d', '/s', '/c', ('call "{0}"' -f $pgLauncher))
+$pg = Start-Process -FilePath "cmd.exe" -ArgumentList $pgArgs -WorkingDirectory $RootDir -WindowStyle Hidden -PassThru -Wait
+if ($pg.ExitCode -ne 0) {
+    throw "PostgreSQL 54320 startup failed with exit code $($pg.ExitCode)"
 }
+Wait-Port 54320 10 "PostgreSQL"
 
-# 6. WEB (5173)
-if (-not (Check-Port 5173)) {
-    $taxDir = Join-Path $RootDir "source_code\0.1_税务管理\gtp_V1.0_FULL\01_当前完整系统_V1.0\chengdu_construction_tax_system_v1_0"
-    $bossDir = Join-Path $RootDir "source_code\0.3_老板端安卓App_天府掌舵"
-    $pyTax = Join-Path $taxDir ".venv\Scripts\python.exe"
-    $webScript = Join-Path $RootDir "windows_scripts\serve_web.py"
-    if ((Test-Path $pyTax) -and (Test-Path $webScript)) {
-        $webLog = Join-Path $LogsDir "web.log"
-        Start-Process -FilePath $pyTax -ArgumentList "`"$webScript`" 5173" -WorkingDirectory $bossDir -WindowStyle Hidden -RedirectStandardOutput $webLog -RedirectStandardError $webLog
-    }
+if (-not (Test-Port 8930)) {
+    Start-CanonicalBatch "windows_scripts\01_START_LLM.bat" "llm" | Out-Null
 }
+Wait-Port 8930 45 "Local LLM"
 
-Write-Output "ALL_SERVICES_DISPATCHED_SUCCESS"
+if (-not (Test-Port 8922)) {
+    Start-CanonicalBatch "windows_scripts\02_START_RAG.bat" "rag" | Out-Null
+}
+Wait-Port 8922 45 "RAG"
+
+if (-not (Test-Port 8933)) {
+    Start-CanonicalBatch "source_code\0.4_IDP文档录入引擎_V3.0\START_IDP_WINDOWS.bat" "idp" | Out-Null
+}
+Wait-Port 8933 90 "IDP"
+
+if (-not (Test-Port 8921)) {
+    Start-CanonicalBatch "windows_scripts\03_START_TAX.bat" "tax" | Out-Null
+}
+Wait-Port 8921 45 "Tax"
+
+if (-not (Test-Port 5173)) {
+    Start-CanonicalBatch "windows_scripts\04_START_WEB.bat" "web" | Out-Null
+}
+Wait-Port 5173 30 "Boss Web"
+
+Write-Output "ALL_SERVICES_READY"

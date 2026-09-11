@@ -1,18 +1,18 @@
 using System.Diagnostics;
-using System.Text;
+using System.Text.RegularExpressions;
 using ChengduConstructionController.Models;
 
 namespace ChengduConstructionController.Services;
 
 /// <summary>
-/// The Windows launch adapter deliberately calls already-installed project
-/// runtimes directly. It does not invoke the legacy all-in-one batch files,
-/// because those files open interactive command windows and the IDP wrapper may
-/// install packages. No dependency installation, model download, migration, or
-/// database command is performed here.
+/// Windows launch adapter for already-installed project runtimes. It keeps
+/// startup non-interactive while enforcing the same runtime/database contracts
+/// as the canonical Windows launchers.
 /// </summary>
 public sealed class WindowsServiceAdapter
 {
+    private const int MinimumSparkLlamaBuild = 10828;
+
     private readonly ProjectRootResolver _rootResolver;
     private readonly SafeLogger _logger;
 
@@ -70,28 +70,23 @@ public sealed class WindowsServiceAdapter
             throw new InvalidOperationException("未找到本地语言模型运行时，未执行启动。");
         }
 
-        var model = ResolveModelPath();
+        var model = ResolveModel();
         if (model is null)
         {
             throw new InvalidOperationException("未找到已安装的本地语言模型，控制台不会自动下载模型。");
         }
 
-        var alias = "spark-x2.5-4b";
-        if (model.Contains("Ling", StringComparison.OrdinalIgnoreCase))
+        if (model.Value.RequiresSpark25)
         {
-            alias = "ling-3.0-tiny";
-        }
-        else if (model.Contains("Qwen", StringComparison.OrdinalIgnoreCase))
-        {
-            alias = "qwen3.5-2b";
+            EnsureSparkRuntimeCompatible(executable);
         }
 
         var info = CreateHiddenProcessInfo(executable, workingDirectory);
         AddArguments(info,
-            "--model", model,
+            "--model", model.Value.Path,
             "--host", "127.0.0.1",
             "--port", definition.Port.ToString(System.Globalization.CultureInfo.InvariantCulture),
-            "--alias", alias,
+            "--alias", model.Value.Alias,
             "--ctx-size", "16384",
             "--threads", "4",
             "--threads-batch", "4",
@@ -106,6 +101,16 @@ public sealed class WindowsServiceAdapter
 
     private ProcessStartInfo BuildPythonStartInfo(ServiceDefinition definition, string workingDirectory)
     {
+        var dbListeners = ProcessInspector.GetListeningProcessIdsResult(54320);
+        if (!dbListeners.Success)
+        {
+            throw new InvalidOperationException($"无法确认 PostgreSQL 54320 端口状态：{dbListeners.Detail}");
+        }
+        if (dbListeners.ProcessIds.Count == 0)
+        {
+            throw new InvalidOperationException("便携 PostgreSQL 54320 未就绪，拒绝启动依赖数据库的 Python 服务。");
+        }
+
         var python = Path.Combine(workingDirectory, ".venv", "Scripts", "python.exe");
         if (!File.Exists(python))
         {
@@ -121,11 +126,27 @@ public sealed class WindowsServiceAdapter
 
         var info = CreateHiddenProcessInfo(python, workingDirectory);
         info.Environment["PYTHONUNBUFFERED"] = "1";
-        var p5432 = ProcessInspector.GetListeningProcessIdsResult(5432);
-        var p54320 = ProcessInspector.GetListeningProcessIdsResult(54320);
-        var activePort = p54320.ProcessIds.Count > 0 ? 54320 : (p5432.ProcessIds.Count > 0 ? 5432 : 54320);
-        info.Environment["DATABASE_URL"] = $"postgresql://postgres@127.0.0.1:{activePort}/projectrag";
-        info.Environment["PROJECT_RAG_DB_URL"] = $"postgresql://postgres@127.0.0.1:{activePort}/projectrag";
+        info.Environment["DATABASE_URL"] = "postgresql://postgres@127.0.0.1:54320/projectrag";
+        info.Environment["PROJECT_RAG_DB_URL"] = "postgresql://postgres@127.0.0.1:54320/projectrag";
+
+        var localAlias = ResolveManagedModelAlias();
+        if (definition.Kind == ServiceKind.Rag)
+        {
+            info.Environment["RAG_LLM_BASE_URL"] = "http://127.0.0.1:8930/v1";
+            info.Environment["RAG_LLM_LOCAL_BASE_URL"] = "http://127.0.0.1:8930/v1";
+            info.Environment["RAG_LLM_MODEL"] = localAlias;
+            info.Environment["RAG_LLM_LOCAL_MODEL"] = localAlias;
+        }
+        else if (definition.Kind == ServiceKind.Tax)
+        {
+            info.Environment["TAX_RAG_SERVICE_URL"] = "http://127.0.0.1:8922";
+        }
+        else if (definition.Kind == ServiceKind.Idp)
+        {
+            info.Environment["LING_BASE_URL"] = "http://127.0.0.1:8930/v1";
+            info.Environment["LING_MODEL"] = localAlias;
+        }
+
         AddArguments(info,
             "-m", "uvicorn", "app.main:app",
             "--host", "127.0.0.1",
@@ -145,6 +166,7 @@ public sealed class WindowsServiceAdapter
             }
 
             var info = CreateHiddenProcessInfo(commandShell, workingDirectory);
+            info.Environment["VITE_API_BASE_URL"] = "http://127.0.0.1:8921";
             AddArguments(info,
                 "/d", "/s", "/c",
                 $"npm run preview -- --port {definition.Port} --host 0.0.0.0");
@@ -161,6 +183,7 @@ public sealed class WindowsServiceAdapter
 
             var pyInfo = CreateHiddenProcessInfo(python, workingDirectory);
             pyInfo.Environment["PYTHONUNBUFFERED"] = "1";
+            pyInfo.Environment["VITE_API_BASE_URL"] = "http://127.0.0.1:8921";
             AddArguments(pyInfo, serveWebScript, definition.Port.ToString(System.Globalization.CultureInfo.InvariantCulture));
             return pyInfo;
         }
@@ -168,23 +191,68 @@ public sealed class WindowsServiceAdapter
         throw new InvalidOperationException("未找到老板驾驶舱的可用前端运行环境（缺少已安装 node_modules 且缺少 serve_web.py）。");
     }
 
-    private string? ResolveModelPath()
+    private (string Path, string Alias, bool RequiresSpark25)? ResolveModel()
     {
-        foreach (var relativePath in new[]
+        var candidates = new[]
         {
-            @"models\local-llm\Spark-X2.5-4B-Q4_K_M.gguf",
-            @"models\local-llm\Ling-3.0-tiny-Q4_K_M.gguf",
-            @"models\local-llm\Qwen3.5-2B-Q4_K_M.gguf",
-        })
+            (RelativePath: @"models\local-llm\Spark-X2.5-4B-Q4_K_M.gguf", Alias: "spark-x2.5-4b", RequiresSpark25: true),
+            (RelativePath: @"models\local-llm\Qwen3.5-2B-Q4_K_M.gguf", Alias: "qwen3.5-2b", RequiresSpark25: false),
+            (RelativePath: @"models\local-llm\Ling-3.0-tiny-Q4_K_M.gguf", Alias: "ling-3.0-tiny", RequiresSpark25: false),
+        };
+
+        foreach (var candidate in candidates)
         {
-            var path = _rootResolver.ResolvePath(relativePath);
+            var path = _rootResolver.ResolvePath(candidate.RelativePath);
             if (!string.IsNullOrWhiteSpace(path) && File.Exists(path))
             {
-                return path;
+                return (path, candidate.Alias, candidate.RequiresSpark25);
             }
         }
 
         return null;
+    }
+
+    private string ResolveManagedModelAlias() => ResolveModel()?.Alias ?? "spark-x2.5-4b";
+
+    private static void EnsureSparkRuntimeCompatible(string executable)
+    {
+        var info = new ProcessStartInfo
+        {
+            FileName = executable,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            WindowStyle = ProcessWindowStyle.Hidden,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+        };
+        info.ArgumentList.Add("--version");
+
+        using var process = new Process { StartInfo = info };
+        if (!process.Start())
+        {
+            throw new InvalidOperationException("无法执行 llama-server --version，拒绝以未确认 runtime 启动 Spark2_5。");
+        }
+
+        var stdoutTask = process.StandardOutput.ReadToEndAsync();
+        var stderrTask = process.StandardError.ReadToEndAsync();
+        if (!process.WaitForExit(15_000))
+        {
+            try { process.Kill(entireProcessTree: true); } catch { }
+            try { process.WaitForExit(2_000); } catch { }
+            throw new InvalidOperationException("llama-server --version 超时，拒绝以未确认 runtime 启动 Spark2_5。");
+        }
+
+        var stdout = stdoutTask.GetAwaiter().GetResult();
+        var stderr = stderrTask.GetAwaiter().GetResult();
+        var match = Regex.Match($"{stdout}\n{stderr}", @"\bbuild\s+(\d+)\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        if (!match.Success || !int.TryParse(match.Groups[1].Value, out var build))
+        {
+            throw new InvalidOperationException("无法识别 llama.cpp build 版本；请运行 python scripts\\download_models.py --runtime-only 修复 runtime。");
+        }
+        if (build < MinimumSparkLlamaBuild)
+        {
+            throw new InvalidOperationException($"当前 llama.cpp build {build} 不支持 Spark2_5；至少需要 build {MinimumSparkLlamaBuild}。请运行 python scripts\\download_models.py --runtime-only。");
+        }
     }
 
     private static ProcessStartInfo CreateHiddenProcessInfo(string executable, string workingDirectory)
@@ -196,10 +264,9 @@ public sealed class WindowsServiceAdapter
             UseShellExecute = false,
             CreateNoWindow = true,
             WindowStyle = ProcessWindowStyle.Hidden,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            StandardOutputEncoding = Encoding.UTF8,
-            StandardErrorEncoding = Encoding.UTF8,
+            // Never redirect long-running services into unread anonymous pipes.
+            RedirectStandardOutput = false,
+            RedirectStandardError = false,
         };
     }
 

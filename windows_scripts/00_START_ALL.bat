@@ -1,66 +1,98 @@
 @echo off
 @chcp 936 >nul 2>&1
-title ³É¶¼½¨¹¤ V3.0 - Ò»¼üÆô¶¯È«²¿·þÎñ
-setlocal enabledelayedexpansion
+title æˆéƒ½å»ºå·¥ V3.0 - ä¸€é”®å¯åŠ¨å…¨éƒ¨æœåŠ¡
+setlocal EnableExtensions EnableDelayedExpansion
 
 set "SCRIPT_DIR=%~dp0"
 cd /d "%SCRIPT_DIR%.."
+set "ROOT_DIR=%CD%"
 
 echo ==============================================================================
-echo   [³É¶¼½¨¹¤] ³É¶¼½¨¹¤ V3.0 ²ÆË°ÖÇ¿ØÓë IDP ´©Í¸ÖÐÊà [Windows Ò»¼üÆô¶¯]
-echo   Ó²¼þÊÊÅä: Intel/AMD CPU (AVX2¼ÓËÙ) + 16GB+ ÄÚ´æ / Ö§³ÖÀëÏßÍÆÀí
-echo   ±¾µØ´óÄ£ÐÍ: ÐÇ»ð Spark-X2.5-4B (CPU AVX2¼ÓËÙÀëÏßÍÆÀí)
+echo   [æˆéƒ½å»ºå·¥] V3.0 Windows å…¨æœåŠ¡å¯åŠ¨æŽ§åˆ¶é¢
+echo   PostgreSQL: 127.0.0.1:54320 ^| LLM:8930 ^| RAG:8922 ^| Tax:8921 ^| Web:5173
 echo ==============================================================================
 echo.
 
-:: [0/5] ¼ì²é²¢Æô¶¯ PostgreSQL Êý¾Ý¿â
-if exist "%SCRIPT_DIR%00_START_POSTGRES.bat" (
-    call "%SCRIPT_DIR%00_START_POSTGRES.bat"
+:: [0/5] PostgreSQL æ˜¯å…¨ç³»ç»Ÿç¡¬å‰ç½®ï¼Œå¤±è´¥æ—¶ç¦æ­¢ç»§ç»­æ‹‰èµ·ä¸šåŠ¡æœåŠ¡ã€‚
+if not exist "%SCRIPT_DIR%00_START_POSTGRES.bat" (
+    echo [é”™è¯¯] ç¼ºå°‘ PostgreSQL canonical launcher: %SCRIPT_DIR%00_START_POSTGRES.bat
+    exit /b 10
+)
+call "%SCRIPT_DIR%00_START_POSTGRES.bat"
+if errorlevel 1 (
+    echo [é”™è¯¯] PostgreSQL 54320 æœªé€šè¿‡å¯åŠ¨é—¨ç¦ï¼Œå·²ä¸­æ­¢åŽç»­æœåŠ¡ã€‚
+    exit /b 11
 )
 
-:: ÖÇÄÜÌ½²â²¢ÊÊÅä»îÔ¾ PostgreSQL ¶Ë¿Ú (5432 vs 54320)
-set "ACTIVE_PG_PORT=54320"`r`nnetstat -ano | findstr /i ":54320 " | findstr /i "LISTENING" >nul && set "ACTIVE_PG_PORT=54320"
-set "DATABASE_URL=postgresql://postgres@127.0.0.1:!ACTIVE_PG_PORT!/projectrag"
-set "PROJECT_RAG_DB_URL=postgresql://postgres@127.0.0.1:!ACTIVE_PG_PORT!/projectrag"
-echo [Êý¾Ý¿â] È«¾Ö×Ô¶¯°ó¶¨»îÔ¾ PostgreSQL ¶Ë¿Ú: !ACTIVE_PG_PORT!
+set "DATABASE_URL=postgresql://postgres@127.0.0.1:54320/projectrag"
+set "PROJECT_RAG_DB_URL=postgresql://postgres@127.0.0.1:54320/projectrag"
+set "TAX_RAG_SERVICE_URL=http://127.0.0.1:8922"
+set "RAG_LLM_BASE_URL=http://127.0.0.1:8930/v1"
+set "RAG_LLM_LOCAL_BASE_URL=http://127.0.0.1:8930/v1"
+set "RAG_LLM_MODEL=spark-x2.5-4b"
+set "RAG_LLM_LOCAL_MODEL=spark-x2.5-4b"
+set "LING_BASE_URL=http://127.0.0.1:8930/v1"
+set "LING_MODEL=spark-x2.5-4b"
+if not exist "%ROOT_DIR%\models\local-llm\Spark-X2.5-4B-Q4_K_M.gguf" if exist "%ROOT_DIR%\models\local-llm\Qwen3.5-2B-Q4_K_M.gguf" (
+    set "RAG_LLM_MODEL=qwen3.5-2b"
+    set "RAG_LLM_LOCAL_MODEL=qwen3.5-2b"
+    set "LING_MODEL=qwen3.5-2b"
+)
 
-echo [1/5] ÕýÔÚÆô¶¯±¾µØ´óÄ£ÐÍ·þÎñ (Port 8930)...
-start "01_±¾µØ´óÄ£ÐÍ·þÎñ (Port 8930)" cmd /k "call "%SCRIPT_DIR%01_START_LLM.bat""
-timeout /t 3 /nobreak >nul
+echo [1/5] æ­£åœ¨å¯åŠ¨æœ¬åœ°å¤§æ¨¡åž‹æœåŠ¡ (Port 8930)...
+start "01_æœ¬åœ°å¤§æ¨¡åž‹æœåŠ¡ (Port 8930)" cmd.exe /d /c call "%SCRIPT_DIR%01_START_LLM.bat"
+call :WAIT_PORT 8930 45 "æœ¬åœ°å¤§æ¨¡åž‹"
+if errorlevel 1 exit /b 21
 
-echo [2/5] ÕýÔÚÆô¶¯ RAG ÖªÊ¶Ö¤¾ÝÖÐÊà (Port 8922)...
-start "02_RAGÊÂÊµÖÐÌ¨ (Port 8922)" cmd /k "call "%SCRIPT_DIR%02_START_RAG.bat""
-timeout /t 2 /nobreak >nul
+echo [2/5] æ­£åœ¨å¯åŠ¨ RAG çŸ¥è¯†è¯æ®ä¸­æž¢ (Port 8922)...
+start "02_RAGäº‹å®žä¸­å° (Port 8922)" cmd.exe /d /c call "%SCRIPT_DIR%02_START_RAG.bat"
+call :WAIT_PORT 8922 45 "RAGçŸ¥è¯†ä¸­å°"
+if errorlevel 1 exit /b 22
 
-echo [3/5] ÕýÔÚÆô¶¯ IDP ´©Í¸Ê½Â¼ÈëÒýÇæ (Port 8933)...
+echo [3/5] æ­£åœ¨å¯åŠ¨ IDP æ–‡æ¡£å½•å…¥å¼•æ“Ž (Port 8933)...
 set "IDP_PORT=8933"
-start "03_IDPÎÄµµÂ¼ÈëÒýÇæ (Port 8933)" cmd /k "call "%SCRIPT_DIR%..\source_code\0.4_IDPÎÄµµÂ¼ÈëÒýÇæ_V3.0\START_IDP_WINDOWS.bat""
-timeout /t 2 /nobreak >nul
+start "03_IDPæ–‡æ¡£å½•å…¥å¼•æ“Ž (Port 8933)" cmd.exe /d /c call "%ROOT_DIR%\source_code\0.4_IDPæ–‡æ¡£å½•å…¥å¼•æ“Ž_V3.0\START_IDP_WINDOWS.bat"
+call :WAIT_PORT 8933 90 "IDPæ–‡æ¡£å½•å…¥å¼•æ“Ž"
+if errorlevel 1 exit /b 23
 
-echo [4/5] ÕýÔÚÆô¶¯ Ë°Îñ¹ÜÀíÓë Native V3 Boss API (Port 8921)...
-start "04_Ë°Îñ¹ÜÀíÏµÍ³ (Port 8921)" cmd /k "call "%SCRIPT_DIR%03_START_TAX.bat""
-timeout /t 2 /nobreak >nul
+echo [4/5] æ­£åœ¨å¯åŠ¨ç¨ŽåŠ¡ä¸­å° (Port 8921)...
+start "04_ç¨ŽåŠ¡ç®¡ç†ç³»ç»Ÿ (Port 8921)" cmd.exe /d /c call "%SCRIPT_DIR%03_START_TAX.bat"
+call :WAIT_PORT 8921 45 "ç¨ŽåŠ¡ä¸­å°"
+if errorlevel 1 exit /b 24
 
-echo [5/5] ÕýÔÚÆô¶¯ ÀÏ°å¶Ë Web ÒÆ¶¯¼ÝÊ»²Õ (Port 5173)...
-start "05_ÀÏ°å¶ËWeb (Port 5173)" cmd /k "call "%SCRIPT_DIR%04_START_WEB.bat""
-timeout /t 3 /nobreak >nul
+echo [5/5] æ­£åœ¨å¯åŠ¨è€æ¿ç«¯ Web (Port 5173)...
+start "05_è€æ¿ç«¯Web (Port 5173)" cmd.exe /d /c call "%SCRIPT_DIR%04_START_WEB.bat"
+call :WAIT_PORT 5173 30 "è€æ¿ç«¯Web"
+if errorlevel 1 exit /b 25
 
 echo.
 echo ==============================================================================
-echo   [Íê³É] ³É¶¼½¨¹¤ V3.0 È«ÏµÍ³ÒÑ³É¹¦À­Æð£¡
-echo   ¡¾ºËÐÄÒµÎñ·ÃÎÊÈë¿Ú¡¿
-echo   [ÒÆ¶¯¶Ë] ÀÏ°å¶ËÒÆ¶¯¼ÝÊ»²Õ:    http://127.0.0.1:5173 (ÍÆ¼ö)
-echo   [½¨¹¤]   Ë°Îñ¹ÜÀíÖÐÌ¨ Web:    http://127.0.0.1:8921
-echo   [ÖÇÄÔ]   RAG ÖªÊ¶Ö¤¾ÝÖÐÊà:    http://127.0.0.1:8922
-echo   [ÎÄµµ]   IDP ÎÄµµÂ¼ÈëÓëÉó¼Æ:  http://127.0.0.1:8933
-echo   [AI]     ÐÇ»ð Spark-X2.5-4B:  http://127.0.0.1:8930/v1
-echo   [Êý¾Ý¿â] PostgreSQL Êý¾Ý¿â:   127.0.0.1:!ACTIVE_PG_PORT! (projectrag)
-echo ------------------------------------------------------------------------------
-echo   [ÃØÔ¿] Ä¬ÈÏÑÝÊ¾µÇÂ¼ÕËºÅ£ºadmin  /  ÃÜÂë£ºÃÜÂëÍ¬ÓÃ»§Ãû
-echo   [ÖªÊ¶¿â] OpenAPI ½Ó¿ÚÎÄµµ£ºhttp://127.0.0.1:8921/docs
+echo   [å®Œæˆ] æˆéƒ½å»ºå·¥ V3.0 å…¨æœåŠ¡ç«¯å£é—¨ç¦å·²å…¨éƒ¨é€šè¿‡ã€‚
+echo   [ç§»åŠ¨ç«¯] è€æ¿ç«¯ç§»åŠ¨é©¾é©¶èˆ±:    http://127.0.0.1:5173
+echo   [å»ºå·¥]   ç¨ŽåŠ¡ç®¡ç†ä¸­å°:        http://127.0.0.1:8921
+echo   [æ™ºè„‘]   RAG çŸ¥è¯†è¯æ®ä¸­æž¢:    http://127.0.0.1:8922
+echo   [æ–‡æ¡£]   IDP æ–‡æ¡£å½•å…¥ä¸Žå®¡è®¡:  http://127.0.0.1:8933
+echo   [AI]     æœ¬åœ°å¤§æ¨¡åž‹ OpenAI API: http://127.0.0.1:8930/v1
+echo   [æ•°æ®åº“] PostgreSQL:           127.0.0.1:54320/projectrag
 echo ==============================================================================
-echo.
-echo ÕýÔÚ×Ô¶¯´ò¿ªä¯ÀÀÆ÷...
-start http://127.0.0.1:5173
-start http://127.0.0.1:8921
-pause
+start "" http://127.0.0.1:5173
+start "" http://127.0.0.1:8921
+exit /b 0
+
+:WAIT_PORT
+set "_WAIT_PORT=%~1"
+set "_WAIT_TRIES=%~2"
+set "_WAIT_NAME=%~3"
+for /l %%I in (1,1,!_WAIT_TRIES!) do (
+    netstat -ano | findstr /i ":!_WAIT_PORT! " | findstr /i "LISTENING" >nul 2>&1 && (
+        echo [å°±ç»ª] !_WAIT_NAME! å·²ç›‘å¬ç«¯å£ !_WAIT_PORT!ã€‚
+        exit /b 0
+    )
+    if %%I LEQ 10 (
+        timeout /t 1 /nobreak >nul
+    ) else (
+        timeout /t 2 /nobreak >nul
+    )
+)
+echo [é”™è¯¯] !_WAIT_NAME! åœ¨é€€é¿ç­‰å¾…çª—å£å†…æœªç›‘å¬ç«¯å£ !_WAIT_PORT!ï¼Œåœæ­¢å¯åŠ¨é“¾ã€‚
+exit /b 1

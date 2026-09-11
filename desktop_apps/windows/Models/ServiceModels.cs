@@ -126,10 +126,6 @@ public sealed record ServiceSnapshot(
 
     public bool AnyDegraded => Services.Values.Any(status => status.Condition == ServiceCondition.Degraded);
 
-    /// <summary>
-    /// Aggregates the service states once so the tray, status window, and text
-    /// cannot disagree about a partially stopped project.
-    /// </summary>
     public ServiceCondition OverallCondition =>
         AllHealthy
             ? ServiceCondition.Healthy
@@ -161,6 +157,8 @@ public static class ServiceCatalog
 {
     public static IReadOnlyList<ServiceDefinition> Create()
     {
+        // Order is a dependency contract for StartAll: LLM -> RAG -> Tax,
+        // while IDP also consumes the local LLM and Boss consumes Tax.
         return new[]
         {
             new ServiceDefinition(
@@ -176,18 +174,6 @@ public static class ServiceCatalog
                 null,
                 ""),
             new ServiceDefinition(
-                ServiceKind.Tax,
-                "智能财税管理系统",
-                8921,
-                new[] { "/healthz" },
-                new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "python", "python.exe", "uvicorn", "uvicorn.exe" },
-                @"0.1_税务管理",
-                ServiceStartKind.PythonModule,
-                @"source_code\0.1_税务管理\gtp_V1.0_FULL\01_当前完整系统_V1.0\chengdu_construction_tax_system_v1_0",
-                null,
-                null,
-                "http://127.0.0.1:8921/"),
-            new ServiceDefinition(
                 ServiceKind.Rag,
                 "资料输入管理系统",
                 8922,
@@ -199,6 +185,18 @@ public static class ServiceCatalog
                 null,
                 null,
                 "http://127.0.0.1:8922/"),
+            new ServiceDefinition(
+                ServiceKind.Tax,
+                "智能财税管理系统",
+                8921,
+                new[] { "/healthz" },
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "python", "python.exe", "uvicorn", "uvicorn.exe" },
+                @"0.1_税务管理",
+                ServiceStartKind.PythonModule,
+                @"source_code\0.1_税务管理\gtp_V1.0_FULL\01_当前完整系统_V1.0\chengdu_construction_tax_system_v1_0",
+                null,
+                null,
+                "http://127.0.0.1:8921/"),
             new ServiceDefinition(
                 ServiceKind.Idp,
                 "文档录入引擎",

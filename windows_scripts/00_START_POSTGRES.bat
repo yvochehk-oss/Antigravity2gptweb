@@ -1,35 +1,38 @@
 @echo off
 @chcp 936 >nul 2>&1
-title ³É¶¼½¨¹¤ V3.0 - PostgreSQL ÊØ»¤
-setlocal enabledelayedexpansion
+title æˆéƒ½å»ºå·¥ V3.0 - PostgreSQL 54320 å®ˆæŠ¤
+setlocal EnableExtensions EnableDelayedExpansion
 
 set "SCRIPT_DIR=%~dp0"
 cd /d "%SCRIPT_DIR%.."
 set "ROOT_DIR=%CD%"
+set "PORT=54320"
+set "WATCHDOG=%ROOT_DIR%\scripts\database\windows\postgres_watchdog.ps1"
+set "PG_CTL="
+set "PG_ISREADY="
 
-:: 1. ¼ì²é±ãÐ¯°æ PostgreSQL (54320) ÊÇ·ñÒÑ¾­ÔÚÔËÐÐ
-set "PG_IS_UP=0"
-netstat -ano | findstr /i ":54320 " | findstr /i "LISTENING" >nul && set "PG_IS_UP=1"
-
-if "!PG_IS_UP!"=="1" (
-    echo [PostgreSQL] ¼ì²âµ½±ãÐ¯°æ PostgreSQL (54320) ÒÑ¾­ÔÚÔËÐÐ£¬ÎÞÐèÖØ¸´Æô¶¯¡£
+call :IS_READY
+if not errorlevel 1 (
+    echo [PostgreSQL] ä¾¿æºç‰ˆ PostgreSQL å·²åœ¨ 127.0.0.1:%PORT% å°±ç»ªã€‚
+    call :START_WATCHDOG
+    if errorlevel 1 exit /b 7
     exit /b 0
 )
 
-echo [PostgreSQL] ÕýÔÚ¼ì²é²¢Æô¶¯±ãÐ¯°æ PostgreSQL Êý¾Ý¿â (Port 54320)...
+echo [PostgreSQL] æ­£åœ¨æ£€æŸ¥å¹¶å¯åŠ¨ä¾¿æºç‰ˆ PostgreSQL (Port %PORT%)...
 
-:: 2. Ñ°ÕÒ pg_ctl.exe Â·¾¶
-set "PG_CTL="
 if exist "database\pgsql\bin\pg_ctl.exe" set "PG_CTL=%ROOT_DIR%\database\pgsql\bin\pg_ctl.exe"
 if not defined PG_CTL if exist "pgsql\bin\pg_ctl.exe" set "PG_CTL=%ROOT_DIR%\pgsql\bin\pg_ctl.exe"
 if not defined PG_CTL if exist "M:\database\pgsql\bin\pg_ctl.exe" set "PG_CTL=M:\database\pgsql\bin\pg_ctl.exe"
 
 if not defined PG_CTL (
-    echo [PostgreSQL] ÌáÊ¾: Î´ÔÚÏîÄ¿ÖÐÕÒµ½±ãÐ¯°æ pg_ctl.exe¡£
-    exit /b 0
+    echo [PostgreSQL] é”™è¯¯: æœªæ‰¾åˆ°ä¾¿æºç‰ˆ pg_ctl.exeï¼Œæ•°æ®åº“ä¸èƒ½è¢«åˆ¤å®šä¸ºæˆåŠŸå¯åŠ¨ã€‚
+    exit /b 2
 )
 
-:: 3. Ñ°ÕÒÊý¾ÝÄ¿Â¼£¨±ÜÃâ Windows ³¤Â·¾¶£©
+for %%I in ("!PG_CTL!") do set "PG_BIN=%%~dpI"
+if exist "!PG_BIN!pg_isready.exe" set "PG_ISREADY=!PG_BIN!pg_isready.exe"
+
 set "DATA_DIR="
 if exist "%~d0\projectrag_pgdata" set "DATA_DIR=%~d0\projectrag_pgdata"
 if not defined DATA_DIR if exist "C:\projectrag_pgdata" set "DATA_DIR=C:\projectrag_pgdata"
@@ -39,37 +42,79 @@ if not defined DATA_DIR if exist "%ROOT_DIR%\database\data" (
     subst M: "%ROOT_DIR%" >nul 2>&1
     if exist "M:\database\data" (
         set "DATA_DIR=M:\database\data"
-        set "PG_CTL=M:\database\pgsql\bin\pg_ctl.exe"
-        echo [PostgreSQL] ×Ô¶¯½«ÏîÄ¿¹ÒÔØÎª M ÅÌ£¬¹æ±Ü Windows ³¤Â·¾¶ÏÞÖÆ¡£
+        if exist "M:\database\pgsql\bin\pg_ctl.exe" (
+            set "PG_CTL=M:\database\pgsql\bin\pg_ctl.exe"
+            set "PG_BIN=M:\database\pgsql\bin\"
+            if exist "M:\database\pgsql\bin\pg_isready.exe" set "PG_ISREADY=M:\database\pgsql\bin\pg_isready.exe"
+        )
+        echo [PostgreSQL] å·²å°†é¡¹ç›®ä¸´æ—¶æ˜ å°„ä¸º M ç›˜ä»¥è§„é¿ Windows é•¿è·¯å¾„é™åˆ¶ã€‚
     ) else (
         set "DATA_DIR=%ROOT_DIR%\database\data"
     )
 )
 
 if not defined DATA_DIR (
-    echo [PostgreSQL] ´íÎó: Î´ÕÒµ½Êý¾Ý¿âÊý¾ÝÄ¿Â¼£¬ÇëÈ·ÈÏÊý¾Ý¿âÊÇ·ñÒÑ³õÊ¼»¯¡£
-    exit /b 1
+    echo [PostgreSQL] é”™è¯¯: æœªæ‰¾åˆ°æ•°æ®åº“æ•°æ®ç›®å½•ï¼Œè¯·ç¡®è®¤ä¾¿æºæ•°æ®åº“å·²ç»åˆå§‹åŒ–ã€‚
+    exit /b 3
 )
 
-:: 4. ÇåÀí²ÐÁô postmaster.pid ÎÄ¼þ
 if exist "!DATA_DIR!\postmaster.pid" (
-    echo [PostgreSQL] ·¢ÏÖ²ÐÁô postmaster.pid£¬ÕýÔÚ°²È«ÇåÀí...
+    "!PG_CTL!" status -D "!DATA_DIR!" >nul 2>&1
+    if not errorlevel 1 (
+        echo [PostgreSQL] é”™è¯¯: æ•°æ®ç›®å½•å¯¹åº”çš„ PostgreSQL è¿›ç¨‹ä»å­˜æ´»ï¼Œä½† %PORT% æœªå°±ç»ªã€‚
+        echo [PostgreSQL] ä¸ºé¿å…è¯¯åˆ æ´»åŠ¨å®žä¾‹çš„ postmaster.pidï¼Œæœ¬æ¬¡å¯åŠ¨å·²å®‰å…¨ä¸­æ­¢ã€‚
+        exit /b 4
+    )
+    echo [PostgreSQL] æ£€æµ‹åˆ°å¤±æ•ˆçš„ postmaster.pidï¼Œæ­£åœ¨æ¸…ç†...
     del /f /q "!DATA_DIR!\postmaster.pid" >nul 2>&1
-)
-
-:: 5. Æô¶¯ PostgreSQL ÊµÀý
-if not exist "logs" mkdir "logs" >nul 2>&1
-echo [PostgreSQL] Æô¶¯Êý¾Ý¿âÊµÀý...
-start "PostgreSQL_Daemon" /B "!PG_CTL!" start -D "!DATA_DIR!" -l "%ROOT_DIR%\logs\postgres.log"
-
-:: 6. ÂÖÑ¯µÈ´ý¶Ë¿Ú¾ÍÐ÷ (×î¶àµÈ´ý 8 Ãë)
-for /l %%k in (1,1,8) do (
-    timeout /t 1 /nobreak >nul
-    netstat -ano | findstr /i ":54320 " | findstr /i "LISTENING" >nul && (
-        echo [PostgreSQL] ±ãÐ¯°æÊý¾Ý¿âÒÑ³É¹¦¾ÍÐ÷ÔÚ¶Ë¿Ú 54320£¡
-        exit /b 0
+    if exist "!DATA_DIR!\postmaster.pid" (
+        echo [PostgreSQL] é”™è¯¯: æ— æ³•æ¸…ç†å¤±æ•ˆçš„ postmaster.pidã€‚
+        exit /b 5
     )
 )
 
-echo [PostgreSQL] Çë²é¿´ logs\postgres.log »ñÈ¡ÏêÏ¸ÈÕÖ¾¡£
+if not exist "logs" mkdir "logs" >nul 2>&1
+echo [PostgreSQL] å¯åŠ¨æ•°æ®åº“å®žä¾‹å¹¶å¼ºåˆ¶ç»‘å®š 127.0.0.1:%PORT%...
+"!PG_CTL!" start -D "!DATA_DIR!" -l "%ROOT_DIR%\logs\postgres.log" -o "-h 127.0.0.1 -p %PORT%" >nul 2>&1
+if errorlevel 1 (
+    echo [PostgreSQL] é”™è¯¯: pg_ctl å¯åŠ¨å¤±è´¥ï¼Œè¯·æŸ¥çœ‹ logs\postgres.logã€‚
+    exit /b 6
+)
+
+for /l %%K in (1,1,30) do (
+    call :IS_READY
+    if not errorlevel 1 (
+        echo [PostgreSQL] ä¾¿æºç‰ˆæ•°æ®åº“å·²åœ¨ 127.0.0.1:%PORT% å°±ç»ªã€‚
+        call :START_WATCHDOG
+        if errorlevel 1 exit /b 7
+        exit /b 0
+    )
+    timeout /t 1 /nobreak >nul
+)
+
+echo [PostgreSQL] é”™è¯¯: å¯åŠ¨åŽ 30 ç§’å†…ä»æœªåœ¨ %PORT% å°±ç»ªï¼Œæ‰§è¡Œå®‰å…¨å›žæ»šã€‚
+"!PG_CTL!" status -D "!DATA_DIR!" >nul 2>&1
+if not errorlevel 1 "!PG_CTL!" stop -D "!DATA_DIR!" -m fast >nul 2>&1
+echo [PostgreSQL] è¯·æŸ¥çœ‹ logs\postgres.log èŽ·å–è¯¦ç»†æ—¥å¿—ã€‚
+exit /b 8
+
+:IS_READY
+if defined PG_ISREADY if exist "!PG_ISREADY!" (
+    "!PG_ISREADY!" -h 127.0.0.1 -p %PORT% -t 1 >nul 2>&1
+    exit /b !ERRORLEVEL!
+)
+netstat -ano | findstr /i ":%PORT% " | findstr /i "LISTENING" >nul 2>&1
+exit /b !ERRORLEVEL!
+
+:START_WATCHDOG
+if not exist "%WATCHDOG%" (
+    echo [PostgreSQL] é”™è¯¯: ç¼ºå°‘è‡ªæ„ˆå®ˆæŠ¤è„šæœ¬ %WATCHDOG%ã€‚
+    exit /b 1
+)
+where powershell.exe >nul 2>&1
+if errorlevel 1 (
+    echo [PostgreSQL] é”™è¯¯: æœªæ‰¾åˆ° powershell.exeï¼Œæ— æ³•å¯åŠ¨æ•°æ®åº“è‡ªæ„ˆå®ˆæŠ¤ã€‚
+    exit /b 1
+)
+start "" /B powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "%WATCHDOG%" -RootDir "%ROOT_DIR%" -Port %PORT% >nul 2>&1
 exit /b 0
