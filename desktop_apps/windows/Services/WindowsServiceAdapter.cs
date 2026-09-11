@@ -123,7 +123,7 @@ public sealed class WindowsServiceAdapter
         info.Environment["PYTHONUNBUFFERED"] = "1";
         var p5432 = ProcessInspector.GetListeningProcessIdsResult(5432);
         var p54320 = ProcessInspector.GetListeningProcessIdsResult(54320);
-        var activePort = p5432.ProcessIds.Count > 0 ? 5432 : (p54320.ProcessIds.Count > 0 ? 54320 : 5432);
+        var activePort = p54320.ProcessIds.Count > 0 ? 54320 : (p5432.ProcessIds.Count > 0 ? 5432 : 54320);
         info.Environment["DATABASE_URL"] = $"postgresql://postgres@127.0.0.1:{activePort}/projectrag";
         info.Environment["PROJECT_RAG_DB_URL"] = $"postgresql://postgres@127.0.0.1:{activePort}/projectrag";
         AddArguments(info,

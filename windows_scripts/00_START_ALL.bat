@@ -19,9 +19,7 @@ if exist "%SCRIPT_DIR%00_START_POSTGRES.bat" (
 )
 
 :: 智能探测并适配活跃 PostgreSQL 端口 (5432 vs 54320)
-set "ACTIVE_PG_PORT=5432"
-netstat -ano | findstr /i ":54320 " | findstr /i "LISTENING" >nul && set "ACTIVE_PG_PORT=54320"
-netstat -ano | findstr /i ":5432 " | findstr /i "LISTENING" >nul && set "ACTIVE_PG_PORT=5432"
+set "ACTIVE_PG_PORT=54320"`r`nnetstat -ano | findstr /i ":54320 " | findstr /i "LISTENING" >nul && set "ACTIVE_PG_PORT=54320"
 set "DATABASE_URL=postgresql://postgres@127.0.0.1:!ACTIVE_PG_PORT!/projectrag"
 set "PROJECT_RAG_DB_URL=postgresql://postgres@127.0.0.1:!ACTIVE_PG_PORT!/projectrag"
 echo [数据库] 全局自动绑定活跃 PostgreSQL 端口: !ACTIVE_PG_PORT!
