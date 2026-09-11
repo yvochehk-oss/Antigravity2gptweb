@@ -182,6 +182,9 @@ public sealed class WindowsServiceAdapter
         info.Environment["DATABASE_URL"] = databaseUrl;
         info.Environment["PROJECT_RAG_DB_URL"] = databaseUrl;
 
+        // Inject consistent JWT secret so Tax and RAG share the exact same signature
+        info.Environment["JWT_SECRET_KEY"] = "cdjg_v3_shared_jwt_secret_key_2026";
+
         var localAlias = ResolveManagedModelAlias();
         if (definition.Kind == ServiceKind.Rag)
         {
@@ -189,6 +192,7 @@ public sealed class WindowsServiceAdapter
             info.Environment["RAG_LLM_LOCAL_BASE_URL"] = "http://127.0.0.1:8930/v1";
             info.Environment["RAG_LLM_MODEL"] = localAlias;
             info.Environment["RAG_LLM_LOCAL_MODEL"] = localAlias;
+            info.Environment["TAX_AUTH_SERVICE_URL"] = "http://127.0.0.1:8921/api/v1/auth/token";
         }
         else if (definition.Kind == ServiceKind.Tax)
         {
