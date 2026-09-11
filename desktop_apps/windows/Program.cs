@@ -22,11 +22,18 @@ internal static class Program
         };
 
         using var instanceMutex = new Mutex(false, "Local\\ChengduConstructionController.V3");
-        if (!instanceMutex.WaitOne(TimeSpan.Zero))
+        try
         {
-            // A second launch is intentionally a no-op. The running tray icon remains the
-            // single owner of start/stop operations and avoids duplicate service launches.
-            return;
+            if (!instanceMutex.WaitOne(TimeSpan.Zero))
+            {
+                // A second launch is intentionally a no-op. The running tray icon remains the
+                // single owner of start/stop operations and avoids duplicate service launches.
+                return;
+            }
+        }
+        catch (AbandonedMutexException)
+        {
+            // Previous process was killed; mutex is acquired by current process.
         }
 
         using var rootResolver = new ProjectRootResolver(logger);
