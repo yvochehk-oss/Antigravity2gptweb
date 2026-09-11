@@ -90,7 +90,7 @@ if errorlevel 1 exit /b 23
 
 echo [4/5] Starting Tax service on port 8921...
 start "04_TAX_8921" cmd.exe /d /c call "%SCRIPT_DIR%03_START_TAX.bat"
-call :WAIT_PORT 8921 45 "Tax"
+call :WAIT_PORT 8921 90 "Tax"
 if errorlevel 1 exit /b 24
 
 echo [5/5] Starting Boss Web on port 5173...
