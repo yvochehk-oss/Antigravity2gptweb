@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Reflection;
 using ChengduConstructionController.Models;
 using ChengduConstructionController.Services;
 using Microsoft.Extensions.Time.Testing;
@@ -51,7 +52,7 @@ public sealed class ServiceOrchestratorWatchdogTests
     }
 
     [Fact]
-    public void ServiceOrchestratorWatchdog_CancellationDuringRelaunch_CleansUpRelaunchedProcess()
+    public async Task ServiceOrchestratorWatchdog_CancellationDuringRelaunch_CleansUpRelaunchedProcess()
     {
         var logger = new SafeLogger();
         var resolver = new ProjectRootResolver(logger);
@@ -60,8 +61,9 @@ public sealed class ServiceOrchestratorWatchdogTests
         using var cts = new CancellationTokenSource();
         cts.Cancel(); // Pre-cancelled token to exercise cancellation exception handling
 
-        Assert.True(cts.IsCancellationRequested);
-        Assert.NotNull(orchestrator);
+        var result = await orchestrator.StartAllAsync(cts.Token);
+        Assert.False(result.Success);
+        Assert.Contains("取消", result.Message);
     }
 
     [Fact]
@@ -71,7 +73,52 @@ public sealed class ServiceOrchestratorWatchdogTests
         var resolver = new ProjectRootResolver(logger);
         using var orchestrator = new ServiceOrchestrator(resolver, logger);
 
-        Assert.NotNull(orchestrator.Definitions);
+        var untrackMethod = typeof(ServiceOrchestrator).GetMethod(
+            "Untrack",
+            BindingFlags.NonPublic | BindingFlags.Instance);
+        Assert.NotNull(untrackMethod);
+
+        // Untrack with null target handle is safe and does not double-untrack or throw
+        untrackMethod.Invoke(orchestrator, new object?[] { null });
+
         Assert.Equal(5, orchestrator.Definitions.Count);
+    }
+
+    [Fact]
+    public async Task ServiceOrchestratorWatchdog_RelaunchStartsOutputPump_DrainsStandardPipes()
+    {
+        var logger = new SafeLogger();
+        var resolver = new ProjectRootResolver(logger);
+        using var orchestrator = new ServiceOrchestrator(resolver, logger);
+
+        var restartMethod = typeof(ServiceOrchestrator).GetMethod(
+            "RestartSingleTrackedLaunchAsync",
+            BindingFlags.NonPublic | BindingFlags.Instance);
+        Assert.NotNull(restartMethod);
+
+        var startPumpMethod = typeof(ServiceOrchestrator).GetMethod(
+            "StartOutputPump",
+            BindingFlags.NonPublic | BindingFlags.Instance);
+        Assert.NotNull(startPumpMethod);
+
+        var psi = new ProcessStartInfo
+        {
+            FileName = "cmd.exe",
+            Arguments = "/c echo output_pump_test_line",
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            CreateNoWindow = true
+        };
+
+        using var process = Process.Start(psi);
+        Assert.NotNull(process);
+
+        var definition = orchestrator.Definitions[0];
+        startPumpMethod.Invoke(orchestrator, new object[] { definition, process });
+
+        await process.WaitForExitAsync();
+        Assert.True(process.HasExited);
+        Assert.Equal(0, process.ExitCode);
     }
 }

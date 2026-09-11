@@ -385,6 +385,7 @@ public sealed class ServiceOrchestrator : IDisposable
 
         var newLaunch = CreateTrackedLaunch(definition.Kind, newProcess);
         RegisterTrackedLaunch(newLaunch);
+        StartOutputPump(definition, newProcess);
         try
         {
             var identityResult = await EstablishTrackedLaunchAsync(
@@ -1377,8 +1378,13 @@ public sealed class ServiceOrchestrator : IDisposable
         process.Exited += (_, _) => _logger.Info($"{_definitions.First(item => item.Kind == launch.Kind).DisplayName}启动进程已退出（进程 {launch.ProcessId}）");
     }
 
-    private void Untrack(TrackedLaunch launch)
+    private void Untrack(TrackedLaunch? launch)
     {
+        if (launch is null)
+        {
+            return;
+        }
+
         lock (_trackedGate)
         {
             if (!_tracked.TryGetValue(launch.Kind, out var launches))
