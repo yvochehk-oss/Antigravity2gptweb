@@ -28,12 +28,12 @@ if exist "%UV_BIN%" (
 echo.
 echo [2/2] 正在启动国内模型下载器...
 if exist "%VENV_PY%" (
-    "%VENV_PY%" scripts\download_models.py
+    "%VENV_PY%" scripts\python\download_models.py
 ) else (
     if exist "%UV_BIN%" (
-        "%UV_BIN%" run --default-index https://mirrors.aliyun.com/pypi/simple/ --with modelscope --with huggingface_hub scripts\download_models.py
+        "%UV_BIN%" run --default-index https://mirrors.aliyun.com/pypi/simple/ --with modelscope --with huggingface_hub scripts\python\download_models.py
     ) else (
-        python scripts\download_models.py
+        python scripts\python\download_models.py
     )
 )
 

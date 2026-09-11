@@ -110,11 +110,11 @@ for /l %%I in (1,1,!_WAIT_TRIES!) do (
     netstat -ano | findstr /i ":!_WAIT_PORT! " | findstr /i "LISTENING" >nul 2>&1 && (
         echo [READY] !_WAIT_NAME! is listening on port !_WAIT_PORT!.
         for /f "tokens=5" %%P in ('netstat -ano ^| findstr /i ":!_WAIT_PORT! " ^| findstr /i "LISTENING"') do (
-            if "!_WAIT_PORT!"=="8930" echo %%P> "%ROOT_DIR%\.local_llm.pid"
-            if "!_WAIT_PORT!"=="8922" echo %%P> "%ROOT_DIR%\.rag.pid"
-            if "!_WAIT_PORT!"=="8933" echo %%P> "%ROOT_DIR%\.idp.pid"
-            if "!_WAIT_PORT!"=="8921" echo %%P> "%ROOT_DIR%\.tax.pid"
-            if "!_WAIT_PORT!"=="5173" echo %%P> "%ROOT_DIR%\.app.pid"
+            if "!_WAIT_PORT!"=="8930" echo %%P> "%ROOT_DIR%\runtime\.local_llm.pid"
+            if "!_WAIT_PORT!"=="8922" echo %%P> "%ROOT_DIR%\runtime\.rag.pid"
+            if "!_WAIT_PORT!"=="8933" echo %%P> "%ROOT_DIR%\runtime\.idp.pid"
+            if "!_WAIT_PORT!"=="8921" echo %%P> "%ROOT_DIR%\runtime\.tax.pid"
+            if "!_WAIT_PORT!"=="5173" echo %%P> "%ROOT_DIR%\runtime\.app.pid"
         )
         exit /b 0
     )

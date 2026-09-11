@@ -1,5 +1,5 @@
 param(
-    [string]$RootDir = "F:\073_成都建工_V3.0_Windows"
+    [string]$RootDir = "F:\073_成都建工_V3.1_Windows"
 )
 
 # 1. Kill llama-server

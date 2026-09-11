@@ -494,9 +494,6 @@ def get_project_contract_and_payment_dates(db, project_id: int) -> tuple[str | N
 
     Returns (contract_date: str | None, first_payment_date: str | None)，日期格式均为 YYYY-MM-DD。
     """
-    from sqlalchemy import select, func
-    from ..models import CanonicalFact  # noqa: via db.py alias
-
     # Use raw SQL via text() to safely query JSONB payload
     def min_date_for_type(fact_type: str, date_key: str) -> str | None:
         stmt = text(
@@ -549,7 +546,6 @@ def update_project_code_and_dates(db, project_id: int) -> str | None:
         base_code = new_code
         suffix = 1
         while True:
-            existing = db.get(Project, project_id)
             conflict = db.execute(
                 text("SELECT id FROM projects WHERE project_code = :code AND id != :pid"),
                 {"code": new_code, "pid": project_id}
