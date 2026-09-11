@@ -19,6 +19,8 @@ ledger_importer.py — 台账（Ledger）批量导入服务
   3. 名称/简称匹配已知外部单位预设别名                         → external_parties
   4. 新外部单位（无代码、无法定代表为个人）                    → external_parties
   5. 新单位（有名称、税号，无法官代码）                       → entities + 自动分配下一可用代码
+     新外部单位（有名称）                                      → external_parties + 自动分配 E 系列代码
+     外部代码容量：E000001–E999999（每系列 999,999 家，8 系列合计近 800 万家）
 
 使用方式（CLI）：
     python -m scripts.ledger_import --table projects --path ./data/项目台账.xlsx
@@ -163,7 +165,7 @@ _KNOWN_EXTERNAL_CODES = frozenset((
 
 # 外部单位代码前缀层级（用于自动分配，可扩展至 EA/EB/EC/ED/F...）
 _EXTERNAL_CODE_SERIES = ["E", "EA", "EB", "EC", "ED", "F", "FA", "FB"]
-_EXTERNAL_CODE_POOL_SIZE = 999  # 每系列最多 999 家)
+_EXTERNAL_CODE_POOL_SIZE = 999_999  # 每系列最多 999,999 家)
 
 
 def _is_canonical_internal_code(code: str | None) -> bool:
@@ -284,12 +286,12 @@ def _auto_assign_external_code(db) -> str | None:
         # 分配下一个可用编号
         for n in range(1, _EXTERNAL_CODE_POOL_SIZE + 1):
             if n not in used_nums:
-                return f"{series_prefix}{n:03d}"  # E001, EA001, EB001, ...
+                return f"{series_prefix}{n:06d}"  # E000001, EA000001, EB000001, ...
 
     # 全系列用尽，抛出异常
     raise RuntimeError(
-        f"外部单位代码库已满（{len(_EXTERNAL_CODE_SERIES)} 系列 × {_EXTERNAL_CODE_POOL_SIZE} = "
-        f"{len(_EXTERNAL_CODE_SERIES) * _EXTERNAL_CODE_POOL_SIZE} 家上限），请联系管理员扩展。"
+        f"外部单位代码库已满（{len(_EXTERNAL_CODE_SERIES)} 系列 × {_EXTERNAL_CODE_POOL_SIZE:,} 家上限 = "
+        f"{len(_EXTERNAL_CODE_SERIES) * _EXTERNAL_CODE_POOL_SIZE:,} 家），请联系管理员扩展前缀。"
     )
 
 

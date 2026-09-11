@@ -169,7 +169,8 @@ def _render_preview(rows: list[dict], max_show: int = 10) -> str:
 )
 @click.option(
     "--auto-route", is_flag=True,
-    help="自动识别系统内/外单位并路由到正确表（entities 或 external_parties）"
+    help="自动识别系统内/外单位并路由到正确表（entities 或 external_parties），"
+         "外部代码格式 E000001-E999999（每系列近百万家，8系列合计近800万家）"
 )
 @click.option(
     "--project-id", "-pid", type=int, default=None,
