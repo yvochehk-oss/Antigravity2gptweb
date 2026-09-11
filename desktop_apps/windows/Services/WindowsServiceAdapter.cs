@@ -279,6 +279,13 @@ public sealed class WindowsServiceAdapter
     private ProcessStartInfo BuildServeWebProcessInfo(ServiceDefinition definition, string workingDirectory)
     {
         var serveWebScript = _rootResolver.ResolvePath(@"windows_scripts\serve_web.py");
+        if (string.IsNullOrWhiteSpace(serveWebScript))
+        {
+            throw new InvalidOperationException(
+                $"未找到静态伺服脚本（windows_scripts\\serve_web.py）。"
+                + $"{definition.DisplayName} 静态伺服无法启动；请确认安装包含该脚本。");
+        }
+
         var python = _pythonResolver.TryResolve(definition, workingDirectory);
         if (string.IsNullOrWhiteSpace(python))
         {
