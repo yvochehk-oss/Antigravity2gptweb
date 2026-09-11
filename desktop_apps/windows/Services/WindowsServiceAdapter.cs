@@ -187,9 +187,35 @@ public sealed class WindowsServiceAdapter
 
     private ProcessStartInfo BuildBossStartInfo(ServiceDefinition definition, string workingDirectory)
     {
+        var distDirectory = Path.Combine(workingDirectory, "dist");
+        var distIndexPath = Path.Combine(distDirectory, "index.html");
+
+        // 优先级 1：dist 已存在 → 直接使用 serve_web.py（零 Node.js 依赖）
+        if (Directory.Exists(distDirectory) && File.Exists(distIndexPath))
+        {
+            _logger.Info($"[Boss] 发现 dist 静态包，使用 serve_web.py（无需 Node.js）");
+            return BuildServeWebProcessInfo(definition, workingDirectory);
+        }
+
+        // 优先级 2：dist 不存在 → 尝试自动构建
+        var buildBat = _rootResolver.ResolvePath(@"windows_scripts\build_boss_dist.bat");
+        if (!string.IsNullOrWhiteSpace(buildBat) && File.Exists(buildBat))
+        {
+            _logger.Info($"[Boss] dist 缺失，触发自动构建脚本：{buildBat}");
+            var buildOk = RunBossBuildScript(buildBat);
+            if (buildOk && Directory.Exists(distDirectory) && File.Exists(distIndexPath))
+            {
+                _logger.Info($"[Boss] 自动构建成功，切换到 serve_web.py 静态伺服");
+                return BuildServeWebProcessInfo(definition, workingDirectory);
+            }
+            _logger.Warn($"[Boss] 自动构建失败，回退到下一优先级。");
+        }
+
+        // 优先级 3：有 node_modules 但 dist 缺失 → 使用 npm run preview
         if (File.Exists(Path.Combine(workingDirectory, "package.json")) &&
             Directory.Exists(Path.Combine(workingDirectory, "node_modules")))
         {
+            _logger.Warn($"[Boss] 回退到 npm run preview（目标机需要 Node.js）");
             var commandShell = Environment.GetEnvironmentVariable("ComSpec");
             if (string.IsNullOrWhiteSpace(commandShell))
             {
@@ -204,22 +230,71 @@ public sealed class WindowsServiceAdapter
             return info;
         }
 
+        // 兜底：尝试 serve_web.py（即使 dist 不存在，serve_web.py 也有 tax 静态目录回退）
         var serveWebScript = _rootResolver.ResolvePath(@"windows_scripts\serve_web.py");
         if (!string.IsNullOrWhiteSpace(serveWebScript) && File.Exists(serveWebScript))
         {
-            var taxPython = _rootResolver.ResolvePath(@"source_code\0.1_税务管理\gtp_V1.0_FULL\01_当前完整系统_V1.0\chengdu_construction_tax_system_v1_0\.venv\Scripts\python.exe");
-            var python = (!string.IsNullOrWhiteSpace(taxPython) && File.Exists(taxPython))
-                ? taxPython
-                : "python.exe";
-
-            var pyInfo = CreateHiddenProcessInfo(python, workingDirectory);
-            pyInfo.Environment["PYTHONUNBUFFERED"] = "1";
-            pyInfo.Environment["VITE_API_BASE_URL"] = "http://127.0.0.1:8921";
-            AddArguments(pyInfo, serveWebScript, definition.Port.ToString(System.Globalization.CultureInfo.InvariantCulture));
-            return pyInfo;
+            _logger.Info($"[Boss] 兜底使用 serve_web.py（可能回退到税务系统静态目录）");
+            return BuildServeWebProcessInfo(definition, workingDirectory);
         }
 
-        throw new InvalidOperationException("未找到老板驾驶舱的可用前端运行环境（缺少已安装 node_modules 且缺少 serve_web.py）。");
+        throw new InvalidOperationException("未找到老板驾驶舱的可用前端运行环境（缺少 dist、node_modules 且缺少 serve_web.py）。");
+    }
+
+    /// <summary>
+    /// Builds the ProcessStartInfo for the static Python HTTP server (serve_web.py).
+    /// </summary>
+    private ProcessStartInfo BuildServeWebProcessInfo(ServiceDefinition definition, string workingDirectory)
+    {
+        var serveWebScript = _rootResolver.ResolvePath(@"windows_scripts\serve_web.py");
+        var taxPython = _rootResolver.ResolvePath(@"source_code\0.1_税务管理\gtp_V1.0_FULL\01_当前完整系统_V1.0\chengdu_construction_tax_system_v1_0\.venv\Scripts\python.exe");
+        var python = (!string.IsNullOrWhiteSpace(taxPython) && File.Exists(taxPython))
+            ? taxPython
+            : "python.exe";
+
+        var pyInfo = CreateHiddenProcessInfo(python, workingDirectory);
+        pyInfo.Environment["PYTHONUNBUFFERED"] = "1";
+        pyInfo.Environment["VITE_API_BASE_URL"] = "http://127.0.0.1:8921";
+        AddArguments(pyInfo, serveWebScript, definition.Port.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        return pyInfo;
+    }
+
+    /// <summary>
+    /// Runs the boss frontend dist build script synchronously.
+    /// Returns true on successful exit, false on failure.
+    /// </summary>
+    private bool RunBossBuildScript(string buildBatPath)
+    {
+        try
+        {
+            var psi = new ProcessStartInfo
+            {
+                FileName = "cmd.exe",
+                Arguments = $"/d /s /c \"\"{buildBatPath}\"\"",
+                WorkingDirectory = Path.GetDirectoryName(buildBatPath) ?? string.Empty,
+                CreateNoWindow = true,
+                UseShellExecute = false,
+                RedirectStandardOutput = false,
+                RedirectStandardError = false,
+            };
+            using var proc = Process.Start(psi);
+            if (proc is null)
+            {
+                return false;
+            }
+            // Build can take several minutes on slow machines.
+            if (!proc.WaitForExit(600_000))  // 10 minutes max
+            {
+                try { proc.Kill(entireProcessTree: true); } catch { }
+                return false;
+            }
+            return proc.ExitCode == 0;
+        }
+        catch (Exception ex)
+        {
+            _logger.Warn($"[Boss] 构建脚本执行失败：{ex.Message}");
+            return false;
+        }
     }
 
     private (string Path, string Alias, bool RequiresSpark25)? ResolveModel()
