@@ -1,62 +1,109 @@
 @echo off
-@chcp 936 >nul 2>&1
-title 成都建工 V3.1 - Windows 环境一键初始化 (Python 3.12)
-setlocal enabledelayedexpansion
+chcp 65001 >nul 2>&1
+setlocal EnableExtensions EnableDelayedExpansion
 
 set "SCRIPT_DIR=%~dp0"
-cd /d "%SCRIPT_DIR%.."
+for %%I in ("%SCRIPT_DIR%..") do set "ROOT_DIR=%%~fI"
+cd /d "%ROOT_DIR%"
 
-echo ==============================================================================
-echo   成都建工 V3.1 - Windows 运行环境初始化工具
-echo   运行内核: Python 3.12 (稳定版, 全依赖兼容)
-echo   适用硬件: Intel/AMD x64 CPU (AVX2加速) + 16GB+ 内存
-echo ==============================================================================
-echo.
-
-set "UV_BIN=%SCRIPT_DIR%tools\uv.exe"
-
-if not exist "%UV_BIN%" (
-    where uv >nul 2>nul
-    if not errorlevel 1 set "UV_BIN=uv"
+set "PYTHON_EXE=D:\python3\python.exe"
+if not exist "%PYTHON_EXE%" (
+    for /f "delims=" %%P in ('where python 2^>nul') do if not defined PYTHON_FALLBACK set "PYTHON_FALLBACK=%%P"
+    if defined PYTHON_FALLBACK set "PYTHON_EXE=!PYTHON_FALLBACK!"
+)
+if not exist "%PYTHON_EXE%" (
+    echo [ERROR] Python 3.12 not found. Expected D:\python3\python.exe.
+    exit /b 10
 )
 
-if "%UV_BIN%"=="" (
-    echo [错误] 未找到 uv.exe！
-    pause
-    exit /b 1
+"%PYTHON_EXE%" -c "import sys; raise SystemExit(0 if sys.version_info[:2] == (3, 12) else 1)"
+if errorlevel 1 (
+    echo [ERROR] Python 3.12 is required: %PYTHON_EXE%
+    exit /b 11
 )
 
-echo [1/3] 正在配置 RAG 事实中台虚拟环境 (Python 3.12)...
-cd "source_code\0.2_RAG系统\project-rag-v1.1"
-"%UV_BIN%" venv --python 3.12 .venv
-call .venv\Scripts\activate.bat
-"%UV_BIN%" pip install -i https://mirrors.aliyun.com/pypi/simple/ -r requirements.txt
-call deactivate
-cd /d "%SCRIPT_DIR%.."
+set "PIP_INDEX=https://mirrors.aliyun.com/pypi/simple/"
+set "TAX_DIR=%ROOT_DIR%\source_code\0.1_绋庡姟绠＄悊\gtp_V1.0_FULL\01_褰撳墠瀹屾暣绯荤粺_V1.0\chengdu_construction_tax_system_v1_0"
+set "RAG_DIR=%ROOT_DIR%\source_code\0.2_RAG绯荤粺\project-rag-v1.1"
+set "IDP_DIR=%ROOT_DIR%\source_code\0.4_IDP鏂囨。褰曞叆寮曟搸_V3.0"
+set "BOSS_DIST=%ROOT_DIR%\models\boss-dist"
 
-echo.
-echo [2/3] 正在配置 税务管理系统虚拟环境 (Python 3.12)...
-cd "source_code\0.1_税务管理\gtp_V1.0_FULL\01_当前完整系统_V1.0\chengdu_construction_tax_system_v1_0"
-"%UV_BIN%" venv --python 3.12 .venv
-call .venv\Scripts\activate.bat
-"%UV_BIN%" pip install -i https://mirrors.aliyun.com/pypi/simple/ -r requirements.txt
-call deactivate
-cd /d "%SCRIPT_DIR%.."
+if not exist "%TAX_DIR%\requirements.txt" (
+    echo [ERROR] TAX requirements.txt not found: %TAX_DIR%\requirements.txt
+    exit /b 20
+)
+if not exist "%TAX_DIR%\alembic.ini" (
+    echo [ERROR] TAX alembic.ini not found: %TAX_DIR%\alembic.ini
+    exit /b 21
+)
+if not exist "%RAG_DIR%\requirements.txt" (
+    echo [ERROR] RAG requirements.txt not found: %RAG_DIR%\requirements.txt
+    exit /b 22
+)
+if not exist "%RAG_DIR%\alembic.ini" (
+    echo [ERROR] RAG alembic.ini not found: %RAG_DIR%\alembic.ini
+    exit /b 23
+)
+if not exist "%IDP_DIR%\requirements-v3.txt" (
+    echo [ERROR] IDP requirements-v3.txt not found: %IDP_DIR%\requirements-v3.txt
+    exit /b 24
+)
 
-echo.
-echo [3/3] 正在配置 IDP 文档录入引擎虚拟环境 (Python 3.12)...
-cd "source_code\0.4_IDP文档录入引擎_V3.0"
-"%UV_BIN%" venv --python 3.12 .venv
-call .venv\Scripts\activate.bat
-"%UV_BIN%" pip install -i https://mirrors.aliyun.com/pypi/simple/ -r requirements-v3.txt
-call deactivate
-cd /d "%SCRIPT_DIR%.."
+echo [1/8] TAX venv
+if not exist "%TAX_DIR%\.venv\Scripts\python.exe" (
+    "%PYTHON_EXE%" -m venv "%TAX_DIR%\.venv"
+    if errorlevel 1 exit /b 30
+)
 
-echo.
-echo ==============================================================================
-echo   Python 3.12 运行环境全部初始化成功！
-echo   已为 RAG中台、税务管理、IDP文档录入引擎 配置独立虚拟环境！
-echo   现在您可以直接运行 【00_START_ALL.bat】 或 【00_一键启动全部服务.bat】！
-echo ==============================================================================
-echo.
-pause
+echo [2/8] TAX dependencies
+"%TAX_DIR%\.venv\Scripts\python.exe" -m pip install -i "%PIP_INDEX%" -r "%TAX_DIR%\requirements.txt"
+if errorlevel 1 exit /b 31
+
+echo [3/8] TAX migrations
+pushd "%TAX_DIR%"
+set "DATABASE_URL=postgresql+psycopg2://postgres@127.0.0.1:54320/projectrag"
+"%TAX_DIR%\.venv\Scripts\python.exe" -m alembic upgrade head
+set "RC=!ERRORLEVEL!"
+popd
+if not "!RC!"=="0" exit /b 32
+
+echo [4/8] RAG venv
+if not exist "%RAG_DIR%\.venv\Scripts\python.exe" (
+    "%PYTHON_EXE%" -m venv "%RAG_DIR%\.venv"
+    if errorlevel 1 exit /b 40
+)
+
+echo [5/8] RAG dependencies
+"%RAG_DIR%\.venv\Scripts\python.exe" -m pip install -i "%PIP_INDEX%" -r "%RAG_DIR%\requirements.txt"
+if errorlevel 1 exit /b 41
+
+echo [6/8] RAG migrations
+pushd "%RAG_DIR%"
+set "PROJECT_RAG_DB_URL=postgresql://postgres@127.0.0.1:54320/projectrag"
+set "DATABASE_URL=postgresql://postgres@127.0.0.1:54320/projectrag"
+"%RAG_DIR%\.venv\Scripts\python.exe" -m alembic upgrade head
+set "RC=!ERRORLEVEL!"
+popd
+if not "!RC!"=="0" exit /b 42
+
+echo [7/8] IDP venv and dependencies
+if not exist "%IDP_DIR%\.venv\Scripts\python.exe" (
+    "%PYTHON_EXE%" -m venv "%IDP_DIR%\.venv"
+    if errorlevel 1 exit /b 50
+)
+"%IDP_DIR%\.venv\Scripts\python.exe" -m pip install -i "%PIP_INDEX%" -r "%IDP_DIR%\requirements-v3.txt"
+if errorlevel 1 exit /b 51
+if not exist "%IDP_DIR%\.env" if exist "%IDP_DIR%\.env.example" copy /y "%IDP_DIR%\.env.example" "%IDP_DIR%\.env" >nul
+
+echo [8/8] Boss WEB packaged dist
+if not exist "%BOSS_DIST%\index.html" (
+    echo [ERROR] Boss WEB fallback missing: %BOSS_DIST%\index.html
+    exit /b 60
+)
+if not exist "%BOSS_DIST%\assets" (
+    echo [ERROR] Boss WEB fallback assets missing: %BOSS_DIST%\assets
+    exit /b 61
+)
+
+echo [OK] TAX, RAG and IDP environments are ready; TAX then RAG migrations completed; boss-dist is present.
+exit /b 0
