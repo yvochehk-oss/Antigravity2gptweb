@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text;
 using System.Text.RegularExpressions;
 using ChengduConstructionController.Models;
 
@@ -264,9 +265,12 @@ public sealed class WindowsServiceAdapter
             UseShellExecute = false,
             CreateNoWindow = true,
             WindowStyle = ProcessWindowStyle.Hidden,
-            // Never redirect long-running services into unread anonymous pipes.
-            RedirectStandardOutput = false,
-            RedirectStandardError = false,
+            // Long-running services are redirected only because ServiceOrchestrator
+            // continuously drains both pipes through StartOutputPump/PumpAsync.
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            StandardOutputEncoding = Encoding.UTF8,
+            StandardErrorEncoding = Encoding.UTF8,
         };
     }
 

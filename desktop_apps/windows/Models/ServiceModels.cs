@@ -155,11 +155,30 @@ public sealed record OperationResult(bool Success, string Message);
 
 public static class ServiceCatalog
 {
+    private static readonly ServiceKind[] StartupOrderKinds =
+    {
+        ServiceKind.LocalModel,
+        ServiceKind.Rag,
+        ServiceKind.Tax,
+        ServiceKind.Idp,
+        ServiceKind.Boss,
+    };
+
+    private static readonly ServiceKind[] MenuOrderKinds =
+    {
+        ServiceKind.LocalModel,
+        ServiceKind.Tax,
+        ServiceKind.Rag,
+        ServiceKind.Idp,
+        ServiceKind.Boss,
+    };
+
+    public static IReadOnlyList<ServiceKind> StartupOrder => StartupOrderKinds;
+    public static IReadOnlyList<ServiceKind> MenuOrder => MenuOrderKinds;
+
     public static IReadOnlyList<ServiceDefinition> Create()
     {
-        // Order is a dependency contract for StartAll: LLM -> RAG -> Tax,
-        // while IDP also consumes the local LLM and Boss consumes Tax.
-        return new[]
+        var definitions = new[]
         {
             new ServiceDefinition(
                 ServiceKind.LocalModel,
@@ -222,5 +241,27 @@ public static class ServiceCatalog
                 null,
                 "http://127.0.0.1:5173/"),
         };
+
+        // ServiceOrchestrator consumes Create() directly, so this return value
+        // remains the explicit dependency-safe startup order.
+        return OrderByKinds(definitions, StartupOrderKinds, "Windows 启动");
+    }
+
+    public static IReadOnlyList<ServiceDefinition> OrderForMenu(
+        IReadOnlyList<ServiceDefinition> definitions) =>
+        OrderByKinds(definitions, MenuOrderKinds, "托盘菜单");
+
+    private static IReadOnlyList<ServiceDefinition> OrderByKinds(
+        IReadOnlyList<ServiceDefinition> definitions,
+        IReadOnlyList<ServiceKind> order,
+        string contractName)
+    {
+        var byKind = definitions.ToDictionary(definition => definition.Kind);
+        if (byKind.Count != order.Count || order.Any(kind => !byKind.ContainsKey(kind)))
+        {
+            throw new InvalidOperationException($"服务目录与{contractName}契约不一致，拒绝继续。");
+        }
+
+        return order.Select(kind => byKind[kind]).ToArray();
     }
 }

@@ -89,7 +89,7 @@ public sealed class TrayApplicationContext : ApplicationContext
         menu.Items.Add(_projectRootItem);
         menu.Items.Add(new ToolStripSeparator());
 
-        foreach (var definition in _orchestrator.Definitions)
+        foreach (var definition in ServiceCatalog.OrderForMenu(_orchestrator.Definitions))
         {
             var item = CreateStatusItem($"{definition.DisplayName}：正在检查");
             item.ToolTipText = $"端口：{definition.Port}\nPID：正在检查";
@@ -369,7 +369,9 @@ public sealed class TrayApplicationContext : ApplicationContext
     {
         if (_statusForm is null || _statusForm.IsDisposed)
         {
-            _statusForm = new StatusForm(_orchestrator.Definitions, _monitor.RefreshNowAsync);
+            _statusForm = new StatusForm(
+                ServiceCatalog.OrderForMenu(_orchestrator.Definitions),
+                _monitor.RefreshNowAsync);
         }
 
         _statusForm.ApplySnapshot(_monitor.Current);
