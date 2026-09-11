@@ -91,4 +91,29 @@ public sealed class PostgresStateTests
         Assert.Equal(first, second);
         Assert.Equal(first, negotiator.ActivePort);
     }
+
+    [Fact]
+    public void PostgreSqlPortNegotiator_WhenPortOccupiedByNonPg_SkipsToNextPort()
+    {
+        // Bind a non-PG TCP listener on 127.0.0.1:54320 for the duration of this test.
+        var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 54320);
+        try
+        {
+            listener.Start();
+
+            var logger = new SafeLogger();
+            var resolver = new ProjectRootResolver(logger);
+            var negotiator = new PostgreSqlPortNegotiator(resolver, logger);
+
+            var port = negotiator.NegotiateAvailablePort();
+
+            // Negotiator must skip occupied port 54320 and choose 54321+
+            Assert.True(port > 54320, $"Expected negotiated port > 54320, but got {port}");
+            Assert.InRange(port, 54321, 54369);
+        }
+        finally
+        {
+            listener.Stop();
+        }
+    }
 }
