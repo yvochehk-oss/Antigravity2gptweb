@@ -225,7 +225,7 @@ public sealed class ServiceOrchestrator : IDisposable
     }
 
     private async Task<OperationResult> VerifyStartupAsync(
-        IReadOnlyList<TrackedLaunch> startedThisRound,
+        List<TrackedLaunch> startedThisRound,
         CancellationToken cancellationToken)
     {
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
@@ -233,8 +233,9 @@ public sealed class ServiceOrchestrator : IDisposable
         while (true)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            foreach (var launch in startedThisRound.ToArray())
+            for (var idx = 0; idx < startedThisRound.Count; idx++)
             {
+                var launch = startedThisRound[idx];
                 try
                 {
                     if (launch.Process.HasExited)
@@ -258,14 +259,15 @@ public sealed class ServiceOrchestrator : IDisposable
                             return new OperationResult(false, "重启等待被取消");
                         }
 
-                        var relaunch = RestartSingleTrackedLaunch(launch, definition);
-                        if (!relaunch.Success)
+                        var (relaunch, newLaunch) = RestartSingleTrackedLaunch(launch, definition);
+                        if (!relaunch.Success || newLaunch is null)
                         {
                             return new OperationResult(
                                 false,
                                 $"{definition.DisplayName}重启失败（进程 {launch.ProcessId}）：{relaunch.Message}");
                         }
 
+                        startedThisRound[idx] = newLaunch;
                         stopwatch.Restart();
                         continue;
                     }
@@ -289,14 +291,15 @@ public sealed class ServiceOrchestrator : IDisposable
                         return new OperationResult(false, "重启等待被取消");
                     }
 
-                    var relaunch = RestartSingleTrackedLaunch(launch, definition);
-                    if (!relaunch.Success)
+                    var (relaunch, newLaunch) = RestartSingleTrackedLaunch(launch, definition);
+                    if (!relaunch.Success || newLaunch is null)
                     {
                         return new OperationResult(
                             false,
                             $"{definition.DisplayName}重启失败（进程 {launch.ProcessId}）：{relaunch.Message}");
                     }
 
+                    startedThisRound[idx] = newLaunch;
                     stopwatch.Restart();
                     continue;
                 }
@@ -312,7 +315,13 @@ public sealed class ServiceOrchestrator : IDisposable
                     $"{conflict.Definition.DisplayName}目标端口由未确认进程监听，视为端口冲突");
             }
 
-            if (statuses.Count == _definitions.Count && statuses.All(IsStartupReady))
+            var allReady = _definitions.All(definition =>
+            {
+                var status = statuses.FirstOrDefault(item => item.Definition.Kind == definition.Kind);
+                return status is not null && IsStartupReady(status);
+            });
+
+            if (allReady)
             {
                 // Mark each successfully started service as healthy in the watchdog.
                 foreach (var launch in startedThisRound)
@@ -349,7 +358,7 @@ public sealed class ServiceOrchestrator : IDisposable
         }
     }
 
-    private OperationResult RestartSingleTrackedLaunch(TrackedLaunch launch, ServiceDefinition definition)
+    private (OperationResult Result, TrackedLaunch? NewLaunch) RestartSingleTrackedLaunch(TrackedLaunch launch, ServiceDefinition definition)
     {
         Untrack(launch);
         try
@@ -368,17 +377,14 @@ public sealed class ServiceOrchestrator : IDisposable
         }
         catch (Exception ex)
         {
-            return new OperationResult(false, $"重新启动失败：{ex.Message}");
+            return (new OperationResult(false, $"重新启动失败：{ex.Message}"), null);
         }
 
         var newLaunch = CreateTrackedLaunch(definition.Kind, newProcess);
         RegisterTrackedLaunch(newLaunch);
         StartOutputPump(definition, newProcess);
 
-        // Replace launch in-place by mutating the tracked launch record.
-        // We cannot mutate the immutable record fields directly, so the
-        // orchestrator will observe the new launch via subsequent polls.
-        return new OperationResult(true, $"已重启，进程 {newProcess.Id}");
+        return (new OperationResult(true, $"已重启，进程 {newProcess.Id}"), newLaunch);
     }
 
     private static bool IsStartupReady(ServiceStatus status)
