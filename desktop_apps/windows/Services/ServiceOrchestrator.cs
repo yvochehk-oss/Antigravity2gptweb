@@ -17,6 +17,7 @@ public sealed class ServiceOrchestrator : IDisposable
     private readonly HealthProbe _healthProbe;
     private readonly ProcessInspector _processInspector = new();
     private readonly WindowsServiceAdapter _adapter;
+    private readonly PostgreSqlPortNegotiator _postgresNegotiator;
     private readonly IReadOnlyList<ServiceDefinition> _definitions = ServiceCatalog.Create();
     private readonly SemaphoreSlim _operationGate = new(1, 1);
     private readonly object _trackedGate = new();
@@ -29,6 +30,7 @@ public sealed class ServiceOrchestrator : IDisposable
         _logger = logger;
         _healthProbe = new HealthProbe(logger);
         _adapter = new WindowsServiceAdapter(rootResolver, logger);
+        _postgresNegotiator = new PostgreSqlPortNegotiator(rootResolver, logger);
     }
 
     public IReadOnlyList<ServiceDefinition> Definitions => _definitions;
@@ -1333,37 +1335,25 @@ public sealed class ServiceOrchestrator : IDisposable
         _operationGate.Dispose();
     }
 
-    private void EnsurePostgresRunning()
+    private int EnsurePostgresRunning()
     {
         try
         {
-            // 优先检查项目自带便携版数据库 (Port 54320)
-            var p54320 = ProcessInspector.GetListeningProcessIdsResult(54320);
-            if (p54320.ProcessIds.Count > 0)
-            {
-                return;
-            }
+            // Use PostgreSqlPortNegotiator for dynamic port discovery.
+            // This handles two customer-environment scenarios:
+            //   1. Preferred port 54320 is occupied by another app
+            //   2. Multiple V3.x installs need to coexist on different ports
+            var activePort = _postgresNegotiator.EnsureRunning();
 
-            // 若 54320 未运行，必须尝试拉起便携版 54320（业务系统 .env 默认依赖 54320）
-            var bat = _rootResolver.ResolvePath(@"windows_scripts\00_START_POSTGRES.bat");
-            if (!string.IsNullOrWhiteSpace(bat) && File.Exists(bat))
-            {
-                _logger.Info("检测到便携版数据库 (Port 54320) 未运行，正在调用 00_START_POSTGRES.bat 自动拉起...");
-                var psi = new ProcessStartInfo
-                {
-                    FileName = "cmd.exe",
-                    Arguments = $"/c \"\"{bat}\"\"",
-                    WorkingDirectory = _rootResolver.Root ?? "",
-                    CreateNoWindow = true,
-                    UseShellExecute = false,
-                };
-                using var proc = Process.Start(psi);
-                proc?.WaitForExit(8000);
-            }
+            // Propagate the negotiated port to the adapter so Python services
+            // are launched with the correct DATABASE_PORT / DATABASE_URL env vars.
+            _adapter.DatabasePort = activePort;
+            return activePort;
         }
         catch (Exception ex)
         {
             _logger.Warn($"自动拉起 PostgreSQL 提示: {ex.Message}");
+            return _adapter.DatabasePort;
         }
     }
 

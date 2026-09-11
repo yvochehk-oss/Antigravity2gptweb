@@ -17,6 +17,13 @@ public sealed class WindowsServiceAdapter
     private readonly ProjectRootResolver _rootResolver;
     private readonly SafeLogger _logger;
 
+    /// <summary>
+    /// The currently negotiated PostgreSQL port. Defaults to 54320 (preferred)
+    /// but is overridden at startup by ServiceOrchestrator when port negotiation
+    /// succeeds with a different port.
+    /// </summary>
+    public int DatabasePort { get; set; } = 54320;
+
     public WindowsServiceAdapter(ProjectRootResolver rootResolver, SafeLogger logger)
     {
         _rootResolver = rootResolver;
@@ -65,11 +72,25 @@ public sealed class WindowsServiceAdapter
 
     private ProcessStartInfo BuildLocalModelStartInfo(ServiceDefinition definition, string workingDirectory)
     {
-        var executable = _rootResolver.ResolvePath(definition.RelativeExecutablePath ?? string.Empty);
+        // Resolve runtime directory from the configured relative executable path.
+        var configuredExecutable = _rootResolver.ResolvePath(definition.RelativeExecutablePath ?? string.Empty);
+        if (string.IsNullOrWhiteSpace(configuredExecutable) || !File.Exists(configuredExecutable))
+        {
+            throw new InvalidOperationException("未找到本地语言模型运行时目录，未执行启动。");
+        }
+
+        // Dynamically select the appropriate binary based on CPU instruction set (AVX2 vs SSE4.2).
+        // This prevents 0xC000001D illegal instruction crashes on older CPUs.
+        var runtimeDirectory = Path.GetDirectoryName(configuredExecutable) ?? string.Empty;
+        var executable = CpuFeatureDetector.ResolveLlamaServerExecutable(runtimeDirectory);
         if (string.IsNullOrWhiteSpace(executable) || !File.Exists(executable))
         {
-            throw new InvalidOperationException("未找到本地语言模型运行时，未执行启动。");
+            throw new InvalidOperationException(
+                $"未找到适合当前 CPU 的 llama-server 二进制（检测到 {CpuFeatureDetector.GetCpuFeatureLevel()}），"
+                + "请确保 runtime-win-cpu-x64 目录下存在 llama-server-avx2.exe 或 llama-server-sse42.exe。");
         }
+
+        _logger.Info($"[CpuFeatureDetector] 已选择 {CpuFeatureDetector.GetPreferredBinaryName()}（{CpuFeatureDetector.GetCpuFeatureLevel()}）");
 
         var model = ResolveModel();
         if (model is null)
@@ -102,14 +123,18 @@ public sealed class WindowsServiceAdapter
 
     private ProcessStartInfo BuildPythonStartInfo(ServiceDefinition definition, string workingDirectory)
     {
-        var dbListeners = ProcessInspector.GetListeningProcessIdsResult(54320);
+        // Use the dynamically negotiated port (default 54320). The orchestrator
+        // sets DatabasePort after EnsurePostgresRunning() succeeds, so this
+        // honors whatever port was actually bound by the portable PG server.
+        var dbPort = DatabasePort;
+        var dbListeners = ProcessInspector.GetListeningProcessIdsResult(dbPort);
         if (!dbListeners.Success)
         {
-            throw new InvalidOperationException($"无法确认 PostgreSQL 54320 端口状态：{dbListeners.Detail}");
+            throw new InvalidOperationException($"无法确认 PostgreSQL {dbPort} 端口状态：{dbListeners.Detail}");
         }
         if (dbListeners.ProcessIds.Count == 0)
         {
-            throw new InvalidOperationException("便携 PostgreSQL 54320 未就绪，拒绝启动依赖数据库的 Python 服务。");
+            throw new InvalidOperationException($"便携 PostgreSQL {dbPort} 未就绪，拒绝启动依赖数据库的 Python 服务。");
         }
 
         var python = Path.Combine(workingDirectory, ".venv", "Scripts", "python.exe");
@@ -127,8 +152,13 @@ public sealed class WindowsServiceAdapter
 
         var info = CreateHiddenProcessInfo(python, workingDirectory);
         info.Environment["PYTHONUNBUFFERED"] = "1";
-        info.Environment["DATABASE_URL"] = "postgresql://postgres@127.0.0.1:54320/projectrag";
-        info.Environment["PROJECT_RAG_DB_URL"] = "postgresql://postgres@127.0.0.1:54320/projectrag";
+
+        // Inject the negotiated port via environment variable so Python services
+        // can dynamically pick it up via os.getenv("DATABASE_PORT").
+        var databaseUrl = $"postgresql://postgres@127.0.0.1:{dbPort}/projectrag";
+        info.Environment["DATABASE_PORT"] = dbPort.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        info.Environment["DATABASE_URL"] = databaseUrl;
+        info.Environment["PROJECT_RAG_DB_URL"] = databaseUrl;
 
         var localAlias = ResolveManagedModelAlias();
         if (definition.Kind == ServiceKind.Rag)
