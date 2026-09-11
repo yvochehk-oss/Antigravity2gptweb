@@ -18,6 +18,7 @@ public sealed class ServiceOrchestrator : IDisposable
     private readonly ProcessInspector _processInspector = new();
     private readonly WindowsServiceAdapter _adapter;
     private readonly PostgreSqlPortNegotiator _postgresNegotiator;
+    private readonly ServiceWatchdog _watchdog = new();
     private readonly IReadOnlyList<ServiceDefinition> _definitions = ServiceCatalog.Create();
     private readonly SemaphoreSlim _operationGate = new(1, 1);
     private readonly object _trackedGate = new();
@@ -32,6 +33,12 @@ public sealed class ServiceOrchestrator : IDisposable
         _adapter = new WindowsServiceAdapter(rootResolver, logger);
         _postgresNegotiator = new PostgreSqlPortNegotiator(rootResolver, logger);
     }
+
+    /// <summary>
+    /// Exposes the watchdog so UI layer can show consecutive crash counts and
+    /// trip state. Read-only access; mutation happens via the orchestrator.
+    /// </summary>
+    public ServiceWatchdog Watchdog => _watchdog;
 
     public IReadOnlyList<ServiceDefinition> Definitions => _definitions;
     public bool IsBusy => _operationGate.CurrentCount == 0;
@@ -233,17 +240,29 @@ public sealed class ServiceOrchestrator : IDisposable
                     if (launch.Process.HasExited)
                     {
                         var definition = _definitions.First(item => item.Kind == launch.Kind);
+                        // Watchdog: record this as a crash and surface its decision.
+                        var verdict = _watchdog.RecordCrashAndDecide(launch.Kind);
+                        if (verdict.Decision == ServiceWatchdog.RestartDecision.CircuitBreakerTripped)
+                        {
+                            _logger.Error($"[Watchdog] {definition.DisplayName} {verdict.Reason}");
+                        }
+                        else
+                        {
+                            _logger.Warn($"[Watchdog] {definition.DisplayName} {verdict.Reason}");
+                        }
                         return new OperationResult(
                             false,
-                            $"{definition.DisplayName}启动进程已立即退出（进程 {launch.ProcessId}）");
+                            $"{definition.DisplayName}启动进程已立即退出（进程 {launch.ProcessId}）；{verdict.Reason}");
                     }
                 }
                 catch (Exception exception) when (exception is InvalidOperationException or System.ComponentModel.Win32Exception)
                 {
                     var definition = _definitions.First(item => item.Kind == launch.Kind);
+                    var verdict = _watchdog.RecordCrashAndDecide(launch.Kind);
+                    _logger.Warn($"[Watchdog] {definition.DisplayName} {verdict.Reason}");
                     return new OperationResult(
                         false,
-                        $"无法确认{definition.DisplayName}启动进程仍在运行（进程 {launch.ProcessId}）");
+                        $"无法确认{definition.DisplayName}启动进程仍在运行（进程 {launch.ProcessId}）；{verdict.Reason}");
                 }
             }
 
@@ -259,6 +278,11 @@ public sealed class ServiceOrchestrator : IDisposable
 
             if (statuses.Count == _definitions.Count && statuses.All(IsStartupReady))
             {
+                // Mark each successfully started service as healthy in the watchdog.
+                foreach (var launch in startedThisRound)
+                {
+                    _watchdog.RecordSuccessfulStart(launch.Kind);
+                }
                 return new OperationResult(true, "五项服务健康、目标端口监听和项目归属均已确认");
             }
 
@@ -268,6 +292,18 @@ public sealed class ServiceOrchestrator : IDisposable
                     .Where(status => !IsStartupReady(status))
                     .Select(status => $"{status.Definition.DisplayName}：{status.StateText}")
                     .ToArray();
+
+                // Watchdog: record crashes for services that failed to verify.
+                foreach (var launch in startedThisRound)
+                {
+                    var launchStatus = statuses.FirstOrDefault(s => s.Definition.Kind == launch.Kind);
+                    if (launchStatus is null || !IsStartupReady(launchStatus))
+                    {
+                        var verdict = _watchdog.RecordCrashAndDecide(launch.Kind);
+                        _logger.Warn($"[Watchdog] {launchStatus?.Definition.DisplayName ?? launch.Kind.ToString()} {verdict.Reason}");
+                    }
+                }
+
                 return new OperationResult(
                     false,
                     $"等待 {StartupVerificationTimeout.TotalSeconds:0} 秒后仍未完成五项服务验证：{string.Join("；", pending)}");
