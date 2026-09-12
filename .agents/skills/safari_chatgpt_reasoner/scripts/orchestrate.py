@@ -33,12 +33,12 @@ from datetime import datetime
 ORCHESTRATOR_HOME = Path.home() / ".antigravity" / "orchestrator"
 
 BRIDGE_BY_BROWSER = {
-    "safari": "scripts/chrome_chatgpt.js",
-    "chrome": "scripts/chrome_chatgpt.js",
-    "edge":   "scripts/chrome_chatgpt.js",
-    "brave":  "scripts/chrome_chatgpt.js",
-    "arc":    "scripts/chrome_chatgpt.js",
-    "chromium": "scripts/chrome_chatgpt.js",
+    "safari": "scripts/safari_chatgpt.py",
+    "chrome": "scripts/chrome_chatgpt.py",
+    "edge":   "scripts/chrome_chatgpt.py",
+    "brave":  "scripts/chrome_chatgpt.py",
+    "arc":    "scripts/chrome_chatgpt.py",
+    "chromium": "scripts/chrome_chatgpt.py",
 }
 
 MAX_FIX_ATTEMPTS = 5          # 单任务最大修复轮次
@@ -90,26 +90,16 @@ class ProjectState:
         plan_path = path.parent / "PLAN.md"
         tasks_path = path
         plan_path.parent.mkdir(parents=True, exist_ok=True)
-        existing_plan = plan_path.read_text(encoding="utf-8") if plan_path.exists() else ""
-        plan_path.write_text(existing_plan, encoding="utf-8")
+        plan_path.write_text(
+            (plan_path.read_text() if plan_path.exists() else ""),
+            encoding="utf-8"
+        )
         tasks_path.write_text(
             json.dumps({"tasks": [asdict(t) for t in self.tasks],
                         "name": self.name,
                         "requirement": self.requirement,
-                        "chatgpt_url": self.chatgpt_url,
-                        "repo_url": self.repo_url,
-                        "branch": self.branch,
-                        "cwd": self.cwd,
-                        "browser": self.browser,
-                        "bridge_script": self.bridge_script,
-                        "plan_md_path": self.plan_md_path,
-                        "tasks_json_path": self.tasks_json_path,
                         "task_locked": self.task_locked,
-                        "current_task_id": self.current_task_id,
-                        "commit_sha_init": self.commit_sha_init,
-                        "commit_sha_head": self.commit_sha_head,
-                        "created_at": self.created_at,
-                        "updated_at": self.updated_at},
+                        "current_task_id": self.current_task_id},
                        ensure_ascii=False, indent=2),
             encoding="utf-8"
         )
@@ -141,7 +131,7 @@ def _run(args: List[str], cwd: str = ".", timeout: int = GIT_TIMEOUT,
     """安全的 subprocess.run 封装"""
     return subprocess.run(
         args, cwd=cwd, capture_output=capture,
-        text=True, encoding='utf-8', errors='replace', timeout=timeout, check=False
+        text=True, timeout=timeout, check=False
     )
 
 
@@ -251,9 +241,8 @@ def _bridge_call(type_: str, prompt: str,
                  signature: Optional[str] = None,
                  extra_args: Optional[List[str]] = None) -> Tuple[int, str]:
     """调用 bridge，返回 (exit_code, stdout)"""
-    exec_bin = "node" if bridge_script.endswith(".js") else sys.executable
     args = [
-        exec_bin, bridge_script,
+        sys.executable, bridge_script,
         "--type", type_,
         "--prompt", prompt,
         "--target-url", target_url,
@@ -266,7 +255,7 @@ def _bridge_call(type_: str, prompt: str,
         args += ["--signature", signature]
     if extra_args:
         args += extra_args
-    r = subprocess.run(args, capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=timeout + 60)
+    r = subprocess.run(args, capture_output=True, text=True, timeout=timeout + 60)
     return r.returncode, r.stdout
 
 
@@ -337,7 +326,7 @@ def cmd_init(args) -> int:
         timeout=300, signature=f"init:{name}"
     )
     if ec != 0:
-        print(f"[init] GPT 响应失败（exit={ec}），可稍后手动 refine")
+        print(f"[init] ⚠ GPT 调用失败（exit={ec}），跳过方案生成，稍后请手动 refine")
         plan_text = f"# 项目计划（待 GPT 生成）\n\n需求：{requirement}\n\n（GPT 调用失败，请运行 `orchestrate.py refine` 重新生成）"
 
     plan_path.parent.mkdir(parents=True, exist_ok=True)
@@ -361,7 +350,7 @@ def cmd_init(args) -> int:
     )
     state.save()
 
-    print(f"\n[init] 项目 {name!r} 已初始化！")
+    print(f"\n[init] ✅ 项目 {name!r} 已初始化")
     print(f"  → 方案文件 : {plan_path}")
     print(f"  → 状态文件 : {ORCHESTRATOR_HOME / f'{name}.state.json'}")
     print(f"\n请打开 {plan_path} 查看初始方案，然后：")
@@ -453,7 +442,7 @@ def cmd_lock(args) -> int:
         state.cwd, timeout=120, signature=f"lock-parse:{name}"
     )
     if ec != 0:
-        print(f"[lock] GPT 响应失败（exit={ec}），手动编辑 TASKS.json")
+        print(f"[lock] ⚠ GPT 解析失败（exit={ec}），请手动编辑 TASKS.json")
         tasks = _manual_parse_tasks(plan_text)
     else:
         # 尝试提取 JSON
@@ -485,7 +474,7 @@ def cmd_lock(args) -> int:
         commit_msg = f"chore: lock project plan for {name}\n\n需求：{state.requirement[:80]}"
         _run(["git", "commit", "-m", commit_msg], cwd=state.cwd)
         _run(["git", "push", "-u", "origin", state.branch], cwd=state.cwd)
-        head_sha = _run(["git", "rev-parse", "HEAD"], cwd=state.cwd).stdout.strip()
+        head_sha = _run(["git", "rev-parse", "HEAD"], cwd=state.cwd).strip()
         state.commit_sha_init = head_sha
         state.commit_sha_head = head_sha
 
@@ -493,7 +482,7 @@ def cmd_lock(args) -> int:
     state.updated_at = now
     state.save()
 
-    print(f"\n[lock] 方案已锁定！共解析出 {len(state.tasks)} 个任务：")
+    print(f"[lock] ✅ 计划已锁定，{len(tasks)} 个任务：")
     for t in tasks:
         print(f"  [{t.id}] {t.title}")
     print(f"\n  → 开始执行：orchestrate.py run-all --name {name}")
@@ -571,7 +560,7 @@ def execute_task(state: ProjectState, task: Task,
         timeout=360
     )
     if ec != 0:
-        print(f"[Task {task.id}] GPT 代码生成失败（exit={ec}）")
+        print(f"[Task {task.id}] ⚠ GPT 代码生成失败（exit={ec}）")
         task.status = "failed"
         task.last_verdict = "BLOCKED"
         task.last_fix_note = f"GPT 调用失败 exit={ec}"
@@ -583,7 +572,7 @@ def execute_task(state: ProjectState, task: Task,
     test_cmds = parse_test_commands(code_output)
 
     if not code_blocks:
-        print(f"[Task {task.id}] 未从 GPT 输出中解析到代码块")
+        print(f"[Task {task.id}] ⚠ 未从 GPT 输出中解析到代码块")
         task.status = "failed"
         task.last_verdict = "BLOCKED"
         task.last_fix_note = "未解析到代码块，可能是 GPT 输出格式不符"
@@ -591,7 +580,7 @@ def execute_task(state: ProjectState, task: Task,
         return False
 
     if not test_cmds:
-        print(f"[Task {task.id}] GPT 未提供测试命令，要求重新生成")
+        print(f"[Task {task.id}] ⚠ GPT 未提供测试命令，要求重新生成")
         # 让 GPT 补充测试命令
         retry_prompt = (
             f"【任务 {task.id}】{task.title}\n"
@@ -939,7 +928,7 @@ def cmd_run_task(args) -> int:
     state = ProjectState.load(name)
 
     if not state.task_locked:
-        print(f"[run-task] 计划未锁定，请先 run lock --name {name}")
+        print(f"[run-task] ❌ 计划未锁定，请先 run lock --name {name}")
         return 1
 
     if not state.tasks:
@@ -955,7 +944,7 @@ def cmd_run_task(args) -> int:
         done = [t for t in state.tasks if t.status == "approved"]
         blocked = [t for t in state.tasks if t.status in ("blocked", "failed")]
         print(f"[run-task] 所有任务已处理完毕：")
-        print(f"   完成: {len(done)} |  失败/阻塞: {len(blocked)}")
+        print(f"  ✅ 完成: {len(done)} | ❌ 失败/阻塞: {len(blocked)}")
         if blocked:
             for t in blocked:
                 print(f"       [{t.id}] {t.title} ({t.status}): {t.last_fix_note[:80]}")
@@ -989,8 +978,8 @@ def cmd_run_task(args) -> int:
     approved = sum(1 for t in state.tasks if t.status == "approved")
     failed = sum(1 for t in state.tasks if t.status in ("failed", "blocked"))
     print(f"\n{'='*60}")
-    print(f"[run-all] 完成！ {approved}/{len(state.tasks)} 任务成功，"
-          f" {failed} 失败")
+    print(f"[run-all] 完成！✅ {approved}/{len(state.tasks)} 任务成功，"
+          f"❌ {failed} 失败")
     if failed:
         for t in state.tasks:
             if t.status in ("failed", "blocked"):
@@ -1013,12 +1002,12 @@ def cmd_status(args) -> int:
     print(f"当前任务: {state.current_task_id or '无'}")
     print(f"\n任务列表（共 {len(state.tasks)} 个）：")
     status_icon = {
-        "pending":   "[pending]",
-        "coding":    "[coding]",
-        "testing":   "[testing]",
-        "approved":  "[approved]",
-        "failed":    "[failed]",
-        "blocked":   "[blocked]",
+        "pending":   "⏳ pending",
+        "coding":    "🔨 coding",
+        "testing":   "🧪 testing",
+        "approved":  "✅ approved",
+        "failed":    "❌ failed",
+        "blocked":   "🚫 blocked",
     }
     for t in state.tasks:
         icon = status_icon.get(t.status, t.status)
