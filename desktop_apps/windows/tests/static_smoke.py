@@ -10,6 +10,7 @@ APP_DIR = Path(__file__).resolve().parents[1]
 REPO_ROOT = APP_DIR.parents[1]
 WINDOWS_SCRIPTS = REPO_ROOT / "windows_scripts"
 INSTALLER_DIR = REPO_ROOT / "installer"
+WINDOWS_SCRIPT_SUFFIXES = {".bat", ".cmd", ".ps1"}
 
 
 def require(condition: bool, message: str) -> None:
@@ -22,7 +23,7 @@ def read(path: Path) -> str:
     """Read repository text without assuming every legacy BAT is UTF-8.
 
     Most V3.1 sources are UTF-8/UTF-8-SIG, but historical Windows batch files
-    may exist in a CP936/GBK-compatible working-tree encoding.  Contract tests
+    may exist in a CP936/GBK-compatible working-tree encoding. Contract tests
     only need stable textual markers, so decode deterministically instead of
     crashing before assertions can run.
     """
@@ -40,6 +41,18 @@ def read(path: Path) -> str:
         f"无法解码文件：{path.relative_to(REPO_ROOT)}（已尝试 utf-8-sig / gb18030 / gbk）",
     )
     raise AssertionError("unreachable")
+
+
+def check_windows_script_encodings() -> None:
+    """Ensure every Windows launcher can be read in the supported encodings."""
+    require(WINDOWS_SCRIPTS.is_dir(), "缺少 windows_scripts 目录")
+    checked = 0
+    for path in sorted(WINDOWS_SCRIPTS.rglob("*")):
+        if not path.is_file() or path.suffix.lower() not in WINDOWS_SCRIPT_SUFFIXES:
+            continue
+        read(path)
+        checked += 1
+    require(checked > 0, "windows_scripts 中没有可检查的脚本")
 
 
 def main() -> int:
@@ -68,6 +81,8 @@ def main() -> int:
     ]
     for path in required:
         require(path.is_file(), f"缺少文件：{path.relative_to(REPO_ROOT)}")
+
+    check_windows_script_encodings()
 
     csproj = read(APP_DIR / "ChengduConstructionController.csproj").lower()
     require("<targetframework>net10.0-windows</targetframework>" in csproj, ".NET 目标框架不是 net10.0-windows")
@@ -123,9 +138,15 @@ def main() -> int:
     require("LSS %MIN_LLAMA_BUILD%" in llm, "BAT runtime 仍未使用 >= 最低 build 语义")
     require('findstr /i "build 10828"' not in llm.lower(), "BAT runtime 仍使用精确 build 10828 匹配")
 
-    # User-approved operational contract: the legacy stop script intentionally
-    # force-kills listeners on the service ports. Keep this behavior unchanged.
-    stop_all = read(WINDOWS_SCRIPTS / "99_STOP_ALL.bat")
+    # User-approved operational contract: the stop script intentionally
+    # force-kills listeners on the service ports. Keep that behavior unchanged,
+    # while locking its source encoding to UTF-8-SIG for deterministic Windows
+    # checkout/execution and Python contract inspection.
+    stop_all_path = WINDOWS_SCRIPTS / "99_STOP_ALL.bat"
+    stop_all_bytes = stop_all_path.read_bytes()
+    require(stop_all_bytes.startswith(b"\xef\xbb\xbf"), "99_STOP_ALL.bat 必须使用 UTF-8-SIG(BOM)")
+    stop_all = read(stop_all_path)
+    require("@chcp 65001" in stop_all, "99_STOP_ALL.bat 未切换到 UTF-8 控制台代码页 65001")
     require("taskkill /F /IM llama-server.exe" in stop_all, "强杀 llama-server 行为被意外移除")
     require("taskkill /F /PID" in stop_all, "强杀端口 PID 行为被意外移除")
     for port in ("8921", "8922", "8933", "5173"):
