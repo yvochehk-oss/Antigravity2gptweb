@@ -21,24 +21,33 @@ internal static class Program
             }
         };
 
+        var startAllRequested = args.Any(argument =>
+            argument.Equals("--start-all", StringComparison.OrdinalIgnoreCase));
+
+        // The tray UI is a singleton. CLI control operations are deliberately
+        // allowed while the tray is open; otherwise START_WINDOWS.bat would
+        // report success without executing StartAllAsync when a tray instance
+        // already owns the UI mutex.
         using var instanceMutex = new Mutex(false, "Local\\ChengduConstructionController.V3");
-        try
+        if (!startAllRequested)
         {
-            if (!instanceMutex.WaitOne(TimeSpan.Zero))
+            try
             {
-                logger.Warn("控制台已有实例运行；本次启动未执行重复的服务操作。");
-                return 0;
+                if (!instanceMutex.WaitOne(TimeSpan.Zero))
+                {
+                    return 0;
+                }
             }
-        }
-        catch (AbandonedMutexException)
-        {
-            // Previous process was killed; mutex is acquired by current process.
+            catch (AbandonedMutexException)
+            {
+                // Previous tray process was killed; mutex is acquired here.
+            }
         }
 
         using var rootResolver = new ProjectRootResolver(logger);
         using var orchestrator = new ServiceOrchestrator(rootResolver, logger);
 
-        if (args.Any(argument => argument.Equals("--start-all", StringComparison.OrdinalIgnoreCase)))
+        if (startAllRequested)
         {
             var result = orchestrator.StartAllAsync().GetAwaiter().GetResult();
             if (!result.Success)
