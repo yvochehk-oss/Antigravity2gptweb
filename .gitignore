@@ -40,6 +40,9 @@ cookies.txt
 *.db
 models/mineru_weights/
 
+# Runtime state is workstation-specific and must never be committed.
+runtime/state/
+runtime/*.pid
 
 # Database binaries, downloaded wheels and large packages
 database/
@@ -80,4 +83,3 @@ desktop_apps/windows/publish/
 models/.lock/
 start_edge.ps1
 *调试器.bat
-

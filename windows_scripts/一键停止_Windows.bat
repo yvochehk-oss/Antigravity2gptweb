@@ -1,5 +1,5 @@
 @echo off
-@chcp 936 >nul 2>&1
+@chcp 65001 >nul 2>&1
 set "SCRIPT_DIR=%~dp0"
-cd /d "%SCRIPT_DIR%"
-call "%SCRIPT_DIR%windows_scripts\99_STOP_ALL.bat"
+call "%SCRIPT_DIR%99_STOP_ALL.bat"
+exit /b %ERRORLEVEL%

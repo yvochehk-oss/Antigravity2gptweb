@@ -1,21 +1,17 @@
 ; ============================================================
-; 成都建工 V3.1 Windows 桌面控制台 安装包脚本 (Inno Setup)
-; ============================================================
-; 用途：生成单个 Setup.exe，内置依赖检测与一键静默安装
-; 生成工具：Inno Setup 6.4+ (https://jrsoftware.org/isdl.php)
-; 编译命令：iscc setup.iss
+; 成都建工 V3.1 Windows 安装包 - Runtime/Build SSOT
 ; ============================================================
 
 #define MyAppName "成都建工控制台"
-#define MyAppNameShort "ChengduConsole"
+#define MyAppNameShort "ChengduConstructionConsole"
+#ifndef MyAppVersion
 #define MyAppVersion "3.1.0"
+#endif
 #define MyAppPublisher "成都建工集团"
 #define MyAppURL "https://github.com/yvochehk-oss/chengdu-construction-tax-system-v2.0"
-#define MyAppExeName "成都建工控制台.exe"
-#define MyAppCopyright "Copyright (C) 2026 成都建工集团"
+#define MyAppExeName "成都建工控制台3.1.exe"
 
 [Setup]
-; 安装包唯一标识符（不要改动，会被 Windows 用于卸载识别）
 AppId={{B6E4C9F1-3A28-4D7E-9C5F-8B2E1A4D7E6C}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
@@ -24,21 +20,17 @@ AppPublisher={#MyAppPublisher}
 AppPublisherURL={#MyAppURL}
 AppSupportURL={#MyAppURL}
 AppUpdatesURL={#MyAppURL}
-AppCopyright={#MyAppCopyright}
-DefaultDirName={autopf}\{#MyAppNameShort}
+DefaultDirName={localappdata}\Programs\{#MyAppNameShort}
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
-LicenseFile=..\LICENSE
 InfoBeforeFile=..\docs\install-prelude.txt
 OutputDir=output
 OutputBaseFilename=ChengduConstructionConsole-v{#MyAppVersion}-Setup
-SetupIconFile=..\desktop_apps\windows\Resources\tray.ico
+SetupIconFile=..\app.ico
 Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern
 PrivilegesRequired=lowest
-PrivilegesRequiredOverridesAllowed=dialog
-; 静默安装支持: /silent /verysilent
 Uninstallable=yes
 UninstallDisplayIcon={app}\{#MyAppExeName}
 UninstallDisplayName={#MyAppName}
@@ -51,177 +43,59 @@ MinVersion=10.0
 Name: "chinesesimp"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
 
 [CustomMessages]
-; 自定义中文安装消息
 chinesesimp.CreateDesktopIcon=创建桌面快捷方式
 chinesesimp.LaunchAfterInstall=安装完成后启动 {#MyAppName}
-chinesesimp.DependencyWarning=依赖项检查提示
-chinesesimp.VCRuntimeMissing=未检测到 Microsoft Visual C++ 2015-2022 Redistributable (x64)。建议安装以避免运行时错误。
-chinesesimp.WebView2Missing=未检测到 Microsoft Edge WebView2 Runtime。系统托盘 UI 需要此组件。
 
 [Tasks]
-Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
-Name: "autoStartup"; Description: "随 Windows 启动自动运行控制台（托盘后台）"; GroupDescription: "系统集成:"; Flags: unchecked
-Name: "purgeUserDataOnUninstall"; Description: "[V3.1] 卸载时一并清除用户数据目录（默认仅卸载安装目录）"; GroupDescription: "数据保留:"; Flags: unchecked
+Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "附加图标:"; Flags: unchecked
+Name: "autoStartup"; Description: "随 Windows 登录自动运行控制台"; GroupDescription: "系统集成:"; Flags: unchecked
 
 [Files]
-; 主程序
-Source: "..\desktop_apps\windows\bin\Release\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
-; 全部项目资源
-Source: "..\desktop_apps\windows\Resources\*"; DestDir: "{app}\Resources"; Flags: ignoreallsources recursesubdirs createallsubdirs
-; 启动脚本
-Source: "..\windows_scripts\*"; DestDir: "{app}\windows_scripts"; Flags: ignoreallsources recursesubdirs createallsubdirs
-; 服务模型与数据库（默认 OFF；数据库由运行时 initdb 脚本生成于用户数据目录，
-; 不再随安装包分发，规避 .git 大文件与长路径问题）
-Source: "..\database\*"; DestDir: "{app}\database"; Flags: ignoreallsources recursesubdirs createallsubdirs; Check: IncludePortableDatabase
-; 大模型运行时（不含 GGUF 权重，由下载脚本按需获取）
-Source: "..\models\local-llm\runtime-win-cpu-x64\*"; DestDir: "{app}\models\local-llm\runtime-win-cpu-x64"; Flags: ignoreallsources recursesubdirs createallsubdirs; Check: IncludeLlamaRuntime
-; 嵌入式 Python 运行时（v3.1 新增）
-Source: "..\runtime\python\*"; DestDir: "{app}\runtime\python"; Flags: ignoreallsources recursesubdirs createallsubdirs; Check: IncludeEmbeddedPython
-; 业务源码（RAG / Tax / IDP / Boss frontend — v3.1 必须随安装包分发，
-; 因为我们走本地嵌入式 Python 直接 import 业务包，不再依赖外部 dev 服务）
-Source: "..\source_code\0.2_RAG系统\*"; DestDir: "{app}\source_code\0.2_RAG系统"; Flags: ignoreallsources recursesubdirs createallsubdirs; Excludes: "**\.venv\**;**\__pycache__\**;**\*.pyc;**\*.pyo;**\.pytest_cache\**;**\.mypy_cache\**;**\.ruff_cache\**"
-Source: "..\source_code\0.1_税务管理\*"; DestDir: "{app}\source_code\0.1_税务管理"; Flags: ignoreallsources recursesubdirs createallsubdirs; Excludes: "**\.venv\**;**\__pycache__\**;**\*.pyc;**\*.pyo;**\.pytest_cache\**;**\.mypy_cache\**;**\.ruff_cache\**"
-Source: "..\source_code\0.4_IDP文档录入引擎_V3.0\*"; DestDir: "{app}\source_code\0.4_IDP文档录入引擎_V3.0"; Flags: ignoreallsources recursesubdirs createallsubdirs; Excludes: "**\.venv\**;**\__pycache__\**;**\*.pyc;**\*.pyo;**\.pytest_cache\**;**\.mypy_cache\**;**\.ruff_cache\**"
-; 老板端静态 dist（v3.1 新增，零 Node.js 依赖）+ 嵌入式资源目录
-Source: "..\source_code\0.3_老板端安卓App_天府掌舵\dist\*"; DestDir: "{app}\source_code\0.3_老板端安卓App_天府掌舵\dist"; Flags: ignoreallsources recursesubdirs createallsubdirs; Check: IncludeBossDist
-; Boss 静态 dist 的安装期镜像拷贝（备援路径；与上面的源路径二选一即可）
-Source: "..\models\boss-dist\*"; DestDir: "{app}\models\boss-dist"; Flags: ignoreallsources recursesubdirs createallsubdirs; Check: IncludeBossDist
-; 文档
+; Canonical .NET 10 / win-x64 single-file controller output.
+Source: "..\desktop_apps\windows\publish\win-x64\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
+
+; Launch/maintenance scripts. 99_STOP_ALL.bat intentionally preserves the
+; existing force-kill-by-port operational behavior requested for V3.1.
+Source: "..\windows_scripts\*"; DestDir: "{app}\windows_scripts"; Flags: ignoreversion recursesubdirs createallsubdirs
+
+; Portable PostgreSQL payload. database/data is created/maintained at runtime.
+Source: "..\database\*"; DestDir: "{app}\database"; Flags: ignoreversion recursesubdirs createallsubdirs skipifsourcedoesntexist
+
+; Local model runtime only; GGUF weights may be downloaded after install.
+Source: "..\models\local-llm\runtime-win-cpu-x64\*"; DestDir: "{app}\models\local-llm\runtime-win-cpu-x64"; Flags: ignoreversion recursesubdirs createallsubdirs skipifsourcedoesntexist
+
+; Embedded Python runtime used by RAG/Tax/IDP/Boss static server.
+Source: "..\runtime\python\*"; DestDir: "{app}\runtime\python"; Flags: ignoreversion recursesubdirs createallsubdirs skipifsourcedoesntexist
+
+; Business services.
+Source: "..\source_code\0.2_RAG系统\*"; DestDir: "{app}\source_code\0.2_RAG系统"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "**\.venv\**;**\__pycache__\**;**\*.pyc;**\.pytest_cache\**;**\.mypy_cache\**;**\.ruff_cache\**"
+Source: "..\source_code\0.1_税务管理\*"; DestDir: "{app}\source_code\0.1_税务管理"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "**\.venv\**;**\__pycache__\**;**\*.pyc;**\.pytest_cache\**;**\.mypy_cache\**;**\.ruff_cache\**"
+Source: "..\source_code\0.4_IDP文档录入引擎_V3.0\*"; DestDir: "{app}\source_code\0.4_IDP文档录入引擎_V3.0"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "**\.venv\**;**\__pycache__\**;**\*.pyc;**\.pytest_cache\**;**\.mypy_cache\**;**\.ruff_cache\**"
+Source: "..\source_code\0.3_老板端安卓App_天府掌舵\dist\*"; DestDir: "{app}\source_code\0.3_老板端安卓App_天府掌舵\dist"; Flags: ignoreversion recursesubdirs createallsubdirs skipifsourcedoesntexist
+Source: "..\models\boss-dist\*"; DestDir: "{app}\models\boss-dist"; Flags: ignoreversion recursesubdirs createallsubdirs skipifsourcedoesntexist
+
 Source: "..\docs\install-postlude.md"; DestDir: "{app}\docs"; Flags: ignoreversion
 
 [Dirs]
-; 创建必要的空目录
 Name: "{app}\logs"
 Name: "{app}\runtime"
 Name: "{app}\runtime\state"
 Name: "{app}\models\local-llm"
-; 用户数据目录（数据库 + 运行事实）——位于用户 LOCALAPPDATA，
-; 卸载不会丢失数据
-Name: "{localappdata}\ChengduConstructionConsole"
-Name: "{localappdata}\ChengduConstructionConsole\database"
-Name: "{localappdata}\ChengduConstructionConsole\database\data"
-Name: "{localappdata}\ChengduConstructionConsole\database\logs"
-Name: "{localappdata}\ChengduConstructionConsole\database\backups"
-Name: "{localappdata}\ChengduConstructionConsole\runtime"
-Name: "{localappdata}\ChengduConstructionConsole\runtime\state"
-Name: "{localappdata}\ChengduConstructionConsole\logs"
+Name: "{app}\database"
+Name: "{app}\database\data"
 
 [Icons]
-; 开始菜单快捷方式
-Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\{#MyAppExeName}"
+Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
 Name: "{group}\卸载 {#MyAppName}"; Filename: "{uninstallexe}"
-; 桌面快捷方式
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
+[Registry]
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "ChengduConstructionConsole"; ValueData: """{app}\{#MyAppExeName}"""; Tasks: autoStartup; Flags: uninsdeletevalue
+
 [Run]
-; 安装完成后可选启动
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchAfterInstall}"; Flags: nowait postinstall skipifsilent
 
 [UninstallDelete]
-; 卸载时清理日志和临时文件（保留数据库）
 Type: filesandordirs; Name: "{app}\logs"
 Type: filesandordirs; Name: "{app}\temp"
-; 不删除：{app}\database（用户数据保留）。如需一并删除，请勾选「卸载时一并清除用户数据目录」。
-Type: filesandordirs; Name: "{localappdata}\ChengduConstructionConsole"; Check: ShouldPurgeUserDataOnUninstall
-
-[Code]
-// ============================================================
-// 安装前依赖检测：VC++ Runtime 与 WebView2
-// ============================================================
-function IsVCRuntimeInstalled: Boolean;
-var
-  Key: String;
-begin
-  // 检查 VC++ 2015-2022 Redistributable (x64)
-  Result := RegKeyExists(HKLM, 'SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64') or
-            RegKeyExists(HKLM64, 'SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64') or
-            RegKeyExists(HKCU, 'SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64');
-end;
-
-function IsWebView2Installed: Boolean;
-var
-  Version: String;
-begin
-  // 优先 HKCU（用户级），再检查 HKLM
-  Result := RegQueryStringValue(HKCU, 'SOFTWARE\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}', 'pv', Version);
-  if not Result then
-    Result := RegQueryStringValue(HKLM, 'SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}', 'pv', Version);
-  if not Result then
-    Result := RegQueryStringValue(HKLM64, 'SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}', 'pv', Version);
-end;
-
-function InitializeSetup: Boolean;
-var
-  MissingDeps: String;
-begin
-  MissingDeps := '';
-
-  // 检测 VC++ 运行库
-  if not IsVCRuntimeInstalled then
-    MissingDeps := MissingDeps + '  - Microsoft Visual C++ 2015-2022 Redistributable (x64)' + #13#10;
-
-  // 检测 WebView2
-  if not IsWebView2Installed then
-    MissingDeps := MissingDeps + '  - Microsoft Edge WebView2 Runtime' + #13#10;
-
-  if MissingDeps <> '' then
-  begin
-    if MsgBox(
-      '检测到以下依赖项缺失：' + #13#10 + #13#10 +
-      MissingDeps +
-      #13#10 +
-      '安装程序仍会继续，但建议安装后再运行。' + #13#10 +
-      '继续安装吗？',
-      mbConfirmation, MB_YESNO) = IDNO then
-    begin
-      Result := False;
-      Exit;
-    end;
-  end;
-
-  Result := True;
-end;
-
-procedure CurStepChanged(CurStep: TSetupStep);
-begin
-  // 安装完成后记录日志
-  if CurStep = ssPostInstall then
-  begin
-    SaveStringToFile(
-      ExpandConstant('{app}\logs\install.log'),
-      '安装时间：' + GetDateTimeString('yyyy-mm-dd hh:nn:ss', #0) + #13#10 +
-      '安装版本：{#MyAppVersion}' + #13#10 +
-      '安装路径：' + ExpandConstant('{app}') + #13#10,
-      False);
-  end;
-end;
-
-// ============================================================
-// 可选打包开关：根据构建脚本传入的环境变量决定是否包含
-// ============================================================
-function IncludePortableDatabase: Boolean;
-begin
-  Result := ExpandConstant('{param:IncludeDatabase|true}') <> 'false';
-end;
-
-function IncludeLlamaRuntime: Boolean;
-begin
-  Result := ExpandConstant('{param:IncludeLlama|true}') <> 'false';
-end;
-
-function IncludeEmbeddedPython: Boolean;
-begin
-  Result := ExpandConstant('{param:IncludePython|true}') <> 'false';
-end;
-
-function IncludeBossDist: Boolean;
-begin
-  Result := ExpandConstant('{param:IncludeBossDist|true}') <> 'false';
-end;
-
-function ShouldPurgeUserDataOnUninstall: Boolean;
-begin
-  // 默认 False（保留用户数据）；用户可在安装时勾选「一并清除」，
-  // Inno Setup 会把这个 Task 状态传进来。
-  Result := ExpandConstant('{param:PurgeUserData|false}') = 'true';
-end;
+Type: filesandordirs; Name: "{app}\runtime\state"

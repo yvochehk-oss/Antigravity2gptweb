@@ -1,44 +1,27 @@
 @echo off
+@chcp 65001 >nul 2>&1
+title æˆéƒ½å»ºå·¥ V3.1 - æ‰˜ç›˜æ§åˆ¶ä¸­å¿ƒ
+setlocal EnableExtensions
 
-@chcp 936 >nul 2>&1
+set "SCRIPT_DIR=%~dp0"
+for %%I in ("%SCRIPT_DIR%..") do set "ROOT_DIR=%%~fI"
+cd /d "%ROOT_DIR%"
 
-title ³É¶¼½¨¹¤ V3.1 - ÍĞÅÌ¿ØÖÆÖĞĞÄ
+set "CONTROLLER_EXE=%ROOT_DIR%\æˆéƒ½å»ºå·¥æ§åˆ¶å°3.1.exe"
+if not exist "%CONTROLLER_EXE%" set "CONTROLLER_EXE=%ROOT_DIR%\desktop_apps\windows\publish\win-x64\æˆéƒ½å»ºå·¥æ§åˆ¶å°3.1.exe"
 
-cd /d "%~dp0"
-
-
-
-:: Æô¶¯¿ØÖÆÌ¨Ç°£¬ÏÈÈ·±£ºóÌ¨±ãĞ¯°æÊı¾İ¿â (Port 54320) ÒÑ¾²Ä¬À­Æğ
-
-if exist "windows_scripts\00_START_POSTGRES.bat" (
-
-    call "windows_scripts\00_START_POSTGRES.bat"
-
+if not exist "%CONTROLLER_EXE%" if exist "%ROOT_DIR%\desktop_apps\windows\build.cmd" (
+    echo [Build] æœªæ‰¾åˆ°æ§åˆ¶å°å‘å¸ƒäº§ç‰©ï¼Œæ­£åœ¨æ‰§è¡Œ build.cmd...
+    call "%ROOT_DIR%\desktop_apps\windows\build.cmd"
+    if errorlevel 1 exit /b %ERRORLEVEL%
+    set "CONTROLLER_EXE=%ROOT_DIR%\desktop_apps\windows\publish\win-x64\æˆéƒ½å»ºå·¥æ§åˆ¶å°3.1.exe"
 )
 
-
-
-if exist "³É¶¼½¨¹¤¿ØÖÆÌ¨.exe" (
-
-    start "" "³É¶¼½¨¹¤¿ØÖÆÌ¨.exe"
-
-) else if exist "³É¶¼½¨¹¤V3.1ÍĞÅÌ¿ØÖÆÌ¨.exe" (
-
-    start "" "³É¶¼½¨¹¤V3.1ÍĞÅÌ¿ØÖÆÌ¨.exe"
-
-) else if exist "desktop_apps\windows\ChengduConstructionTray.exe" (
-
-    start "" "desktop_apps\windows\ChengduConstructionTray.exe"
-
-) else (
-
-    echo [ÌáÊ¾] ÕıÔÚ×Ô¶¯±àÒëÍĞÅÌ¿ØÖÆÌ¨...
-
-    call "desktop_apps\windows_tray\build_tray.bat"
-
-    start "" "³É¶¼½¨¹¤V3.1ÍĞÅÌ¿ØÖÆÌ¨.exe"
-
+if not exist "%CONTROLLER_EXE%" (
+    echo [é”™è¯¯] æœªæ‰¾åˆ° æˆéƒ½å»ºå·¥æ§åˆ¶å°3.1.exeã€‚
+    echo [æç¤º] è¯·å…ˆè¿è¡Œ desktop_apps\windows\build.cmdã€‚
+    exit /b 2
 )
 
+start "" "%CONTROLLER_EXE%"
 exit /b 0
-

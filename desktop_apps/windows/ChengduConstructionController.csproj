@@ -26,11 +26,9 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- Exclude the Tests project subdirectory from this project; Tests has its
-         own .csproj and should not be compiled into the controller binary. -->
-    <Compile Remove="Tests\**\*.cs" />
-    <None Remove="Tests\**\*.cs" />
-    <EmbeddedResource Remove="Tests\**" />
+    <!-- tests has its own .csproj and must never be compiled into the controller. -->
+    <Compile Remove="tests\**\*.cs" />
+    <None Remove="tests\**\*.cs" />
+    <EmbeddedResource Remove="tests\**" />
   </ItemGroup>
-
 </Project>

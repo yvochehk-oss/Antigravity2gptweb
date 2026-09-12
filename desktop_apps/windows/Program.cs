@@ -6,7 +6,7 @@ namespace ChengduConstructionController;
 internal static class Program
 {
     [STAThread]
-    private static void Main(string[] args)
+    private static int Main(string[] args)
     {
         ApplicationConfiguration.Initialize();
         Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
@@ -26,9 +26,8 @@ internal static class Program
         {
             if (!instanceMutex.WaitOne(TimeSpan.Zero))
             {
-                // A second launch is intentionally a no-op. The running tray icon remains the
-                // single owner of start/stop operations and avoids duplicate service launches.
-                return;
+                logger.Warn("控制台已有实例运行；本次启动未执行重复的服务操作。");
+                return 0;
             }
         }
         catch (AbandonedMutexException)
@@ -38,10 +37,25 @@ internal static class Program
 
         using var rootResolver = new ProjectRootResolver(logger);
         using var orchestrator = new ServiceOrchestrator(rootResolver, logger);
+
+        if (args.Any(argument => argument.Equals("--start-all", StringComparison.OrdinalIgnoreCase)))
+        {
+            var result = orchestrator.StartAllAsync().GetAwaiter().GetResult();
+            if (!result.Success)
+            {
+                logger.Warn($"命令行启动全部失败：{result.Message}");
+                return 1;
+            }
+
+            logger.Info($"命令行启动全部成功：{result.Message}");
+            return 0;
+        }
+
         using var monitor = new StatusMonitor(orchestrator, logger);
         using var context = new TrayApplicationContext(rootResolver, orchestrator, monitor, logger);
 
         monitor.Start();
         Application.Run(context);
+        return 0;
     }
 }

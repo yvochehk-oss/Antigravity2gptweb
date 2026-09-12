@@ -1,57 +1,87 @@
 # 成都建工 V3.1 Windows 控制台
 
-这是一个原生 .NET 8 WinForms 系统托盘应用，发布后文件名为“成都建工控制台.exe”。应用常驻 Windows 右下角系统托盘，关闭控制台不会停止业务服务。
+V3.1 Windows 控制台是基于 **.NET 10 / WinForms / win-x64** 的本地运行控制面。正式发布文件名固定为 `成都建工控制台3.1.exe`。
 
-## 功能
+## Runtime SSOT
 
-- 每 5 秒检查本地语言模型、税务系统、资料知识系统、文档录入引擎和老板驾驶舱。
-- 本地语言模型必须同时满足 GET http://127.0.0.1:8930/health 与 GET /v1/models 已确认，并通过 .local_llm.pid 或项目进程归属校验；不以端口占用作为唯一依据。
-- 启动全部服务、重启全部服务、停止全部服务。
-- 打开税务系统、资料知识系统和老板驾驶舱。
-- 查看运行日志、切换登录后自动运行。
-- 停止操作只处理经过项目路径、命令行、端口和本次启动记录确认的项目进程；PostgreSQL 5432 不在控制范围内。
-- 所有启动窗口隐藏，启停操作使用串行锁，重复点击不会并发启动。
-- UI 优先使用本机 HymOS / HymOS Sans SC / HarmonyOS Sans SC，再回退到 Windows 中文字体；不下载字体。
+Windows 端以 C# `ServiceOrchestrator` 为唯一的“启动全部”控制面：
+
+- `START_WINDOWS.bat` / `00_START_ALL.bat` 只负责定位控制台并调用 `--start-all`。
+- PostgreSQL 由 `PostgreSqlPortNegotiator` 在 `54320..54369` 中协商端口，并把事实写入 `runtime\state\postgres.json`。
+- RAG / Tax 等兼容 BAT 不再自行假定 54320；需要手工运行时必须读取上述运行事实。
+- LLM：8930；RAG：8922；IDP：8933；Tax：8921；Boss：5173。
+- 本地模型优先 `Spark-X2.5-4B-Q4_K_M.gguf`，回退 `Qwen3.5-2B-Q4_K_M.gguf`。
+- Spark-X2.5 要求 llama.cpp build **>= 10828**，C# 与 BAT 均采用最低版本比较，而不是只接受 build 10828。
+- Python 服务正式交付优先使用 `runtime\python\Scripts\python.exe`；老板端使用预构建 `dist` + `serve_web.py`，客户机不要求 Node.js。
 
 ## 构建
 
-在 Windows PowerShell 中运行：
+Windows PowerShell：
 
-    cd .\V3.1\desktop_apps\windows
-    .\build.ps1 -RunSmokeTests
+```powershell
+cd desktop_apps\windows
+.\build.ps1 -RunSmokeTests
+```
 
-也可以双击或在命令提示符中运行：
+或：
 
-    build.cmd -RunSmokeTests
+```bat
+cd desktop_apps\windows
+build.cmd -RunSmokeTests
+```
 
-发布结果位于 publish\\win-x64\\成都建工控制台.exe。构建使用 .NET 8 SDK 的 WinForms 桌面目标，不需要额外的在线运行时服务。
+Canonical 发布产物：
 
-当前 macOS 工作机可以运行：
+```text
+desktop_apps\windows\publish\win-x64\成都建工控制台3.1.exe
+```
 
-    ./build.sh
+构建脚本不再把 EXE 复制到仓库根目录。
 
-该脚本先运行离线静态自检；如果本机没有 .NET SDK，会明确报告 Windows 构建限制并返回成功，不会安装任何依赖。
+## 安装包
+
+先完成控制台发布，再运行：
+
+```bat
+installer\build_installer.bat
+```
+
+安装包输出：
+
+```text
+installer\output\ChengduConstructionConsole-v3.1.0-Setup.exe
+```
+
+需要 Inno Setup 6。安装器从 canonical `publish\win-x64` 目录取主程序，并使用仓库现有 `app.ico`。
+
+## 启停入口
+
+- `windows_scripts\START_WINDOWS.bat`：通过 C# 控制面启动全部服务。
+- `windows_scripts\START_TRAY_WINDOWS.bat`：启动托盘控制台，不预先另起一套数据库/服务控制逻辑。
+- `windows_scripts\STOP_WINDOWS.bat`：调用 `99_STOP_ALL.bat`。
+
+> V3.1 当前明确保留 `99_STOP_ALL.bat` 的强制终止语义，包括按服务端口取得 PID 后 `taskkill /F`。这一行为是现行 Windows 运维契约，不由 Runtime SSOT 收口任务修改。
+
+## PostgreSQL 数据与运行状态
+
+当前代码事实：
+
+- 数据目录：项目/安装根目录下 `database\data`
+- 运行事实：项目/安装根目录下 `runtime\state\postgres.json`
+- 控制台日志：当前用户本地应用数据目录中的控制台日志
+
+`runtime\state` 属于机器运行态，已加入 `.gitignore`，不得提交到 Git。
+
+## CI
+
+`.github/workflows/ci.yml` 已覆盖 `v3.1-windows`，Windows job 使用 `windows-latest` + `.NET 10` 执行：
+
+1. `tests/static_smoke.py`
+2. `dotnet restore`
+3. `dotnet test`
+4. `build.ps1 -RunSmokeTests`
+5. 验证 `publish\win-x64\成都建工控制台3.1.exe`
 
 ## 项目根目录
 
-控制台从自身目录向上查找同时包含 windows_scripts 与 source_code 的目录作为 V3.0 根目录，因此不绑定某台机器的绝对路径。若发布到独立目录，可在当前用户环境变量中设置：
-
-    CHENGDU_JIANGONG_ROOT=D:\成都建工\V3.0
-
-环境变量只用于定位本地项目，不会写入日志或发送到外部服务。
-
-## 启停语义
-
-控制台自有 Windows 适配器直接调用项目已经存在的 Windows Python、模型运行时和老板端前端运行命令。它不调用会打开多个交互式窗口的旧一键脚本，也不执行依赖安装、模型下载、数据库迁移或数据库停止。
-
-- 本地语言模型：使用已存在的 llama-server.exe 和已存在的 GGUF 模型，优先 Ling 3.0，缺失时使用已存在的 Qwen 2B；两者都缺失则拒绝启动。
-- 税务、资料知识、文档录入：使用各自已存在的 .venv\\Scripts\\python.exe 运行 Uvicorn。
-- 老板驾驶舱：在现有工程目录执行 npm run preview，不运行安装命令。
-- 停止：先尝试关闭拥有窗口的项目进程，随后仅对再次确认归属的项目进程执行进程树停止；无法确认归属时跳过并写入安全日志。
-- 退出托盘：保留所有业务进程运行；需要停止时使用菜单中的“停止全部服务（保留数据库）”。
-
-旧的 .bat 文件、后端、中间件、数据库、迁移和业务 UI 均不由本目录修改。
-
-## 日志与隐私
-
-日志写入当前用户目录下的 ChengduConstructionController\\controller.log，写入前会隐藏密码、令牌、密钥、授权头和 Cookie 等值，并限制日志大小。日志不发送到网络。
+控制台会从自身目录/当前目录向上寻找同时包含 `windows_scripts` 与 `source_code` 的 V3.1 根目录；也可设置 `CHENGDU_JIANGONG_ROOT` 或从托盘菜单选择项目目录。项目选择记录保存在当前用户 LocalApplicationData，不绑定开发机盘符。

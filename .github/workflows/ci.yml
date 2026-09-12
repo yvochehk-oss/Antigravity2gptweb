@@ -1,4 +1,4 @@
-name: V2 CI Gate
+name: V3.1 CI Gate
 
 on:
   push:
@@ -7,23 +7,64 @@ on:
       - v3.0
       - v3.0-macos
       - v3.0-windows
+      - v3.1-windows
   pull_request:
     branches:
       - main
       - v3.0
       - v3.0-macos
       - v3.0-windows
+      - v3.1-windows
   workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
+  windows-controller:
+    name: Windows Controller - smoke, test & publish
+    runs-on: windows-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: desktop_apps/windows
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Static contract smoke
+        run: python tests/static_smoke.py
+
+      - name: Restore
+        run: dotnet restore ChengduConstructionController.csproj -r win-x64
+
+      - name: Unit tests
+        run: dotnet test tests/ChengduConstructionController.Tests.csproj -c Release
+
+      - name: Publish canonical win-x64 controller
+        shell: pwsh
+        run: ./build.ps1 -RunSmokeTests
+
+      - name: Verify publish artifact
+        shell: pwsh
+        run: |
+          $exe = Join-Path $PWD "publish\win-x64\成都建工控制台3.1.exe"
+          if (-not (Test-Path -LiteralPath $exe)) { throw "Missing canonical Windows artifact: $exe" }
+
   tax:
     name: Tax - lint & test
     runs-on: ubuntu-latest
     timeout-minutes: 20
-
     services:
       postgres:
         image: postgres:16
@@ -38,35 +79,25 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
-
     env:
       TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/projectrag_test
       APP_ENV: test
-
     defaults:
       run:
         working-directory: source_code/0.1_税务管理/gtp_V1.0_FULL/01_当前完整系统_V1.0/chengdu_construction_tax_system_v1_0
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-
       - name: Install uv
         run: python -m pip install uv
-
       - name: Install dependencies
-        # pyproject.toml is authoritative; this also refreshes a stale lock
-        # after dependency-policy changes instead of silently using it.
         run: uv sync --extra dev
-
       - name: Ruff
         run: uv run ruff check .
-
       - name: Run PostgreSQL integration tests
         run: >
           uv run pytest
@@ -74,20 +105,18 @@ jobs:
           tests/test_tax_ledger_routes.py
           -v --tb=short
           2>&1 | tee pytest.log
-
       - name: Upload test logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: tax-test-logs
-          path: pytest.log
+          path: source_code/0.1_税务管理/gtp_V1.0_FULL/01_当前完整系统_V1.0/chengdu_construction_tax_system_v1_0/pytest.log
           retention-days: 5
 
   rag:
     name: RAG - lint & test
     runs-on: ubuntu-latest
     timeout-minutes: 25
-
     services:
       postgres:
         image: pgvector/pgvector:pg16
@@ -102,36 +131,28 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
-
     env:
       TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/projectrag_test
       APP_ENV: test
       PROJECT_RAG_EMBEDDING_BACKEND: hash_v1
       PROJECT_RAG_RERANKER_BACKEND: off
       PROJECT_RAG_AUTO_START_WORKER: "0"
-
     defaults:
       run:
         working-directory: source_code/0.2_RAG系统/project-rag-v1.1
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-
       - name: Install uv
         run: python -m pip install uv
-
       - name: Install dependencies
         run: uv sync --extra dev
-
       - name: Ruff
         run: uv run ruff check .
-
       - name: Pytest
         run: uv run pytest -q
 
@@ -139,31 +160,24 @@ jobs:
     name: Boss App - lint, test & build
     runs-on: ubuntu-latest
     timeout-minutes: 20
-
     defaults:
       run:
         working-directory: source_code/0.3_老板端安卓App_天府掌舵
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: "22"
           cache: npm
           cache-dependency-path: source_code/0.3_老板端安卓App_天府掌舵/package-lock.json
-
       - name: Install dependencies
         run: npm ci
-
       - name: ESLint
         run: npm run lint
-
       - name: Vitest
         run: npm run test
-
       - name: Build
         run: npm run build
 
@@ -171,31 +185,22 @@ jobs:
     name: IDP - static check & test
     runs-on: ubuntu-latest
     timeout-minutes: 20
-
     defaults:
       run:
         working-directory: source_code/0.4_IDP文档录入引擎_V3.0
-
     env:
       APP_ENV: test
-      # Unit/API tests use a disabled persistence path unless a test explicitly
-      # provides a repository double; no live database is touched in CI.
       DATABASE_URL: ""
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-
       - name: Install dependencies
         run: python -m pip install -r requirements-dev-v3.txt
-
       - name: Python compile check
         run: python -m compileall -q app tests
-
       - name: Pytest
         run: pytest -q

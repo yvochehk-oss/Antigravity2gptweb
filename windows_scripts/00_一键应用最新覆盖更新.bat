@@ -1,29 +1,23 @@
 @echo off
-@chcp 936 >nul 2>&1
-title ³É¶¼½¨¹¤ V3.1 - Ò»¼üÓ¦ÓÃ×îÐÂ¸²¸Ç¸üÐÂ
-setlocal enabledelayedexpansion
+@chcp 65001 >nul 2>&1
+title æˆéƒ½å»ºå·¥ V3.1 - ä¸€é”®åº”ç”¨æœ€æ–°è¦†ç›–æ›´æ–°
+setlocal EnableExtensions
 
-set "ROOT_DIR=%~dp0"
+set "SCRIPT_DIR=%~dp0"
+for %%I in ("%SCRIPT_DIR%..") do set "ROOT_DIR=%%~fI"
 cd /d "%ROOT_DIR%"
 
 echo ==============================================================================
-echo   [³É¶¼½¨¹¤] ³É¶¼½¨¹¤ V3.1 - Ò»¼üÓ¦ÓÃ×îÐÂºËÐÄ×é¼þ¸²¸Ç¸üÐÂ
-echo   Ä¿±êÄ¿Â¼: %ROOT_DIR%
+echo   æˆéƒ½å»ºå·¥ V3.1 - ä¸€é”®åº”ç”¨æœ€æ–°è¦†ç›–æ›´æ–°
+echo   é¡¹ç›®æ ¹ç›®å½•: %ROOT_DIR%
 echo ==============================================================================
-echo.
 
-:: 1. Í£Ö¹¾É·þÎñ
-echo [1/5] ÕýÔÚÍ£Ö¹¿ÉÄÜÔËÐÐÖÐµÄ¾É·þÎñÊµÀý...
-if exist "STOP_WINDOWS.bat" (
-    call "STOP_WINDOWS.bat" >nul 2>&1
-) else if exist "windows_scripts\99_STOP_ALL.bat" (
-    call "windows_scripts\99_STOP_ALL.bat" >nul 2>&1
-)
+echo [1/5] åœæ­¢æ—§ä¸šåŠ¡æœåŠ¡...
+call "%SCRIPT_DIR%STOP_WINDOWS.bat" >nul 2>&1
 ping 127.0.0.1 -n 3 >nul
 
-:: 2. ÇåÀíË°Îñ¾²Ì¬Ä¿Â¼ÀúÊ·²ÐÁôÎÛÈ¾ÎÄ¼þ
-echo [2/5] ÕýÔÚÇåÀí 8921 Ë°Îñ¾²Ì¬Ä¿Â¼ÖÐµÄÀúÊ·²ÐÁô¾ÉÎÄ¼þ...
-set "TAX_STATIC=source_code\0.1_Ë°Îñ¹ÜÀí\gtp_V1.0_FULL\01_µ±Ç°ÍêÕûÏµÍ³_V1.0\chengdu_construction_tax_system_v1_0\app\static_dist"
+echo [2/5] æ¸…ç†ç¨ŽåŠ¡é™æ€ç›®å½•åŽ†å²æ®‹ç•™...
+set "TAX_STATIC=%ROOT_DIR%\source_code\0.1_ç¨ŽåŠ¡ç®¡ç†\gtp_V1.0_FULL\01_å½“å‰å®Œæ•´ç³»ç»Ÿ_V1.0\chengdu_construction_tax_system_v1_0\app\static_dist"
 if exist "%TAX_STATIC%\assets" (
     del /f /q "%TAX_STATIC%\assets\CopilotView-*" >nul 2>&1
     del /f /q "%TAX_STATIC%\assets\DashboardView-*" >nul 2>&1
@@ -32,44 +26,20 @@ if exist "%TAX_STATIC%\assets" (
     del /f /q "%TAX_STATIC%\assets\SettingsView-*" >nul 2>&1
     del /f /q "%TAX_STATIC%\assets\auth.store-*" >nul 2>&1
     del /f /q "%TAX_STATIC%\assets\client-DE-*" >nul 2>&1
-    del /f /q "%TAX_STATIC%\assets\esm-DMx6yp6c.js" >nul 2>&1
-    del /f /q "%TAX_STATIC%\assets\rolldown-runtime-*" >nul 2>&1
-    del /f /q "%TAX_STATIC%\assets\preload-helper-*" >nul 2>&1
     del /f /q "%TAX_STATIC%\manifest.json" >nul 2>&1
     del /f /q "%TAX_STATIC%\sw.js" >nul 2>&1
 )
-echo       -^> Ë°ÎñÇ°¶ËÄ¿Â¼ÒÑ¾»»¯ÎªÕýÍ³ React SPA£¡
 
-:: 3. ÒÀÀµÓëÐéÄâ»·¾³ÊÊÅä
-echo [3/5] ÕýÔÚ¼ì²éÓëÊÊÅä Python ÔËÐÐ»·¾³ (Python 3.12)...
-if exist "windows_scripts\06_SETUP_ENV.bat" (
-    echo       ÕýÔÚÖ´ÐÐÐéÄâ»·¾³ÓëÒÀÀµ×ÔÓú...
-    call "windows_scripts\06_SETUP_ENV.bat"
-) else if exist "windows_scripts\06_Ò»¼üÅäÖÃPython314»·¾³.bat" (
-    call "windows_scripts\06_Ò»¼üÅäÖÃPython314»·¾³.bat"
-)
+echo [3/5] æ£€æŸ¥ Python çŽ¯å¢ƒ...
+if exist "%SCRIPT_DIR%06_SETUP_ENV.bat" call "%SCRIPT_DIR%06_SETUP_ENV.bat"
+if errorlevel 1 exit /b %ERRORLEVEL%
 
-:: 4. È·±£ PostgreSQL Êý¾Ý¿â¾ÍÐ÷
-echo [4/5] ÕýÔÚÈ·±£ PostgreSQL Êý¾Ý¿âÒÑ×Ô¶¯¾ÍÐ÷...
-if exist "windows_scripts\00_START_POSTGRES.bat" (
-    call "windows_scripts\00_START_POSTGRES.bat"
-)
+echo [4/5] æž„å»º/ç¡®è®¤ V3.1 æŽ§åˆ¶å°...
+if exist "%ROOT_DIR%\desktop_apps\windows\build.cmd" call "%ROOT_DIR%\desktop_apps\windows\build.cmd" -RunSmokeTests
+if errorlevel 1 exit /b %ERRORLEVEL%
 
-:: 5. Æô¶¯¿ØÖÆÌ¨
-echo.
-echo [5/5] ¸²¸Ç¸üÐÂÈ«²¿Ó¦ÓÃÍê³É£¡
-echo ==============================================================================
-echo   [Íê³É] ³É¶¼½¨¹¤ V3.1 ×îÐÂºËÐÄ×é¼þÒÑÍêÈ«¾ÍÐ÷£¡
-echo   - 8921 ¶Ë¿ÚÒÑËø¶¨Îª Èñ±¦²ÆË°ÖÇ¿ØÖÐÊà (ÕýÍ³ React SPA)
-echo   - 5173 ¶Ë¿ÚÒÑËø¶¨Îª Ìì¸®ÕÆ¶æ (ÀÏ°å¶Ë¼ÝÊ»²Õ)
-echo   - 8922 ¶Ë¿Ú RAG ÊÂÊµÖÐÌ¨Ö§³Ö¶Ë¿Ú×ÔÊÊÓ¦ÓëÃë¼¶Æô¶¯
-echo   - PostgreSQL Êý¾Ý¿âÒÑÊµÏÖÃâÅäÖÃ×Ô¶¯À­ÆðÓëÖÐÎÄÂ·¾¶±ÜÕÏ
-echo ==============================================================================
-echo.
-echo ÕýÔÚÆô¶¯ ³É¶¼½¨¹¤¿ØÖÆÌ¨...
-if exist "³É¶¼½¨¹¤¿ØÖÆÌ¨.exe" (
-    start "" "³É¶¼½¨¹¤¿ØÖÆÌ¨.exe"
-) else if exist "START_WINDOWS.bat" (
-    start "" "START_WINDOWS.bat"
-)
-pause
+echo [5/5] é€šè¿‡ C# Runtime SSOT å¯åŠ¨å…¨éƒ¨æœåŠ¡ï¼Œå¹¶å¯åŠ¨æ‰˜ç›˜...
+call "%SCRIPT_DIR%START_WINDOWS.bat"
+if errorlevel 1 exit /b %ERRORLEVEL%
+call "%SCRIPT_DIR%START_TRAY_WINDOWS.bat"
+exit /b %ERRORLEVEL%
