@@ -437,11 +437,32 @@ async function captureBaseline(ws) {
 async function waitForUserMessageCommitted(ws, baselineUserCount, expectedPrompt, timeout, baselineUserId) {
   const probeJs=userCommitProbeJs(expectedPrompt), deadline=Date.now()+timeout*1000;
   let lastSnap=null;
+  let retryCount=0;
   while (Date.now()<deadline) {
     const snap=await fetchSnapshot(ws, probeJs); lastSnap=snap;
     const currId=snap.messageId;
     const idChg=baselineUserId!=null?currId!==baselineUserId:currId!=null;
     if ((snap.userCount===baselineUserCount+1||idChg)&&snap.matchesExpected===true) return snap;
+    
+    // 自愈补按：若轮询等待超过 1.2s 仍未检测到消息生成，自动补按发送按钮与回车
+    retryCount++;
+    if (retryCount % 3 === 0) {
+      const retriggerJs=`(() => {
+        const btn = document.querySelector('button[data-testid="send-button"]')
+          || document.querySelector('button[aria-label*="Send"]')
+          || document.querySelector('button[aria-label*="发送"]')
+          || document.querySelector("#composer-submit-button")
+          || document.querySelector("form button[type='submit']");
+        if (btn) { btn.removeAttribute('disabled'); btn.disabled = false; btn.click(); }
+        const el = document.querySelector('#prompt-textarea') || document.querySelector("div[contenteditable='true']") || document.querySelector("textarea");
+        if (el) { el.focus(); el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true })); }
+      })()`;
+      try { await executeCdpJs(ws, retriggerJs); } catch(_){}
+      try {
+        await ws.sendCommand('Input.dispatchKeyEvent', { type: 'keyDown', windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13, macCharCode: 13, text: '\r', unmodifiedText: '\r', key: 'Enter', code: 'Enter' });
+        await ws.sendCommand('Input.dispatchKeyEvent', { type: 'keyUp', windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13, macCharCode: 13, key: 'Enter', code: 'Enter' });
+      } catch(_){}
+    }
     await sleep(400);
   }
   throw new CDPError(`用户消息提交超时（>${timeout}s）。最终快照=${JSON.stringify(lastSnap)}`);
