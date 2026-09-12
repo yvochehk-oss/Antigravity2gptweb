@@ -11,12 +11,28 @@ REPO_ROOT = APP_DIR.parents[1]
 WINDOWS_SCRIPTS = REPO_ROOT / "windows_scripts"
 INSTALLER_DIR = REPO_ROOT / "installer"
 WINDOWS_SCRIPT_SUFFIXES = {".bat", ".cmd", ".ps1"}
+TEXT_ENCODINGS = ("utf-8-sig", "gbk", "gb18030")
 
 
 def require(condition: bool, message: str) -> None:
     if not condition:
         print(f"[FAIL] {message}")
         raise SystemExit(1)
+
+
+def decode_repo_text(data: bytes, label: str) -> str:
+    """Decode repository text with deterministic Windows legacy fallbacks."""
+    for encoding in TEXT_ENCODINGS:
+        try:
+            return data.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+
+    require(
+        False,
+        f"无法解码文件：{label}（已尝试 {' / '.join(TEXT_ENCODINGS)}）",
+    )
+    raise AssertionError("unreachable")
 
 
 def read(path: Path) -> str:
@@ -28,19 +44,17 @@ def read(path: Path) -> str:
     crashing before assertions can run.
     """
     require(path.is_file(), f"缺少文件：{path.relative_to(REPO_ROOT)}")
-    data = path.read_bytes()
+    return decode_repo_text(path.read_bytes(), str(path.relative_to(REPO_ROOT)))
 
-    for encoding in ("utf-8-sig", "gb18030", "gbk"):
-        try:
-            return data.decode(encoding)
-        except UnicodeDecodeError:
-            continue
 
-    require(
-        False,
-        f"无法解码文件：{path.relative_to(REPO_ROOT)}（已尝试 utf-8-sig / gb18030 / gbk）",
-    )
-    raise AssertionError("unreachable")
+def verify_decoder_contract() -> None:
+    """Protect both supported Windows text encodings from future regressions."""
+    sample = "@echo off\r\necho 成都建工\r\n"
+    utf8_sig = b"\xef\xbb\xbf" + sample.encode("utf-8")
+    gbk = sample.encode("gbk")
+
+    require(decode_repo_text(utf8_sig, "<utf8-sig-probe>") == sample, "UTF-8-SIG 解码回归")
+    require(decode_repo_text(gbk, "<gbk-probe>") == sample, "GBK/CP936 解码回归")
 
 
 def check_windows_script_encodings() -> None:
@@ -56,6 +70,8 @@ def check_windows_script_encodings() -> None:
 
 
 def main() -> int:
+    verify_decoder_contract()
+
     required = [
         APP_DIR / "ChengduConstructionController.csproj",
         APP_DIR / "Program.cs",
