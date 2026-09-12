@@ -19,8 +19,27 @@ def require(condition: bool, message: str) -> None:
 
 
 def read(path: Path) -> str:
+    """Read repository text without assuming every legacy BAT is UTF-8.
+
+    Most V3.1 sources are UTF-8/UTF-8-SIG, but historical Windows batch files
+    may exist in a CP936/GBK-compatible working-tree encoding.  Contract tests
+    only need stable textual markers, so decode deterministically instead of
+    crashing before assertions can run.
+    """
     require(path.is_file(), f"缺少文件：{path.relative_to(REPO_ROOT)}")
-    return path.read_text(encoding="utf-8-sig")
+    data = path.read_bytes()
+
+    for encoding in ("utf-8-sig", "gb18030", "gbk"):
+        try:
+            return data.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+
+    require(
+        False,
+        f"无法解码文件：{path.relative_to(REPO_ROOT)}（已尝试 utf-8-sig / gb18030 / gbk）",
+    )
+    raise AssertionError("unreachable")
 
 
 def main() -> int:
