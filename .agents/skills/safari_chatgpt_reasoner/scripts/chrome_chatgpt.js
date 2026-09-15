@@ -366,9 +366,9 @@ async function fetchSnapshot(ws, jsOverride) {
 // JS probe strings  (identical to Python version)
 // ═══════════════════════════════════════════════════════════════════
 const BASELINE_JS = `(() => {
-  const all=document.querySelectorAll("[data-message-author-role]");
+  const all=document.querySelectorAll("[data-message-author-role], article");
   const usr=document.querySelectorAll("[data-message-author-role='user']");
-  const asst=document.querySelectorAll("[data-message-author-role='assistant']");
+  const asst=document.querySelectorAll("[data-message-author-role='assistant'], article:not([data-message-author-role='user'])");
   const lastU=usr.length>0?usr[usr.length-1]:null;
   const lastA=asst.length>0?asst[asst.length-1]:null;
   function midOf(el){if(!el)return null;return el.getAttribute("data-message-id")||(el.closest&&el.closest("[data-message-id]")?el.closest("[data-message-id]").getAttribute("data-message-id"):null);}
@@ -379,10 +379,11 @@ const BASELINE_JS = `(() => {
 
 function lastMessageIdJs(role) {
   return `(() => {
-  const nodes=document.querySelectorAll("[data-message-author-role='${role}']");
+  const selector = '${role}' === 'user' ? "[data-message-author-role='user']" : "[data-message-author-role='assistant'], article:not([data-message-author-role='user'])";
+  const nodes=document.querySelectorAll(selector);
   const last=nodes.length>0?nodes[nodes.length-1]:null;
   if(!last)return JSON.stringify({id:null,count:0,textLen:0});
-  const id=last.getAttribute("data-message-id")||(last.closest&&last.closest("[data-message-id]")?last.closest("[data-message-id]").getAttribute("data-message-id"):null);
+  const id=last.getAttribute("data-message-id")||(last.closest&&last.closest("[data-message-id]")?last.closest("[data-message-id]").getAttribute("data-message-id"):null)||"article_" + nodes.length;
   return JSON.stringify({id,count:nodes.length,textLen:(last.innerText||"").trim().length,fp:((last.innerText||"").trim()).slice(0,80)});
 })()`;
 }

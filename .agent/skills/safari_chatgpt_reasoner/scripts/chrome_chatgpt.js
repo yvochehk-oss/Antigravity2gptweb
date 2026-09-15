@@ -62,7 +62,7 @@ const CIRCUIT_WINDOW_MS  = 3600 * 1000;
 const CIRCUIT_MAX_RETRIES = 3;
 
 const CDP_HTTP_TIMEOUT_MS = 5000;
-const CDP_RPC_TIMEOUT_MS  = 60000;
+const CDP_RPC_TIMEOUT_MS  = 30000;
 const SUBMIT_PHASE_BUDGET = 20;
 const TURN_PHASE_BUDGET   = 60;
 const STABLE_PHASE_MIN    = 5;
@@ -344,7 +344,7 @@ async function findTargetTab(host, port, targetUrl) {
 // ═══════════════════════════════════════════════════════════════════
 async function executeCdpJs(ws, jsCode, timeoutMs=CDP_RPC_TIMEOUT_MS) {
   const res=await ws.sendCommand('Runtime.evaluate',
-    {expression:jsCode, returnByValue:true, awaitPromise:false, userGesture:true},
+    {expression:jsCode, returnByValue:true, awaitPromise:false},
     timeoutMs+2000);
   if (res.exceptionDetails) {
     const exc=res.exceptionDetails, desc=(exc.exception||{}).description||(exc.exception||{}).value||'';
@@ -366,19 +366,24 @@ async function fetchSnapshot(ws, jsOverride) {
 // JS probe strings  (identical to Python version)
 // ═══════════════════════════════════════════════════════════════════
 const BASELINE_JS = `(() => {
+  const all=document.querySelectorAll("[data-message-author-role], article");
   const usr=document.querySelectorAll("[data-message-author-role='user']");
-  const asst=document.querySelectorAll("[data-message-author-role='assistant']");
-  return JSON.stringify({totalCount:usr.length+asst.length,userCount:usr.length,assistantCount:asst.length,
-    lastUserText:"",lastAsstText:"",
-    lastUserMessageId:null,lastAsstMessageId:null});
+  const asst=document.querySelectorAll("[data-message-author-role='assistant'], article:not([data-message-author-role='user'])");
+  const lastU=usr.length>0?usr[usr.length-1]:null;
+  const lastA=asst.length>0?asst[asst.length-1]:null;
+  function midOf(el){if(!el)return null;return el.getAttribute("data-message-id")||(el.closest&&el.closest("[data-message-id]")?el.closest("[data-message-id]").getAttribute("data-message-id"):null);}
+  return JSON.stringify({totalCount:all.length,userCount:usr.length,assistantCount:asst.length,
+    lastUserText:lastU?(lastU.innerText||"").trim():"",lastAsstText:lastA?(lastA.innerText||"").trim():"",
+    lastUserMessageId:midOf(lastU),lastAsstMessageId:midOf(lastA)});
 })()`;
 
 function lastMessageIdJs(role) {
   return `(() => {
-  const nodes=document.querySelectorAll("[data-message-author-role='${role}']");
+  const selector = '${role}' === 'user' ? "[data-message-author-role='user']" : "[data-message-author-role='assistant'], article:not([data-message-author-role='user'])";
+  const nodes=document.querySelectorAll(selector);
   const last=nodes.length>0?nodes[nodes.length-1]:null;
   if(!last)return JSON.stringify({id:null,count:0,textLen:0});
-  const id=last.getAttribute("data-message-id")||(last.closest&&last.closest("[data-message-id]")?last.closest("[data-message-id]").getAttribute("data-message-id"):null);
+  const id=last.getAttribute("data-message-id")||(last.closest&&last.closest("[data-message-id]")?last.closest("[data-message-id]").getAttribute("data-message-id"):null)||"article_" + nodes.length;
   return JSON.stringify({id,count:nodes.length,textLen:(last.innerText||"").trim().length,fp:((last.innerText||"").trim()).slice(0,80)});
 })()`;
 }
@@ -399,11 +404,11 @@ function injectVerifyJs(expectedPrompt) {
   const lit=JSON.stringify(expectedPrompt);
   return `(() => {
   const norm=s=>(s||"").replace(/\\r\\n/g,"\\n").replace(/\\u00a0/g," ").replace(/\\s+/g," ").trim();
-  const el=document.querySelector("#prompt-textarea")||document.querySelector("div[contenteditable='true']")||document.querySelector("form [contenteditable='true']")||document.querySelector("textarea")||document.querySelector("form");
+  const el=document.querySelector("#prompt-textarea")||document.querySelector("form [contenteditable='true']")||document.querySelector("form");
   if(!el)return JSON.stringify({ok:false,reason:"NO_INPUT"});
   const normActual=norm(el.innerText||el.textContent||el.value||"");
-  return JSON.stringify({ok:true,matchesExpected:normActual.length>0,textLen:normActual.length,
-    visible:true,isContentEditable:!!el.isContentEditable});
+  return JSON.stringify({ok:true,matchesExpected:normActual===norm(${lit}),textLen:normActual.length,
+    visible:!!(el.offsetWidth||el.offsetHeight||(el.getClientRects&&el.getClientRects().length)),isContentEditable:!!el.isContentEditable});
 })()`;
 }
 
@@ -437,32 +442,11 @@ async function captureBaseline(ws) {
 async function waitForUserMessageCommitted(ws, baselineUserCount, expectedPrompt, timeout, baselineUserId) {
   const probeJs=userCommitProbeJs(expectedPrompt), deadline=Date.now()+timeout*1000;
   let lastSnap=null;
-  let retryCount=0;
   while (Date.now()<deadline) {
     const snap=await fetchSnapshot(ws, probeJs); lastSnap=snap;
     const currId=snap.messageId;
     const idChg=baselineUserId!=null?currId!==baselineUserId:currId!=null;
     if ((snap.userCount===baselineUserCount+1||idChg)&&snap.matchesExpected===true) return snap;
-    
-    // 自愈补按：若轮询等待超过 1.2s 仍未检测到消息生成，自动补按发送按钮与回车
-    retryCount++;
-    if (retryCount % 3 === 0) {
-      const retriggerJs=`(() => {
-        const btn = document.querySelector('button[data-testid="send-button"]')
-          || document.querySelector('button[aria-label*="Send"]')
-          || document.querySelector('button[aria-label*="发送"]')
-          || document.querySelector("#composer-submit-button")
-          || document.querySelector("form button[type='submit']");
-        if (btn) { btn.removeAttribute('disabled'); btn.disabled = false; btn.click(); }
-        const el = document.querySelector('#prompt-textarea') || document.querySelector("div[contenteditable='true']") || document.querySelector("textarea");
-        if (el) { el.focus(); el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true })); }
-      })()`;
-      try { await executeCdpJs(ws, retriggerJs); } catch(_){}
-      try {
-        await ws.sendCommand('Input.dispatchKeyEvent', { type: 'keyDown', windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13, macCharCode: 13, text: '\r', unmodifiedText: '\r', key: 'Enter', code: 'Enter' });
-        await ws.sendCommand('Input.dispatchKeyEvent', { type: 'keyUp', windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13, macCharCode: 13, key: 'Enter', code: 'Enter' });
-      } catch(_){}
-    }
     await sleep(400);
   }
   throw new CDPError(`用户消息提交超时（>${timeout}s）。最终快照=${JSON.stringify(lastSnap)}`);
@@ -553,19 +537,28 @@ async function sendAndReceive(ws, prompt, targetUrl, waitTimeout, submitDeadline
   emitEvent('baseline',EXIT_OK,'基线采集成功',{totalCount:baseline.totalCount,userCount:baseline.userCount,assistantCount:baseline.assistantCount,lastUserMessageId:baseline.lastUserMessageId});
 
   const focusJs=`(() => {
-  const el=document.querySelector('#prompt-textarea')||document.querySelector("div[contenteditable='true']")||document.querySelector("form [contenteditable='true']")||document.querySelector("textarea");
+  const el=document.querySelector('#prompt-textarea')||document.querySelector("form [contenteditable='true']")||document.querySelector("form p")||document.querySelector("form");
   if(!el)return "ERR_NO_INPUT";
   el.focus();
-  try {
-    const p = el.tagName === 'TEXTAREA' || el.tagName === 'INPUT' ? el : (el.querySelector('p') || el);
-    p.textContent = ${JSON.stringify(prompt)};
-    el.dispatchEvent(new Event('input', { bubbles: true }));
-    el.dispatchEvent(new Event('change', { bubbles: true }));
-  } catch(_){}
+  try { const sel=window.getSelection(); sel.selectAllChildren(el); } catch(_){}
   return "OK";
 })()`;
   try{
-    await executeCdpJs(ws, focusJs);
+    const res=await executeCdpJs(ws, focusJs);
+    try {
+      await ws.sendCommand('Input.insertText', {text: prompt}, 15000);
+    } catch(err) {
+      const fallbackJs = `(() => {
+        const el = document.querySelector('#prompt-textarea') || document.querySelector("form [contenteditable='true']") || document.querySelector("textarea");
+        if (!el) return "ERR_NO_EL";
+        el.focus();
+        document.execCommand('selectAll', false, null);
+        document.execCommand('insertText', false, ${JSON.stringify(prompt)});
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+        return "FALLBACK_OK";
+      })()`;
+      await executeCdpJs(ws, fallbackJs);
+    }
   }
   catch(e){emitEvent('inject',EXIT_BROWSER_FAIL,`输入框注入失败: ${e.message}`);return{exitCode:EXIT_BROWSER_FAIL,text:''};}
 
@@ -575,32 +568,20 @@ async function sendAndReceive(ws, prompt, targetUrl, waitTimeout, submitDeadline
   catch(e){emitEvent('composer_verify',EXIT_SUBMIT_FAIL,`Composer注入未生效: ${e.message}`);return{exitCode:EXIT_SUBMIT_FAIL,text:''};}
 
   const sendJs=`(() => {
-  let btnClickRes = "NO_BUTTON";
   const btn = document.querySelector('button[data-testid="send-button"]')
     || document.querySelector('button[aria-label*="Send"]')
     || document.querySelector('button[aria-label*="发送"]')
     || document.querySelector("#composer-submit-button")
     || document.querySelector("form button[type='submit']");
-  if (btn) {
-    btn.removeAttribute('disabled');
-    btn.disabled = false;
+  if(btn){
+    btn.removeAttribute('disabled'); btn.disabled=false;
     btn.click();
-    btnClickRes = "BUTTON_CLICKED";
+    return "CLICKED";
   }
-  const el = document.querySelector('#prompt-textarea') || document.querySelector("div[contenteditable='true']") || document.querySelector("textarea");
-  if (el) {
-    el.focus();
-    const enterEvt = new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true });
-    el.dispatchEvent(enterEvt);
-  }
-  return btnClickRes + "_THEN_ENTER";
+  return "NO_BUTTON";
 })()`;
   try{
     const sendRes=await executeCdpJs(ws,sendJs);
-    try {
-      await ws.sendCommand('Input.dispatchKeyEvent', { type: 'keyDown', windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13, macCharCode: 13, text: '\r', unmodifiedText: '\r', key: 'Enter', code: 'Enter' });
-      await ws.sendCommand('Input.dispatchKeyEvent', { type: 'keyUp', windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13, macCharCode: 13, key: 'Enter', code: 'Enter' });
-    } catch(_){}
     emitEvent('send',EXIT_OK,`发送触发结果: ${sendRes}`);
   }
   catch(e){emitEvent('send',EXIT_BROWSER_FAIL,`发送触发失败: ${e.message}`);return{exitCode:EXIT_BROWSER_FAIL,text:''};}
