@@ -1,2 +1,0 @@
--r requirements-v3.txt
-pytest>=8,<9

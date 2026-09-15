@@ -1,4 +1,0 @@
-entity_code,counterparty_code,direction,amount,period,note
-A08,B01,out,500000,2026-08,劳务付款
-A08,C01,out,800000,2026-08,材料付款
-A08,EXT-TF,in,1800000,2026-08,工程回款

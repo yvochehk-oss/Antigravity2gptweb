@@ -1,9 +1,0 @@
-{
-  "kind": "V3_INVOICE_TAX_RATE_RULES",
-  "version": 1,
-  "rule_version": "REPLACE_WITH_REVIEWED_RULE_VERSION",
-  "reviewed": false,
-  "reviewed_by": "",
-  "source": "",
-  "allowed_tax_rates": []
-}

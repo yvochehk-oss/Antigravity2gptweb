@@ -1,6 +1,0 @@
-{
-  "name": "锐宝管理",
-  "description": "锐宝管理高管移动驾驶舱与智策决策系统，支持经营大盘、26家法人矩阵、重点项目穿透及AI智策决策。",
-  "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
-}
