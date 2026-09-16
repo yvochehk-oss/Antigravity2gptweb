@@ -45,22 +45,59 @@ description: 纯自然语言驱动的通用 AI 协作开发桥梁：让任意桌
 
 | 角色 | 核心职责 | 行为边界（严禁越位） | 带来的好处 |
 |---|---|---|---|
-| 🧠 **ChatGPT 网页版**（云端总架构师） | 负责高强度逻辑推演、方案拆解、**生成全部业务代码**、提供测试命令与审核测试结果 | 零系统读写权限，纯认知控制面，独占方案与代码生成权 | 借助网页端顶级深度思考与推理能力，保证全局架构与业务代码高质量 |
-| ⚡ **本地桌面 AI 助手**（精准落地执行端） | 负责提取环境上下文、**解析并落盘写入 GPT 输出的代码**、运行测试命令、将测试日志回传 GPT 审查 | **严禁自行编写或修改业务代码**，绝不心急抢跑，必须等待 GPT 输出代码后原子落盘 | 严谨可靠的双手，严格执行架构决策，杜绝主观臆断与私自写代码 |
+| 🧠 **ChatGPT 网页版**（云端总架构师） | 负责高强度逻辑推演、方案拆解、**通过 GitHub 工具修改、提交和推送业务代码**、提供测试命令与审核测试结果 | 仅操作用户授权的远程仓库与分支，独占方案与代码修改权 | 借助网页端顶级深度思考与推理能力，保证全局架构与业务代码高质量 |
+| ⚡ **本地桌面 AI 助手**（精准验收执行端） | 负责提取环境上下文、`git pull --ff-only` 同步远端提交、运行测试命令、将测试日志回传 GPT 审查 | **严禁自行编写、落盘、提交或推送业务代码**；工作区有未提交改动时必须停止同步 | 用真实环境提供可复核证据，杜绝本地抢跑与覆盖远端提交 |
 | 🛡️ **GitHub 仓库**（版本安全管家） | 自动记录每一次变动，保留完整历史 | 任何一步改动都清清楚楚，改错了随时一键撤销 | 随时可回滚，进度透明可追溯 |
 
-> ⚠️ **核心纪律**：本地桌面 Agent 绝对禁止越俎代庖自己编写业务代码；必须严格等待云端 ChatGPT 生成完整代码后进行落盘写入、运行测试并回传审查，直到 ChatGPT 裁决 `APPROVED` 为止。
+> ⚠️ **核心纪律**：本地桌面 Agent 绝对禁止越俎代庖自己编写、落盘、提交或推送业务代码；必须严格等待云端 ChatGPT 通过 GitHub 完成推送，然后 fast-forward 拉取、运行测试并回传审查，直到 ChatGPT 裁决 `APPROVED` 为止。
 
 ---
 
-## 🚀 3 步轻松上手（纯自然语言）
+## 安装到 Antigravity IDE
 
-无需配置任何复杂的开发环境，只需简单三步：
+本项目通过 GitHub 分支发布：Windows 使用纯 Node.js 的 `windows` 分支，macOS 使用 `macos` 分支；`main` 仅提供公开项目说明。安装和更新都需要 Git。请选择全局或项目级安装其中一种，不能同时安装同名副本。
 
-### 第 1 步：浏览器打开一个 ChatGPT 对话
-打开你的 Safari 或 Chrome 浏览器，访问 [chatgpt.com](https://chatgpt.com) 开一个新对话，复制地址栏的网址（例如：`https://chatgpt.com/c/xxxx-xxxx`）。
+### 全局安装（所有项目可用）
 
-### 第 2 步：在聊天框用普通话告诉 AI 你的需求
+```powershell
+New-Item -ItemType Directory -Force "$env:USERPROFILE\.gemini\antigravity\skills" | Out-Null
+git clone --branch windows --single-branch https://github.com/yvochehk-oss/Antigravity2gptweb.git "$env:USERPROFILE\.gemini\antigravity\skills\safari-chatgpt-reasoner"
+```
+
+### 项目级安装（推荐用于团队项目）
+
+在项目根目录的 PowerShell 执行：
+
+```powershell
+New-Item -ItemType Directory -Force ".agent\skills" | Out-Null
+git clone --branch windows --single-branch https://github.com/yvochehk-oss/Antigravity2gptweb.git ".agent\skills\safari-chatgpt-reasoner"
+```
+
+更新全局安装：
+
+```powershell
+git -C "$env:USERPROFILE\.gemini\antigravity\skills\safari-chatgpt-reasoner" pull --ff-only
+```
+
+项目级安装时，把路径改为 `.agent\skills\safari-chatgpt-reasoner`。安装或更新后请新开一个 Antigravity 对话。
+
+## GitHub 前置条件
+
+用户需要 GitHub 账户与目标仓库；Custom GPT 必须已授权使用该仓库的 GitHub 工具；本地工作区必须是同一仓库且在开始前干净。没有 GitHub 授权时，只能做 ChatGPT 网页对话，不能使用“远端提交 → 本地拉取 → 测试证据 → GPT 审查”的协作闭环。
+
+---
+
+## 🚀 首次配置与启动（纯自然语言）
+
+完成安装和 GitHub 前置条件后，再进行以下三步：
+
+### 第 1 步：登记 Custom GPT 入口地址（首次必填）
+先打开已配置 GitHub 工具的 Custom GPT，并把入口地址提供给 Agent：`https://chatgpt.com/g/g-<GPT-ID>-<GPT-slug>`。它不是当前对话的 `/c/...` 地址，缺少它时不得自动新开对话。
+
+### 第 2 步：浏览器打开该 Custom GPT 的一个对话
+在该 Custom GPT 中创建对话，复制最终会话网址（例如：`https://chatgpt.com/c/xxxx-xxxx`）。
+
+### 第 3 步：在聊天框用普通话告诉 AI 你的需求
 直接向桌面 AI 助手发送指令，像跟同事交流一样自然：
 
 > 💬 **你可以这样对 AI ### 关键特性

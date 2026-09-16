@@ -85,6 +85,14 @@ description: 双层混合 Agent 系统：以 Safari/Chrome ChatGPT 网页端 Cus
 
 > **标准跨平台 Bridge 通道**：基于 Node.js 原生 API 实现（`scripts/chrome_chatgpt.js`），支持 Windows / macOS / Linux 全平台，零 npm 依赖，零 Python 依赖。已彻底剔除旧版 Unix 独占的 Python `fcntl` 实现。
 
+> **安装根目录**：示例统一使用 `$SKILL_ROOT`。Antigravity 全局安装时为 `~/.gemini/antigravity/skills/safari-chatgpt-reasoner`；项目级安装时为 `<项目根目录>/.agent/skills/safari-chatgpt-reasoner`。
+
+### 首次使用：必须登记 Custom GPT 与 GitHub
+
+首次使用前，用户必须向 Agent 提供已配置 GitHub 工具的 Custom GPT 入口地址：`https://chatgpt.com/g/g-<GPT-ID>-<GPT-slug>`，以及当前会话地址 `https://chatgpt.com/c/<conversation-id>`。前者用于额度耗尽或交接后启动同一个 Custom GPT 的新会话；后者只绑定当前 Tab，不能反推出 GPT 身份。
+
+用户还必须准备目标 GitHub 仓库，且 Custom GPT 的 GitHub 工具只获授本任务所需的仓库权限。没有入口地址时不得自动新开对话；没有 GitHub 授权时不得声称完成远端修改与本地验收闭环。
+
 > **中文 Windows 编码**：批处理文件统一使用 UTF-8 与 `chcp 65001`。Bridge 和 Node 编排器读取提示、证据文件及测试输出时依次支持 UTF-8（含 BOM）、UTF-16LE 和 GB18030/GBK 回退，避免中文日志变成乱码。
 
 #### Node.js 跨平台标准 Bridge (`chrome_chatgpt.js`)
@@ -102,13 +110,13 @@ Node.js Bridge 标准调用方法（全平台统一使用 `node chrome_chatgpt.j
 
 ```bash
 # 1. 精确指定 Tab 执行架构规划与 Prompt 发送
-node .agents/skills/safari-chatgpt-reasoner/scripts/chrome_chatgpt.js \
+node "$SKILL_ROOT/scripts/chrome_chatgpt.js" \
   --target-url "https://chatgpt.com/c/6a9f7b81-0bcc-83e9-a4c1-036d110e1665" \
   --type plan \
   --prompt "任务目标描述"
 
 # 2. 本地执行测试日志反馈闭环（带 L1 渐进脱敏与熔断保护）
-node .agents/skills/safari-chatgpt-reasoner/scripts/chrome_chatgpt.js \
+node "$SKILL_ROOT/scripts/chrome_chatgpt.js" \
   --target-url "https://chatgpt.com/c/6a9f7b81-0bcc-83e9-a4c1-036d110e1665" \
   --type feedback \
   --prompt "正在执行模块 A 重构" \
@@ -117,7 +125,7 @@ node .agents/skills/safari-chatgpt-reasoner/scripts/chrome_chatgpt.js \
   --signature "ALEMBIC_MIGRATION_DUPLICATE_KEY_ERR"
 
 # 3. 指定 Edge 或非默认端口 / host
-node .agents/skills/safari-chatgpt-reasoner/scripts/chrome_chatgpt.js \
+node "$SKILL_ROOT/scripts/chrome_chatgpt.js" \
   --browser-name edge \
   --chrome-host 127.0.0.1 \
   --chrome-port 9222 \
@@ -126,7 +134,7 @@ node .agents/skills/safari-chatgpt-reasoner/scripts/chrome_chatgpt.js \
   --prompt "用 Edge 调用"
 
 # 4. 仅清空熔断器
-node .agents/skills/safari-chatgpt-reasoner/scripts/chrome_chatgpt.js \
+node "$SKILL_ROOT/scripts/chrome_chatgpt.js" \
   --reset-circuit
 ```
 
