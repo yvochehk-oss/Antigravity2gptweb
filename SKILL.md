@@ -85,6 +85,18 @@ description: 双层混合 Agent 系统：以 Safari/Chrome ChatGPT 网页端 Cus
 
 > **浏览器选择**：macOS 优先 Safari（AppleScript，无需额外启动）；Linux / Windows 或需要 DevTools 集成时用任何 Chromium 内核浏览器（Chrome / Edge / Brave / Arc / Opera 等，统一走 CDP 协议，仅启动时开启 `--remote-debugging-port` 即可）。
 
+### 首次使用：必须登记 Custom GPT 入口地址
+
+首次使用本 Skill 前，用户**必须**向本地 Agent 提供已配置 GitHub 工具的 Custom GPT 入口地址，格式为：
+
+```
+https://chatgpt.com/g/g-<GPT-ID>-<GPT-slug>
+```
+
+它与当前会话地址 `https://chatgpt.com/c/<conversation-id>` 是两个不同的值：前者唯一确定要继续使用的 Custom GPT，后者仅绑定当前的一次对话。不得从 `/c/...` 地址猜测或反推出入口地址。
+
+这条配置是额度耗尽、长会话交接或页面异常后创建新会话的前提。未提供入口地址时，Agent 只能使用既有 `--target-url` 完成当前会话的单次交互；**不得**自动点击“新对话”或切换到普通 ChatGPT。入口地址不含登录凭据，用户不应提供 Cookie、令牌或密码。
+
 #### Safari 版（AppleScript，无需额外设置）
 
 ```bash
@@ -239,11 +251,12 @@ esac
 
 v4.1 **删除** `--new` 参数。新会话的开启由 Execution Plane 在调用前完成（Safari 和 Chrome 通用）：
 
-1. Execution Plane 打开目标 ChatGPT 会话页（或调用任何外部手段拿到最终 `/c/<uuid>`）。
-2. 把最终 URL 通过 `--target-url` 传入本桥。
-3. 由本桥以 Hard Binding 接管该会话的全部交互。
+1. 首次配置时登记 Custom GPT 入口地址 `https://chatgpt.com/g/g-...`；额度耗尽或需交接时，只能由该入口启动新会话，不能用旧 `/c/<uuid>` 猜测目标 GPT。
+2. Execution Plane 打开该 Custom GPT 的新会话页（或调用任何外部手段拿到最终 `/c/<uuid>`）。
+3. 把最终 URL 通过 `--target-url` 传入本桥。
+4. 由本桥以 Hard Binding 接管该会话的全部交互。
 
-这样 Hard Tab Binding 与"主动切换会话 URL" 不再存在结构性冲突。
+这样 Hard Tab Binding、Custom GPT 身份和"主动切换会话 URL" 不再存在结构性冲突。
 
 ---
 

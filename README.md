@@ -57,10 +57,15 @@ description: 纯自然语言驱动的通用 AI 协作开发桥梁：让任意桌
 
 无需配置任何复杂的开发环境，只需简单三步：
 
-### 第 1 步：浏览器打开一个 ChatGPT 对话
-打开你的 Safari 或 Chrome 浏览器，访问 [chatgpt.com](https://chatgpt.com) 开一个新对话，复制地址栏的网址（例如：`https://chatgpt.com/c/xxxx-xxxx`）。
+### 第 1 步：登记 Custom GPT 入口地址（首次必填）
+先打开你要协作使用的 Custom GPT，并把它的入口地址提供给本地 Agent，格式为：`https://chatgpt.com/g/g-<GPT-ID>-<GPT-slug>`。
 
-### 第 2 步：在聊天框用普通话告诉 AI 你的需求
+这不是当前对话的 `/c/...` 地址。入口地址用于额度耗尽、长会话交接或页面异常时创建同一个 Custom GPT 的新会话；仅有 `/c/...` 时，系统不得自动点“新对话”，以免误进普通 ChatGPT。
+
+### 第 2 步：浏览器打开该 Custom GPT 的一个对话
+在上述 Custom GPT 中开启对话，复制最终的会话网址（例如：`https://chatgpt.com/c/xxxx-xxxx`）。
+
+### 第 3 步：在聊天框用普通话告诉 AI 你的需求
 直接向桌面 AI 助手发送指令，像跟同事交流一样自然：
 
 > 💬 **你可以这样对 AI ### 关键特性
