@@ -94,6 +94,19 @@ function sanitizeText(text) {
     .replace(/(?:AKIA|ASIA)[0-9A-Z]{16}/g,                     '[AWS_KEY]');
 }
 
+function decodeWindowsText(input) {
+  if (typeof input === 'string') return input.replace(/^\uFEFF/, '');
+  const data=Buffer.from(input||'');
+  if (data.length>=2 && data[0]===0xFF && data[1]===0xFE) return new TextDecoder('utf-16le').decode(data.subarray(2));
+  if (data.length>=2 && data[0]===0xFE && data[1]===0xFF) {
+    const swapped=Buffer.allocUnsafe(data.length-2);
+    for(let i=2;i<data.length;i+=2){swapped[i-2]=data[i+1];swapped[i-1]=data[i];}
+    return new TextDecoder('utf-16le').decode(swapped);
+  }
+  try { return new TextDecoder('utf-8',{fatal:true}).decode(data).replace(/^\uFEFF/, ''); }
+  catch (_) { return new TextDecoder('gb18030').decode(data); }
+}
+
 // ═══════════════════════════════════════════════════════════════════
 // Event emitter  (stderr JSON)
 // ═══════════════════════════════════════════════════════════════════
@@ -632,7 +645,7 @@ function parseCliArgs(argv) {
     const k=argv[i],v=argv[i+1];
     switch(k) {
       case '--prompt':           a.prompt=v;                   i+=2;break;
-      case '--prompt-file':      a.prompt=fs.readFileSync(v,'utf8'); i+=2;break;
+      case '--prompt-file':      a.prompt=decodeWindowsText(fs.readFileSync(v)); i+=2;break;
       case '--target-url':       a.targetUrl=v;                i+=2;break;
       case '--chrome-port':      a.chromePort=parseInt(v,10);  i+=2;break;
       case '--chrome-host':      a.chromeHost=v;               i+=2;break;
@@ -665,7 +678,7 @@ async function main() {
   try{validateTargetUrl(args.targetUrl);}catch(e){emitEvent('validate_target',EXIT_BROWSER_FAIL,`target_url校验失败: ${e.message}`,{target_url:args.targetUrl});process.exit(EXIT_BROWSER_FAIL);}
 
   let evidenceBody=null;
-  if(args.evidenceFile){try{evidenceBody=fs.readFileSync(args.evidenceFile,'utf8');}catch(e){emitEvent('evidence_load',EXIT_BROWSER_FAIL,`--evidence-file读取失败: ${e.message}`,{evidence_file:args.evidenceFile});process.exit(EXIT_BROWSER_FAIL);}}
+  if(args.evidenceFile){try{evidenceBody=decodeWindowsText(fs.readFileSync(args.evidenceFile));}catch(e){emitEvent('evidence_load',EXIT_BROWSER_FAIL,`--evidence-file读取失败: ${e.message}`,{evidence_file:args.evidenceFile});process.exit(EXIT_BROWSER_FAIL);}}
   else if(args.evidence) evidenceBody=args.evidence;
 
   const sig=args.signature||null;

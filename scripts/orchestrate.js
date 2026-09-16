@@ -24,17 +24,32 @@ function projectDir(name) { return path.join(HOME, name); }
 function ensureDir(dir) { fs.mkdirSync(dir, { recursive: true }); }
 function readJson(file) { return JSON.parse(fs.readFileSync(file, 'utf8')); }
 function writeJson(file, value) { ensureDir(path.dirname(file)); fs.writeFileSync(file, JSON.stringify(value, null, 2) + '\n', 'utf8'); }
+function decodeWindowsText(input) {
+  if (typeof input === 'string') return input.replace(/^\uFEFF/, '');
+  const data=Buffer.from(input || '');
+  if (data.length >= 2 && data[0] === 0xFF && data[1] === 0xFE) return new TextDecoder('utf-16le').decode(data.subarray(2));
+  try { return new TextDecoder('utf-8', { fatal: true }).decode(data).replace(/^\uFEFF/, ''); }
+  catch (_) { return new TextDecoder('gb18030').decode(data); }
+}
 function run(exe, args, options = {}) {
-  return childProcess.spawnSync(exe, args, { cwd: options.cwd, encoding: 'utf8', timeout: options.timeout || GIT_TIMEOUT_MS, shell: false });
+  return childProcess.spawnSync(exe, args, { cwd: options.cwd, timeout: options.timeout || GIT_TIMEOUT_MS, shell: false });
 }
 function git(args, cwd, label) {
   const result = run('git', args, { cwd });
   if (result.error) throw new Error(`${label}: ${result.error.message}`);
-  if (result.status !== 0) throw new Error(`${label}: ${(result.stderr || result.stdout || '').trim().slice(0, 500)}`);
-  return (result.stdout || '').trim();
+  if (result.status !== 0) throw new Error(`${label}: ${decodeWindowsText(result.stderr || result.stdout).trim().slice(0, 500)}`);
+  return decodeWindowsText(result.stdout).trim();
 }
 function cleanCheckout(cwd) {
   if (git(['status', '--porcelain'], cwd, '无法检查工作区')) throw new Error('本地工作区有未提交改动；拒绝同步，避免覆盖验收环境');
+}
+function ensureBranch(cwd, branch) {
+  git(['fetch', 'origin', branch], cwd, '无法获取目标分支');
+  if (git(['branch', '--show-current'], cwd, '无法读取当前分支') === branch) return;
+  const remote = run('git', ['show-ref', '--verify', '--quiet', `refs/remotes/origin/${branch}`], { cwd });
+  if (remote.status !== 0) throw new Error(`远端目标分支不存在：${branch}；请先由 Custom GPT 在 GitHub 创建该分支`);
+  const local = run('git', ['switch', branch], { cwd });
+  if (local.status !== 0) git(['switch', '--track', '-c', branch, `origin/${branch}`], cwd, '无法切换到目标分支');
 }
 function syncBranch(cwd, branch) {
   cleanCheckout(cwd);
@@ -72,16 +87,16 @@ function bridge(type, prompt, state, extra = {}) {
   if (extra.signature) args.push('--signature', extra.signature);
   const result = run('node', args, { cwd: state.cwd, timeout: (extra.timeout || 360) * 1000 + 60000 });
   if (result.error) throw new Error(`bridge 启动失败: ${result.error.message}`);
-  return { code: result.status ?? 4, text: result.stdout || '', events: result.stderr || '' };
+  return { code: result.status ?? 4, text: decodeWindowsText(result.stdout), events: decodeWindowsText(result.stderr) };
 }
 function runTests(state, tests) {
   const results = [];
   for (const test of tests) {
     // Commands are received only after the cloud GPT has pushed the code. They
     // are intentionally visible in state and evidence; no local code is made.
-    const r = childProcess.spawnSync(test.command, { cwd: state.cwd, encoding: 'utf8', timeout: 120000, shell: true });
+    const r = childProcess.spawnSync(test.command, { cwd: state.cwd, timeout: 120000, shell: true });
     const code = r.status === null ? 124 : r.status;
-    results.push(`COMMAND: ${test.command}\nEXPECTED: ${test.expected}\nEXIT_CODE: ${code}\nSTDOUT:\n${(r.stdout || '').slice(0, 4000)}\nSTDERR:\n${(r.stderr || r.error?.message || '').slice(0, 4000)}`);
+    results.push(`COMMAND: ${test.command}\nEXPECTED: ${test.expected}\nEXIT_CODE: ${code}\nSTDOUT:\n${decodeWindowsText(r.stdout).slice(0, 4000)}\nSTDERR:\n${decodeWindowsText(r.stderr || r.error?.message).slice(0, 4000)}`);
   }
   return results.join('\n\n---\n\n');
 }
@@ -127,6 +142,7 @@ function init() {
   const branch = arg('--branch', false) || `orchestrate/${name}`;
   if (fs.existsSync(statePath(name))) throw new Error(`项目 ${name} 已存在`);
   const state = { name, created_at: now(), updated_at: now(), requirement, chatgpt_url: target, repo_url: repo, branch, cwd, browser: 'windows-cdp', bridge_script: BRIDGE, plan_md_path: path.join(projectDir(name), 'PLAN.md'), task_locked: false, current_task_id: null, tasks: [], commit_sha_head: '' };
+  ensureBranch(cwd, branch);
   state.commit_sha_head = syncBranch(cwd, branch);
   const plan = bridge('plan', `【项目需求】\n${requirement}\n请输出可执行的编号任务计划，每项都必须可单独提交和验证。`, state, { timeout: 300, signature: `init:${name}` });
   if (plan.code !== 0) throw new Error(`方案生成失败 exit=${plan.code}`);

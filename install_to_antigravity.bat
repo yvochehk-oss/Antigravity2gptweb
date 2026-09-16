@@ -1,19 +1,19 @@
 @echo off
-@chcp 936 >nul 2>&1
-title °²×° safari-chatgpt-reasoner ¼¼ÄÜµ½ Antigravity
+@chcp 65001 >nul 2>&1
+title å®‰è£… safari-chatgpt-reasoner æŠ€èƒ½åˆ° Antigravity
 echo ==============================================================================
-echo   ÕıÔÚ×Ô¶¯°²×° safari-chatgpt-reasoner ¼¼ÄÜµ½ Antigravity È«¾Ö¼¼ÄÜ¿â...
+echo   æ­£åœ¨è‡ªåŠ¨å®‰è£… safari-chatgpt-reasoner æŠ€èƒ½åˆ° Antigravity å…¨å±€æŠ€èƒ½åº“...
 echo ==============================================================================
 echo.
 
 set "TARGET_DIR=%USERPROFILE%\.gemini\antigravity\skills\safari-chatgpt-reasoner"
 
 if not exist "%TARGET_DIR%" (
-    echo [´´½¨Ä¿Â¼] %TARGET_DIR%
+    echo [åˆ›å»ºç›®å½•] %TARGET_DIR%
     mkdir "%TARGET_DIR%"
 )
 
-echo [ÕıÔÚ¸´ÖÆÎÄ¼ş] ...
+echo [æ­£åœ¨å¤åˆ¶æ–‡ä»¶] ...
 xcopy "%~dp0*" "%TARGET_DIR%\" /E /I /Y /Q /EXCLUDE:%~dp0.install_exclude 2>nul
 if errorlevel 1 (
     xcopy "%~dp0*" "%TARGET_DIR%\" /E /I /Y /Q
@@ -21,13 +21,13 @@ if errorlevel 1 (
 
 echo.
 echo ==============================================================================
-echo   [°²×°³É¹¦] ¼¼ÄÜÒÑ¾ÍĞ÷£¡
-echo   °²×°Â·¾¶£º%TARGET_DIR%
+echo   [å®‰è£…æˆåŠŸ] æŠ€èƒ½å·²å°±ç»ªï¼
+echo   å®‰è£…è·¯å¾„ï¼š%TARGET_DIR%
 echo.
-echo   ¡¾Ê¹ÓÃÖ¸Òı¡¿£º
-echo   1. Ë«»÷ start_chrome_cdp.bat »ò start_edge_cdp.bat Æô¶¯ä¯ÀÀÆ÷
-echo   2. ´ò¿ª ChatGPT ÍøÒ³¶Ë²¢½øÈëÄãµÄ»á»°
-echo   3. ÔÚ Windows °æ Antigravity ¶Ô»°¿òÖĞÊäÈë£º/safari-chatgpt-reasoner ¼´¿É»½Æğ£¡
+echo   ã€ä½¿ç”¨æŒ‡å¼•ã€‘ï¼š
+echo   1. åŒå‡» start_chrome_cdp.bat æˆ– start_edge_cdp.bat å¯åŠ¨æµè§ˆå™¨
+echo   2. æ‰“å¼€ ChatGPT ç½‘é¡µç«¯å¹¶è¿›å…¥ä½ çš„ä¼šè¯
+echo   3. åœ¨ Windows ç‰ˆ Antigravity å¯¹è¯æ¡†ä¸­è¾“å…¥ï¼š/safari-chatgpt-reasoner å³å¯å”¤èµ·ï¼
 echo ==============================================================================
 echo.
 pause

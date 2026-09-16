@@ -85,6 +85,8 @@ description: 双层混合 Agent 系统：以 Safari/Chrome ChatGPT 网页端 Cus
 
 > **标准跨平台 Bridge 通道**：基于 Node.js 原生 API 实现（`scripts/chrome_chatgpt.js`），支持 Windows / macOS / Linux 全平台，零 npm 依赖，零 Python 依赖。已彻底剔除旧版 Unix 独占的 Python `fcntl` 实现。
 
+> **中文 Windows 编码**：批处理文件统一使用 UTF-8 与 `chcp 65001`。Bridge 和 Node 编排器读取提示、证据文件及测试输出时依次支持 UTF-8（含 BOM）、UTF-16LE 和 GB18030/GBK 回退，避免中文日志变成乱码。
+
 #### Node.js 跨平台标准 Bridge (`chrome_chatgpt.js`)
 
 前置条件：启动目标浏览器（Chrome 或 Edge）并开启 CDP 调试端口后，导航至 ChatGPT 会话页：
@@ -303,4 +305,3 @@ NEEDS_FIX → Custom GPT 重新修改并 push → Agent git pull + 测试 → GP
 - **可恢复**：所有状态持久化到 `~/.antigravity/orchestrator/`，中断后可随时恢复。
 - **长会话平滑交接 (Handoff Protocol)**：当对话历史过长导致 WebKit/页面渲染负载增加时，执行 `旧会话生成交接摘要 ➔ 换新会话 URL 注入继续`，兼顾 100% 上下文继承与极致流畅度。
 - **可信证据**：所有 bridge 调用走事件 JSONL，stderr 记录每次 GPT 请求/响应的基线快照。
-
