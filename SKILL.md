@@ -268,9 +268,8 @@ orchestrate.py lock ────→ 解析为任务列表，推送到 GitHub
     ▼
 orchestrate.py run-task × N ────→ 每个任务的闭环：
     │
-    ├── GPT 生成代码（task-code）
-    ├── 本地 Agent 写文件
-    ├── git add + commit + push
+    ├── GPT 通过 GitHub 工具修改、提交、推送（task-code）
+    ├── 本地 Agent git pull --ff-only 并校验 HEAD
     ├── 本地 Agent 跑测试
     ├── GPT 审查测试结果（task-review）
     └── 裁决：APPROVED / NEEDS_FIX（自动修复） / BLOCKED（暂停等人工）
@@ -396,4 +395,3 @@ NEEDS_FIX → Custom GPT 重新修改并 push → Agent git pull + 测试 → GP
 - **可恢复**：所有状态持久化到 `~/.antigravity/orchestrator/`，中断后可随时恢复。
 - **长会话平滑交接 (Handoff Protocol)**：当对话历史过长导致 WebKit/页面渲染负载增加时，执行 `旧会话生成交接摘要 ➔ 换新会话 URL 注入继续`，兼顾 100% 上下文继承与极致流畅度。
 - **可信证据**：所有 bridge 调用走事件 JSONL，stderr 记录每次 GPT 请求/响应的基线快照。
-

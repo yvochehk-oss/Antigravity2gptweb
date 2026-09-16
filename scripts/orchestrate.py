@@ -8,7 +8,7 @@ Desktop Agent Orchestrator — 端到端任务编排器
   init → refine（可选）→ lock → run-task × N → 完成
 
 每个 run-task 内部闭环：
-  GPT 生成代码 → 本地 Agent 写文件 → git push → 本地 Agent 跑测试 →
+  GPT 通过 GitHub 远端提交代码 → 本地 Agent fast-forward 拉取并跑测试 →
   GPT 审查测试结果 → 裁决：APPROVED / NEEDS_FIX / BLOCKED
 """
 
@@ -22,6 +22,7 @@ import shutil
 import textwrap
 import subprocess
 import argparse
+import platform
 from pathlib import Path
 from typing import Optional, Dict, Any, List, Tuple
 from dataclasses import dataclass, field, asdict
@@ -156,6 +157,10 @@ def _resolve_bridge(browser: str) -> str:
     if not script:
         raise ValueError(f"未知 browser: {browser!r}，可选: {list(BRIDGE_BY_BROWSER.keys())}")
     base = Path(__file__).parent.parent.resolve()
+    # Windows uses the dependency-free Node CDP bridge. macOS keeps the
+    # AppleScript Safari bridge and Python Chromium bridge unchanged.
+    if platform.system() == "Windows" and browser.lower() != "safari":
+        return str(base / "scripts/chrome_chatgpt.js")
     return str(base / script)
 
 
@@ -165,11 +170,26 @@ def _ensure_branch(cwd: str, branch: str, repo_url: str) -> None:
     if existing == branch:
         return
     # 尝试 checkout（如果远程有）
-    r = _run(["git", "fetch", "origin", branch], cwd=cwd)
+    _git_or_raise("fetch origin " + branch, cwd, "无法拉取目标分支")
     r2 = _run(["git", "checkout", branch], cwd=cwd)
     if r2.returncode != 0:
-        # 创建新分支
-        _run(["git", "checkout", "-b", branch], cwd=cwd)
+        tracked = _run(["git", "checkout", "-b", branch, "--track", f"origin/{branch}"], cwd=cwd)
+        if tracked.returncode != 0:
+            _git_or_raise("checkout -b " + branch, cwd, "无法创建目标分支")
+
+
+def _sync_remote_branch(cwd: str, branch: str) -> str:
+    """Fail closed on local edits, then require an exact remote HEAD match."""
+    dirty = _git_or_raise("status --porcelain", cwd, "无法检查工作区状态")
+    if dirty:
+        raise RuntimeError("本地工作区存在未提交改动；拒绝 git pull，避免覆盖验收环境")
+    _git_or_raise("fetch origin " + branch, cwd, "无法获取远端提交")
+    _git_or_raise("pull --ff-only origin " + branch, cwd, "无法 fast-forward 拉取远端提交")
+    head = _git_or_raise("rev-parse HEAD", cwd, "无法读取本地 HEAD")
+    remote = _git_or_raise("rev-parse origin/" + branch, cwd, "无法读取远端 HEAD")
+    if head != remote:
+        raise RuntimeError(f"拉取后 HEAD 不一致：local={head}, origin={remote}")
+    return head
 
 
 # =============================================================================
@@ -241,8 +261,8 @@ def _bridge_call(type_: str, prompt: str,
                  signature: Optional[str] = None,
                  extra_args: Optional[List[str]] = None) -> Tuple[int, str]:
     """调用 bridge，返回 (exit_code, stdout)"""
-    args = [
-        sys.executable, bridge_script,
+    runtime = ["node", bridge_script] if bridge_script.endswith(".js") else [sys.executable, bridge_script]
+    args = runtime + [
         "--type", type_,
         "--prompt", prompt,
         "--target-url", target_url,
@@ -535,14 +555,9 @@ def execute_task(state: ProjectState, task: Task,
         "【当前项目 Git 状态】\n"
         f"  最新提交: {state.commit_sha_head[:8]}\n"
         f"  分支: {state.branch}\n\n"
-        "请完成此任务的代码实现。严格按照以下格式输出：\n\n"
-        "1. 代码文件（每个文件一个代码块）：\n"
-        "   ```<language>\n"
-        "   <filepath: path/to/file>  # 已存在文件直接写路径\n"
-        "   <filepath: NEW: path/to/file>  # 新建文件前面加 NEW:\n"
-        "   <code>\n"
-        "   ```\n\n"
-        "2. 测试命令（必须提供，至少一个）：\n"
+        "请使用你的 GitHub 直连工具在上述分支完成此任务，并提交、推送代码。"
+        "本地 Agent 不会从回复中写入代码、提交或推送。严格只输出：\n\n"
+        "1. 测试命令（必须提供，至少一个）：\n"
         "   ```bash\n"
         "   TEST: <命令>\n"
         "   EXPECTED: <预期结果描述>\n"
@@ -550,7 +565,9 @@ def execute_task(state: ProjectState, task: Task,
         "注意：\n"
         "- 测试命令必须可直接在项目根目录执行\n"
         "- EXPECTED 描述应简洁明确（如 'all tests pass', 'exit 0', 'no errors'）\n"
-        "- 我会把测试结果反馈给你，你再决定是否通过"
+        "- 在提交完成前不要输出测试命令\n"
+        "- 不要粘贴代码、文件内容或额外说明\n"
+        "- 我会拉取远端提交并把真实测试结果反馈给你"
     )
 
     ec, code_output = _bridge_call(
@@ -567,25 +584,15 @@ def execute_task(state: ProjectState, task: Task,
         state.save()
         return False
 
-    # 解析代码块和测试命令
-    code_blocks = parse_code_blocks(code_output)
     test_cmds = parse_test_commands(code_output)
-
-    if not code_blocks:
-        print(f"[Task {task.id}] ⚠ 未从 GPT 输出中解析到代码块")
-        task.status = "failed"
-        task.last_verdict = "BLOCKED"
-        task.last_fix_note = "未解析到代码块，可能是 GPT 输出格式不符"
-        state.save()
-        return False
 
     if not test_cmds:
         print(f"[Task {task.id}] ⚠ GPT 未提供测试命令，要求重新生成")
         # 让 GPT 补充测试命令
         retry_prompt = (
             f"【任务 {task.id}】{task.title}\n"
-            f"【你刚才的代码】\n{code_output[:2000]}\n\n"
-            "你忘记提供测试命令了。请补充至少一个测试命令，格式：\n"
+            "请确认已通过 GitHub 在目标分支提交并推送本任务代码。"
+            "你忘记提供测试命令了。请仅补充至少一个测试命令，格式：\n"
             "```bash\n"
             "TEST: <命令>\n"
             "EXPECTED: <预期结果>\n"
@@ -606,55 +613,19 @@ def execute_task(state: ProjectState, task: Task,
             state.save()
             return False
 
-    # 写文件到本地
-    written_files = []
-    for filepath, _lang, code in code_blocks:
-        if filepath is None:
-            print(f"[Task {task.id}] ⚠ 代码块无 filepath 标签，跳过")
-            continue
-        is_new = filepath.startswith("NEW: ")
-        if is_new:
-            filepath = filepath[4:].strip()
-        full_path = Path(state.cwd) / filepath
-        if not is_new and not full_path.exists():
-            print(f"[Task {task.id}] ⚠ 目标文件不存在: {filepath}，跳过")
-            continue
-        full_path.parent.mkdir(parents=True, exist_ok=True)
-        full_path.write_text(code, encoding="utf-8")
-        written_files.append(filepath)
-        print(f"[Task {task.id}] {'+NEW' if is_new else '  MOD'} {filepath}")
-
-    if not written_files:
-        print(f"[Task {task.id}] ⚠ 未写入任何文件")
-        task.status = "failed"
-        task.last_verdict = "BLOCKED"
-        task.last_fix_note = "未成功写入任何文件"
-        state.save()
-        return False
-
-    # git commit + push
-    _run(["git", "add"] + [str(Path(state.cwd) / f) for f in written_files],
-         cwd=state.cwd)
-    r = _run(["git", "status", "--porcelain"], cwd=state.cwd)
-    if r.stdout.strip():
-        commit_msg = f"feat(task-{task.id}): {task.title}\n\nFiles: {', '.join(written_files)}"
-        _run(["git", "commit", "-m", commit_msg], cwd=state.cwd)
-        _run(["git", "push", "origin", state.branch], cwd=state.cwd)
-        state.commit_sha_head = _run(["git", "rev-parse", "HEAD"],
-                                       cwd=state.cwd).strip()
-        print(f"[Task {task.id}] ✅ 已提交并推送：{', '.join(written_files)}")
-    else:
-        print(f"[Task {task.id}] 无文件变更需要提交（与上次相同）")
-
-    # 自动拉取远端 Git 提交（支持 Custom GPT 直连工具修改模式）
+    # The cloud GPT owns every repository mutation. Local execution is a
+    # read-and-verify data plane, so synchronization must be fast-forward only.
     try:
-        print(f"[Task {task.id}] 🔄 自动拉取远端最新代码 (git pull origin {state.branch})...")
-        _run(["git", "pull", "origin", state.branch], cwd=state.cwd)
-        head_sha = _run(["git", "rev-parse", "HEAD"], cwd=state.cwd).strip()
-        state.commit_sha_head = head_sha
-        print(f"[Task {task.id}] ✅ 本地与远端 HEAD 已齐平: {head_sha[:8]}")
+        print(f"[Task {task.id}] 🔄 拉取并校验远端提交 (fast-forward only)...")
+        state.commit_sha_head = _sync_remote_branch(state.cwd, state.branch)
+        print(f"[Task {task.id}] ✅ 本地与远端 HEAD 已齐平: {state.commit_sha_head[:8]}")
     except Exception as exc:
-        print(f"[Task {task.id}] ⚠️ 自动 git pull 提示: {exc}")
+        task.status = "blocked"
+        task.last_verdict = "BLOCKED"
+        task.last_fix_note = f"无法安全同步远端提交: {exc}"
+        state.save()
+        print(f"[Task {task.id}] 🚫 {task.last_fix_note}")
+        return False
 
     # 运行测试
     task.status = "testing"
@@ -690,8 +661,7 @@ def execute_task(state: ProjectState, task: Task,
     # GPT 审查测试结果并决定下一步
     review_prompt = (
         f"【任务 {task.id}】{task.title}\n\n"
-        f"【代码文件】{', '.join(written_files)}\n\n"
-        f"【你的代码实现】\n{code_output[:3000]}\n\n"
+        f"【已验证远端提交】{state.commit_sha_head}\n\n"
         f"【本地 Agent 测试结果】\n{task.test_results}\n\n"
         "请根据测试结果决定下一步行动。严格按以下格式输出：\n\n"
         "1. APPROVED - 测试全部通过，代码符合要求，任务完成\n"
@@ -742,16 +712,15 @@ def execute_task(state: ProjectState, task: Task,
 
     # NEEDS_FIX：进入自动修复循环
     print(f"[Task {task.id}] 🔧 需要修复，进入自动修复循环...")
-    return _auto_fix_loop(state, task, written_files, code_output, test_cmds, max_attempts)
+    return _auto_fix_loop(state, task, code_output, test_cmds, max_attempts)
 
 
 def _auto_fix_loop(state: ProjectState, task: Task,
-                   written_files: List[str],
                    original_code: str,
                    test_cmds: List[Tuple[str, str]],
                    max_attempts: int) -> bool:
     """
-    自动修复循环：GPT 修复代码 → Agent 测试 → GPT 审查 → 决定下一步
+    自动修复循环：GPT 在远端修复并推送 → Agent 拉取测试 → GPT 审查
     """
     fix_note = task.last_fix_note
     code_output = original_code
@@ -764,13 +733,11 @@ def _auto_fix_loop(state: ProjectState, task: Task,
 
         fix_prompt = (
             f"【任务 {task.id}】{task.title}\n\n"
-            f"【已实现的文件】{', '.join(written_files)}\n\n"
-            f"【上次代码】\n{code_output[:3000]}\n\n"
+            f"【上次已验证提交】{state.commit_sha_head}\n\n"
             f"【测试结果】\n{task.test_results}\n\n"
             f"【你的审查反馈】{fix_note}\n\n"
-            "请根据你自己的审查反馈修改代码，输出格式与之前相同：\n"
-            "  - 代码块：```<language>\n<filepath: path>\n<code>\n```\n"
-            "  - 测试命令（如需修改）：```bash\nTEST: ...\nEXPECTED: ...\n```"
+            "请通过 GitHub 直连工具在目标分支修复并推送。不要输出代码；"
+            "仅在 bash 代码块中输出测试命令：\nTEST: ...\nEXPECTED: ..."
         )
 
         ec, new_code = _bridge_call(
@@ -789,39 +756,26 @@ def _auto_fix_loop(state: ProjectState, task: Task,
 
         code_output = new_code
 
-        # 重新解析代码块
-        new_blocks = parse_code_blocks(new_code)
         new_test_cmds = parse_test_commands(new_code)
         if new_test_cmds:
             test_cmds = new_test_cmds  # 如果 GPT 更新了测试命令
 
-        if not new_blocks:
-            print(f"[Task {task.id}] ⚠ 修复后未解析到代码块")
-            continue
+        if not test_cmds:
+            task.status = "blocked"
+            task.last_verdict = "BLOCKED"
+            task.last_fix_note = "GPT 修复后未提供有效测试命令"
+            state.save()
+            return False
 
-        # 重写文件到本地
-        for filepath, _lang, code in new_blocks:
-            if filepath is None:
-                continue
-            is_new = filepath.startswith("NEW: ")
-            if is_new:
-                filepath = filepath[4:].strip()
-            full = Path(state.cwd) / filepath
-            full.parent.mkdir(parents=True, exist_ok=True)
-            full.write_text(code, encoding="utf-8")
-            print(f"[Task {task.id}]   修复: {filepath}")
-
-        # git commit + push 修复
-        _run(["git", "add"] + [str(Path(state.cwd) / f) for f in written_files],
-             cwd=state.cwd)
-        r = _run(["git", "status", "--porcelain"], cwd=state.cwd)
-        if r.stdout.strip():
-            commit_msg = f"fix(task-{task.id}): attempt {task.attempts}\n\n{fix_note[:200]}"
-            _run(["git", "commit", "-m", commit_msg], cwd=state.cwd)
-            _run(["git", "push", "origin", state.branch], cwd=state.cwd)
-            state.commit_sha_head = _run(["git", "rev-parse", "HEAD"],
-                                         cwd=state.cwd).strip()
-            print(f"[Task {task.id}] ✅ 修复已提交并推送")
+        try:
+            state.commit_sha_head = _sync_remote_branch(state.cwd, state.branch)
+            print(f"[Task {task.id}] ✅ 已同步远端修复: {state.commit_sha_head[:8]}")
+        except Exception as exc:
+            task.status = "blocked"
+            task.last_verdict = "BLOCKED"
+            task.last_fix_note = f"无法安全同步远端修复: {exc}"
+            state.save()
+            return False
 
         # 重新运行测试
         task.status = "testing"
@@ -855,7 +809,7 @@ def _auto_fix_loop(state: ProjectState, task: Task,
         review_prompt = (
             f"【任务 {task.id}】{task.title}\n\n"
             f"【修复轮次】{task.attempts}/{max_attempts}\n\n"
-            f"【修复后代码】\n{code_output[:3000]}\n\n"
+            f"【修复后已验证提交】{state.commit_sha_head}\n\n"
             f"【本地 Agent 测试结果】\n{task.test_results}\n\n"
             "请根据测试结果决定下一步：\n"
             "APPROVED - 通过\n"
