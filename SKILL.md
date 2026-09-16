@@ -85,6 +85,8 @@ description: 双层混合 Agent 系统：以 Safari/Chrome ChatGPT 网页端 Cus
 
 > **浏览器选择**：macOS 优先 Safari（AppleScript，无需额外启动）；Linux / Windows 或需要 DevTools 集成时用任何 Chromium 内核浏览器（Chrome / Edge / Brave / Arc / Opera 等，统一走 CDP 协议，仅启动时开启 `--remote-debugging-port` 即可）。
 
+> **安装根目录**：示例统一使用 `$SKILL_ROOT`。Antigravity 全局安装时为 `~/.gemini/antigravity/skills/safari-chatgpt-reasoner`；项目级安装时为 `<项目根目录>/.agent/skills/safari-chatgpt-reasoner`。不要继续使用旧的 `~/.gemini/config/skills` 路径。
+
 ### 首次使用：必须登记 Custom GPT 入口地址
 
 首次使用本 Skill 前，用户**必须**向本地 Agent 提供已配置 GitHub 工具的 Custom GPT 入口地址，格式为：
@@ -101,13 +103,13 @@ https://chatgpt.com/g/g-<GPT-ID>-<GPT-slug>
 
 ```bash
 # 1. 精确指定 Tab 执行架构规划
-python3 ~/.gemini/config/skills/safari-chatgpt-reasoner/scripts/safari_chatgpt.py \
+python3 "$SKILL_ROOT/scripts/safari_chatgpt.py" \
   --target-url "https://chatgpt.com/c/6a93f844-99f8-83ea-b4fd-8b544659e4a0" \
   --type plan \
   --prompt "任务目标描述"
 
 # 2. 本地执行报错反馈闭环（带 L1 渐进脱敏与熔断保护）
-python3 ~/.gemini/config/skills/safari-chatgpt-reasoner/scripts/safari_chatgpt.py \
+python3 "$SKILL_ROOT/scripts/safari_chatgpt.py" \
   --target-url "https://chatgpt.com/c/6a93f844-99f8-83ea-b4fd-8b544659e4a0" \
   --type feedback \
   --prompt "正在执行模块 A 重构" \
@@ -116,7 +118,7 @@ python3 ~/.gemini/config/skills/safari-chatgpt-reasoner/scripts/safari_chatgpt.p
   --signature "ALEMBIC_MIGRATION_DUPLICATE_KEY_ERR"
 
 # 3. 大体量证据推荐走文件，避免 argv 超长（E2BIG）
-python3 ~/.gemini/config/skills/safari-chatgpt-reasoner/scripts/safari_chatgpt.py \
+python3 "$SKILL_ROOT/scripts/safari_chatgpt.py" \
   --target-url "https://chatgpt.com/c/6a93f844-99f8-83ea-b4fd-8b544659e4a0" \
   --type feedback \
   --prompt "需要审计的执行日志" \
@@ -124,7 +126,7 @@ python3 ~/.gemini/config/skills/safari-chatgpt-reasoner/scripts/safari_chatgpt.p
   --level L2
 
 # 4. 仅清空熔断器
-python3 ~/.gemini/config/skills/safari-chatgpt-reasoner/scripts/safari_chatgpt.py \
+python3 "$SKILL_ROOT/scripts/safari_chatgpt.py" \
   --reset-circuit
 ```
 
@@ -178,13 +180,13 @@ Chromium bridge 调用（默认 `browser="chrome"`，Edge/Brave/Arc 用户用 `-
 
 ```bash
 # 1. 精确指定 Tab 执行架构规划（默认 localhost:9222，browser=chrome）
-python3 ~/.gemini/config/skills/safari-chatgpt-reasoner/scripts/chrome_chatgpt.py \
+python3 "$SKILL_ROOT/scripts/chrome_chatgpt.py" \
   --target-url "https://chatgpt.com/c/6a93f844-99f8-83ea-b4fd-8b544659e4a0" \
   --type plan \
   --prompt "任务目标描述"
 
 # 2. 指定非默认端口 / host
-python3 ~/.gemini/config/skills/safari-chatgpt-reasoner/scripts/chrome_chatgpt.py \
+python3 "$SKILL_ROOT/scripts/chrome_chatgpt.py" \
   --chrome-host 127.0.0.1 \
   --chrome-port 9222 \
   --target-url "https://chatgpt.com/c/6a93f844-99f8-83ea-b4fd-8b544659e4a0" \
@@ -195,14 +197,14 @@ python3 ~/.gemini/config/skills/safari-chatgpt-reasoner/scripts/chrome_chatgpt.p
   --signature "ALEMBIC_MIGRATION_DUPLICATE_KEY_ERR"
 
 # 3. Edge 用户：bridge 不变，仅用 --browser-name 标记事件来源
-python3 ~/.gemini/config/skills/safari-chatgpt-reasoner/scripts/chrome_chatgpt.py \
+python3 "$SKILL_ROOT/scripts/chrome_chatgpt.py" \
   --browser-name edge \
   --target-url "https://chatgpt.com/c/6a93f844-99f8-83ea-b4fd-8b544659e4a0" \
   --type plan \
   --prompt "用 Edge 调用"
 
 # 4. 大体量证据走文件
-python3 ~/.gemini/config/skills/safari-chatgpt-reasoner/scripts/chrome_chatgpt.py \
+python3 "$SKILL_ROOT/scripts/chrome_chatgpt.py" \
   --target-url "https://chatgpt.com/c/6a93f844-99f8-83ea-b4fd-8b544659e4a0" \
   --type feedback \
   --prompt "需要审计的执行日志" \
@@ -210,7 +212,7 @@ python3 ~/.gemini/config/skills/safari-chatgpt-reasoner/scripts/chrome_chatgpt.p
   --level L2
 
 # 5. 仅清空 Chromium 熔断器（独立状态文件，不与 Safari 共享）
-python3 ~/.gemini/config/skills/safari-chatgpt-reasoner/scripts/chrome_chatgpt.py \
+python3 "$SKILL_ROOT/scripts/chrome_chatgpt.py" \
   --reset-circuit
 ```
 

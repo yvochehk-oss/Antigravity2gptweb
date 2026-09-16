@@ -53,9 +53,64 @@ description: 纯自然语言驱动的通用 AI 协作开发桥梁：让任意桌
 
 ---
 
-## 🚀 3 步轻松上手（纯自然语言）
+## 安装到 Antigravity IDE
 
-无需配置任何复杂的开发环境，只需简单三步：
+本项目是 **GitHub 分支发布** 的 Skill：macOS 使用 `macos` 分支，Windows 使用纯 Node.js 的 `windows` 分支；`main` 仅提供公开项目说明。安装和更新都需要 Git。请在下列两种范围中选一种，不能同时安装同名副本。
+
+### 全局安装（所有项目可用）
+
+macOS：
+
+```bash
+mkdir -p ~/.gemini/antigravity/skills
+git clone --branch macos --single-branch \
+  https://github.com/yvochehk-oss/Antigravity2gptweb.git \
+  ~/.gemini/antigravity/skills/safari-chatgpt-reasoner
+```
+
+Windows PowerShell：
+
+```powershell
+New-Item -ItemType Directory -Force "$env:USERPROFILE\.gemini\antigravity\skills" | Out-Null
+git clone --branch windows --single-branch https://github.com/yvochehk-oss/Antigravity2gptweb.git "$env:USERPROFILE\.gemini\antigravity\skills\safari-chatgpt-reasoner"
+```
+
+### 项目级安装（推荐用于团队项目）
+
+在项目根目录执行。该 Skill 会随项目的 `.agent/` 配置一起被 Antigravity 识别：
+
+```bash
+mkdir -p .agent/skills
+git clone --branch macos --single-branch \
+  https://github.com/yvochehk-oss/Antigravity2gptweb.git \
+  .agent/skills/safari-chatgpt-reasoner
+```
+
+Windows 用户把上面两条命令中的 `macos` 改为 `windows`。安装或更新后请新开一个 Antigravity 对话。
+
+### 更新
+
+```bash
+git -C ~/.gemini/antigravity/skills/safari-chatgpt-reasoner pull --ff-only
+```
+
+项目级安装时，把上述路径改为 `.agent/skills/safari-chatgpt-reasoner`。
+
+## GitHub 前置条件
+
+这个 Skill 的协作闭环依赖 GitHub，而不只是把 ChatGPT 网页自动化：
+
+1. 用户需要有 GitHub 账户，以及已存在或新建的目标仓库。
+2. Custom GPT 必须已连接并获授权操作该仓库的 GitHub 工具；只授予本任务需要的仓库权限。
+3. 本地项目必须是同一远程仓库的工作副本，且在开始前工作区干净，方便执行 `git pull --ff-only`。
+
+没有 GitHub 授权时，可以使用桥接器进行网页对话，但不能使用本项目承诺的“远端提交 → 本地拉取 → 测试证据 → GPT 审查”闭环。
+
+---
+
+## 🚀 首次配置与启动（纯自然语言）
+
+完成安装和 GitHub 前置条件后，再进行以下三步：
 
 ### 第 1 步：登记 Custom GPT 入口地址（首次必填）
 先打开你要协作使用的 Custom GPT，并把它的入口地址提供给本地 Agent，格式为：`https://chatgpt.com/g/g-<GPT-ID>-<GPT-slug>`。
