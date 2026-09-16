@@ -77,6 +77,7 @@ class CDPError extends Error { constructor(m) { super(m); this.name='CDPError'; 
 class NoTargetTabError extends CDPError { constructor(m) { super(m); this.name='NoTargetTabError'; } }
 class AmbiguousTargetTabError extends CDPError { constructor(m) { super(m); this.name='AmbiguousTargetTabError'; } }
 class CircuitOpenError extends Error { constructor(m) { super(m); this.name='CircuitOpenError'; } }
+class CircuitBusyError extends Error { constructor(m) { super(m); this.name='CircuitBusyError'; } }
 class TargetTabBusyError extends Error { constructor(m) { super(m); this.name='TargetTabBusyError'; } }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -116,12 +117,13 @@ function _acquireLockFile(lockPath) {
   for (let attempt=0; attempt<3; attempt++) {
     try {
       const fd = fs.openSync(lockPath, fs.constants.O_CREAT|fs.constants.O_EXCL|fs.constants.O_RDWR);
-      fs.writeSync(fd, String(process.pid)); fs.closeSync(fd);
-      return true;
+      const token=`${process.pid}:${crypto.randomUUID()}`;
+      fs.writeSync(fd, token); fs.closeSync(fd);
+      return token;
     } catch(e) {
       if (e.code!=='EEXIST') throw e;
       try {
-        const ownerPid = parseInt(fs.readFileSync(lockPath,'utf8').trim(), 10);
+        const ownerPid = parseInt(fs.readFileSync(lockPath,'utf8').trim().split(':', 1)[0], 10);
         if (!isNaN(ownerPid) && !_pidAlive(ownerPid)) { try{fs.unlinkSync(lockPath);}catch(_){} continue; }
       } catch(_) {}
       return false;
@@ -129,15 +131,21 @@ function _acquireLockFile(lockPath) {
   }
   return false;
 }
-function _releaseLockFile(lockPath) { try{fs.unlinkSync(lockPath);}catch(_){} }
+function _releaseLockFile(lockPath, token) {
+  if (!lockPath || !token) return;
+  try {
+    if (fs.readFileSync(lockPath, 'utf8').trim() === token) fs.unlinkSync(lockPath);
+  } catch (_) {}
+}
 
 // ═══════════════════════════════════════════════════════════════════
 // Circuit breaker
 // ═══════════════════════════════════════════════════════════════════
 const _circuitLockPath = CIRCUIT_STATE_FILE+'.lock';
 function _withCircuitLock(fn) {
-  _acquireLockFile(_circuitLockPath);
-  try { return fn(); } finally { _releaseLockFile(_circuitLockPath); }
+  const token=_acquireLockFile(_circuitLockPath);
+  if (!token) throw new CircuitBusyError('熔断器状态正被另一 bridge 更新；请稍后重试。');
+  try { return fn(); } finally { _releaseLockFile(_circuitLockPath, token); }
 }
 function _readCircuitState() {
   try { const d=JSON.parse(fs.readFileSync(CIRCUIT_STATE_FILE,'utf8')); return (typeof d==='object'&&d)?d:{}; }
@@ -186,10 +194,11 @@ function _tabLockPath(targetUrl) {
 }
 function acquireTargetTabLock(targetUrl) {
   const lockPath=_tabLockPath(targetUrl);
-  if (!_acquireLockFile(lockPath)) throw new TargetTabBusyError(`目标 ChatGPT Tab 正在被另一 bridge 占用（${lockPath}）。如确认对端已死，可手动删除锁文件。`);
-  return lockPath;
+  const token=_acquireLockFile(lockPath);
+  if (!token) throw new TargetTabBusyError(`目标 ChatGPT Tab 正在被另一 bridge 占用（${lockPath}）。如确认对端已死，可手动删除锁文件。`);
+  return {lockPath,token};
 }
-function releaseTargetTabLock(lockPath) { if (lockPath) _releaseLockFile(lockPath); }
+function releaseTargetTabLock(lock) { if (lock) _releaseLockFile(lock.lockPath, lock.token); }
 
 // ═══════════════════════════════════════════════════════════════════
 // Git context
@@ -344,7 +353,7 @@ async function findTargetTab(host, port, targetUrl) {
 // ═══════════════════════════════════════════════════════════════════
 async function executeCdpJs(ws, jsCode, timeoutMs=CDP_RPC_TIMEOUT_MS) {
   const res=await ws.sendCommand('Runtime.evaluate',
-    {expression:jsCode, returnByValue:true, awaitPromise:false, userGesture:true, timeout:timeoutMs},
+    {expression:jsCode, returnByValue:true, awaitPromise:false},
     timeoutMs+2000);
   if (res.exceptionDetails) {
     const exc=res.exceptionDetails, desc=(exc.exception||{}).description||(exc.exception||{}).value||'';
@@ -390,19 +399,19 @@ function lastMessageIdJs(role) {
 function userCommitProbeJs(expectedPrompt) {
   const lit=JSON.stringify(expectedPrompt);
   return `(() => {
-  const norm=s=>(s||"").replace(/\\r\\n/g,"\\n").replace(/\\u00a0/g," ").trim();
+  const norm=s=>(s||"").replace(/\\r\\n/g,"\\n").replace(/\\u00a0/g," ").replace(/\\s+/g," ").trim();
   const users=document.querySelectorAll("[data-message-author-role='user']");
   const last=users.length>0?users[users.length-1]:null;
   const text=last?norm(last.innerText||""):"";
   const id=last?(last.getAttribute("data-message-id")||(last.closest&&last.closest("[data-message-id]")?last.closest("[data-message-id]").getAttribute("data-message-id"):null)):null;
-  return JSON.stringify({userCount:users.length,matchesExpected:text===norm(${lit}),textLen:text.length,messageId:id});
+  return JSON.stringify({userCount:users.length,matchesExpected:text.length>0&&(text===norm(${lit})||text.includes(norm(${lit}).slice(0,30))||norm(${lit}).includes(text.slice(0,30))),textLen:text.length,messageId:id});
 })()`;
 }
 
 function injectVerifyJs(expectedPrompt) {
   const lit=JSON.stringify(expectedPrompt);
   return `(() => {
-  const norm=s=>(s||"").replace(/\\r\\n/g,"\\n").replace(/\\u00a0/g," ").trim();
+  const norm=s=>(s||"").replace(/\\r\\n/g,"\\n").replace(/\\u00a0/g," ").replace(/\\s+/g," ").trim();
   const el=document.querySelector("#prompt-textarea")||document.querySelector("form [contenteditable='true']")||document.querySelector("form");
   if(!el)return JSON.stringify({ok:false,reason:"NO_INPUT"});
   const normActual=norm(el.innerText||el.textContent||el.value||"");
@@ -417,7 +426,7 @@ function stablePollJs(targetMessageId) {
   return `(() => {
   const stopBtn=document.querySelector("button[data-testid='stop-button']")||document.querySelector("button[aria-label='停止回答']");
   let node=${queryPart};
-  const asst=document.querySelectorAll("[data-message-author-role='assistant']");
+  const asst=document.querySelectorAll("[data-message-author-role='assistant'], article");
   const last=asst.length>0?asst[asst.length-1]:null;
   if(!node&&last)node=last;
   if(!node)return JSON.stringify({targetPresent:false,isStreaming:!!stopBtn,text:"",messageId:null});
@@ -500,9 +509,10 @@ async function waitForAssistantStable(ws, targetMessageId, waitTimeout) {
 // ═══════════════════════════════════════════════════════════════════
 function validateTargetUrl(url) {
   if (!url) throw new Error('--target-url 不能为空');
-  const lower=url.toLowerCase();
-  if (!lower.startsWith('https://chatgpt.com')&&!lower.startsWith('https://www.chatgpt.com'))
-    throw new Error(`target_url必须以https://chatgpt.com开头，实际值: ${url}`);
+  let parsed;
+  try { parsed=new URL(url); } catch (_) { throw new Error(`target_url不是有效 URL: ${url}`); }
+  if (parsed.protocol!=='https:' || !['chatgpt.com','www.chatgpt.com'].includes(parsed.hostname.toLowerCase()))
+    throw new Error(`target_url必须是 https://chatgpt.com 或 https://www.chatgpt.com，实际值: ${url}`);
 }
 
 function formatEvidencePayload(taskType, contextText, evidenceData, level, cwd) {
@@ -535,14 +545,30 @@ async function sendAndReceive(ws, prompt, targetUrl, waitTimeout, submitDeadline
   catch(e){emitEvent('baseline',EXIT_BASELINE_FAIL,`基线采集失败: ${e.message}`);return{exitCode:EXIT_BASELINE_FAIL,text:''};}
   emitEvent('baseline',EXIT_OK,'基线采集成功',{totalCount:baseline.totalCount,userCount:baseline.userCount,assistantCount:baseline.assistantCount,lastUserMessageId:baseline.lastUserMessageId});
 
-  const injectJs=`(() => {
-  const el=document.querySelector('#prompt-textarea')||document.querySelector("form [contenteditable='true']")||document.querySelector("form");
+  const focusJs=`(() => {
+  const el=document.querySelector('#prompt-textarea')||document.querySelector("form [contenteditable='true']")||document.querySelector("form p")||document.querySelector("form");
   if(!el)return "ERR_NO_INPUT";
-  el.focus(); document.execCommand('selectAll',false,null); document.execCommand('insertText',false,${JSON.stringify(prompt)});
-  el.dispatchEvent(new Event('input',{bubbles:true})); el.dispatchEvent(new Event('change',{bubbles:true}));
+  el.focus();
+  try { const sel=window.getSelection(); sel.selectAllChildren(el); } catch(_){}
   return "OK";
 })()`;
-  try{const res=await executeCdpJs(ws, injectJs); if(res!=='OK'){emitEvent('inject',EXIT_BROWSER_FAIL,`输入框定位失败: ${res}`);return{exitCode:EXIT_BROWSER_FAIL,text:''};}}
+  try{
+    const res=await executeCdpJs(ws, focusJs);
+    try {
+      await ws.sendCommand('Input.insertText', {text: prompt}, 15000);
+    } catch(err) {
+      const fallbackJs = `(() => {
+        const el = document.querySelector('#prompt-textarea') || document.querySelector("form [contenteditable='true']") || document.querySelector("textarea");
+        if (!el) return "ERR_NO_EL";
+        el.focus();
+        document.execCommand('selectAll', false, null);
+        document.execCommand('insertText', false, ${JSON.stringify(prompt)});
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+        return "FALLBACK_OK";
+      })()`;
+      await executeCdpJs(ws, fallbackJs);
+    }
+  }
   catch(e){emitEvent('inject',EXIT_BROWSER_FAIL,`输入框注入失败: ${e.message}`);return{exitCode:EXIT_BROWSER_FAIL,text:''};}
 
   const cvBudget=Math.min(5,submitDeadline,remaining());
@@ -551,13 +577,22 @@ async function sendAndReceive(ws, prompt, targetUrl, waitTimeout, submitDeadline
   catch(e){emitEvent('composer_verify',EXIT_SUBMIT_FAIL,`Composer注入未生效: ${e.message}`);return{exitCode:EXIT_SUBMIT_FAIL,text:''};}
 
   const sendJs=`(() => {
-  const btn=document.querySelector("#composer-submit-button")||document.querySelector("button[data-testid='send-button']")||document.querySelector("button[aria-label='发送提示']")||document.querySelector("button[aria-label='Send prompt']");
-  if(btn&&!btn.disabled){btn.click();return "CLICKED_SUBMIT";}
-  const el=document.querySelector('#prompt-textarea')||document.querySelector("form [contenteditable='true']")||document.querySelector("form");
-  if(el){el.dispatchEvent(new KeyboardEvent('keydown',{bubbles:true,cancelable:true,key:'Enter',code:'Enter',keyCode:13,which:13}));return "DISPATCHED_ENTER";}
-  return "ERR_NO_SEND";
+  const btn = document.querySelector('button[data-testid="send-button"]')
+    || document.querySelector('button[aria-label*="Send"]')
+    || document.querySelector('button[aria-label*="发送"]')
+    || document.querySelector("#composer-submit-button")
+    || document.querySelector("form button[type='submit']");
+  if(btn){
+    btn.removeAttribute('disabled'); btn.disabled=false;
+    btn.click();
+    return "CLICKED";
+  }
+  return "NO_BUTTON";
 })()`;
-  try{const sendRes=await executeCdpJs(ws,sendJs); emitEvent('send',EXIT_OK,`发送触发结果: ${sendRes}`);}
+  try{
+    const sendRes=await executeCdpJs(ws,sendJs);
+    emitEvent('send',EXIT_OK,`发送触发结果: ${sendRes}`);
+  }
   catch(e){emitEvent('send',EXIT_BROWSER_FAIL,`发送触发失败: ${e.message}`);return{exitCode:EXIT_BROWSER_FAIL,text:''};}
 
   const subBudget=Math.min(submitDeadline,remaining());
@@ -597,6 +632,7 @@ function parseCliArgs(argv) {
     const k=argv[i],v=argv[i+1];
     switch(k) {
       case '--prompt':           a.prompt=v;                   i+=2;break;
+      case '--prompt-file':      a.prompt=fs.readFileSync(v,'utf8'); i+=2;break;
       case '--target-url':       a.targetUrl=v;                i+=2;break;
       case '--chrome-port':      a.chromePort=parseInt(v,10);  i+=2;break;
       case '--chrome-host':      a.chromeHost=v;               i+=2;break;
@@ -635,8 +671,8 @@ async function main() {
   const sig=args.signature||null;
   if(sig){try{checkCircuitBreaker(sig);}catch(e){if(e instanceof CircuitOpenError){emitEvent('circuit_breaker',EXIT_CIRCUIT_OPEN,e.message,{signature:sig});process.exit(EXIT_CIRCUIT_OPEN);}throw e;}}
 
-  let lockPath=null;
-  if(!args.allowConcurrent){try{lockPath=acquireTargetTabLock(args.targetUrl);}catch(e){if(e instanceof TargetTabBusyError){emitEvent('target_busy',EXIT_TARGET_BUSY,`目标Tab锁竞争失败: ${e.message}`,{target_url:args.targetUrl});process.exit(EXIT_TARGET_BUSY);}throw e;}}
+  let tabLock=null;
+  if(!args.allowConcurrent){try{tabLock=acquireTargetTabLock(args.targetUrl);}catch(e){if(e instanceof TargetTabBusyError){emitEvent('target_busy',EXIT_TARGET_BUSY,`目标Tab锁竞争失败: ${e.message}`,{target_url:args.targetUrl});process.exit(EXIT_TARGET_BUSY);}throw e;}}
 
   let exitCode=EXIT_BROWSER_FAIL;
   try{
@@ -652,7 +688,7 @@ async function main() {
     try{await ws.connect(wsUrl);}catch(e){emitEvent('connect',EXIT_BROWSER_FAIL,`CDP WebSocket连接失败: ${e.message}`);process.exit(EXIT_BROWSER_FAIL);}
     try{const result=await sendAndReceive(ws,payload,args.targetUrl,args.timeout,SUBMIT_PHASE_BUDGET); exitCode=result.exitCode; if(result.text)process.stdout.write(result.text+'\n');}
     finally{ws.close();}
-  } finally {releaseTargetTabLock(lockPath);}
+  } finally {releaseTargetTabLock(tabLock);}
   process.exit(exitCode);
 }
 

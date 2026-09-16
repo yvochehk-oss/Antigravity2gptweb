@@ -1,5 +1,5 @@
 ---
-name: safari-chatgpt-reasoner
+name: safari_chatgpt_reasoner
 description: 双层混合 Agent 系统：以 Safari/Chrome ChatGPT 网页端 Custom GPT 为云端认知与代码修改控制面（配备 GitHub 直连读写工具，直接在 GitHub 仓库执行修改与推送），以任意本地桌面 Agent 为确定性执行与验收数据面（收到推送后 git pull 拉取代码并运行本地测试进行最终闭环验收）。强制执行 Tab 精确绑定 + 跨进程事务锁 + 闭环测试验收，证据完整性真正可机验。
 ---
 
@@ -70,11 +70,11 @@ description: 双层混合 Agent 系统：以 Safari/Chrome ChatGPT 网页端 Cus
     - **本地 Agent 严格执行检验并回传日志**：本地 Agent 执行 `git pull` 同步最新代码后，**必须先完整跑完 GPT 给出的检验命令**，收集标准输出、错误日志与退出码，并通过 bridge 将检验结果回传给 GPT 审查。
     - **GPT 裁决同意后方可推进下一条**：只有当 GPT 审查本地真实测试证据并显式输出 `APPROVED` 确认后，本地 Agent 方可将计划中的**下一条**任务发送给 GPT；未获同意前必须在当前任务内闭环返工，严禁跨步骤抢跑。
 12. **【轮询保活与故障自动重连自愈契约 (Auto-Recovery & Keep-Alive Polling Contract) - P0】**：
-    - **轮询守护进程防中断**：本地 Agent 必须通过常驻 Python 守护进程（如 `poll_safari_chatgpt.py` 或 `orchestrate.py` 轮询循环）对 Safari / Chrome 中的 ChatGPT 状态进行不间断监视。
+    - **轮询守护进程防中断**：本地 Agent 必须通过常驻 Node.js 守护进程（如 `orchestrate.js` 或外层任务调度器）对 Chrome / Edge 中的 ChatGPT 状态进行不间断监视。
     - **异常自动重新拉起 (Auto-Restart / Relaunch)**：若底层 AppleScript/CDP 探针因页面卡顿、超时（如 `SUBMIT_FAIL`）或浏览器窗口丢失等异常中断，轮询进程**必须具备捕获异常并自动重新拉起（Auto-Relaunch）的自愈机制**，严禁让盯盘静默挂起。
     - **快照续接与防重发**：重新拉起后，须比对上一次获取的 `lastUserMessageId` 或 DOM 文本快照平滑续接，不得重复提交已发送的 Prompt。
 13. **【自动 Git 代码拉取与 HEAD 比对校验契约 (Auto Git Pull & Evidence Sync Contract) - P0】**：
-    - **自动触发 `git pull`**：在 Custom GPT 于 GitHub 远端完成修改并给出 `TEST:` 指令后，本地 Agent（或 `orchestrate.py` 脚本）在跑测前必须**自动触发 `git pull origin <branch>`**（或 `git pull --ff-only origin <branch>`）。
+    - **自动触发 `git pull --ff-only`**：在 Custom GPT 于 GitHub 远端完成修改并给出 `TEST:` 指令后，本地 Agent（或 `orchestrate.js` 脚本）在跑测前必须 fast-forward 拉取目标分支；工作区不干净时必须停止。
     - **HEAD 比对与状态防落后**：拉取后通过 `git rev-parse HEAD` 与 `git rev-parse origin/<branch>` 进行基线比对，确保远端提交已被完整同步至本地工作区后再执行测试。
     - **保持工作树 Clean**：在执行 `git pull` 前确保工作区处于 clean 状态，防止生成非必要的 merge commit。
 14. **【高管经营内参通用文案与零代码黑话铁律 (Executive Briefing & Zero Jargon Contract) - P0】**：
@@ -83,139 +83,61 @@ description: 双层混合 Agent 系统：以 Safari/Chrome ChatGPT 网页端 Cus
 
 ### 标准调用模式
 
-> **浏览器选择**：macOS 优先 Safari（AppleScript，无需额外启动）；Linux / Windows 或需要 DevTools 集成时用任何 Chromium 内核浏览器（Chrome / Edge / Brave / Arc / Opera 等，统一走 CDP 协议，仅启动时开启 `--remote-debugging-port` 即可）。
+> **标准跨平台 Bridge 通道**：基于 Node.js 原生 API 实现（`scripts/chrome_chatgpt.js`），支持 Windows / macOS / Linux 全平台，零 npm 依赖，零 Python 依赖。已彻底剔除旧版 Unix 独占的 Python `fcntl` 实现。
 
-#### Safari 版（AppleScript，无需额外设置）
+#### Node.js 跨平台标准 Bridge (`chrome_chatgpt.js`)
+
+前置条件：启动目标浏览器（Chrome 或 Edge）并开启 CDP 调试端口后，导航至 ChatGPT 会话页：
+
+```cmd
+:: Windows 下启动 Chrome / Edge
+chrome.exe --remote-debugging-port=9222 --remote-allow-origins=*
+:: 或
+msedge.exe --remote-debugging-port=9222 --remote-allow-origins=*
+```
+
+Node.js Bridge 标准调用方法（全平台统一使用 `node chrome_chatgpt.js`）：
 
 ```bash
-# 1. 精确指定 Tab 执行架构规划
-python3 ~/.gemini/config/skills/safari-chatgpt-reasoner/scripts/safari_chatgpt.py \
-  --target-url "https://chatgpt.com/c/6a93f844-99f8-83ea-b4fd-8b544659e4a0" \
+# 1. 精确指定 Tab 执行架构规划与 Prompt 发送
+node .agents/skills/safari-chatgpt-reasoner/scripts/chrome_chatgpt.js \
+  --target-url "https://chatgpt.com/c/6a9f7b81-0bcc-83e9-a4c1-036d110e1665" \
   --type plan \
   --prompt "任务目标描述"
 
-# 2. 本地执行报错反馈闭环（带 L1 渐进脱敏与熔断保护）
-python3 ~/.gemini/config/skills/safari-chatgpt-reasoner/scripts/safari_chatgpt.py \
-  --target-url "https://chatgpt.com/c/6a93f844-99f8-83ea-b4fd-8b544659e4a0" \
+# 2. 本地执行测试日志反馈闭环（带 L1 渐进脱敏与熔断保护）
+node .agents/skills/safari-chatgpt-reasoner/scripts/chrome_chatgpt.js \
+  --target-url "https://chatgpt.com/c/6a9f7b81-0bcc-83e9-a4c1-036d110e1665" \
   --type feedback \
   --prompt "正在执行模块 A 重构" \
   --evidence-file /tmp/pytest_fail.log \
   --level L1 \
   --signature "ALEMBIC_MIGRATION_DUPLICATE_KEY_ERR"
 
-# 3. 大体量证据推荐走文件，避免 argv 超长（E2BIG）
-python3 ~/.gemini/config/skills/safari-chatgpt-reasoner/scripts/safari_chatgpt.py \
-  --target-url "https://chatgpt.com/c/6a93f844-99f8-83ea-b4fd-8b544659e4a0" \
-  --type feedback \
-  --prompt "需要审计的执行日志" \
-  --evidence-file /var/log/agent_run/large.log \
-  --level L2
-
-# 4. 仅清空熔断器
-python3 ~/.gemini/config/skills/safari-chatgpt-reasoner/scripts/safari_chatgpt.py \
-  --reset-circuit
-```
-
-#### Chromium 版（Chrome / Edge / Brave / Arc / Opera 等，CDP 通用）
-
-所有 Chromium 内核浏览器统一使用同一份 `chrome_chatgpt.py`，协议相同、CDP 端口相同，仅可执行文件路径不同。`--browser-name` 参数用于事件 JSONL 的 `browser` 字段，便于下游审计区分来源，**不影响 CDP 连接**。
-
-前置条件：启动目标浏览器并打开 ChatGPT Tab 后，执行：
-
-```bash
-# 方式 A：手动指定端口（默认 9222）
-# Chrome
-/Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome \
-  --remote-debugging-port=9222 \
-  --remote-allow-origins=* \
-  https://chatgpt.com/c/<conversation-uuid>
-
-# Microsoft Edge
-"/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge" \
-  --remote-debugging-port=9222 \
-  --remote-allow-origins=* \
-  https://chatgpt.com/c/<conversation-uuid>
-
-# Brave
-/Applications/Brave\ Browser.app/Contents/MacOS/Brave\ Browser \
-  --remote-debugging-port=9222 \
-  --remote-allow-origins=* \
-  https://chatgpt.com/c/<conversation-uuid>
-
-# Arc
-/Applications/Arc.app/Contents/MacOS/Arc \
-  --remote-debugging-port=9222 \
-  --remote-allow-origins=* \
-  https://chatgpt.com/c/<conversation-uuid>
-
-# 方式 B：命令行启动 Chrome（推荐脚本化）
-open -a "Google Chrome" --args \
-  --remote-debugging-port=9222 \
-  --remote-allow-origins=*
-# 然后手动导航到目标 ChatGPT 会话页
-
-# Linux 上（任选 chromium 内核）
-chromium --remote-debugging-port=9222 --remote-allow-origins=* \
-  https://chatgpt.com/c/<conversation-uuid>
-# 或
-google-chrome --remote-debugging-port=9222 --remote-allow-origins=* \
-  https://chatgpt.com/c/<conversation-uuid>
-```
-
-Chromium bridge 调用（默认 `browser="chrome"`，Edge/Brave/Arc 用户用 `--browser-name` 标识来源）：
-
-```bash
-# 1. 精确指定 Tab 执行架构规划（默认 localhost:9222，browser=chrome）
-python3 ~/.gemini/config/skills/safari-chatgpt-reasoner/scripts/chrome_chatgpt.py \
-  --target-url "https://chatgpt.com/c/6a93f844-99f8-83ea-b4fd-8b544659e4a0" \
-  --type plan \
-  --prompt "任务目标描述"
-
-# 2. 指定非默认端口 / host
-python3 ~/.gemini/config/skills/safari-chatgpt-reasoner/scripts/chrome_chatgpt.py \
+# 3. 指定 Edge 或非默认端口 / host
+node .agents/skills/safari-chatgpt-reasoner/scripts/chrome_chatgpt.js \
+  --browser-name edge \
   --chrome-host 127.0.0.1 \
   --chrome-port 9222 \
-  --target-url "https://chatgpt.com/c/6a93f844-99f8-83ea-b4fd-8b544659e4a0" \
-  --type feedback \
-  --prompt "正在执行模块 A 重构" \
-  --evidence-file /tmp/pytest_fail.log \
-  --level L1 \
-  --signature "ALEMBIC_MIGRATION_DUPLICATE_KEY_ERR"
-
-# 3. Edge 用户：bridge 不变，仅用 --browser-name 标记事件来源
-python3 ~/.gemini/config/skills/safari-chatgpt-reasoner/scripts/chrome_chatgpt.py \
-  --browser-name edge \
-  --target-url "https://chatgpt.com/c/6a93f844-99f8-83ea-b4fd-8b544659e4a0" \
+  --target-url "https://chatgpt.com/c/6a9f7b81-0bcc-83e9-a4c1-036d110e1665" \
   --type plan \
   --prompt "用 Edge 调用"
 
-# 4. 大体量证据走文件
-python3 ~/.gemini/config/skills/safari-chatgpt-reasoner/scripts/chrome_chatgpt.py \
-  --target-url "https://chatgpt.com/c/6a93f844-99f8-83ea-b4fd-8b544659e4a0" \
-  --type feedback \
-  --prompt "需要审计的执行日志" \
-  --evidence-file /var/log/agent_run/large.log \
-  --level L2
-
-# 5. 仅清空 Chromium 熔断器（独立状态文件，不与 Safari 共享）
-python3 ~/.gemini/config/skills/safari-chatgpt-reasoner/scripts/chrome_chatgpt.py \
+# 4. 仅清空熔断器
+node .agents/skills/safari-chatgpt-reasoner/scripts/chrome_chatgpt.js \
   --reset-circuit
 ```
 
 > **注意**：
-> - Safari 与 Chromium 熔断器使用**独立**的状态文件（`/tmp/safari_chatgpt_circuit_breaker.json` vs `/tmp/chrome_chatgpt_circuit_breaker.json`），互不影响。
-> - **不要同时在 9222 端口启两个 Chromium 实例**：CDP 端口冲突会让 `/json/list` 返回错乱 Tab。建议 Edge/Brave 用户把端口改成 9223，并在调用时 `--chrome-port 9223`。
+> - 本 Windows 分支仅包含 Node.js 运行时；`chrome_chatgpt.js` 使用标准库，不需要 npm 包或 Python。
+> - **不要同时在 9222 端口启两个 Chromium 实例**：CDP 端口冲突会让 `/json/list` 返回错乱 Tab。建议 Edge 用户把端口改成 9223，并在调用时 `--chrome-port 9223`。
 
 ### 下游消费规范
 
-**重定向 answer 到文件**（推荐，Safari 与 Chrome 共用）：
+**重定向 answer 到文件**（Windows Node.js）：
 
 ```bash
-# Safari
-python3 .../safari_chatgpt.py --target-url "..." --prompt "..." >answer.txt 2>events.jsonl
-
-# Chrome
-python3 .../chrome_chatgpt.py --target-url "..." --prompt "..." >answer.txt 2>events.jsonl
+node scripts/chrome_chatgpt.js --target-url "..." --prompt "..." >answer.txt 2>events.jsonl
 
 ec=$?
 case $ec in
@@ -249,7 +171,7 @@ v4.1 **删除** `--new` 参数。新会话的开启由 Execution Plane 在调用
 
 ## Orchestrator：端到端任务编排器
 
-`scripts/orchestrate.py` 在 bridge 之上构建了完整的任务闭环。
+`scripts/orchestrate.js` 在 bridge 之上构建了 Windows 的完整任务闭环；本分支不依赖 Python。
 
 ### 架构
 
@@ -257,16 +179,13 @@ v4.1 **删除** `--new` 参数。新会话的开启由 Execution Plane 在调用
 开发者需求
     │
     ▼
-orchestrate.py init ────→ GPT-5.6 生成方案（plan）
+orchestrate.js init ────→ GPT 生成方案（plan）
     │
     ▼
-orchestrate.py refine（可选，用户反复核对）
+orchestrate.js lock ────→ 解析为任务列表
     │
     ▼
-orchestrate.py lock ────→ 解析为任务列表，推送到 GitHub
-    │
-    ▼
-orchestrate.py run-task × N ────→ 每个任务的闭环：
+orchestrate.js run-task × N ────→ 每个任务的闭环：
     │
     ├── GPT 生成代码（task-code）
     ├── 本地 Agent 写文件
@@ -299,34 +218,22 @@ orchestrate.py run-task × N ────→ 每个任务的闭环：
 
 ```bash
 # 初始化项目（生成初始方案）
-python3 scripts/orchestrate.py init \
+node scripts/orchestrate.js init \
   --name my-migration \
   --requirement "把 Flask 认证迁移到 FastAPI + JWT" \
   --target-url "https://chatgpt.com/c/xxx" \
   --repo git@github.com:xxx/yyy.git \
-  --cwd /path/to/repo \
-  --browser safari
-
-# 方案审核与修改（可多次，直到满意）
-python3 scripts/orchestrate.py refine \
-  --name my-migration \
-  --feedback "第3步风险太高，能不能先做兼容性 shim"
+  --cwd C:\\path\\to\\repo \
+  --branch feature/my-migration
 
 # 锁定方案（解析为任务列表，提交到 GitHub）
-python3 scripts/orchestrate.py lock --name my-migration
+node scripts/orchestrate.js lock --name my-migration
 
 # 执行单个任务（交互模式：每步等用户）
-python3 scripts/orchestrate.py run-task --name my-migration --task-id 1
-
-# 执行所有 pending 任务（全自动）
-python3 scripts/orchestrate.py run-task --name my-migration --autonomous
-
-# 全自动 + 任务失败也继续下一个
-python3 scripts/orchestrate.py run-task --name my-migration \
-  --autonomous --continue-on-fail
+node scripts/orchestrate.js run-task --name my-migration --task-id 1
 
 # 查看状态
-python3 scripts/orchestrate.py status --name my-migration
+node scripts/orchestrate.js status --name my-migration
 ```
 
 ### 状态文件
