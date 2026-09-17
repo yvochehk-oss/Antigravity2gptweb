@@ -1,0 +1,927 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Antigravity2gptweb · 纯自然语言驱动的双脑 AI 协作开发平台</title>
+  <meta name="description" content="连接桌面 AI Agent（Antigravity、Cursor）与 ChatGPT 网页版顶尖模型（o1 / o3 / 4o），全自动闭环交付代码与测试。">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🤖</text></svg>">
+  <style>
+    :root {
+      --bg-main: #0a0d14;
+      --bg-card: rgba(22, 27, 34, 0.7);
+      --bg-card-hover: rgba(30, 38, 48, 0.85);
+      --border-color: rgba(255, 255, 255, 0.08);
+      --border-hover: rgba(56, 189, 248, 0.35);
+      --text-main: #f0f6fc;
+      --text-muted: #8b949e;
+      --accent-cyan: #38bdf8;
+      --accent-purple: #a855f7;
+      --accent-green: #22c55e;
+      --accent-amber: #f59e0b;
+      --gradient-brand: linear-gradient(135deg, #38bdf8 0%, #818cf8 50%, #c084fc 100%);
+      --glow-purple: rgba(168, 85, 247, 0.15);
+      --glow-cyan: rgba(56, 189, 248, 0.15);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--bg-main);
+      color: var(--text-main);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      line-height: 1.6;
+      overflow-x: hidden;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* Background Ambient Glow */
+    .ambient-glow {
+      position: fixed;
+      top: -20%;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 900px;
+      height: 600px;
+      background: radial-gradient(circle, var(--glow-purple) 0%, var(--glow-cyan) 40%, transparent 70%);
+      filter: blur(80px);
+      z-index: -1;
+      pointer-events: none;
+    }
+
+    /* Container */
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 0 24px;
+    }
+
+    /* Navigation */
+    header {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      background: rgba(10, 13, 20, 0.75);
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .nav-inner {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      height: 70px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: var(--text-main);
+      text-decoration: none;
+    }
+
+    .brand-logo {
+      font-size: 1.6rem;
+      filter: drop-shadow(0 0 10px rgba(56, 189, 248, 0.5));
+    }
+
+    .nav-links {
+      display: flex;
+      gap: 24px;
+      align-items: center;
+    }
+
+    .nav-links a {
+      color: var(--text-muted);
+      text-decoration: none;
+      font-size: 0.95rem;
+      font-weight: 500;
+      transition: color 0.2s;
+    }
+
+    .nav-links a:hover {
+      color: var(--text-main);
+    }
+
+    .nav-cta {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .btn-star {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 7px 14px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      color: var(--text-main);
+      text-decoration: none;
+      font-size: 0.88rem;
+      font-weight: 600;
+      transition: all 0.2s;
+    }
+
+    .btn-star:hover {
+      background: rgba(255, 255, 255, 0.1);
+      border-color: rgba(255, 255, 255, 0.2);
+    }
+
+    /* Hero Section */
+    .hero {
+      padding: 90px 0 60px;
+      text-align: center;
+    }
+
+    .release-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 16px;
+      background: rgba(56, 189, 248, 0.1);
+      border: 1px solid rgba(56, 189, 248, 0.3);
+      border-radius: 50px;
+      color: var(--accent-cyan);
+      font-size: 0.85rem;
+      font-weight: 600;
+      margin-bottom: 28px;
+      backdrop-filter: blur(8px);
+    }
+
+    .release-badge span {
+      display: inline-block;
+      width: 7px;
+      height: 7px;
+      background: var(--accent-cyan);
+      border-radius: 50%;
+      box-shadow: 0 0 8px var(--accent-cyan);
+    }
+
+    .hero h1 {
+      font-size: 3.5rem;
+      line-height: 1.2;
+      font-weight: 800;
+      margin-bottom: 24px;
+      letter-spacing: -0.02em;
+    }
+
+    .text-gradient {
+      background: var(--gradient-brand);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .hero-desc {
+      max-width: 780px;
+      margin: 0 auto 40px;
+      font-size: 1.2rem;
+      color: var(--text-muted);
+      line-height: 1.7;
+    }
+
+    .hero-actions {
+      display: flex;
+      justify-content: center;
+      gap: 16px;
+      flex-wrap: wrap;
+      margin-bottom: 48px;
+    }
+
+    .btn-primary {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      padding: 14px 28px;
+      background: linear-gradient(135deg, #0284c7 0%, #6366f1 100%);
+      color: #ffffff;
+      text-decoration: none;
+      font-size: 1.05rem;
+      font-weight: 600;
+      border-radius: 12px;
+      box-shadow: 0 8px 24px rgba(2, 132, 199, 0.35);
+      transition: all 0.25s ease;
+    }
+
+    .btn-primary:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 12px 30px rgba(99, 102, 241, 0.5);
+    }
+
+    .btn-secondary {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      padding: 14px 28px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border-color);
+      color: var(--text-main);
+      text-decoration: none;
+      font-size: 1.05rem;
+      font-weight: 600;
+      border-radius: 12px;
+      transition: all 0.2s ease;
+    }
+
+    .btn-secondary:hover {
+      background: rgba(255, 255, 255, 0.1);
+      border-color: var(--border-hover);
+      transform: translateY(-2px);
+    }
+
+    /* Terminal Quick Copy Box */
+    .terminal-box {
+      max-width: 780px;
+      margin: 0 auto;
+      background: rgba(13, 17, 23, 0.95);
+      border: 1px solid var(--border-color);
+      border-radius: 14px;
+      overflow: hidden;
+      text-align: left;
+      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.4);
+    }
+
+    .terminal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 16px;
+      background: rgba(255, 255, 255, 0.03);
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .terminal-dots {
+      display: flex;
+      gap: 6px;
+    }
+
+    .terminal-dots span {
+      width: 11px;
+      height: 11px;
+      border-radius: 50%;
+      background: #333;
+    }
+
+    .terminal-dots span:nth-child(1) { background: #ef4444; }
+    .terminal-dots span:nth-child(2) { background: #f59e0b; }
+    .terminal-dots span:nth-child(3) { background: #10b981; }
+
+    .terminal-title {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      font-family: monospace;
+    }
+
+    .terminal-body {
+      padding: 16px 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+      overflow-x: auto;
+    }
+
+    .terminal-body code {
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+      color: var(--accent-cyan);
+      font-size: 0.9rem;
+      white-space: nowrap;
+    }
+
+    .btn-copy {
+      padding: 6px 12px;
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      color: var(--text-main);
+      font-size: 0.78rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+      white-space: nowrap;
+    }
+
+    .btn-copy:hover {
+      background: var(--accent-cyan);
+      color: #0a0d14;
+    }
+
+    /* Core Features Grid */
+    .features {
+      padding: 80px 0;
+    }
+
+    .section-title {
+      text-align: center;
+      margin-bottom: 48px;
+    }
+
+    .section-title h2 {
+      font-size: 2.2rem;
+      font-weight: 700;
+      margin-bottom: 12px;
+    }
+
+    .section-title p {
+      color: var(--text-muted);
+      font-size: 1.05rem;
+    }
+
+    .grid-cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 24px;
+    }
+
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 16px;
+      padding: 28px;
+      transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+      backdrop-filter: blur(12px);
+    }
+
+    .card:hover {
+      background: var(--bg-card-hover);
+      border-color: var(--border-hover);
+      transform: translateY(-4px);
+      box-shadow: 0 12px 30px rgba(0, 0, 0, 0.3);
+    }
+
+    .card-icon {
+      font-size: 2.2rem;
+      margin-bottom: 18px;
+    }
+
+    .card h3 {
+      font-size: 1.25rem;
+      font-weight: 600;
+      margin-bottom: 10px;
+    }
+
+    .card p {
+      color: var(--text-muted);
+      font-size: 0.95rem;
+      line-height: 1.6;
+    }
+
+    /* Architecture Flow */
+    .flow-section {
+      padding: 70px 0;
+      background: rgba(255, 255, 255, 0.015);
+      border-top: 1px solid var(--border-color);
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .flow-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 18px;
+      margin-top: 40px;
+    }
+
+    .flow-step {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 14px;
+      padding: 24px;
+      position: relative;
+    }
+
+    .flow-num {
+      position: absolute;
+      top: 14px;
+      right: 16px;
+      font-size: 1.5rem;
+      font-weight: 800;
+      color: rgba(255, 255, 255, 0.1);
+    }
+
+    .flow-step h4 {
+      font-size: 1.1rem;
+      margin-bottom: 8px;
+      color: var(--text-main);
+    }
+
+    .flow-step p {
+      color: var(--text-muted);
+      font-size: 0.88rem;
+      line-height: 1.5;
+    }
+
+    /* Live Delivery Roadmap / Kanban */
+    .delivery-board {
+      padding: 80px 0;
+    }
+
+    .board-columns {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 24px;
+      margin-top: 36px;
+    }
+
+    .board-col {
+      background: rgba(13, 17, 23, 0.6);
+      border: 1px solid var(--border-color);
+      border-radius: 16px;
+      padding: 20px;
+    }
+
+    .board-col-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-bottom: 14px;
+      margin-bottom: 16px;
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .board-col-title {
+      font-size: 1rem;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .col-badge {
+      font-size: 0.75rem;
+      padding: 2px 8px;
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.1);
+      color: var(--text-main);
+    }
+
+    .badge-done { background: rgba(34, 197, 94, 0.15); color: #4ade80; }
+    .badge-progress { background: rgba(245, 158, 11, 0.15); color: #fbbf24; }
+    .badge-todo { background: rgba(148, 163, 184, 0.15); color: #94a3b8; }
+
+    .issue-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      padding: 16px;
+      margin-bottom: 14px;
+      transition: all 0.2s ease;
+      text-decoration: none;
+      display: block;
+      color: inherit;
+    }
+
+    .issue-card:hover {
+      border-color: var(--border-hover);
+      background: var(--bg-card-hover);
+      transform: translateY(-2px);
+    }
+
+    .issue-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+
+    .issue-num {
+      font-size: 0.75rem;
+      font-family: monospace;
+      color: var(--accent-cyan);
+      font-weight: 600;
+    }
+
+    .issue-tag {
+      font-size: 0.72rem;
+      padding: 2px 6px;
+      border-radius: 4px;
+      background: rgba(255, 255, 255, 0.06);
+      color: var(--text-muted);
+    }
+
+    .issue-title {
+      font-size: 0.92rem;
+      font-weight: 600;
+      margin-bottom: 6px;
+      line-height: 1.4;
+    }
+
+    .issue-desc {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      line-height: 1.45;
+    }
+
+    /* Download Center */
+    .download-center {
+      padding: 80px 0;
+      background: rgba(255, 255, 255, 0.015);
+      border-top: 1px solid var(--border-color);
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .download-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 28px;
+      margin-top: 36px;
+    }
+
+    .download-box {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 18px;
+      padding: 32px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+
+    .download-box:hover {
+      border-color: var(--border-hover);
+    }
+
+    .download-box h3 {
+      font-size: 1.4rem;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .download-box p {
+      color: var(--text-muted);
+      font-size: 0.92rem;
+      margin-bottom: 24px;
+    }
+
+    .feature-list {
+      list-style: none;
+      margin-bottom: 28px;
+    }
+
+    .feature-list li {
+      font-size: 0.88rem;
+      color: var(--text-main);
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .feature-list li::before {
+      content: "✓";
+      color: var(--accent-green);
+      font-weight: bold;
+    }
+
+    /* Footer */
+    footer {
+      padding: 48px 0;
+      text-align: center;
+      color: var(--text-muted);
+      font-size: 0.88rem;
+      border-top: 1px solid var(--border-color);
+    }
+
+    footer a {
+      color: var(--accent-cyan);
+      text-decoration: none;
+    }
+
+    /* Responsive */
+    @media (max-width: 900px) {
+      .hero h1 { font-size: 2.5rem; }
+      .flow-grid { grid-template-columns: repeat(2, 1fr); }
+      .board-columns { grid-template-columns: 1fr; }
+      .download-grid { grid-template-columns: 1fr; }
+      .nav-links { display: none; }
+    }
+
+    @media (max-width: 600px) {
+      .hero h1 { font-size: 2rem; }
+      .flow-grid { grid-template-columns: 1fr; }
+      .hero-actions { flex-direction: column; }
+      .btn-primary, .btn-secondary { width: 100%; justify-content: center; }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="ambient-glow"></div>
+
+  <!-- Header -->
+  <header>
+    <div class="container nav-inner">
+      <a href="#" class="brand">
+        <span class="brand-logo">🤖</span>
+        <span>Antigravity2gptweb</span>
+      </a>
+      <nav class="nav-links">
+        <a href="#features">核心优势</a>
+        <a href="#workflow">双脑架构</a>
+        <a href="#roadmap">交付看板</a>
+        <a href="#download">下载中心</a>
+      </nav>
+      <div class="nav-cta">
+        <a href="https://github.com/yvochehk-oss/Antigravity2gptweb" target="_blank" class="btn-star">
+          ⭐ Star <span>2</span>
+        </a>
+        <a href="#download" class="btn-star" style="background: rgba(56, 189, 248, 0.15); border-color: rgba(56, 189, 248, 0.3); color: var(--accent-cyan);">
+          📥 下载包
+        </a>
+      </div>
+    </div>
+  </header>
+
+  <!-- Hero Section -->
+  <section class="hero">
+    <div class="container">
+      <div class="release-badge">
+        <span></span> v1.0.0 正式稳定版现已发布 · 纯自然语言驱动
+      </div>
+      <h1>
+        桌面 AI Agent <span class="text-gradient">× ChatGPT 网页版</span><br>
+        全自动双向协作闭环
+      </h1>
+      <p class="hero-desc">
+        告别在浏览器与编辑器之间反复复制、粘贴与报错排查。让云端顶级大模型（o1 / o3 / 4o）担任你的总架构师，桌面 Agent 成为确定性跑测双手，自然语言驱动，代码真实闭环交付。
+      </p>
+
+      <div class="hero-actions">
+        <a href="https://github.com/yvochehk-oss/Antigravity2gptweb/archive/refs/heads/macos.zip" class="btn-primary">
+          🍏 下载 macOS 专版 (.zip)
+        </a>
+        <a href="https://github.com/yvochehk-oss/Antigravity2gptweb/archive/refs/heads/windows.zip" class="btn-secondary">
+          🪟 下载 Windows 专版 (.zip)
+        </a>
+        <a href="https://github.com/yvochehk-oss/Antigravity2gptweb/releases/tag/v1.0.0" target="_blank" class="btn-secondary">
+          🏷️ Release v1.0.0 说明
+        </a>
+      </div>
+
+      <!-- Quick Command Copy -->
+      <div class="terminal-box">
+        <div class="terminal-header">
+          <div class="terminal-dots">
+            <span></span><span></span><span></span>
+          </div>
+          <span class="terminal-title">Antigravity IDE 快速挂载命令 (macOS)</span>
+          <span></span>
+        </div>
+        <div class="terminal-body">
+          <code id="cmd-text">git clone --branch macos --single-branch https://github.com/yvochehk-oss/Antigravity2gptweb.git ~/.gemini/antigravity/skills/safari-chatgpt-reasoner</code>
+          <button class="btn-copy" onclick="copyCmd()">复制命令</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Core Features -->
+  <section class="features" id="features">
+    <div class="container">
+      <div class="section-title">
+        <h2>为什么选择双脑协作模式？</h2>
+        <p>彻底解决传统单机 AI 编码幻觉多、API 计费贵、多文件修改易崩溃的痛点</p>
+      </div>
+
+      <div class="grid-cards">
+        <div class="card">
+          <div class="card-icon">🧠</div>
+          <h3>零额外 API 账单</h3>
+          <p>无需按 Token 支付高昂的外部商业 API 费用，充分复用您现有的 ChatGPT Plus / Team 订阅，畅享 o1 / o3-mini 顶级推理深度思考。</p>
+        </div>
+        <div class="card">
+          <div class="card-icon">⚡</div>
+          <h3>确定性真实跑测闭环</h3>
+          <p>本地 Agent 严禁臆造业务代码，严格拉取远端变更并在本地环境运行测试，回传客观日志直到 GPT 裁决 <code>APPROVED</code> 方可交付。</p>
+        </div>
+        <div class="card">
+          <div class="card-icon">🛡️</div>
+          <h3>企业级凭据自动脱敏</h3>
+          <p>全链路自动过滤 <code>sk-...</code> 等密钥转换为掩码，配合严格的 <code>git pull --ff-only</code> 熔断保护，本地代码绝不被意外覆盖。</p>
+        </div>
+        <div class="card">
+          <div class="card-icon">🪟</div>
+          <h3>全平台原生无感运行</h3>
+          <p>macOS 基于原生 Safari AppleScript 驱动（0 依赖）；Windows 基于纯原生 Node.js 18+（0 npm 包），极速秒开无负担。</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Architecture Flow -->
+  <section class="flow-section" id="workflow">
+    <div class="container">
+      <div class="section-title">
+        <h2>双平面架构时序闭环</h2>
+        <p>云端负责最高水准思考与修改，本地负责真实环境严谨验收</p>
+      </div>
+
+      <div class="flow-grid">
+        <div class="flow-step">
+          <div class="flow-num">01</div>
+          <h4>🗣️ 自然语言提需求</h4>
+          <p>在桌面聊天框用平常说话的方式描述功能或重构意图，桌面 Agent 提取环境上下文。</p>
+        </div>
+        <div class="flow-step">
+          <div class="flow-num">02</div>
+          <h4>🧠 云端 GPT 架构改码</h4>
+          <p>ChatGPT 网页端进行深度逻辑推演，通过已授权的 GitHub 工具直接修改并推送代码。</p>
+        </div>
+        <div class="flow-step">
+          <div class="flow-num">03</div>
+          <h4>⚡ 本地环境客观测试</h4>
+          <p>本地 Agent 执行 <code>git pull --ff-only</code> 快进同步，并在宿主机运行真实的构建与测试命令。</p>
+        </div>
+        <div class="flow-step">
+          <div class="flow-num">04</div>
+          <h4>✅ 审查裁决与交付</h4>
+          <p>本地测试 Exit Code 与日志回传 GPT 终审，确认通过后输出 <code>APPROVED</code> 形成完整闭环。</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Live Delivery Roadmap / Kanban -->
+  <section class="delivery-board" id="roadmap">
+    <div class="container">
+      <div class="section-title">
+        <h2>🚀 实时产品交付大屏</h2>
+        <p>功能研发排期与交付状态实时透明，点击卡片直达 GitHub Issue 详情</p>
+      </div>
+
+      <div class="board-columns">
+        <!-- Done Column -->
+        <div class="board-col">
+          <div class="board-col-header">
+            <span class="board-col-title">✅ 已交付上线</span>
+            <span class="col-badge badge-done">4 项完成</span>
+          </div>
+
+          <a href="https://github.com/yvochehk-oss/Antigravity2gptweb/issues/8" target="_blank" class="issue-card">
+            <div class="issue-top">
+              <span class="issue-num">#8</span>
+              <span class="issue-tag">Release</span>
+            </div>
+            <div class="issue-title">[版本发布] v1.0.0 稳定版正式发布</div>
+            <div class="issue-desc">提供 macOS & Windows 绿色压缩包直链下载与完整发行注记。</div>
+          </a>
+
+          <a href="https://github.com/yvochehk-oss/Antigravity2gptweb/issues/1" target="_blank" class="issue-card">
+            <div class="issue-top">
+              <span class="issue-num">#1</span>
+              <span class="issue-tag">Core</span>
+            </div>
+            <div class="issue-title">[核心引擎] Safari & Edge/Chrome 双向桥接</div>
+            <div class="issue-desc">建立基于自然语言与 Exit Code 的 task-code / task-review 交互闭环。</div>
+          </a>
+
+          <a href="https://github.com/yvochehk-oss/Antigravity2gptweb/issues/2" target="_blank" class="issue-card">
+            <div class="issue-top">
+              <span class="issue-num">#2</span>
+              <span class="issue-tag">Security</span>
+            </div>
+            <div class="issue-title">[安全防护] 凭据脱敏与防覆盖熔断</div>
+            <div class="issue-desc">全链路掩码脱敏 sk- 密钥，严格 fast-forward 保护本地修改。</div>
+          </a>
+
+          <a href="https://github.com/yvochehk-oss/Antigravity2gptweb/issues/3" target="_blank" class="issue-card">
+            <div class="issue-top">
+              <span class="issue-num">#3</span>
+              <span class="issue-tag">Platform</span>
+            </div>
+            <div class="issue-title">[平台适配] Windows 纯原生 Node.js 引擎</div>
+            <div class="issue-desc">0 个 npm 依赖包，毫秒级启动，原生支持 Edge 与 Chrome CDP。</div>
+          </a>
+        </div>
+
+        <!-- In Progress Column -->
+        <div class="board-col">
+          <div class="board-col-header">
+            <span class="board-col-title">⚡ 研发推进中</span>
+            <span class="col-badge badge-progress">2 项迭代</span>
+          </div>
+
+          <a href="https://github.com/yvochehk-oss/Antigravity2gptweb/issues/4" target="_blank" class="issue-card">
+            <div class="issue-top">
+              <span class="issue-num">#4</span>
+              <span class="issue-tag">Tools</span>
+            </div>
+            <div class="issue-title">[工具生态] Antigravity IDE 一键 Skill 安装</div>
+            <div class="issue-desc">提供全局/项目级单行部署命令与 check_env 环境自检脚本。</div>
+          </a>
+
+          <a href="https://github.com/yvochehk-oss/Antigravity2gptweb/issues/5" target="_blank" class="issue-card">
+            <div class="issue-top">
+              <span class="issue-num">#5</span>
+              <span class="issue-tag">Optimization</span>
+            </div>
+            <div class="issue-title">[体验优化] 调试端口智能自适应探测</div>
+            <div class="issue-desc">自动扫描并规避 9222 调试端口占用冲突，平滑自适应切换。</div>
+          </a>
+        </div>
+
+        <!-- Backlog Column -->
+        <div class="board-col">
+          <div class="board-col-header">
+            <span class="board-col-title">📋 规划需求池</span>
+            <span class="col-badge badge-todo">1 项规划</span>
+          </div>
+
+          <a href="https://github.com/yvochehk-oss/Antigravity2gptweb/issues/6" target="_blank" class="issue-card">
+            <div class="issue-top">
+              <span class="issue-num">#6</span>
+              <span class="issue-tag">Ecosystem</span>
+            </div>
+            <div class="issue-title">[生态扩展] 多仓库协同与私有知识库挂载</div>
+            <div class="issue-desc">支持大型微服务多 Git 仓库联合规划与企业知识库检索辅助。</div>
+          </a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Download Center -->
+  <section class="download-center" id="download">
+    <div class="container">
+      <div class="section-title">
+        <h2>📥 极速下载与安装中心</h2>
+        <p>针对无需 Git 命令行的用户，直接下载对应平台的预打包绿色免安装压缩包</p>
+      </div>
+
+      <div class="download-grid">
+        <div class="download-box">
+          <div>
+            <h3>🍏 macOS 专版</h3>
+            <p>基于 Safari 原生 AppleScript 驱动与 Python CDP 桥接，专为 macOS 环境深度优化。</p>
+            <ul class="feature-list">
+              <li>支持 Safari（系统自带，无需安装驱动）</li>
+              <li>支持 Google Chrome CDP 调试通道</li>
+              <li>具备完整任务编排与方案 Refine 能力</li>
+              <li>兼容 Apple Silicon (M1/M2/M3/M4) 与 Intel</li>
+            </ul>
+          </div>
+          <a href="https://github.com/yvochehk-oss/Antigravity2gptweb/archive/refs/heads/macos.zip" class="btn-primary" style="width: 100%; justify-content: center;">
+            📥 下载 Antigravity2gptweb-macos.zip
+          </a>
+        </div>
+
+        <div class="download-box">
+          <div>
+            <h3>🪟 Windows 专版</h3>
+            <p>基于纯原生 Node.js 18+ 实现，拥有极致轻量级架构，无须繁重的环境配置。</p>
+            <ul class="feature-list">
+              <li>纯原生驱动，<strong>0 个 npm 外部依赖包</strong></li>
+              <li>原生支持 Microsoft Edge 与 Google Chrome</li>
+              <li>包含 check_env.bat 与 start_edge_cdp.bat 快捷脚本</li>
+              <li>完美适配 Windows 10 与 Windows 11</li>
+            </ul>
+          </div>
+          <a href="https://github.com/yvochehk-oss/Antigravity2gptweb/archive/refs/heads/windows.zip" class="btn-secondary" style="width: 100%; justify-content: center; background: rgba(56, 189, 248, 0.1); border-color: rgba(56, 189, 248, 0.3); color: var(--accent-cyan);">
+            📥 下载 Antigravity2gptweb-windows.zip
+          </a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer>
+    <div class="container">
+      <p style="margin-bottom: 8px;">
+        <strong>Antigravity2gptweb</strong> · 基于 <a href="https://github.com/yvochehk-oss/Antigravity2gptweb/blob/main/LICENSE" target="_blank">MIT License</a> 开源开源协议发布
+      </p>
+      <p style="font-size: 0.8rem; color: #6e7681;">
+        欢迎在 <a href="https://github.com/yvochehk-oss/Antigravity2gptweb" target="_blank">GitHub</a> 上点亮 ⭐ Star 给予支持！
+      </p>
+    </div>
+  </footer>
+
+  <script>
+    function copyCmd() {
+      const text = document.getElementById('cmd-text').innerText;
+      navigator.clipboard.writeText(text).then(() => {
+        const btn = document.querySelector('.btn-copy');
+        const orig = btn.innerText;
+        btn.innerText = "✓ 已复制";
+        btn.style.background = "#22c55e";
+        btn.style.color = "#0a0d14";
+        setTimeout(() => {
+          btn.innerText = orig;
+          btn.style.background = "";
+          btn.style.color = "";
+        }, 2000);
+      });
+    }
+  </script>
+</body>
+</html>
