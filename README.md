@@ -7,6 +7,8 @@
 <br/>
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Latest Release](https://img.shields.io/github/v/release/yvochehk-oss/Antigravity2gptweb?color=blue&label=Latest%20Release)](https://github.com/yvochehk-oss/Antigravity2gptweb/releases/latest)
+[![Download](https://img.shields.io/badge/Download-ZIP%20Packages-success.svg)](#-极速下载与安装包无需命令行)
 [![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Windows-lightgrey.svg)](#-平台支持与跨平台安装)
 [![Agent](https://img.shields.io/badge/Agent-Antigravity%20%7C%20Claude%20Code%20%7C%20Cursor-8A2BE2.svg)](#-安装到-antigravity-ide)
 [![ChatGPT](https://img.shields.io/badge/ChatGPT-Web%20UI%20Bridge-10a37f.svg)](#-双脑协作架构与执行时序)
@@ -17,6 +19,7 @@
 <br/>
 
 <p align="center">
+  <a href="#-极速下载与安装包无需命令行">极速下载</a> •
   <a href="#-核心价值与痛点解决">核心价值</a> •
   <a href="#-双脑协作架构与执行时序">架构原理</a> •
   <a href="#-平台支持与跨平台安装">跨平台安装</a> •
@@ -31,6 +34,18 @@
 ---
 
 > **一句话愿景**：告别在网页端与代码编辑器之间繁琐的“复制、粘贴、运行、报错、再复制”。你只需在聊天框里用平常说话的自然语言描述需求，桌面 AI Agent 即可自动直连 ChatGPT 网页端顶尖大模型（o1 / o3 / 4o），完成**云端架构推演、GitHub 远端修改提交、本地确定性快速拉取与闭环测试验收**！
+
+---
+
+## 📥 极速下载与安装包（无需命令行）
+
+针对不习惯使用 Git 终端命令行的客户与用户，我们提供了预打包的绿色 ZIP 安装包，点击即可直接下载：
+
+| 平台通道 | 一键直链下载 | 包含组件与特性 |
+| :--- | :--- | :--- |
+| 🍏 **macOS 专版** | [**📥 下载 Antigravity2gptweb-macos.zip**](https://github.com/yvochehk-oss/Antigravity2gptweb/archive/refs/heads/macos.zip) | Safari 原生驱动、Python CDP 桥接与完整任务编排套件 |
+| 🪟 **Windows 专版** | [**📥 下载 Antigravity2gptweb-windows.zip**](https://github.com/yvochehk-oss/Antigravity2gptweb/archive/refs/heads/windows.zip) | 纯原生 Node.js 18+ 驱动引擎（**0 个 npm 依赖**）、Edge/Chrome 支持 |
+| 📦 **官方 Release** | [**🏷️ 前往 Releases v1.0.0 官方发行页**](https://github.com/yvochehk-oss/Antigravity2gptweb/releases/tag/v1.0.0) | 官方版本发行说明、源代码与校验 Hash |
 
 ---
 
