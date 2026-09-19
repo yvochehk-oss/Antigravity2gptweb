@@ -798,6 +798,41 @@ def _stable_poll_js(target_message_id: Optional[str]) -> str:
 # =============================================================================
 # Payload 格式化
 # =============================================================================
+def _collect_local_diagnostics(cwd: Optional[str], max_lines: int = 40) -> str:
+    """
+    Empty-evidence self-heal: collect a bounded, read-only worktree snapshot so
+    the cloud reviewer can distinguish a clean run from a dirty local checkout.
+    Never mutates the repository and never includes file contents.
+    """
+    if not cwd:
+        return "[no cwd supplied; automatic local diagnostics unavailable]"
+    try:
+        res = subprocess.run(
+            ["git", "status", "--short", "--untracked-files=all"],
+            capture_output=True,
+            text=True,
+            cwd=cwd,
+            timeout=GIT_SUBPROCESS_TIMEOUT_SEC,
+        )
+    except Exception as e:
+        return sanitize_text(f"[git status unavailable: {type(e).__name__}: {e}]")
+    if res.returncode != 0:
+        detail = (res.stderr or res.stdout or "").strip()
+        return sanitize_text(f"[git status failed rc={res.returncode}: {detail[:500]}]")
+    lines = [line for line in res.stdout.splitlines() if line.strip()]
+    if not lines:
+        return "[auto diagnostics] git worktree is clean"
+    clipped = lines[:max_lines]
+    suffix = ""
+    if len(lines) > max_lines:
+        suffix = f"\n... [{len(lines) - max_lines} additional status lines omitted] ..."
+    return sanitize_text(
+        "[auto diagnostics] git status --short --untracked-files=all:\n"
+        + "\n".join(clipped)
+        + suffix
+    )
+
+
 def format_evidence_payload(task_type: str, context_text: str,
                             evidence_data: Optional[str] = None,
                             level: str = "L1",
@@ -805,6 +840,8 @@ def format_evidence_payload(task_type: str, context_text: str,
     git_ctx = get_git_head_context(cwd)
     context_text = sanitize_text(context_text)
     evidence_data = sanitize_text(evidence_data or "")
+    if task_type in ("feedback", "task-review") and not evidence_data.strip() and level != "L0":
+        evidence_data = _collect_local_diagnostics(cwd)
 
     if level == "L0":
         evidence_snippet = "[L0 No Evidence Body: only request context provided]"
@@ -923,12 +960,12 @@ def send_and_receive_bsk_chatgpt(
     except Exception as e:
         emit_event("challenge_check", EXIT_OK, f"人机验证探测非阻断提示: {e}")
 
-    # 等待页面输入框就绪
+    # 等待页面输入框就绪（必须等待 React 水合完成，contenteditable 置为 true）
     composer_ready_js = """
     (() => {
-        return !!(document.querySelector('#prompt-textarea') ||
-                  document.querySelector("form [contenteditable='true']") ||
-                  document.querySelector("form"));
+        const el = document.querySelector('#prompt-textarea');
+        if (!el) return false;
+        return el.getAttribute('contenteditable') === 'true' || el.isContentEditable || el.tagName.toLowerCase() === 'textarea';
     })()
     """
     ready_start = time.monotonic()
@@ -945,6 +982,9 @@ def send_and_receive_bsk_chatgpt(
     if not ready:
         emit_event("ready_check", EXIT_SAFARI_FAIL, "页面在 25s 内未能加载出 ChatGPT 输入框")
         return EXIT_SAFARI_FAIL, ""
+
+    # 等待页面历史消息稳定呈现
+    time.sleep(1.0)
 
     # ---- 步骤 1：基线采集 ----
     try:
@@ -1028,15 +1068,34 @@ def send_and_receive_bsk_chatgpt(
                isContentEditable=cv_snap.get("isContentEditable"))
 
     # ---- 步骤 3：触发发送 ----
+    # 等待 ChatGPT React 将语音按钮切换为发送按钮
+    send_btn_ready_js = """
+    (() => {
+        const b = document.querySelector("button[data-testid='send-button']") ||
+                  document.querySelector("#composer-submit-button");
+        return !!b && !b.disabled && b.getAttribute("aria-disabled") !== "true";
+    })()
+    """
+    sb_start = time.monotonic()
+    while time.monotonic() - sb_start < 3.0:
+        try:
+            if client.evaluate(send_btn_ready_js):
+                break
+        except Exception:
+            pass
+        time.sleep(0.2)
+
     send_res = "BSK_CLICK_SEND_BTN"
     try:
         # 优先通过 bsk click 原生点击发送按钮
         client.click_element('button[data-testid="send-button"]')
-    except Exception:
+    except Exception as e_click:
+        emit_event("click_err", EXIT_OK, f"button[data-testid='send-button'] 失败: {e_click}")
         try:
             # 备用 1: 尝试点击 composer-submit-button
             client.click_element("#composer-submit-button")
-        except Exception:
+        except Exception as e_click2:
+            emit_event("click_err2", EXIT_OK, f"#composer-submit-button 失败: {e_click2}")
             try:
                 # 备用 2: 系统级原生 Enter 按键
                 try:
@@ -1046,6 +1105,7 @@ def send_and_receive_bsk_chatgpt(
                 client.press_key("Enter")
                 send_res = "BSK_PRESS_ENTER"
             except Exception as e:
+                emit_event("press_err", EXIT_OK, f"press_key Enter 失败: {e}")
                 # 回退至 JS 点击与表单提交
                 js_send = """
                 (() => {

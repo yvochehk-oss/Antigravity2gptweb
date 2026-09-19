@@ -93,6 +93,41 @@ class BrowserProfileSelectionTests(unittest.TestCase):
         self.assertFalse(args.borrow)
         self.assertFalse(args.no_borrow)
 
+    def test_empty_feedback_evidence_auto_collects_git_diagnostics(self):
+        original = bsk_chatgpt._collect_local_diagnostics
+        bsk_chatgpt._collect_local_diagnostics = lambda cwd: (
+            "[auto diagnostics] git status --short --untracked-files=all:\n M local.txt"
+        )
+        try:
+            payload = bsk_chatgpt.format_evidence_payload(
+                "feedback",
+                "端到端闭环测试",
+                "",
+                level="L1",
+                cwd="/tmp/example",
+            )
+        finally:
+            bsk_chatgpt._collect_local_diagnostics = original
+        self.assertIn("[Evidence (L1)]:", payload)
+        self.assertIn("[auto diagnostics]", payload)
+        self.assertIn("M local.txt", payload)
+
+    def test_explicit_feedback_evidence_is_not_replaced(self):
+        original = bsk_chatgpt._collect_local_diagnostics
+        bsk_chatgpt._collect_local_diagnostics = lambda cwd: "SHOULD_NOT_APPEAR"
+        try:
+            payload = bsk_chatgpt.format_evidence_payload(
+                "feedback",
+                "端到端闭环测试",
+                "EXIT_CODE: 1\nSTDERR: boom",
+                level="L1",
+                cwd="/tmp/example",
+            )
+        finally:
+            bsk_chatgpt._collect_local_diagnostics = original
+        self.assertIn("EXIT_CODE: 1", payload)
+        self.assertNotIn("SHOULD_NOT_APPEAR", payload)
+
 
 if __name__ == "__main__":
     unittest.main()
