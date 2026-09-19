@@ -80,6 +80,7 @@ class ProjectState:
     bridge_script: str           # 实际调用的 bridge 脚本相对路径
     plan_md_path: str
     tasks_json_path: str
+    browser_profile: str = ""   # BrowserSkill instance_id 或唯一 label；仅 bsk 驱动使用
     task_locked: bool = False
     current_task_id: Optional[int] = None
     tasks: List[Task] = field(default_factory=list)
@@ -283,7 +284,8 @@ def _bridge_call(type_: str, prompt: str,
                  level: str = "L1",
                  timeout: int = 240,
                  signature: Optional[str] = None,
-                 extra_args: Optional[List[str]] = None) -> Tuple[int, str]:
+                 extra_args: Optional[List[str]] = None,
+                 browser_profile: Optional[str] = None) -> Tuple[int, str]:
     """调用 bridge，返回 (exit_code, stdout)"""
     runtime = ["node", bridge_script] if bridge_script.endswith(".js") else [sys.executable, bridge_script]
     args = runtime + [
@@ -297,6 +299,8 @@ def _bridge_call(type_: str, prompt: str,
         args += ["--evidence", evidence]
     if signature:
         args += ["--signature", signature]
+    if browser_profile and bridge_script.endswith("bsk_chatgpt.py"):
+        args += ["--browser-profile", browser_profile]
     if extra_args:
         args += extra_args
     r = subprocess.run(args, capture_output=True, text=True, timeout=timeout + 60)
@@ -315,6 +319,7 @@ def cmd_init(args) -> int:
     branch = args.branch or f"orchestrate/{name}"
     cwd = os.path.abspath(os.path.expanduser(args.cwd or "."))
     browser = args.browser
+    browser_profile = (args.browser_profile or "").strip()
 
     if (ORCHESTRATOR_HOME / f"{name}.state.json").exists():
         print(f"[orchestrate] 项目 {name!r} 已存在，用 resume 继续。")
@@ -331,6 +336,8 @@ def cmd_init(args) -> int:
     print(f"  → 仓库      : {repo_url}")
     print(f"  → 分支      : {branch}")
     print(f"  → 浏览器    : {browser}")
+    if browser_profile:
+        print(f"  → bsk Profile: {browser_profile}")
 
     # 初始化 git 仓库（如果需要）
     if not (Path(cwd) / ".git").exists():
@@ -367,7 +374,8 @@ def cmd_init(args) -> int:
     )
     ec, plan_text = _bridge_call(
         "plan", plan_prompt, target_url, bridge_script, cwd,
-        timeout=300, signature=f"init:{name}"
+        timeout=300, signature=f"init:{name}",
+        browser_profile=browser_profile
     )
     if ec != 0:
         print(f"[init] ⚠ GPT 调用失败（exit={ec}），跳过方案生成，稍后请手动 refine")
@@ -389,6 +397,7 @@ def cmd_init(args) -> int:
         repo_url=repo_url, branch=branch, cwd=cwd,
         browser=browser, bridge_script=bridge_script,
         plan_md_path=str(plan_path), tasks_json_path=str(tasks_path),
+        browser_profile=browser_profile,
         task_locked=False, tasks=[],
         commit_sha_init=initial_sha, commit_sha_head=initial_sha,
     )
@@ -432,7 +441,8 @@ def cmd_refine(args) -> int:
     print(f"[refine] 请求 GPT 更新方案…")
     ec, new_plan = _bridge_call(
         "plan", refine_prompt, state.chatgpt_url, state.bridge_script,
-        state.cwd, timeout=300, signature=f"refine:{name}"
+        state.cwd, timeout=300, signature=f"refine:{name}",
+        browser_profile=state.browser_profile
     )
     if ec != 0:
         print(f"[refine] ⚠ GPT 调用失败（exit={ec}）")
@@ -483,7 +493,8 @@ def cmd_lock(args) -> int:
     )
     ec, json_text = _bridge_call(
         "raw", parse_prompt, state.chatgpt_url, state.bridge_script,
-        state.cwd, timeout=120, signature=f"lock-parse:{name}"
+        state.cwd, timeout=120, signature=f"lock-parse:{name}",
+        browser_profile=state.browser_profile
     )
     if ec != 0:
         print(f"[lock] ⚠ GPT 解析失败（exit={ec}），请手动编辑 TASKS.json")
@@ -598,7 +609,8 @@ def execute_task(state: ProjectState, task: Task,
         "task-code", task_prompt, state.chatgpt_url,
         state.bridge_script, state.cwd,
         signature=f"task-code:{state.name}:{task.id}",
-        timeout=360
+        timeout=360,
+        browser_profile=state.browser_profile
     )
     if ec != 0:
         print(f"[Task {task.id}] ⚠ GPT 代码生成失败（exit={ec}）")
@@ -626,7 +638,8 @@ def execute_task(state: ProjectState, task: Task,
             "task-code", retry_prompt, state.chatgpt_url,
             state.bridge_script, state.cwd,
             signature=f"task-code-retry:{state.name}:{task.id}",
-            timeout=180
+            timeout=180,
+            browser_profile=state.browser_profile
         )
         if ec_retry == 0:
             test_cmds = parse_test_commands(retry_output)
@@ -702,7 +715,8 @@ def execute_task(state: ProjectState, task: Task,
         evidence=task.test_results,
         level="L2",
         signature=f"task-review:{state.name}:{task.id}",
-        timeout=180
+        timeout=180,
+        browser_profile=state.browser_profile
     )
     if ec2 != 0:
         print(f"[Task {task.id}] ⚠ GPT 审查调用失败（exit={ec2}），默认标记失败")
@@ -768,7 +782,8 @@ def _auto_fix_loop(state: ProjectState, task: Task,
             "task-code", fix_prompt, state.chatgpt_url,
             state.bridge_script, state.cwd,
             signature=f"task-fix:{state.name}:{task.id}:{task.attempts}",
-            timeout=360
+            timeout=360,
+            browser_profile=state.browser_profile
         )
         if ec != 0:
             print(f"[Task {task.id}] ⚠ 修复调用失败（exit={ec}）")
@@ -847,7 +862,8 @@ def _auto_fix_loop(state: ProjectState, task: Task,
             evidence=task.test_results,
             level="L2",
             signature=f"task-review:{state.name}:{task.id}:fix{task.attempts}",
-            timeout=180
+            timeout=180,
+            browser_profile=state.browser_profile
         )
         if ec_review != 0:
             print(f"[Task {task.id}] ⚠ 审查调用失败")
@@ -976,6 +992,9 @@ def cmd_status(args) -> int:
     print(f"\n项目: {state.name}")
     print(f"需求: {state.requirement[:80]}")
     print(f"分支: {state.branch}")
+    print(f"浏览器: {state.browser}")
+    if state.browser_profile:
+        print(f"bsk Profile: {state.browser_profile}")
     print(f"锁定: {'是' if state.task_locked else '否'}")
     print(f"当前任务: {state.current_task_id or '无'}")
     print(f"\n任务列表（共 {len(state.tasks)} 个）：")
@@ -1026,6 +1045,14 @@ def _build_parser() -> argparse.ArgumentParser:
     p_init.add_argument("--browser", default="safari",
                         choices=["safari", "chrome", "edge", "brave", "arc", "chromium", "bsk"],
                         help="浏览器类型（默认 safari；已安装 bsk 时可填 bsk 或自动接管日常 Chrome/Edge）")
+    p_init.add_argument(
+        "--browser-profile",
+        default=os.environ.get("BSK_BROWSER_PROFILE", ""),
+        help=(
+            "BrowserSkill Profile 选择（instance_id 或唯一 label）。"
+            "仅当实际 bridge 为 bsk 时生效，并会持久化到项目状态。"
+        ),
+    )
 
     # refine
     p_refine = sub.add_parser("refine", help="更新/重新生成方案")
