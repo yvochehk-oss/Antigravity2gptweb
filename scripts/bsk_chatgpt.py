@@ -18,7 +18,6 @@ import os
 import re
 import time
 import json
-import fcntl
 import tempfile
 import subprocess
 import argparse
@@ -58,7 +57,7 @@ EXIT_CODE_NAME = {
 # =============================================================================
 # 路径 / 超时常量
 # =============================================================================
-CIRCUIT_STATE_FILE   = "/tmp/bsk_chatgpt_circuit_breaker.json"
+CIRCUIT_STATE_FILE   = os.path.join(tempfile.gettempdir(), "bsk_chatgpt_circuit_breaker.json")
 CIRCUIT_WINDOW_SEC   = 3600
 CIRCUIT_MAX_RETRIES  = 3
 
@@ -172,11 +171,68 @@ def _circuit_lock_path() -> str:
     return CIRCUIT_STATE_FILE + ".lock"
 
 
+def _pid_alive(pid: int) -> bool:
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+        return True
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+
+
+def _acquire_atomic_lock(path: str, wait: bool = False) -> Tuple[int, str]:
+    attempts = 60 if wait else 1
+    for _ in range(attempts):
+        try:
+            fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_RDWR, 0o600)
+            token = f"{os.getpid()}:{time.time_ns()}"
+            os.write(fd, token.encode("utf-8"))
+            return fd, token
+        except FileExistsError:
+            try:
+                with open(path, "r", encoding="utf-8", errors="ignore") as f:
+                    owner = int((f.read().strip().split(":", 1)[0] or "0"))
+                if not _pid_alive(owner):
+                    os.unlink(path)
+                    continue
+            except (OSError, ValueError):
+                pass
+            if wait:
+                time.sleep(0.05)
+                continue
+            raise TargetTabBusyError(f"目标资源正被另一 bridge 占用（{path}）。")
+    raise RuntimeError(f"等待锁超时：{path}")
+
+
+def _release_atomic_lock(path: str, fd: Optional[int], token: Optional[str]) -> None:
+    if fd is None:
+        return
+    try:
+        try:
+            os.lseek(fd, 0, os.SEEK_SET)
+            current = os.read(fd, 256).decode("utf-8", errors="ignore").strip()
+        except OSError:
+            current = ""
+        if token and current == token:
+            try:
+                os.unlink(path)
+            except FileNotFoundError:
+                pass
+    finally:
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+
+
 def _read_circuit_state_unlocked() -> Dict[str, Any]:
     if not os.path.exists(CIRCUIT_STATE_FILE):
         return {}
     try:
-        with open(CIRCUIT_STATE_FILE, "r") as f:
+        with open(CIRCUIT_STATE_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
         return data if isinstance(data, dict) else {}
     except Exception:
@@ -185,94 +241,82 @@ def _read_circuit_state_unlocked() -> Dict[str, Any]:
 
 def _atomic_write_state_unlocked(state: Dict[str, Any]) -> None:
     with tempfile.NamedTemporaryFile(
-        "w", dir=os.path.dirname(CIRCUIT_STATE_FILE), delete=False
+        "w", dir=os.path.dirname(CIRCUIT_STATE_FILE), delete=False, encoding="utf-8"
     ) as tf:
         json.dump(state, tf, indent=2, ensure_ascii=False)
         tmp_name = tf.name
     os.replace(tmp_name, CIRCUIT_STATE_FILE)
 
 
+def _with_circuit_lock(callback):
+    fd = None
+    token = None
+    path = _circuit_lock_path()
+    try:
+        fd, token = _acquire_atomic_lock(path, wait=True)
+        return callback()
+    finally:
+        _release_atomic_lock(path, fd, token)
+
+
 def check_circuit_breaker(signature: str) -> None:
     norm_sig = normalize_failure_signature(signature)
-    lock_fd = os.open(_circuit_lock_path(), os.O_CREAT | os.O_RDWR, 0o600)
-    try:
-        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+    def _check():
         state = _read_circuit_state_unlocked()
         now = time.time()
         failures = state.get(norm_sig, [])
         valid_failures = [t for t in failures if now - t < CIRCUIT_WINDOW_SEC]
-        if len(valid_failures) != len(failures):
-            if valid_failures:
-                state[norm_sig] = valid_failures
-            else:
-                state.pop(norm_sig, None)
-            _atomic_write_state_unlocked(state)
+        if valid_failures:
+            state[norm_sig] = valid_failures
+        else:
+            state.pop(norm_sig, None)
+        _atomic_write_state_unlocked(state)
         if len(valid_failures) >= CIRCUIT_MAX_RETRIES:
             raise CircuitOpenError(
                 f"熔断已触发：签名 {norm_sig!r} 在过去 {CIRCUIT_WINDOW_SEC}s 内已连续失败 "
                 f"{len(valid_failures)} 次（>= {CIRCUIT_MAX_RETRIES}），拒绝重复执行。"
             )
-    finally:
-        try:
-            fcntl.flock(lock_fd, fcntl.LOCK_UN)
-        finally:
-            os.close(lock_fd)
+    _with_circuit_lock(_check)
 
 
 def record_failure(signature: str) -> None:
     norm_sig = normalize_failure_signature(signature)
-    lock_fd = os.open(_circuit_lock_path(), os.O_CREAT | os.O_RDWR, 0o600)
-    try:
-        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+    def _record():
         state = _read_circuit_state_unlocked()
         now = time.time()
         failures = state.get(norm_sig, [])
-        valid_failures = [t for t in failures if now - t < CIRCUIT_WINDOW_SEC]
-        valid_failures.append(now)
-        state[norm_sig] = valid_failures
+        valid = [t for t in failures if now - t < CIRCUIT_WINDOW_SEC]
+        valid.append(now)
+        state[norm_sig] = valid
         _atomic_write_state_unlocked(state)
-    finally:
-        try:
-            fcntl.flock(lock_fd, fcntl.LOCK_UN)
-        finally:
-            os.close(lock_fd)
+    _with_circuit_lock(_record)
 
 
 def record_success(signature: str) -> None:
     norm_sig = normalize_failure_signature(signature)
-    lock_fd = os.open(_circuit_lock_path(), os.O_CREAT | os.O_RDWR, 0o600)
-    try:
-        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+    def _record():
         state = _read_circuit_state_unlocked()
         if norm_sig in state:
             state.pop(norm_sig, None)
             _atomic_write_state_unlocked(state)
-    finally:
-        try:
-            fcntl.flock(lock_fd, fcntl.LOCK_UN)
-        finally:
-            os.close(lock_fd)
+    _with_circuit_lock(_record)
 
 
 def reset_circuit_breaker() -> int:
-    lock_fd = os.open(_circuit_lock_path(), os.O_CREAT | os.O_RDWR, 0o600)
-    cleared = 0
-    try:
-        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+    result = {"cleared": 0}
+    def _reset():
         state = _read_circuit_state_unlocked()
-        cleared = len(state)
-        if os.path.exists(CIRCUIT_STATE_FILE):
-            os.remove(CIRCUIT_STATE_FILE)
-    finally:
+        result["cleared"] = len(state)
         try:
-            fcntl.flock(lock_fd, fcntl.LOCK_UN)
-        finally:
-            os.close(lock_fd)
-    return cleared
+            os.remove(CIRCUIT_STATE_FILE)
+        except FileNotFoundError:
+            pass
+    _with_circuit_lock(_reset)
+    return result["cleared"]
 
 
 # =============================================================================
-# TargetTabLock 事务锁（P0-2：跨进程对同一 target_url 加互斥锁）
+# TargetTabLock 事务锁（P0-2：Windows/Unix 通用原子锁）
 # =============================================================================
 class TargetTabBusyError(RuntimeError):
     pass
@@ -281,34 +325,18 @@ class TargetTabBusyError(RuntimeError):
 class TargetTabLock:
     def __init__(self, target_url: str):
         digest = hashlib.sha256(target_url.encode("utf-8")).hexdigest()[:24]
-        self.path = f"/tmp/bsk_chatgpt_tab_{digest}.lock"
+        self.path = os.path.join(tempfile.gettempdir(), f"bsk_chatgpt_tab_{digest}.lock")
         self.fd: Optional[int] = None
+        self.token: Optional[str] = None
 
     def __enter__(self):
-        self.fd = os.open(self.path, os.O_CREAT | os.O_RDWR, 0o600)
-        try:
-            fcntl.flock(self.fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            try:
-                os.close(self.fd)
-            except Exception:
-                pass
-            self.fd = None
-            raise TargetTabBusyError(
-                f"目标 ChatGPT Tab 正在被另一 bridge 占用（{self.path}）。"
-            )
+        self.fd, self.token = _acquire_atomic_lock(self.path, wait=False)
         return self
 
     def __exit__(self, exc_type, exc, tb):
-        if self.fd is not None:
-            try:
-                fcntl.flock(self.fd, fcntl.LOCK_UN)
-            finally:
-                try:
-                    os.close(self.fd)
-                except Exception:
-                    pass
-                self.fd = None
+        _release_atomic_lock(self.path, self.fd, self.token)
+        self.fd = None
+        self.token = None
         return False
 
 
