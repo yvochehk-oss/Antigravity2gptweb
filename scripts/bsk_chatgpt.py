@@ -798,6 +798,41 @@ def _stable_poll_js(target_message_id: Optional[str]) -> str:
 # =============================================================================
 # Payload 格式化
 # =============================================================================
+def _collect_local_diagnostics(cwd: Optional[str], max_lines: int = 40) -> str:
+    """
+    Empty-evidence self-heal: collect a bounded, read-only worktree snapshot so
+    the cloud reviewer can distinguish a clean run from a dirty local checkout.
+    Never mutates the repository and never includes file contents.
+    """
+    if not cwd:
+        return "[no cwd supplied; automatic local diagnostics unavailable]"
+    try:
+        res = subprocess.run(
+            ["git", "status", "--short", "--untracked-files=all"],
+            capture_output=True,
+            text=True,
+            cwd=cwd,
+            timeout=GIT_SUBPROCESS_TIMEOUT_SEC,
+        )
+    except Exception as e:
+        return sanitize_text(f"[git status unavailable: {type(e).__name__}: {e}]")
+    if res.returncode != 0:
+        detail = (res.stderr or res.stdout or "").strip()
+        return sanitize_text(f"[git status failed rc={res.returncode}: {detail[:500]}]")
+    lines = [line for line in res.stdout.splitlines() if line.strip()]
+    if not lines:
+        return "[auto diagnostics] git worktree is clean"
+    clipped = lines[:max_lines]
+    suffix = ""
+    if len(lines) > max_lines:
+        suffix = f"\n... [{len(lines) - max_lines} additional status lines omitted] ..."
+    return sanitize_text(
+        "[auto diagnostics] git status --short --untracked-files=all:\n"
+        + "\n".join(clipped)
+        + suffix
+    )
+
+
 def format_evidence_payload(task_type: str, context_text: str,
                             evidence_data: Optional[str] = None,
                             level: str = "L1",
@@ -805,6 +840,8 @@ def format_evidence_payload(task_type: str, context_text: str,
     git_ctx = get_git_head_context(cwd)
     context_text = sanitize_text(context_text)
     evidence_data = sanitize_text(evidence_data or "")
+    if task_type in ("feedback", "task-review") and not evidence_data.strip() and level != "L0":
+        evidence_data = _collect_local_diagnostics(cwd)
 
     if level == "L0":
         evidence_snippet = "[L0 No Evidence Body: only request context provided]"
