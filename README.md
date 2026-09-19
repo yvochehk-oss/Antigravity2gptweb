@@ -108,6 +108,46 @@ git -C ~/.gemini/antigravity/skills/safari-chatgpt-reasoner pull --ff-only
 
 ---
 
+## macOS：BrowserSkill Profile 选择
+
+macOS 除 Safari bridge 外，也支持 Tencent BrowserSkill（`bsk`）驱动 Chrome / Edge 等 Chromium 浏览器。推荐把专门用于 ChatGPT 的浏览器 Profile 安装并启用 BrowserSkill 扩展，然后由 Antigravity 显式选择该 Profile。
+
+BrowserSkill 不接受 Chrome 的 `--profile-directory` 作为 session 参数；本项目使用 BrowserSkill 自身的 `instance_id / label` 选择机制。每个安装扩展的浏览器 Profile 都会成为一个独立 BrowserSkill 实例。
+
+```bash
+# 查看在线 Profile / browser instance
+python3 scripts/bsk_chatgpt.py --list-browser-profiles
+
+# 检查某个 Profile
+python3 scripts/bsk_chatgpt.py --check-env --browser-profile "GPT专用"
+
+# 使用指定 Profile 的独立 Agent Window
+python3 scripts/bsk_chatgpt.py \
+  --browser-profile "GPT专用" \
+  --target-url "https://chatgpt.com/c/<conversation-id>" \
+  --type plan \
+  --prompt "任务目标描述"
+```
+
+默认行为是独立 Agent Window + `--no-focus`，不会主动借用用户主窗口里的 ChatGPT 标签页。确有页面级临时状态必须复用时，才显式增加 `--borrow`。
+
+当多个 BrowserSkill 实例同时在线时，必须通过 `--browser-profile <instance_id|唯一label>` 指定目标；系统不会随机选择。Orchestrator 初始化时也可以直接固定：
+
+```bash
+python3 scripts/orchestrate.py init \
+  --name my-project \
+  --requirement "项目需求" \
+  --target-url "https://chatgpt.com/c/<conversation-id>" \
+  --repo git@github.com:owner/repo.git \
+  --cwd /path/to/repo \
+  --browser bsk \
+  --browser-profile "GPT专用"
+```
+
+这个选择会保存在项目状态中，后续 plan、task-code、task-review 与自动修复都会继续使用同一个 BrowserSkill Profile。
+
+---
+
 ## 🚀 首次配置与启动（纯自然语言）
 
 完成安装和 GitHub 前置条件后，再进行以下三步：
@@ -318,8 +358,9 @@ git -C ~/.gemini/antigravity/skills/safari-chatgpt-reasoner pull --ff-only
 
 ### Q4：支持哪些浏览器？
 **答**：
-- **Mac 用户**：直接使用系统自带的 **Safari 浏览器**即可，打开网页就能用，零门槛。
-- **其他平台 / 常用 Chrome 的用户**：支持 **Google Chrome**、**Microsoft Edge**、**Brave** 等主流浏览器。
+- **Mac 用户**：可以继续使用 Safari bridge；也可以使用 BrowserSkill 驱动 **Google Chrome / Microsoft Edge / Brave 等 Chromium 浏览器**。
+- 使用 BrowserSkill 时，可按 `instance_id` 或唯一 `label` 指定用户选定的浏览器 Profile，并在该 Profile 的独立 Agent Window 中运行。
+- Windows 分支同样以 BrowserSkill / Chromium 为主要自动化方向。
 
 ### Q5：如果 AI 改出的代码不符合预期怎么办？
 **答**：完全不用担心。
