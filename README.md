@@ -7,6 +7,7 @@
 <br/>
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Website Portal](https://img.shields.io/badge/Website-Live%20Portal-00d2ff.svg)](https://yvochehk-oss.github.io/Antigravity2gptweb/)
 [![Latest Release](https://img.shields.io/badge/Release-v1.1.0-blue.svg)](https://github.com/yvochehk-oss/Antigravity2gptweb/releases/tag/v1.1.0)
 [![Download](https://img.shields.io/badge/Download-ZIP%20Packages-success.svg)](#-极速下载与安装包无需命令行)
 [![Tests](https://img.shields.io/badge/Tests-18%2F18%20Passing-brightgreen.svg)](#-单元测试与架构终审)
@@ -20,6 +21,7 @@
 <br/>
 
 <p align="center">
+  <a href="https://yvochehk-oss.github.io/Antigravity2gptweb/">🌐 访问产品官网</a> •
   <a href="#-极速下载与安装包无需命令行">极速下载</a> •
   <a href="#-核心价值与痛点解决">核心价值</a> •
   <a href="#-双脑协作架构与执行时序">架构原理</a> •
@@ -33,6 +35,11 @@
 </p>
 
 </div>
+
+---
+
+> 🌐 **产品官方网站与实时交付大屏已上线**：👉 [**https://yvochehk-oss.github.io/Antigravity2gptweb/**](https://yvochehk-oss.github.io/Antigravity2gptweb/)  
+> 包含深色高颜值产品介绍、双向时序协作交互演示、实时产品交付看板 (Issue #1~#9) 与一键极速下载中心！
 
 ---
 
