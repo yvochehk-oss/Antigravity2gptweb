@@ -530,7 +530,7 @@
 
     .download-grid {
       display: grid;
-      grid-template-columns: repeat(2, 1fr);
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
       gap: 28px;
       margin-top: 36px;
     }
@@ -646,7 +646,7 @@
   <section class="hero">
     <div class="container">
       <div class="release-badge">
-        <span></span> v1.0.0 正式稳定版现已发布 · 纯自然语言驱动
+        <span></span> v1.1.0 深度加固版现已发布 · 纯自然语言驱动
       </div>
       <h1>
         桌面 AI Agent <span class="text-gradient">× ChatGPT 网页版</span><br>
@@ -663,8 +663,8 @@
         <a href="https://github.com/yvochehk-oss/Antigravity2gptweb/archive/refs/heads/windows.zip" class="btn-secondary">
           🪟 下载 Windows 专版 (.zip)
         </a>
-        <a href="https://github.com/yvochehk-oss/Antigravity2gptweb/releases/tag/v1.0.0" target="_blank" class="btn-secondary">
-          🏷️ Release v1.0.0 说明
+        <a href="https://github.com/yvochehk-oss/Antigravity2gptweb/releases/tag/v1.1.0" target="_blank" class="btn-secondary">
+          🏷️ Release v1.1.0 说明
         </a>
       </div>
 
@@ -764,16 +764,25 @@
         <div class="board-col">
           <div class="board-col-header">
             <span class="board-col-title">✅ 已交付上线</span>
-            <span class="col-badge badge-done">4 项完成</span>
+            <span class="col-badge badge-done">5 项完成</span>
           </div>
+
+          <a href="https://github.com/yvochehk-oss/Antigravity2gptweb/issues/9" target="_blank" class="issue-card">
+            <div class="issue-top">
+              <span class="issue-num">#9</span>
+              <span class="issue-tag">Driver</span>
+            </div>
+            <div class="issue-title">[驱动加固] Browser-Skill 免端口与 Agent Window 闭环</div>
+            <div class="issue-desc">默认独立副驾窗口零抢占焦点，多 Profile 精确选择，18 项跨平台测试与云端终审闭环。</div>
+          </a>
 
           <a href="https://github.com/yvochehk-oss/Antigravity2gptweb/issues/8" target="_blank" class="issue-card">
             <div class="issue-top">
               <span class="issue-num">#8</span>
               <span class="issue-tag">Release</span>
             </div>
-            <div class="issue-title">[版本发布] v1.0.0 稳定版正式发布</div>
-            <div class="issue-desc">提供 macOS & Windows 绿色压缩包直链下载与完整发行注记。</div>
+            <div class="issue-title">[版本发布] v1.1.0 深度加固版正式发布</div>
+            <div class="issue-desc">提供 macOS & Windows 绿色压缩包直链下载、18 项测试用例与全量架构审查报告。</div>
           </a>
 
           <a href="https://github.com/yvochehk-oss/Antigravity2gptweb/issues/1" target="_blank" class="issue-card">
@@ -862,17 +871,17 @@
         <div class="download-box">
           <div>
             <h3>🍏 macOS 专版</h3>
-            <p>基于 Safari 原生 AppleScript 驱动与 Python CDP 桥接，专为 macOS 环境深度优化。</p>
+            <p>基于 Safari 原生 AppleScript 驱动与 Python CDP/bsk 桥接，专为 macOS 环境深度优化。</p>
             <ul class="feature-list">
-              <li>支持 Safari（系统自带，无需安装驱动）</li>
+              <li>默认 Agent Window 独立副驾模式（--no-focus，零抢占焦点）</li>
               <li>支持 Browser-Skill (bsk) 免端口直连日常 Chrome/Edge</li>
-              <li>内置 Cloudflare Turnstile / 验证码人工唤醒介入 (request-help)</li>
-              <li>具备完整任务编排与方案 Refine 能力</li>
-              <li>兼容 Apple Silicon (M1/M2/M3/M4) 与 Intel</li>
+              <li>多 Profile 精确隔离与安全拦截（--browser-profile，fail-closed）</li>
+              <li>POSIX fcntl 内核级锁与 18 项全量单元测试通过</li>
+              <li>内置 Cloudflare Turnstile / 验证码人工唤醒 (request-help)</li>
             </ul>
           </div>
           <a href="https://github.com/yvochehk-oss/Antigravity2gptweb/archive/refs/heads/macos.zip" class="btn-primary" style="width: 100%; justify-content: center;">
-            📥 下载 Antigravity2gptweb-macos.zip
+            📥 下载 macOS 专版 (.zip)
           </a>
         </div>
 
@@ -882,13 +891,30 @@
             <p>基于纯原生 Node.js 18+ 实现，拥有极致轻量级架构，无须繁重的环境配置。</p>
             <ul class="feature-list">
               <li>纯原生驱动，<strong>0 个 npm 外部依赖包</strong></li>
-              <li>原生支持 Microsoft Edge 与 Google Chrome</li>
-              <li>包含 check_env.bat 与 start_edge_cdp.bat 快捷脚本</li>
+              <li>原生支持 Microsoft Edge 与 Google Chrome，支持 bsk 驱动</li>
+              <li>Windows msvcrt 文件锁与临时目录隔离，生命周期 OS 托管</li>
+              <li>包含 check_env_windows.bat 快捷环境自检与 18 项测试矩阵</li>
               <li>完美适配 Windows 10 与 Windows 11</li>
             </ul>
           </div>
           <a href="https://github.com/yvochehk-oss/Antigravity2gptweb/archive/refs/heads/windows.zip" class="btn-secondary" style="width: 100%; justify-content: center; background: rgba(56, 189, 248, 0.1); border-color: rgba(56, 189, 248, 0.3); color: var(--accent-cyan);">
-            📥 下载 Antigravity2gptweb-windows.zip
+            📥 下载 Windows 专版 (.zip)
+          </a>
+        </div>
+
+        <div class="download-box">
+          <div>
+            <h3>🏷️ v1.1.0 稳定发行包</h3>
+            <p>包含全量双平台源码、架构审查报告与 18 项自动化测试矩阵，开箱即用。</p>
+            <ul class="feature-list">
+              <li>已完成跨平台 P0 修复与云端终审闭环</li>
+              <li>包含完整任务编排器 (orchestrate.py)</li>
+              <li>包含 Google Antigravity IDE 规范安装支持</li>
+              <li>附带官方 Release 注记与校验 Hash</li>
+            </ul>
+          </div>
+          <a href="https://github.com/yvochehk-oss/Antigravity2gptweb/archive/refs/tags/v1.1.0.zip" class="btn-secondary" style="width: 100%; justify-content: center; background: rgba(168, 85, 247, 0.15); border-color: rgba(168, 85, 247, 0.4); color: #c084fc;">
+            📦 下载 v1.1.0 源码包 (.zip)
           </a>
         </div>
       </div>
