@@ -10,6 +10,11 @@ description: 纯自然语言驱动的通用 AI 协作开发桥梁：让任意桌
 
 ---
 
+> 🌐 **产品官方网站与交互大屏**：👉 [**https://yvochehk-oss.github.io/Antigravity2gptweb/**](https://yvochehk-oss.github.io/Antigravity2gptweb/)  
+> 📥 **官方极速下载中心**：👉 [**https://yvochehk-oss.github.io/Antigravity2gptweb/#download**](https://yvochehk-oss.github.io/Antigravity2gptweb/#download)
+
+---
+
 ## 💡 这套方案能帮你做什么？
 
 过去做项目或开发功能时，经常遇到的困扰：
