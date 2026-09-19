@@ -49,16 +49,27 @@
 
 ## 📥 极速下载与安装中心
 
-针对无需 Git 命令行配置的客户与开发者，推荐直接访问官方极速下载页面：
+本项目分为 **两大核心版本系列**，均提供预打包免配置 ZIP 安装包与 Git 快捷部署，点击即可前往官网下载大屏：
 
 > 🚀 **官方可视化下载大屏**：👉 [**https://yvochehk-oss.github.io/Antigravity2gptweb/#download**](https://yvochehk-oss.github.io/Antigravity2gptweb/#download)
 
-| 平台通道 | 官方下载入口 / 直链 | 包含组件与特性 |
+### 1️⃣ Browser-Skill 扩展驱动版（v1.1.0 发行版 · 日常推荐）
+> 适用场景：日常使用已登录的 Chrome / Edge 浏览器，免开 9222 调试端口，具备独立副驾窗口（--no-focus，零抢占焦点）与风控人工唤醒能力。
+
+| 平台通道 | 官网下载入口 / 备用直链 | 核心组件与特性 |
 | :--- | :--- | :--- |
-| 🍏 **macOS 专版** | [**📥 前往官网下载 macOS 专版**](https://yvochehk-oss.github.io/Antigravity2gptweb/#download) <br/><sub>[备用直链 (.zip)](https://github.com/yvochehk-oss/Antigravity2gptweb/archive/refs/heads/macos.zip)</sub> | Safari 原生驱动、Browser-Skill (`bsk`) 免端口直连、Python CDP 桥接与完整任务编排套件 |
-| 🪟 **Windows 专版** | [**📥 前往官网下载 Windows 专版**](https://yvochehk-oss.github.io/Antigravity2gptweb/#download) <br/><sub>[备用直链 (.zip)](https://github.com/yvochehk-oss/Antigravity2gptweb/archive/refs/heads/windows.zip)</sub> | 纯原生 Node.js 18+ 驱动引擎（**0 个 npm 依赖**）、Browser-Skill 支持、Edge/Chrome 双引擎 |
-| 🏷️ **v1.1.0 稳定版** | [**📦 前往官网获取 v1.1.0 发行包**](https://yvochehk-oss.github.io/Antigravity2gptweb/#download) <br/><sub>[源码直链 (.zip)](https://github.com/yvochehk-oss/Antigravity2gptweb/archive/refs/tags/v1.1.0.zip)</sub> | 经过全量代码终审与 18 项跨平台回归测试锁定的正式发行版本 |
-| 📦 **官方 Release** | [**🏷️ 前往 Releases v1.1.0 官方发行页**](https://github.com/yvochehk-oss/Antigravity2gptweb/releases/tag/v1.1.0) | 官方版本发行说明、源代码、校验 Hash 与架构终审记录 |
+| 🍏 **macOS 版 (v1.1.0)** | [**📥 前往官网下载 macOS 增强版**](https://yvochehk-oss.github.io/Antigravity2gptweb/#download-bsk) <br/><sub>[备用直链 (.zip)](https://github.com/yvochehk-oss/Antigravity2gptweb/archive/refs/heads/macos.zip)</sub> | Browser-Skill (`bsk`) 免端口直连、Python CDP 桥接、POSIX fcntl 锁、18 项全量测试通过 |
+| 🪟 **Windows 版 (v1.1.0)** | [**📥 前往官网下载 Windows 增强版**](https://yvochehk-oss.github.io/Antigravity2gptweb/#download-bsk) <br/><sub>[备用直链 (.zip)](https://github.com/yvochehk-oss/Antigravity2gptweb/archive/refs/heads/windows.zip)</sub> | Browser-Skill (`bsk`) 直连日常 Edge/Chrome、Windows msvcrt 锁与环境自检、18 项测试全过 |
+
+### 2️⃣ 系统原生直连版（Native Engine · 0 外部依赖）
+> 适用场景：追求极致轻量、0 外部浏览器扩展、0 npm 依赖包的极简纯净开发者，系统底层原生直连。
+
+| 平台通道 | 官网下载入口 / 备用直链 | 核心组件与特性 |
+| :--- | :--- | :--- |
+| 🍏 **macOS 原生版** | [**📥 前往官网下载 macOS 原生版**](https://yvochehk-oss.github.io/Antigravity2gptweb/#download-native) <br/><sub>[备用直链 (.zip)](https://github.com/yvochehk-oss/Antigravity2gptweb/archive/refs/heads/macos.zip)</sub> | 纯 Safari 原生 AppleScript 驱动，系统自带 0 扩展依赖，开箱即用 |
+| 🪟 **Windows 原生版** | [**📥 前往官网下载 Windows 原生版**](https://yvochehk-oss.github.io/Antigravity2gptweb/#download-native) <br/><sub>[备用直链 (.zip)](https://github.com/yvochehk-oss/Antigravity2gptweb/archive/refs/heads/windows.zip)</sub> | 纯原生 Node.js 18+ 驱动引擎（**0 个 npm 依赖包**），毫秒级独立自洽启动 |
+
+> 🏷️ **源码与发行说明**：[Releases v1.1.0 官方发行页](https://github.com/yvochehk-oss/Antigravity2gptweb/releases/tag/v1.1.0) \| [下载全量源码包 (.zip)](https://github.com/yvochehk-oss/Antigravity2gptweb/archive/refs/tags/v1.1.0.zip)
 
 ---
 

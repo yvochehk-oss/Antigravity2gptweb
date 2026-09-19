@@ -612,25 +612,168 @@
       border-bottom: 1px solid var(--border-color);
     }
 
-    .download-grid {
+    .download-panels {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      grid-template-columns: repeat(2, 1fr);
       gap: 28px;
       margin-top: 36px;
     }
 
-    .download-box {
+    .version-panel {
       background: var(--bg-card);
       border: 1px solid var(--border-color);
-      border-radius: 18px;
+      border-radius: 20px;
       padding: 32px;
       display: flex;
       flex-direction: column;
-      justify-content: space-between;
+      position: relative;
+      transition: all 0.3s ease;
+      backdrop-filter: blur(12px);
     }
 
-    .download-box:hover {
+    .version-panel:hover {
       border-color: var(--border-hover);
+      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
+    }
+
+    .panel-badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 4px 12px;
+      border-radius: 50px;
+      font-size: 0.78rem;
+      font-weight: 700;
+      width: fit-content;
+      margin-bottom: 18px;
+    }
+
+    .badge-bsk {
+      background: rgba(56, 189, 248, 0.15);
+      border: 1px solid rgba(56, 189, 248, 0.35);
+      color: var(--accent-cyan);
+    }
+
+    .badge-native {
+      background: rgba(34, 197, 94, 0.15);
+      border: 1px solid rgba(34, 197, 94, 0.35);
+      color: #4ade80;
+    }
+
+    .panel-header {
+      display: flex;
+      gap: 16px;
+      align-items: flex-start;
+      margin-bottom: 20px;
+    }
+
+    .panel-icon {
+      font-size: 2.2rem;
+      line-height: 1;
+    }
+
+    .panel-header h3 {
+      font-size: 1.35rem;
+      font-weight: 700;
+      color: var(--text-main);
+      margin-bottom: 6px;
+    }
+
+    .panel-subtitle {
+      color: var(--text-muted);
+      font-size: 0.88rem;
+      line-height: 1.5;
+    }
+
+    .panel-downloads {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 16px;
+      margin-top: auto;
+      padding-top: 24px;
+      border-top: 1px solid var(--border-color);
+    }
+
+    .download-subcard {
+      background: rgba(13, 17, 23, 0.75);
+      border: 1px solid var(--border-color);
+      border-radius: 14px;
+      padding: 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      transition: border-color 0.2s;
+    }
+
+    .download-subcard:hover {
+      border-color: rgba(255, 255, 255, 0.2);
+    }
+
+    .subcard-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .subcard-title {
+      font-size: 0.96rem;
+      font-weight: 700;
+    }
+
+    .subcard-tag {
+      font-size: 0.72rem;
+      padding: 2px 6px;
+      border-radius: 4px;
+      background: rgba(255, 255, 255, 0.08);
+      color: var(--text-muted);
+    }
+
+    .subcard-desc {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      line-height: 1.4;
+      flex-grow: 1;
+    }
+
+    .subcard-cmd {
+      background: rgba(0, 0, 0, 0.35);
+      padding: 6px 10px;
+      border-radius: 6px;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      overflow-x: auto;
+    }
+
+    .subcard-cmd code {
+      font-size: 0.74rem;
+      color: #94a3b8;
+      font-family: monospace;
+      white-space: nowrap;
+    }
+
+    .release-strip {
+      margin-top: 32px;
+      background: rgba(22, 27, 34, 0.6);
+      border: 1px solid var(--border-color);
+      border-radius: 14px;
+      padding: 18px 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 20px;
+      flex-wrap: wrap;
+    }
+
+    .release-strip div {
+      font-size: 0.88rem;
+      color: var(--text-muted);
+    }
+
+    .release-strip a {
+      color: var(--accent-cyan);
+      text-decoration: none;
+    }
+
+    .release-strip a:hover {
+      text-decoration: underline;
     }
 
     .download-box h3 {
@@ -687,12 +830,13 @@
       .grid-cards { grid-template-columns: repeat(2, 1fr); }
       .flow-grid { grid-template-columns: repeat(2, 1fr); }
       .hero-stats { grid-template-columns: repeat(2, 1fr); }
+      .download-panels { grid-template-columns: 1fr; }
     }
 
     @media (max-width: 900px) {
       .board-columns { grid-template-columns: 1fr; }
-      .download-grid { grid-template-columns: 1fr; }
       .nav-links { display: none; }
+      .panel-downloads { grid-template-columns: 1fr; }
     }
 
     @media (max-width: 680px) {
@@ -751,11 +895,11 @@
       </p>
 
       <div class="hero-actions">
-        <a href="https://github.com/yvochehk-oss/Antigravity2gptweb/archive/refs/heads/macos.zip" class="btn-primary">
-          🍏 下载 macOS 专版 (.zip)
+        <a href="#download-bsk" class="btn-primary">
+          ⚡ 下载 Browser-Skill 增强版 (v1.1.0)
         </a>
-        <a href="https://github.com/yvochehk-oss/Antigravity2gptweb/archive/refs/heads/windows.zip" class="btn-secondary">
-          🪟 下载 Windows 专版 (.zip)
+        <a href="#download-native" class="btn-secondary">
+          🛡️ 下载系统原生极简版 (0 依赖)
         </a>
         <a href="https://github.com/yvochehk-oss/Antigravity2gptweb/releases/tag/v1.1.0" target="_blank" class="btn-secondary">
           🏷️ Release v1.1.0 说明
@@ -996,59 +1140,120 @@
     <div class="container">
       <div class="section-title">
         <h2>📥 极速下载与安装中心</h2>
-        <p>针对无需 Git 命令行的用户，直接下载对应平台的预打包绿色免安装压缩包</p>
+        <p>分两大核心版本系列，各自原生提供 macOS 与 Windows 专版通道，按需自由选择</p>
       </div>
 
-      <div class="download-grid">
-        <div class="download-box">
-          <div>
-            <h3>🍏 macOS 专版</h3>
-            <p>基于 Safari 原生 AppleScript 驱动与 Python CDP/bsk 桥接，专为 macOS 环境深度优化。</p>
-            <ul class="feature-list">
-              <li>默认 Agent Window 独立副驾模式（--no-focus，零抢占焦点）</li>
-              <li>支持 Browser-Skill (bsk) 免端口直连日常 Chrome/Edge</li>
-              <li>多 Profile 精确隔离与安全拦截（--browser-profile，fail-closed）</li>
-              <li>POSIX fcntl 内核级锁与 18 项全量单元测试通过</li>
-              <li>内置 Cloudflare Turnstile / 验证码人工唤醒 (request-help)</li>
-            </ul>
+      <div class="download-panels">
+        <!-- Edition 1: Browser-Skill Edition -->
+        <div class="version-panel" id="download-bsk">
+          <div class="panel-badge badge-bsk">⚡ 推荐主力使用 · v1.1.0 发行版</div>
+          <div class="panel-header">
+            <div class="panel-icon">🌐</div>
+            <div>
+              <h3>Browser-Skill 扩展驱动版 (v1.1.0)</h3>
+              <p class="panel-subtitle">免开调试端口 · 直连日常已登录 Chrome/Edge · 独立副驾窗口 · 验证码人工唤醒</p>
+            </div>
           </div>
-          <a href="https://github.com/yvochehk-oss/Antigravity2gptweb/archive/refs/heads/macos.zip" class="btn-primary" style="width: 100%; justify-content: center;">
-            📥 下载 macOS 专版 (.zip)
-          </a>
+
+          <ul class="feature-list">
+            <li><strong>日常免端口直连</strong>：基于 Browser-Skill (bsk)，直接连接您日常已登录的主力浏览器</li>
+            <li><strong>独立 Agent Window</strong>：默认副驾窗口（--no-focus），彻底不抢占用户日常操作焦点</li>
+            <li><strong>多 Profile 精准隔离</strong>：支持企业与个人多账号隔离，指定 Profile 严格 fail-closed 拦截</li>
+            <li><strong>人工风控唤醒</strong>：内置 Cloudflare Turnstile 与验证码智能呼叫 (request-help)</li>
+            <li><strong>18 项测试全过</strong>：跨平台驱动与编排契约自动化测试 100% PASS</li>
+          </ul>
+
+          <div class="panel-downloads">
+            <div class="download-subcard">
+              <div class="subcard-header">
+                <span class="subcard-title">🍏 macOS 专版</span>
+                <span class="subcard-tag">Python CDP / bsk</span>
+              </div>
+              <p class="subcard-desc">针对 macOS 优化，POSIX fcntl 内核锁保护</p>
+              <a href="https://github.com/yvochehk-oss/Antigravity2gptweb/archive/refs/heads/macos.zip" class="btn-primary" style="width: 100%; justify-content: center; font-size: 0.88rem; padding: 10px 16px;">
+                📥 下载 macOS 版 (.zip)
+              </a>
+              <div class="subcard-cmd">
+                <code>git clone --branch macos ...</code>
+              </div>
+            </div>
+
+            <div class="download-subcard">
+              <div class="subcard-header">
+                <span class="subcard-title">🪟 Windows 专版</span>
+                <span class="subcard-tag">Node.js / bsk</span>
+              </div>
+              <p class="subcard-desc">Windows 10/11 原生支持，msvcrt 锁与环境自检</p>
+              <a href="https://github.com/yvochehk-oss/Antigravity2gptweb/archive/refs/heads/windows.zip" class="btn-secondary" style="width: 100%; justify-content: center; font-size: 0.88rem; padding: 10px 16px; background: rgba(56, 189, 248, 0.1); border-color: rgba(56, 189, 248, 0.3); color: var(--accent-cyan);">
+                📥 下载 Windows 版 (.zip)
+              </a>
+              <div class="subcard-cmd">
+                <code>git clone --branch windows ...</code>
+              </div>
+            </div>
+          </div>
         </div>
 
-        <div class="download-box">
-          <div>
-            <h3>🪟 Windows 专版</h3>
-            <p>基于纯原生 Node.js 18+ 实现，拥有极致轻量级架构，无须繁重的环境配置。</p>
-            <ul class="feature-list">
-              <li>纯原生驱动，<strong>0 个 npm 外部依赖包</strong></li>
-              <li>原生支持 Microsoft Edge 与 Google Chrome，支持 bsk 驱动</li>
-              <li>Windows msvcrt 文件锁与临时目录隔离，生命周期 OS 托管</li>
-              <li>包含 check_env_windows.bat 快捷环境自检与 18 项测试矩阵</li>
-              <li>完美适配 Windows 10 与 Windows 11</li>
-            </ul>
+        <!-- Edition 2: Native Engine Edition -->
+        <div class="version-panel" id="download-native">
+          <div class="panel-badge badge-native">🛡️ 极致纯净 · 0 外部依赖</div>
+          <div class="panel-header">
+            <div class="panel-icon">⚡</div>
+            <div>
+              <h3>系统原生直连版 (Native Engine)</h3>
+              <p class="panel-subtitle">0 浏览器扩展依赖 · 系统底层原生调用 · 毫秒级开箱即用 · 纯粹自洽架构</p>
+            </div>
           </div>
-          <a href="https://github.com/yvochehk-oss/Antigravity2gptweb/archive/refs/heads/windows.zip" class="btn-secondary" style="width: 100%; justify-content: center; background: rgba(56, 189, 248, 0.1); border-color: rgba(56, 189, 248, 0.3); color: var(--accent-cyan);">
-            📥 下载 Windows 专版 (.zip)
-          </a>
-        </div>
 
-        <div class="download-box">
-          <div>
-            <h3>🏷️ v1.1.0 稳定发行包</h3>
-            <p>包含全量双平台源码、架构审查报告与 18 项自动化测试矩阵，开箱即用。</p>
-            <ul class="feature-list">
-              <li>已完成跨平台 P0 修复与云端终审闭环</li>
-              <li>包含完整任务编排器 (orchestrate.py)</li>
-              <li>包含 Google Antigravity IDE 规范安装支持</li>
-              <li>附带官方 Release 注记与校验 Hash</li>
-            </ul>
+          <ul class="feature-list">
+            <li><strong>0 外部浏览器扩展</strong>：无需安装任何第三方浏览器插件或守护进程，纯净原生</li>
+            <li><strong>macOS 原生 Safari</strong>：基于系统内置 AppleScript 驱动，原生无感控制，系统级可靠</li>
+            <li><strong>Windows 原生 Node.js</strong>：纯原生 Node.js 18+，<strong>0 个 npm 外部依赖包</strong>，毫秒自洽启动</li>
+            <li><strong>全流程闭环保障</strong>：同样享受云端 GPT 5.6/6.0 顶级推演与本地测试 Exit Code 终审</li>
+            <li><strong>防覆盖安全熔断</strong>：严格 fast-forward 保护本地修改，敏感凭据自动掩码脱敏</li>
+          </ul>
+
+          <div class="panel-downloads">
+            <div class="download-subcard">
+              <div class="subcard-header">
+                <span class="subcard-title">🍏 macOS 原生版</span>
+                <span class="subcard-tag">Safari AppleScript</span>
+              </div>
+              <p class="subcard-desc">系统自带 0 依赖，原生 Safari 无需装插件</p>
+              <a href="https://github.com/yvochehk-oss/Antigravity2gptweb/archive/refs/heads/macos.zip" class="btn-primary" style="width: 100%; justify-content: center; font-size: 0.88rem; padding: 10px 16px; background: linear-gradient(135deg, #10b981 0%, #0284c7 100%);">
+                📥 下载 macOS 原生版 (.zip)
+              </a>
+              <div class="subcard-cmd">
+                <code>git clone --branch macos ...</code>
+              </div>
+            </div>
+
+            <div class="download-subcard">
+              <div class="subcard-header">
+                <span class="subcard-title">🪟 Windows 原生版</span>
+                <span class="subcard-tag">Node.js (0 npm)</span>
+              </div>
+              <p class="subcard-desc">纯原生 Edge/Chrome 直连，0 npm 依赖包</p>
+              <a href="https://github.com/yvochehk-oss/Antigravity2gptweb/archive/refs/heads/windows.zip" class="btn-secondary" style="width: 100%; justify-content: center; font-size: 0.88rem; padding: 10px 16px; background: rgba(16, 185, 129, 0.1); border-color: rgba(16, 185, 129, 0.3); color: #34d399;">
+                📥 下载 Windows 原生版 (.zip)
+              </a>
+              <div class="subcard-cmd">
+                <code>git clone --branch windows ...</code>
+              </div>
+            </div>
           </div>
-          <a href="https://github.com/yvochehk-oss/Antigravity2gptweb/archive/refs/tags/v1.1.0.zip" class="btn-secondary" style="width: 100%; justify-content: center; background: rgba(168, 85, 247, 0.15); border-color: rgba(168, 85, 247, 0.4); color: #c084fc;">
-            📦 下载 v1.1.0 源码包 (.zip)
-          </a>
         </div>
+      </div>
+
+      <!-- Release strip -->
+      <div class="release-strip">
+        <div>
+          <strong>🏷️ 官方正式发行版 v1.1.0</strong>（包含全部双版本源码、双平台驱动与 18 项测试套件）：
+          <a href="https://github.com/yvochehk-oss/Antigravity2gptweb/releases/tag/v1.1.0" target="_blank">查看 Release v1.1.0 发行注记与完整 SHA-256 校验码 &rarr;</a>
+        </div>
+        <a href="https://github.com/yvochehk-oss/Antigravity2gptweb/archive/refs/tags/v1.1.0.zip" class="btn-secondary" style="padding: 8px 18px; font-size: 0.85rem; border-color: rgba(168, 85, 247, 0.4); color: #c084fc;">
+          📦 下载 v1.1.0 全量源码包 (.zip)
+        </a>
       </div>
     </div>
   </section>
