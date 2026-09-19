@@ -40,6 +40,7 @@ BRIDGE_BY_BROWSER = {
     "brave":  "scripts/chrome_chatgpt.py",
     "arc":    "scripts/chrome_chatgpt.py",
     "chromium": "scripts/chrome_chatgpt.py",
+    "bsk":    "scripts/bsk_chatgpt.py",
 }
 
 MAX_FIX_ATTEMPTS = 5          # 单任务最大修复轮次
@@ -152,14 +153,37 @@ def _git_or_raise(cmd: str, cwd: str, msg: str) -> str:
     return r.stdout.strip()
 
 
+def _is_bsk_available() -> bool:
+    """检查本地是否安装并运行了 bsk 守护进程，且已有活跃浏览器连接"""
+    try:
+        r = subprocess.run(["bsk", "status", "--json"], capture_output=True, text=True, timeout=3)
+        if r.returncode == 0:
+            st = json.loads(r.stdout)
+            return len(st.get("browsers", [])) > 0
+    except Exception:
+        pass
+    return False
+
+
 def _resolve_bridge(browser: str) -> str:
-    script = BRIDGE_BY_BROWSER.get(browser.lower())
+    browser_clean = browser.lower()
+    base = Path(__file__).parent.parent.resolve()
+
+    # 显式指定 bsk 驱动
+    if browser_clean == "bsk":
+        return str(base / "scripts/bsk_chatgpt.py")
+
+    # 若选择 Chromium 家族且检测到本机的 bsk 守护进程已连接浏览器，优先升级为免端口的 bsk 驱动
+    if browser_clean in ("chrome", "edge", "brave", "arc", "chromium") and _is_bsk_available():
+        return str(base / "scripts/bsk_chatgpt.py")
+
+    script = BRIDGE_BY_BROWSER.get(browser_clean)
     if not script:
         raise ValueError(f"未知 browser: {browser!r}，可选: {list(BRIDGE_BY_BROWSER.keys())}")
-    base = Path(__file__).parent.parent.resolve()
+
     # Windows uses the dependency-free Node CDP bridge. macOS keeps the
     # AppleScript Safari bridge and Python Chromium bridge unchanged.
-    if platform.system() == "Windows" and browser.lower() != "safari":
+    if platform.system() == "Windows" and browser_clean != "safari":
         return str(base / "scripts/chrome_chatgpt.js")
     return str(base / script)
 
@@ -1000,8 +1024,8 @@ def _build_parser() -> argparse.ArgumentParser:
     p_init.add_argument("--branch", default=None, help="Git 分支（默认 orchestrate/<name>）")
     p_init.add_argument("--cwd", default=None, help="本地仓库路径（默认当前目录）")
     p_init.add_argument("--browser", default="safari",
-                        choices=["safari", "chrome", "edge", "brave", "arc", "chromium"],
-                        help="浏览器类型（默认 safari）")
+                        choices=["safari", "chrome", "edge", "brave", "arc", "chromium", "bsk"],
+                        help="浏览器类型（默认 safari；已安装 bsk 时可填 bsk 或自动接管日常 Chrome/Edge）")
 
     # refine
     p_refine = sub.add_parser("refine", help="更新/重新生成方案")

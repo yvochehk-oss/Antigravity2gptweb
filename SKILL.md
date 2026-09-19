@@ -217,8 +217,41 @@ python3 "$SKILL_ROOT/scripts/chrome_chatgpt.py" \
 ```
 
 > **注意**：
-> - Safari 与 Chromium 熔断器使用**独立**的状态文件（`/tmp/safari_chatgpt_circuit_breaker.json` vs `/tmp/chrome_chatgpt_circuit_breaker.json`），互不影响。
+> - Safari、Chromium CDP 与 Browser-Skill 熔断器使用**独立**的状态文件（`/tmp/safari_chatgpt_circuit_breaker.json`、`/tmp/chrome_chatgpt_circuit_breaker.json`、`/tmp/bsk_chatgpt_circuit_breaker.json`），互不影响。
 > - **不要同时在 9222 端口启两个 Chromium 实例**：CDP 端口冲突会让 `/json/list` 返回错乱 Tab。建议 Edge/Brave 用户把端口改成 9223，并在调用时 `--chrome-port 9223`。
+
+#### Browser-Skill 版（高阶推荐：基于 bsk CLI，免调试端口直连日常 Chrome/Edge，带风控人机唤醒）
+
+若本机已安装 Tencent `browser-skill` (`bsk`) 及其浏览器扩展，这是驱动 Chromium（Chrome / Edge / Brave）的最强形态：
+- **免 `--remote-debugging-port`**：直接复用用户日常使用的已登录浏览器实例，无需关闭日常浏览器或重新登录账号；
+- **智能人机风控介入**：遇到 Cloudflare Turnstile / 验证码时，自动唤醒 `bsk request-help` 请求人工协助并在通过后自动继续；
+- **100% 协议兼容**：与 Safari / Chrome CDP 驱动保持完全一致的退出码、TargetTabLock 事务锁与结构化 JSONL 事件规范。
+
+前置环境自检：
+```bash
+python3 "$SKILL_ROOT/scripts/bsk_chatgpt.py" --check-env
+```
+
+标准调用：
+```bash
+# 1. 直接指定会话 URL 执行任务（优先借用日常已登录标签页或在 Agent Window 中直连）
+python3 "$SKILL_ROOT/scripts/bsk_chatgpt.py" \
+  --target-url "https://chatgpt.com/c/6a93f844-99f8-83ea-b4fd-8b544659e4a0" \
+  --type plan \
+  --prompt "任务目标描述"
+
+# 2. 携带执行证据反馈并带熔断保护
+python3 "$SKILL_ROOT/scripts/bsk_chatgpt.py" \
+  --target-url "https://chatgpt.com/c/6a93f844-99f8-83ea-b4fd-8b544659e4a0" \
+  --type feedback \
+  --prompt "正在执行模块 A 重构" \
+  --evidence-file /tmp/pytest_fail.log \
+  --level L1 \
+  --signature "AUTH_TOKEN_EXPIRED_ERR"
+
+# 3. 清空 bsk 驱动熔断器
+python3 "$SKILL_ROOT/scripts/bsk_chatgpt.py" --reset-circuit
+```
 
 ### 下游消费规范
 
