@@ -453,8 +453,8 @@ class BSKClient:
 
     def start_session(self) -> str:
         code, out, err = self._exec_bsk(
-            ["session", "start", "--json", "--name", self.session_name],
-            timeout=10,
+            ["session", "start", "--json", "--no-focus", "--name", self.session_name],
+            timeout=45,
         )
         if code != 0:
             raise BSKError(f"启动 bsk 会话失败: {err.strip() or out.strip()}")
@@ -503,8 +503,8 @@ class BSKClient:
         if not self.session_id:
             raise BSKError("无可用 session_id，无法 borrow_tab")
         code, out, err = self._exec_bsk(
-            ["tab", "borrow", str(tab_id), "--session", self.session_id, "--timeout", "15s"],
-            timeout=20,
+            ["tab", "borrow", str(tab_id), "--session", self.session_id, "--timeout", "60s"],
+            timeout=75,
         )
         if code != 0:
             raise BSKError(f"借用 tab {tab_id} 失败: {err.strip() or out.strip()}")
@@ -548,15 +548,28 @@ class BSKClient:
             raise BSKError(f"JS 执行报错: {err_msg}")
         return res.get("value")
 
-    def request_help(self, prompt: str, timeout: str = "5m") -> None:
+    def request_help(self, prompt: str, timeout: str = "5m") -> str:
         if not self.session_id:
             raise BSKError("无可用 session_id，无法 request_help")
-        code, out, err = self._exec_bsk(
-            ["request-help", "--session", self.session_id, "--prompt", prompt, "--timeout", timeout],
-            timeout=330,
-        )
+        args = [
+            "request-help", "--session", self.session_id,
+            "--prompt", prompt, "--timeout", timeout, "--json"
+        ]
+        if self.active_tab_id is not None:
+            args.extend(["--tab-id", str(self.active_tab_id)])
+        code, out, err = self._exec_bsk(args, timeout=330)
         if code != 0:
             raise BSKError(f"bsk request-help 失败: {err.strip() or out.strip()}")
+        try:
+            result = json.loads(out)
+        except json.JSONDecodeError as e:
+            raise BSKError(f"bsk request-help 输出非合法 JSON: {out[:200]}") from e
+        outcome = str(result.get("outcome", "")).lower()
+        if outcome in ("cancelled", "timed_out", "timeout", "disabled"):
+            raise BSKError(f"人工协助未完成，outcome={outcome}")
+        if outcome not in ("continued", "completed"):
+            raise BSKError(f"人工协助返回未知 outcome={outcome or 'missing'}")
+        return outcome
 
     def focus(self, selector: str = "#prompt-textarea") -> None:
         if not self.session_id:
@@ -810,21 +823,21 @@ def send_and_receive_bsk_chatgpt(
                 t for t in user_tabs
                 if target_url in t.get("url", "") or (uuid_part and uuid_part in t.get("url", ""))
             ]
-            if not matching_tabs:
-                # 模糊匹配：若用户已在 Chrome 中打开任何 chatgpt.com 页面，直接借用
-                matching_tabs = [
-                    t for t in user_tabs
-                    if "chatgpt.com" in t.get("url", "")
-                ]
+            if len(matching_tabs) > 1:
+                emit_event(
+                    "tab_bind", EXIT_AMBIGUOUS_TAB,
+                    "发现多个匹配目标会话的用户标签页；拒绝猜测，改用隔离的 Agent Window。"
+                )
+                matching_tabs = []
 
-            if len(matching_tabs) >= 1:
-                # 优先选择当前活跃或精确匹配的 tab
-                target_tab = next((t for t in matching_tabs if target_url in t.get("url", "") or (uuid_part and uuid_part in t.get("url", ""))), matching_tabs[0])
+            if len(matching_tabs) == 1:
+                # 只借用精确 URL / conversation UUID 命中的标签页。
+                target_tab = matching_tabs[0]
                 tab_id = target_tab["tab_id"]
                 try:
                     client.borrow_tab(tab_id)
                     bound_target = True
-                    emit_event("tab_bind", EXIT_OK, f"成功借用用户已有 Chrome ChatGPT 标签页 (tab_id={tab_id})", tab_id=tab_id)
+                    emit_event("tab_bind", EXIT_OK, f"成功借用用户已有 Edge/Chrome ChatGPT 标签页 (tab_id={tab_id})", tab_id=tab_id)
                     
                     # 检查借用后 URL 是否需要导航至目标会话
                     curr_href = str(client.evaluate("location.href") or "")
