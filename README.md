@@ -11,7 +11,8 @@ description: 纯自然语言驱动的通用 AI 协作开发桥梁：让任意桌
 ---
 
 > 🌐 **产品官方网站与交互大屏**：👉 [**https://yvochehk-oss.github.io/Antigravity2gptweb/**](https://yvochehk-oss.github.io/Antigravity2gptweb/)  
-> 📥 **官方极速下载中心**：👉 [**https://yvochehk-oss.github.io/Antigravity2gptweb/#download**](https://yvochehk-oss.github.io/Antigravity2gptweb/#download)
+> 📥 **官方极速下载中心**：👉 [**https://yvochehk-oss.github.io/Antigravity2gptweb/#download**](https://yvochehk-oss.github.io/Antigravity2gptweb/#download)  
+> ⚡ **两大核心版本系列**：分为【Browser-Skill 增强版 (v1.1.0 · 推荐主力使用)】与【系统原生极简版 (Native Engine · 0 外部依赖)】，各自提供 macOS 与 Windows 专版通道。
 
 ---
 
