@@ -425,7 +425,7 @@ class BSKClient:
 
     def start_session(self) -> str:
         code, out, err = self._exec_bsk(
-            ["session", "start", "--json", "--name", self.session_name],
+            ["session", "start", "--json", "--name", self.session_name, "--no-focus"],
             timeout=10,
         )
         if code != 0:
