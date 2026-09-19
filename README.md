@@ -9,7 +9,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Website Portal](https://img.shields.io/badge/Website-Live%20Portal-00d2ff.svg)](https://yvochehk-oss.github.io/Antigravity2gptweb/)
 [![Latest Release](https://img.shields.io/badge/Release-v1.1.0-blue.svg)](https://github.com/yvochehk-oss/Antigravity2gptweb/releases/tag/v1.1.0)
-[![Download](https://img.shields.io/badge/Download-ZIP%20Packages-success.svg)](#-极速下载与安装包无需命令行)
+[![Download](https://img.shields.io/badge/Download-Official%20Portal-success.svg)](https://yvochehk-oss.github.io/Antigravity2gptweb/#download)
 [![Tests](https://img.shields.io/badge/Tests-18%2F18%20Passing-brightgreen.svg)](#-单元测试与架构终审)
 [![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Windows-lightgrey.svg)](#-平台支持与跨平台安装)
 [![Agent](https://img.shields.io/badge/Agent-Antigravity%20%7C%20Claude%20Code%20%7C%20Cursor-8A2BE2.svg)](#-安装到-antigravity-ide)
@@ -21,8 +21,8 @@
 <br/>
 
 <p align="center">
-  <a href="https://yvochehk-oss.github.io/Antigravity2gptweb/">🌐 访问产品官网</a> •
-  <a href="#-极速下载与安装包无需命令行">极速下载</a> •
+  <a href="https://yvochehk-oss.github.io/Antigravity2gptweb/"><b>🌐 访问产品官方首页</b></a> •
+  <a href="https://yvochehk-oss.github.io/Antigravity2gptweb/#download"><b>📥 前往官方极速下载中心</b></a> •
   <a href="#-核心价值与痛点解决">核心价值</a> •
   <a href="#-双脑协作架构与执行时序">架构原理</a> •
   <a href="#-browser-skill-bsk-驱动加固特性-v110">v1.1.0 特性</a> •
@@ -30,16 +30,16 @@
   <a href="#-安装到-antigravity-ide">Antigravity 集成</a> •
   <a href="#-单元测试与架构终审">测试与终审</a> •
   <a href="#-安全合规与隐私保障">安全保障</a> •
-  <a href="#-实时研发看板-live-roadmap">项目看板</a> •
-  <a href="#-开源协议与支持">Star 支持</a>
+  <a href="#-实时研发看板-live-roadmap">项目看板</a>
 </p>
 
 </div>
 
 ---
 
-> 🌐 **产品官方网站与实时交付大屏已上线**：👉 [**https://yvochehk-oss.github.io/Antigravity2gptweb/**](https://yvochehk-oss.github.io/Antigravity2gptweb/)  
-> 包含深色高颜值产品介绍、双向时序协作交互演示、实时产品交付看板 (Issue #1~#9) 与一键极速下载中心！
+> 🌟 **项目默认入口与官方网站**：👉 [**https://yvochehk-oss.github.io/Antigravity2gptweb/**](https://yvochehk-oss.github.io/Antigravity2gptweb/)  
+> 📥 **官方极速下载与安装中心**：👉 [**https://yvochehk-oss.github.io/Antigravity2gptweb/#download**](https://yvochehk-oss.github.io/Antigravity2gptweb/#download)  
+> 包含深色高颜值双脑协作演示、多平台一键免安装下载包、实时产品交付大屏 (Issue #1~#9) 与一键挂载指令！
 
 ---
 
@@ -47,15 +47,17 @@
 
 ---
 
-## 📥 极速下载与安装包（无需命令行）
+## 📥 极速下载与安装中心
 
-针对不习惯使用 Git 终端命令行的客户与用户，我们提供了预打包的绿色免配置 ZIP 安装包，点击即可直接下载：
+针对无需 Git 命令行配置的客户与开发者，推荐直接访问官方极速下载页面：
 
-| 平台通道 | 一键直链下载 | 包含组件与特性 |
+> 🚀 **官方可视化下载大屏**：👉 [**https://yvochehk-oss.github.io/Antigravity2gptweb/#download**](https://yvochehk-oss.github.io/Antigravity2gptweb/#download)
+
+| 平台通道 | 官方下载入口 / 直链 | 包含组件与特性 |
 | :--- | :--- | :--- |
-| 🍏 **macOS 专版** | [**📥 下载 Antigravity2gptweb-macos.zip**](https://github.com/yvochehk-oss/Antigravity2gptweb/archive/refs/heads/macos.zip) | Safari 原生驱动、Browser-Skill (`bsk`) 免端口直连、Python CDP 桥接与完整任务编排套件 |
-| 🪟 **Windows 专版** | [**📥 下载 Antigravity2gptweb-windows.zip**](https://github.com/yvochehk-oss/Antigravity2gptweb/archive/refs/heads/windows.zip) | 纯原生 Node.js 18+ 驱动引擎（**0 个 npm 依赖**）、Browser-Skill 支持、Edge/Chrome 双引擎 |
-| 🏷️ **v1.1.0 稳定版** | [**📦 下载 v1.1.0 源码包 (ZIP)**](https://github.com/yvochehk-oss/Antigravity2gptweb/archive/refs/tags/v1.1.0.zip) | 经过全量代码终审与 18 项跨平台回归测试锁定的正式发行版本 |
+| 🍏 **macOS 专版** | [**📥 前往官网下载 macOS 专版**](https://yvochehk-oss.github.io/Antigravity2gptweb/#download) <br/><sub>[备用直链 (.zip)](https://github.com/yvochehk-oss/Antigravity2gptweb/archive/refs/heads/macos.zip)</sub> | Safari 原生驱动、Browser-Skill (`bsk`) 免端口直连、Python CDP 桥接与完整任务编排套件 |
+| 🪟 **Windows 专版** | [**📥 前往官网下载 Windows 专版**](https://yvochehk-oss.github.io/Antigravity2gptweb/#download) <br/><sub>[备用直链 (.zip)](https://github.com/yvochehk-oss/Antigravity2gptweb/archive/refs/heads/windows.zip)</sub> | 纯原生 Node.js 18+ 驱动引擎（**0 个 npm 依赖**）、Browser-Skill 支持、Edge/Chrome 双引擎 |
+| 🏷️ **v1.1.0 稳定版** | [**📦 前往官网获取 v1.1.0 发行包**](https://yvochehk-oss.github.io/Antigravity2gptweb/#download) <br/><sub>[源码直链 (.zip)](https://github.com/yvochehk-oss/Antigravity2gptweb/archive/refs/tags/v1.1.0.zip)</sub> | 经过全量代码终审与 18 项跨平台回归测试锁定的正式发行版本 |
 | 📦 **官方 Release** | [**🏷️ 前往 Releases v1.1.0 官方发行页**](https://github.com/yvochehk-oss/Antigravity2gptweb/releases/tag/v1.1.0) | 官方版本发行说明、源代码、校验 Hash 与架构终审记录 |
 
 ---
