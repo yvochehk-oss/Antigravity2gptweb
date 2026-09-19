@@ -220,28 +220,39 @@ python3 "$SKILL_ROOT/scripts/chrome_chatgpt.py" \
 > - Safari、Chromium CDP 与 Browser-Skill 熔断器使用**独立**的状态文件（`/tmp/safari_chatgpt_circuit_breaker.json`、`/tmp/chrome_chatgpt_circuit_breaker.json`、`/tmp/bsk_chatgpt_circuit_breaker.json`），互不影响。
 > - **不要同时在 9222 端口启两个 Chromium 实例**：CDP 端口冲突会让 `/json/list` 返回错乱 Tab。建议 Edge/Brave 用户把端口改成 9223，并在调用时 `--chrome-port 9223`。
 
-#### Browser-Skill 版（高阶推荐：基于 bsk CLI，免调试端口直连日常 Chrome/Edge，带风控人机唤醒）
+#### Browser-Skill 版（高阶推荐：Agent Window + 可指定浏览器 Profile）
 
-若本机已安装 Tencent `browser-skill` (`bsk`) 及其浏览器扩展，这是驱动 Chromium（Chrome / Edge / Brave）的最强形态：
-- **免 `--remote-debugging-port`**：直接复用用户日常使用的已登录浏览器实例，无需关闭日常浏览器或重新登录账号；
-- **智能人机风控介入**：遇到 Cloudflare Turnstile / 验证码时，自动唤醒 `bsk request-help` 请求人工协助并在通过后自动继续；
-- **100% 协议兼容**：与 Safari / Chrome CDP 驱动保持完全一致的退出码、TargetTabLock 事务锁与结构化 JSONL 事件规范。
+若本机已安装 Tencent `browser-skill` (`bsk`) 及其浏览器扩展，可在 macOS 上直接复用 Chrome / Edge 等 Chromium 浏览器中的现有登录状态：
+- **默认 Agent Window**：bridge 默认不借用用户主窗口标签页，`bsk session start` 使用 `--no-focus` 创建独立 Agent Window；只有显式传入 `--borrow` 才允许 Tab Borrow。
+- **Profile 选择**：每个安装并启用 BrowserSkill 扩展的浏览器 Profile 会以独立 `instance_id` 连接 daemon，并可设置唯一 `label`。bridge 使用 `--browser-profile <instance_id|唯一label>` 锁定目标 Profile。
+- **多实例 fail-closed**：只有一个实例在线时可自动选择；多个 Profile 同时在线而用户未指定时，bridge 直接报错，不猜测、不随机选择。
+- **复用登录态**：Agent Window 属于所选浏览器实例/Profile，可复用该 Profile 的 Cookie 和站点级持久登录状态；不要把它表述为跨 Profile 复制会话。
+- **人机风控介入**：遇到 Cloudflare、CAPTCHA、OTP 或重新登录时，通过 `bsk request-help` 请求人工协助，不绕过验证。
 
-前置环境自检：
+先列出当前可选 Profile：
 ```bash
-python3 "$SKILL_ROOT/scripts/bsk_chatgpt.py" --check-env
+python3 "$SKILL_ROOT/scripts/bsk_chatgpt.py" --list-browser-profiles
+```
+
+环境与指定 Profile 自检：
+```bash
+python3 "$SKILL_ROOT/scripts/bsk_chatgpt.py" \
+  --check-env \
+  --browser-profile "GPT专用"
 ```
 
 标准调用：
 ```bash
-# 1. 直接指定会话 URL 执行任务（优先借用日常已登录标签页或在 Agent Window 中直连）
+# 1. 指定 BrowserSkill Profile；默认在独立 Agent Window 中运行
 python3 "$SKILL_ROOT/scripts/bsk_chatgpt.py" \
+  --browser-profile "GPT专用" \
   --target-url "https://chatgpt.com/c/6a93f844-99f8-83ea-b4fd-8b544659e4a0" \
   --type plan \
   --prompt "任务目标描述"
 
-# 2. 携带执行证据反馈并带熔断保护
+# 2. 也可以直接使用稳定 instance_id，避免重名 label
 python3 "$SKILL_ROOT/scripts/bsk_chatgpt.py" \
+  --browser-profile "c44f82de" \
   --target-url "https://chatgpt.com/c/6a93f844-99f8-83ea-b4fd-8b544659e4a0" \
   --type feedback \
   --prompt "正在执行模块 A 重构" \
@@ -249,9 +260,19 @@ python3 "$SKILL_ROOT/scripts/bsk_chatgpt.py" \
   --level L1 \
   --signature "AUTH_TOKEN_EXPIRED_ERR"
 
-# 3. 清空 bsk 驱动熔断器
+# 3. 只有明确需要接管用户现有 ChatGPT Tab 时才启用 Borrow
+python3 "$SKILL_ROOT/scripts/bsk_chatgpt.py" \
+  --browser-profile "GPT专用" \
+  --borrow \
+  --target-url "https://chatgpt.com/c/6a93f844-99f8-83ea-b4fd-8b544659e4a0" \
+  --type plan \
+  --prompt "需要复用当前 Tab 页面级状态"
+
+# 4. 清空 bsk 驱动熔断器
 python3 "$SKILL_ROOT/scripts/bsk_chatgpt.py" --reset-circuit
 ```
+
+也可设置进程级默认值 `BSK_BROWSER_PROFILE`；显式命令行参数优先。Orchestrator 会把 `--browser-profile` 持久化到项目状态，后续 plan / review / task 调用始终使用同一 Profile。
 
 ### 下游消费规范
 
@@ -352,7 +373,10 @@ python3 scripts/orchestrate.py init \
   --target-url "https://chatgpt.com/c/xxx" \
   --repo git@github.com:xxx/yyy.git \
   --cwd /path/to/repo \
-  --browser safari
+  --browser bsk \
+  --browser-profile "GPT专用"
+
+# 若继续使用 Safari 驱动，保留 --browser safari，且无需 --browser-profile
 
 # 方案审核与修改（可多次，直到满意）
 python3 scripts/orchestrate.py refine \
