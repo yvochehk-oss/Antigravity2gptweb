@@ -18,6 +18,7 @@ import os
 import re
 import time
 import json
+import fcntl
 import tempfile
 import subprocess
 import argparse
@@ -57,7 +58,7 @@ EXIT_CODE_NAME = {
 # =============================================================================
 # 路径 / 超时常量
 # =============================================================================
-CIRCUIT_STATE_FILE   = os.path.join(tempfile.gettempdir(), "bsk_chatgpt_circuit_breaker.json")
+CIRCUIT_STATE_FILE   = "/tmp/bsk_chatgpt_circuit_breaker.json"
 CIRCUIT_WINDOW_SEC   = 3600
 CIRCUIT_MAX_RETRIES  = 3
 
@@ -171,68 +172,11 @@ def _circuit_lock_path() -> str:
     return CIRCUIT_STATE_FILE + ".lock"
 
 
-def _pid_alive(pid: int) -> bool:
-    if pid <= 0:
-        return False
-    try:
-        os.kill(pid, 0)
-        return True
-    except PermissionError:
-        return True
-    except OSError:
-        return False
-
-
-def _acquire_atomic_lock(path: str, wait: bool = False) -> Tuple[int, str]:
-    attempts = 60 if wait else 1
-    for _ in range(attempts):
-        try:
-            fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_RDWR, 0o600)
-            token = f"{os.getpid()}:{time.time_ns()}"
-            os.write(fd, token.encode("utf-8"))
-            return fd, token
-        except FileExistsError:
-            try:
-                with open(path, "r", encoding="utf-8", errors="ignore") as f:
-                    owner = int((f.read().strip().split(":", 1)[0] or "0"))
-                if not _pid_alive(owner):
-                    os.unlink(path)
-                    continue
-            except (OSError, ValueError):
-                pass
-            if wait:
-                time.sleep(0.05)
-                continue
-            raise TargetTabBusyError(f"目标资源正被另一 bridge 占用（{path}）。")
-    raise RuntimeError(f"等待锁超时：{path}")
-
-
-def _release_atomic_lock(path: str, fd: Optional[int], token: Optional[str]) -> None:
-    if fd is None:
-        return
-    try:
-        try:
-            os.lseek(fd, 0, os.SEEK_SET)
-            current = os.read(fd, 256).decode("utf-8", errors="ignore").strip()
-        except OSError:
-            current = ""
-        if token and current == token:
-            try:
-                os.unlink(path)
-            except FileNotFoundError:
-                pass
-    finally:
-        try:
-            os.close(fd)
-        except OSError:
-            pass
-
-
 def _read_circuit_state_unlocked() -> Dict[str, Any]:
     if not os.path.exists(CIRCUIT_STATE_FILE):
         return {}
     try:
-        with open(CIRCUIT_STATE_FILE, "r", encoding="utf-8") as f:
+        with open(CIRCUIT_STATE_FILE, "r") as f:
             data = json.load(f)
         return data if isinstance(data, dict) else {}
     except Exception:
@@ -241,82 +185,94 @@ def _read_circuit_state_unlocked() -> Dict[str, Any]:
 
 def _atomic_write_state_unlocked(state: Dict[str, Any]) -> None:
     with tempfile.NamedTemporaryFile(
-        "w", dir=os.path.dirname(CIRCUIT_STATE_FILE), delete=False, encoding="utf-8"
+        "w", dir=os.path.dirname(CIRCUIT_STATE_FILE), delete=False
     ) as tf:
         json.dump(state, tf, indent=2, ensure_ascii=False)
         tmp_name = tf.name
     os.replace(tmp_name, CIRCUIT_STATE_FILE)
 
 
-def _with_circuit_lock(callback):
-    fd = None
-    token = None
-    path = _circuit_lock_path()
-    try:
-        fd, token = _acquire_atomic_lock(path, wait=True)
-        return callback()
-    finally:
-        _release_atomic_lock(path, fd, token)
-
-
 def check_circuit_breaker(signature: str) -> None:
     norm_sig = normalize_failure_signature(signature)
-    def _check():
+    lock_fd = os.open(_circuit_lock_path(), os.O_CREAT | os.O_RDWR, 0o600)
+    try:
+        fcntl.flock(lock_fd, fcntl.LOCK_EX)
         state = _read_circuit_state_unlocked()
         now = time.time()
         failures = state.get(norm_sig, [])
         valid_failures = [t for t in failures if now - t < CIRCUIT_WINDOW_SEC]
-        if valid_failures:
-            state[norm_sig] = valid_failures
-        else:
-            state.pop(norm_sig, None)
-        _atomic_write_state_unlocked(state)
+        if len(valid_failures) != len(failures):
+            if valid_failures:
+                state[norm_sig] = valid_failures
+            else:
+                state.pop(norm_sig, None)
+            _atomic_write_state_unlocked(state)
         if len(valid_failures) >= CIRCUIT_MAX_RETRIES:
             raise CircuitOpenError(
                 f"熔断已触发：签名 {norm_sig!r} 在过去 {CIRCUIT_WINDOW_SEC}s 内已连续失败 "
                 f"{len(valid_failures)} 次（>= {CIRCUIT_MAX_RETRIES}），拒绝重复执行。"
             )
-    _with_circuit_lock(_check)
+    finally:
+        try:
+            fcntl.flock(lock_fd, fcntl.LOCK_UN)
+        finally:
+            os.close(lock_fd)
 
 
 def record_failure(signature: str) -> None:
     norm_sig = normalize_failure_signature(signature)
-    def _record():
+    lock_fd = os.open(_circuit_lock_path(), os.O_CREAT | os.O_RDWR, 0o600)
+    try:
+        fcntl.flock(lock_fd, fcntl.LOCK_EX)
         state = _read_circuit_state_unlocked()
         now = time.time()
         failures = state.get(norm_sig, [])
-        valid = [t for t in failures if now - t < CIRCUIT_WINDOW_SEC]
-        valid.append(now)
-        state[norm_sig] = valid
+        valid_failures = [t for t in failures if now - t < CIRCUIT_WINDOW_SEC]
+        valid_failures.append(now)
+        state[norm_sig] = valid_failures
         _atomic_write_state_unlocked(state)
-    _with_circuit_lock(_record)
+    finally:
+        try:
+            fcntl.flock(lock_fd, fcntl.LOCK_UN)
+        finally:
+            os.close(lock_fd)
 
 
 def record_success(signature: str) -> None:
     norm_sig = normalize_failure_signature(signature)
-    def _record():
+    lock_fd = os.open(_circuit_lock_path(), os.O_CREAT | os.O_RDWR, 0o600)
+    try:
+        fcntl.flock(lock_fd, fcntl.LOCK_EX)
         state = _read_circuit_state_unlocked()
         if norm_sig in state:
             state.pop(norm_sig, None)
             _atomic_write_state_unlocked(state)
-    _with_circuit_lock(_record)
+    finally:
+        try:
+            fcntl.flock(lock_fd, fcntl.LOCK_UN)
+        finally:
+            os.close(lock_fd)
 
 
 def reset_circuit_breaker() -> int:
-    result = {"cleared": 0}
-    def _reset():
+    lock_fd = os.open(_circuit_lock_path(), os.O_CREAT | os.O_RDWR, 0o600)
+    cleared = 0
+    try:
+        fcntl.flock(lock_fd, fcntl.LOCK_EX)
         state = _read_circuit_state_unlocked()
-        result["cleared"] = len(state)
-        try:
+        cleared = len(state)
+        if os.path.exists(CIRCUIT_STATE_FILE):
             os.remove(CIRCUIT_STATE_FILE)
-        except FileNotFoundError:
-            pass
-    _with_circuit_lock(_reset)
-    return result["cleared"]
+    finally:
+        try:
+            fcntl.flock(lock_fd, fcntl.LOCK_UN)
+        finally:
+            os.close(lock_fd)
+    return cleared
 
 
 # =============================================================================
-# TargetTabLock 事务锁（P0-2：Windows/Unix 通用原子锁）
+# TargetTabLock 事务锁（P0-2：跨进程对同一 target_url 加互斥锁）
 # =============================================================================
 class TargetTabBusyError(RuntimeError):
     pass
@@ -325,18 +281,34 @@ class TargetTabBusyError(RuntimeError):
 class TargetTabLock:
     def __init__(self, target_url: str):
         digest = hashlib.sha256(target_url.encode("utf-8")).hexdigest()[:24]
-        self.path = os.path.join(tempfile.gettempdir(), f"bsk_chatgpt_tab_{digest}.lock")
+        self.path = f"/tmp/bsk_chatgpt_tab_{digest}.lock"
         self.fd: Optional[int] = None
-        self.token: Optional[str] = None
 
     def __enter__(self):
-        self.fd, self.token = _acquire_atomic_lock(self.path, wait=False)
+        self.fd = os.open(self.path, os.O_CREAT | os.O_RDWR, 0o600)
+        try:
+            fcntl.flock(self.fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            try:
+                os.close(self.fd)
+            except Exception:
+                pass
+            self.fd = None
+            raise TargetTabBusyError(
+                f"目标 ChatGPT Tab 正在被另一 bridge 占用（{self.path}）。"
+            )
         return self
 
     def __exit__(self, exc_type, exc, tb):
-        _release_atomic_lock(self.path, self.fd, self.token)
-        self.fd = None
-        self.token = None
+        if self.fd is not None:
+            try:
+                fcntl.flock(self.fd, fcntl.LOCK_UN)
+            finally:
+                try:
+                    os.close(self.fd)
+                except Exception:
+                    pass
+                self.fd = None
         return False
 
 
@@ -453,8 +425,8 @@ class BSKClient:
 
     def start_session(self) -> str:
         code, out, err = self._exec_bsk(
-            ["session", "start", "--json", "--no-focus", "--name", self.session_name],
-            timeout=45,
+            ["session", "start", "--json", "--name", self.session_name, "--no-focus"],
+            timeout=10,
         )
         if code != 0:
             raise BSKError(f"启动 bsk 会话失败: {err.strip() or out.strip()}")
@@ -503,8 +475,8 @@ class BSKClient:
         if not self.session_id:
             raise BSKError("无可用 session_id，无法 borrow_tab")
         code, out, err = self._exec_bsk(
-            ["tab", "borrow", str(tab_id), "--session", self.session_id, "--timeout", "60s"],
-            timeout=75,
+            ["tab", "borrow", str(tab_id), "--session", self.session_id, "--timeout", "15s"],
+            timeout=20,
         )
         if code != 0:
             raise BSKError(f"借用 tab {tab_id} 失败: {err.strip() or out.strip()}")
@@ -548,28 +520,15 @@ class BSKClient:
             raise BSKError(f"JS 执行报错: {err_msg}")
         return res.get("value")
 
-    def request_help(self, prompt: str, timeout: str = "5m") -> str:
+    def request_help(self, prompt: str, timeout: str = "5m") -> None:
         if not self.session_id:
             raise BSKError("无可用 session_id，无法 request_help")
-        args = [
-            "request-help", "--session", self.session_id,
-            "--prompt", prompt, "--timeout", timeout, "--json"
-        ]
-        if self.active_tab_id is not None:
-            args.extend(["--tab-id", str(self.active_tab_id)])
-        code, out, err = self._exec_bsk(args, timeout=330)
+        code, out, err = self._exec_bsk(
+            ["request-help", "--session", self.session_id, "--prompt", prompt, "--timeout", timeout],
+            timeout=330,
+        )
         if code != 0:
             raise BSKError(f"bsk request-help 失败: {err.strip() or out.strip()}")
-        try:
-            result = json.loads(out)
-        except json.JSONDecodeError as e:
-            raise BSKError(f"bsk request-help 输出非合法 JSON: {out[:200]}") from e
-        outcome = str(result.get("outcome", "")).lower()
-        if outcome in ("cancelled", "timed_out", "timeout", "disabled"):
-            raise BSKError(f"人工协助未完成，outcome={outcome}")
-        if outcome not in ("continued", "completed"):
-            raise BSKError(f"人工协助返回未知 outcome={outcome or 'missing'}")
-        return outcome
 
     def focus(self, selector: str = "#prompt-textarea") -> None:
         if not self.session_id:
@@ -590,6 +549,16 @@ class BSKClient:
         code, out, err = self._exec_bsk(args, timeout=5)
         if code != 0:
             raise BSKError(f"bsk press {key} 失败: {err.strip() or out.strip()}")
+
+    def click_element(self, selector: str = 'button[data-testid="send-button"]') -> None:
+        if not self.session_id:
+            raise BSKError("无可用 session_id，无法 click_element")
+        args = ["click", selector, "--session", self.session_id, "--json"]
+        if self.active_tab_id is not None:
+            args.extend(["--tab-id", str(self.active_tab_id)])
+        code, out, err = self._exec_bsk(args, timeout=10)
+        if code != 0:
+            raise BSKError(f"bsk click {selector} 失败: {err.strip() or out.strip()}")
 
 
 # =============================================================================
@@ -823,21 +792,21 @@ def send_and_receive_bsk_chatgpt(
                 t for t in user_tabs
                 if target_url in t.get("url", "") or (uuid_part and uuid_part in t.get("url", ""))
             ]
-            if len(matching_tabs) > 1:
-                emit_event(
-                    "tab_bind", EXIT_AMBIGUOUS_TAB,
-                    "发现多个匹配目标会话的用户标签页；拒绝猜测，改用隔离的 Agent Window。"
-                )
-                matching_tabs = []
+            if not matching_tabs:
+                # 模糊匹配：若用户已在 Chrome 中打开任何 chatgpt.com 页面，直接借用
+                matching_tabs = [
+                    t for t in user_tabs
+                    if "chatgpt.com" in t.get("url", "")
+                ]
 
-            if len(matching_tabs) == 1:
-                # 只借用精确 URL / conversation UUID 命中的标签页。
-                target_tab = matching_tabs[0]
+            if len(matching_tabs) >= 1:
+                # 优先选择当前活跃或精确匹配的 tab
+                target_tab = next((t for t in matching_tabs if target_url in t.get("url", "") or (uuid_part and uuid_part in t.get("url", ""))), matching_tabs[0])
                 tab_id = target_tab["tab_id"]
                 try:
                     client.borrow_tab(tab_id)
                     bound_target = True
-                    emit_event("tab_bind", EXIT_OK, f"成功借用用户已有 Edge/Chrome ChatGPT 标签页 (tab_id={tab_id})", tab_id=tab_id)
+                    emit_event("tab_bind", EXIT_OK, f"成功借用用户已有 Chrome ChatGPT 标签页 (tab_id={tab_id})", tab_id=tab_id)
                     
                     # 检查借用后 URL 是否需要导航至目标会话
                     curr_href = str(client.evaluate("location.href") or "")
@@ -975,37 +944,46 @@ def send_and_receive_bsk_chatgpt(
                isContentEditable=cv_snap.get("isContentEditable"))
 
     # ---- 步骤 3：触发发送 ----
-    send_res = "BSK_PRESS_ENTER"
+    send_res = "BSK_CLICK_SEND_BTN"
     try:
-        # 确保焦点在输入框后触发系统级原生 Enter 按键
+        # 优先通过 bsk click 原生点击发送按钮
+        client.click_element('button[data-testid="send-button"]')
+    except Exception:
         try:
-            client.focus("#prompt-textarea")
+            # 备用 1: 尝试点击 composer-submit-button
+            client.click_element("#composer-submit-button")
         except Exception:
-            pass
-        client.press_key("Enter")
-    except Exception as e:
-        # 回退至 JS 点击与表单提交
-        js_send = """
-        (() => {
-            const submitBtn = document.querySelector("#composer-submit-button") ||
-                              document.querySelector(".composer-submit-button-color") ||
-                              document.querySelector("button[data-testid='send-button']") ||
-                              document.querySelector("button[aria-label*='发送']") ||
-                              document.querySelector("button[aria-label*='Send']");
-            if (submitBtn && !submitBtn.disabled && submitBtn.getAttribute("aria-disabled") !== "true") {
-                submitBtn.click();
-                submitBtn.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, view: window }));
-                submitBtn.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, view: window }));
-                submitBtn.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
-                return "CLICKED_SUBMIT";
-            }
-            return "ERR_NO_SEND";
-        })()
-        """
-        try:
-            send_res = client.evaluate(js_send)
-        except Exception:
-            send_res = "FALLBACK_CLICK_FAILED"
+            try:
+                # 备用 2: 系统级原生 Enter 按键
+                try:
+                    client.focus("#prompt-textarea")
+                except Exception:
+                    pass
+                client.press_key("Enter")
+                send_res = "BSK_PRESS_ENTER"
+            except Exception as e:
+                # 回退至 JS 点击与表单提交
+                js_send = """
+                (() => {
+                    const submitBtn = document.querySelector("#composer-submit-button") ||
+                                      document.querySelector(".composer-submit-button-color") ||
+                                      document.querySelector("button[data-testid='send-button']") ||
+                                      document.querySelector("button[aria-label*='发送']") ||
+                                      document.querySelector("button[aria-label*='Send']");
+                    if (submitBtn && !submitBtn.disabled && submitBtn.getAttribute("aria-disabled") !== "true") {
+                        submitBtn.click();
+                        submitBtn.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, view: window }));
+                        submitBtn.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, view: window }));
+                        submitBtn.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
+                        return "CLICKED_SUBMIT";
+                    }
+                    return "ERR_NO_SEND";
+                })()
+                """
+                try:
+                    send_res = client.evaluate(js_send)
+                except Exception:
+                    send_res = "FALLBACK_CLICK_FAILED"
 
     emit_event("send", EXIT_OK, f"发送触发结果: {send_res}")
 
