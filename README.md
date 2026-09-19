@@ -123,19 +123,32 @@ sequenceDiagram
 
 | 平台 | 分支 | 运行时要求 | 浏览器驱动通道 | 特性优势 |
 | :--- | :--- | :--- | :--- | :--- |
-| **macOS** | [`macos`](https://github.com/yvochehk-oss/Antigravity2gptweb/tree/macos) | Python 3 | Safari AppleScript（原生零依赖）/ Chrome CDP | 原生无感驱动、支持复杂任务多轮编排与方案 Refine |
-| **Windows 10/11** | [`windows`](https://github.com/yvochehk-oss/Antigravity2gptweb/tree/windows) | Node.js 18+ | Microsoft Edge / Chrome CDP | 纯原生 Node.js 实现，**0 个 npm 依赖包**，启动飞快 |
+| 平台 | 分支 | 运行时要求 | 浏览器驱动通道 | 特性优势 |
+| :--- | :--- | :--- | :--- | :--- |
+| **macOS** | [`macos`](https://github.com/yvochehk-oss/Antigravity2gptweb/tree/macos) | Python 3 | Safari AppleScript / **Browser-Skill (`bsk`)** / Chrome CDP | 原生零依赖极简驱动，支持免端口直连日常 Chrome，带 Cloudflare 人机唤醒与编排闭环 |
+| **Windows 10/11** | [`windows`](https://github.com/yvochehk-oss/Antigravity2gptweb/tree/windows) | Node.js 18+ 或 Python+bsk | **Browser-Skill (`bsk`)** / Edge / Chrome CDP | 免调试端口直连日常浏览器，**0 个 npm 依赖包**，启动飞快且支持风控人工介入 |
 
 ### 独立终端快速运行
 
-#### 🍎 macOS 快速启动
+#### 🍎 macOS 快速启动（Safari 零配置）
 ```bash
 git clone --depth 1 --branch macos https://github.com/yvochehk-oss/Antigravity2gptweb.git chatgpt-web-reasoner
 cd chatgpt-web-reasoner
 python3 scripts/safari_chatgpt.py --help
 ```
 
-#### 🪟 Windows 快速启动
+#### 🌐 全平台 Browser-Skill 模式（免 `--remote-debugging-port`，直连日常已登录 Chrome/Edge）
+```bash
+# 检查 bsk 连通性
+python3 scripts/bsk_chatgpt.py --check-env
+
+# 发送任务
+python3 scripts/bsk_chatgpt.py \
+  --target-url "https://chatgpt.com/c/<conversation-uuid>" \
+  --prompt "你的任务需求"
+```
+
+#### 🪟 Windows 快速启动（Edge / Chrome 原生轻量引擎）
 ```powershell
 git clone --depth 1 --branch windows https://github.com/yvochehk-oss/Antigravity2gptweb.git chatgpt-web-reasoner
 cd chatgpt-web-reasoner
