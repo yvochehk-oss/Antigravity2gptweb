@@ -89,6 +89,20 @@ _GH_TOKEN_RE        = re.compile(r'(gh[pousr]_[A-Za-z0-9_]{16,})')
 _GITHUB_PAT_RE      = re.compile(r'\bgithub_pat_[A-Za-z0-9_]{20,}\b')
 _OPENAI_RE          = re.compile(r'(sk-[A-Za-z0-9_-]{20,})')
 _BEARER_RE          = re.compile(r'(Bearer\s+)([A-Za-z0-9._\-+/=]{8,})', re.IGNORECASE)
+_BASIC_AUTH_RE      = re.compile(r'(Basic\s+)([A-Za-z0-9+/=]{8,})', re.IGNORECASE)
+_HTTP_SECRET_HEADER_RE = re.compile(
+    r'((?:Authorization|Proxy-Authorization|Cookie|Set-Cookie)\s*:\s*)([^\r\n]+)',
+    re.IGNORECASE,
+)
+_URL_USERINFO_RE    = re.compile(
+    r'(?P<scheme>https?://)(?P<userinfo>[^/\s:@]+:[^@\s/]+)@',
+    re.IGNORECASE,
+)
+_SESSION_SECRET_RE  = re.compile(
+    r'((?:COOKIE|SESSION(?:ID)?|CREDENTIAL|PASS(?:WORD|WD)?)\s*[:=]\s*["\']?)'
+    r'([^"\'\s]{8,})(["\']?)',
+    re.IGNORECASE,
+)
 _PASSWORD_RE        = re.compile(r'(password\s*[:=]\s*["\']?)([^"\'\s]+)(["\']?)', re.IGNORECASE)
 _AWS_RE             = re.compile(r'((?:AKIA|ASIA)[0-9A-Z]{16})')
 _SLACK_RE           = re.compile(r'\b(xox[abprs]-[A-Za-z0-9-]{10,})\b')
@@ -119,7 +133,11 @@ def sanitize_text(text: str) -> str:
     text = _GH_TOKEN_RE.sub('[REDACTED_GITHUB_TOKEN]', text)
     text = _GITHUB_PAT_RE.sub('[REDACTED_GITHUB_PAT]', text)
     text = _OPENAI_RE.sub('[REDACTED_API_KEY]', text)
+    text = _HTTP_SECRET_HEADER_RE.sub(r'\1[REDACTED_HTTP_SECRET]', text)
     text = _BEARER_RE.sub(r'\1[REDACTED_AUTH_TOKEN]', text)
+    text = _BASIC_AUTH_RE.sub(r'\1[REDACTED_BASIC_AUTH]', text)
+    text = _URL_USERINFO_RE.sub(r'\g<scheme>[REDACTED_USERINFO]@', text)
+    text = _SESSION_SECRET_RE.sub(r'\1[REDACTED_SESSION_SECRET]\3', text)
     text = _PASSWORD_RE.sub(r'\1[REDACTED_PASSWORD]\3', text)
     text = _AWS_RE.sub('[REDACTED_AWS_KEY]', text)
     text = _SLACK_RE.sub('[REDACTED_SLACK_TOKEN]', text)
