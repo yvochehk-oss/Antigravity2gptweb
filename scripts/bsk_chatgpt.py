@@ -396,8 +396,14 @@ def get_git_head_context(cwd: Optional[str] = None) -> str:
 class BSKClient:
     """包装 bsk CLI 调用，处理 JSON 解析、超时与异常。"""
 
-    def __init__(self, session_name: str = "Antigravity2GPT"):
+    def __init__(
+        self,
+        session_name: str = "Antigravity2GPT",
+        browser_profile: Optional[str] = None,
+    ):
         self.session_name = session_name
+        self.browser_profile = (browser_profile or "").strip() or None
+        self.selected_browser_instance_id: Optional[str] = None
         self.session_id: Optional[str] = None
         self.agent_window_id: Optional[int] = None
         self.borrowed_tab_id: Optional[int] = None
@@ -423,10 +429,88 @@ class BSKClient:
         except json.JSONDecodeError:
             raise BSKError(f"bsk status 输出非合法 JSON: {out[:200]}")
 
+    def list_browser_profiles(self) -> List[Dict[str, Any]]:
+        """返回当前连接到 daemon 的 BrowserSkill 浏览器实例（一个实例对应一个浏览器 Profile/扩展存储域）。"""
+        st = self.check_daemon()
+        browsers = st.get("browsers", [])
+        return browsers if isinstance(browsers, list) else []
+
+    @staticmethod
+    def _browser_profile_summary(browser: Dict[str, Any]) -> str:
+        inst = str(browser.get("instance_id", "") or "")
+        label = str(browser.get("label", "") or "").strip() or "(未命名)"
+        name = str(browser.get("browser_name", "unknown") or "unknown")
+        version = str(browser.get("browser_version", "") or "")
+        return f"{label} [{inst}] {name} {version}".strip()
+
+    def resolve_browser_profile(self) -> str:
+        """
+        将用户给出的 Profile 选择解析成稳定 instance_id。
+        允许输入 instance_id 或唯一 label；多实例未指定时 fail-closed，绝不猜测。
+        """
+        browsers = self.list_browser_profiles()
+        if not browsers:
+            raise BSKError(
+                "当前没有 BrowserSkill 浏览器实例在线；请先在目标 Chrome/Edge Profile 中安装并启用扩展。"
+            )
+
+        selector = self.browser_profile
+        if not selector:
+            if len(browsers) == 1:
+                inst = str(browsers[0].get("instance_id", "") or "").strip()
+                if not inst:
+                    raise BSKError("唯一在线 BrowserSkill 实例缺少 instance_id，无法安全启动 session。")
+                self.selected_browser_instance_id = inst
+                return inst
+            choices = "; ".join(self._browser_profile_summary(b) for b in browsers)
+            raise BSKError(
+                "检测到多个 BrowserSkill 浏览器/Profile 实例，拒绝隐式选择。"
+                "请使用 --browser-profile <instance_id|唯一label> 指定目标。"
+                f" 当前可选：{choices}"
+            )
+
+        id_matches = [
+            b for b in browsers
+            if str(b.get("instance_id", "") or "").strip() == selector
+        ]
+        if len(id_matches) == 1:
+            self.selected_browser_instance_id = selector
+            return selector
+
+        label_matches = [
+            b for b in browsers
+            if str(b.get("label", "") or "").strip() == selector
+        ]
+        if len(label_matches) == 1:
+            inst = str(label_matches[0].get("instance_id", "") or "").strip()
+            if not inst:
+                raise BSKError(f"Profile label {selector!r} 对应实例缺少 instance_id。")
+            self.selected_browser_instance_id = inst
+            return inst
+        if len(label_matches) > 1:
+            ids = ", ".join(
+                str(b.get("instance_id", "") or "").strip() for b in label_matches
+            )
+            raise BSKError(
+                f"Profile label {selector!r} 匹配多个 BrowserSkill 实例（{ids}）；"
+                "请改用明确的 instance_id。"
+            )
+
+        choices = "; ".join(self._browser_profile_summary(b) for b in browsers)
+        raise BSKError(
+            f"未找到 BrowserSkill Profile {selector!r}。当前在线实例：{choices}"
+        )
+
     def start_session(self) -> str:
+        selected = self.resolve_browser_profile()
         code, out, err = self._exec_bsk(
-            ["session", "start", "--json", "--name", self.session_name, "--no-focus"],
-            timeout=10,
+            [
+                "session", "start", "--json",
+                "--name", self.session_name,
+                "--browser", selected,
+                "--no-focus",
+            ],
+            timeout=45,
         )
         if code != 0:
             raise BSKError(f"启动 bsk 会话失败: {err.strip() or out.strip()}")
@@ -1132,7 +1216,31 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--cwd", type=str, default=None)
     p.add_argument("--reset-circuit", action="store_true")
     p.add_argument("--check-env", action="store_true", help="自检 bsk 守护进程与浏览器扩展连通性")
-    p.add_argument("--no-borrow", action="store_true", help="禁用尝试借用已有标签页，直接在 Agent Window 中导航")
+    p.add_argument(
+        "--list-browser-profiles",
+        action="store_true",
+        help="列出当前在线的 BrowserSkill 浏览器/Profile 实例后退出",
+    )
+    p.add_argument(
+        "--browser-profile",
+        type=str,
+        default=os.environ.get("BSK_BROWSER_PROFILE", ""),
+        help=(
+            "指定 BrowserSkill 浏览器/Profile（instance_id 或唯一 label）。"
+            "未指定时仅在恰好一个实例在线时自动选择；多实例会 fail-closed。"
+        ),
+    )
+    borrow_group = p.add_mutually_exclusive_group()
+    borrow_group.add_argument(
+        "--borrow",
+        action="store_true",
+        help="显式允许借用用户已有 ChatGPT Tab；默认使用独立 Agent Window，不借用主窗口标签页",
+    )
+    borrow_group.add_argument(
+        "--no-borrow",
+        action="store_true",
+        help="兼容参数：明确禁用 Tab Borrow（当前已是默认行为）",
+    )
     return p
 
 
@@ -1157,9 +1265,29 @@ def main() -> int:
     if args.browser_name:
         _BROWSER_NAME = args.browser_name
 
+    # 浏览器/Profile 枚举模式
+    if args.list_browser_profiles:
+        client = BSKClient(browser_profile=args.browser_profile or None)
+        try:
+            browsers = client.list_browser_profiles()
+            if not browsers:
+                print("(no BrowserSkill browser/profile instances connected)")
+                return EXIT_SAFARI_FAIL
+            print("INSTANCE    LABEL                 BROWSER")
+            for b in browsers:
+                inst = str(b.get("instance_id", "") or "")
+                label = str(b.get("label", "") or "").strip() or "-"
+                name = str(b.get("browser_name", "unknown") or "unknown")
+                ver = str(b.get("browser_version", "") or "")
+                print(f"{inst:<11} {label:<21} {name} {ver}".rstrip())
+            return EXIT_OK
+        except Exception as e:
+            print(f"[✗] BrowserSkill Profile 枚举失败: {e}", file=sys.stderr)
+            return EXIT_SAFARI_FAIL
+
     # 自检环境模式
     if args.check_env:
-        client = BSKClient()
+        client = BSKClient(browser_profile=args.browser_profile or None)
         try:
             st = client.check_daemon()
             print("==================================================")
@@ -1176,7 +1304,19 @@ def main() -> int:
                     b_ver = b.get('browser_version', '')
                     ext_ver = b.get('extension_version', '')
                     inst_id = b.get('instance_id', '')
-                    print(f"      - 浏览器: {name} {b_ver} (Ext v{ext_ver}, ID={inst_id})")
+                    label = (b.get('label', '') or '').strip() or '(未命名)'
+                    print(
+                        f"      - Profile: {label} | 浏览器: {name} {b_ver} "
+                        f"(Ext v{ext_ver}, ID={inst_id})"
+                    )
+                if args.browser_profile:
+                    selected = client.resolve_browser_profile()
+                    print(f"  [✓] Selected Profile:    {args.browser_profile} -> {selected}")
+                elif len(browsers) > 1:
+                    print(
+                        "      [!] 多个 Profile 在线：实际运行必须使用 "
+                        "--browser-profile <instance_id|唯一label> 明确指定。"
+                    )
             else:
                 print("      [!] 提示: 当前未连接活跃浏览器实例，请确保 Chrome/Edge 已启动且装有 bsk 扩展。")
             print("==================================================")
@@ -1228,7 +1368,7 @@ def main() -> int:
 
 
 def _main_locked(args, raw_prompt: str, signature: Optional[str], evidence_body: Optional[str]) -> int:
-    client = BSKClient()
+    client = BSKClient(browser_profile=args.browser_profile or None)
 
     # 格式化 Payload
     payload = format_evidence_payload(
@@ -1241,7 +1381,7 @@ def _main_locked(args, raw_prompt: str, signature: Optional[str], evidence_body:
             prompt=payload,
             target_url=args.target_url,
             wait_timeout=args.timeout,
-            allow_borrow=not args.no_borrow,
+            allow_borrow=bool(args.borrow and not args.no_borrow),
         )
         if exit_code == EXIT_OK:
             if signature:
