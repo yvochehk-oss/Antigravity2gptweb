@@ -550,6 +550,16 @@ class BSKClient:
         if code != 0:
             raise BSKError(f"bsk press {key} 失败: {err.strip() or out.strip()}")
 
+    def click_element(self, selector: str = 'button[data-testid="send-button"]') -> None:
+        if not self.session_id:
+            raise BSKError("无可用 session_id，无法 click_element")
+        args = ["click", selector, "--session", self.session_id, "--json"]
+        if self.active_tab_id is not None:
+            args.extend(["--tab-id", str(self.active_tab_id)])
+        code, out, err = self._exec_bsk(args, timeout=10)
+        if code != 0:
+            raise BSKError(f"bsk click {selector} 失败: {err.strip() or out.strip()}")
+
 
 # =============================================================================
 # DOM 工具与 JS 模板
@@ -934,37 +944,46 @@ def send_and_receive_bsk_chatgpt(
                isContentEditable=cv_snap.get("isContentEditable"))
 
     # ---- 步骤 3：触发发送 ----
-    send_res = "BSK_PRESS_ENTER"
+    send_res = "BSK_CLICK_SEND_BTN"
     try:
-        # 确保焦点在输入框后触发系统级原生 Enter 按键
+        # 优先通过 bsk click 原生点击发送按钮
+        client.click_element('button[data-testid="send-button"]')
+    except Exception:
         try:
-            client.focus("#prompt-textarea")
+            # 备用 1: 尝试点击 composer-submit-button
+            client.click_element("#composer-submit-button")
         except Exception:
-            pass
-        client.press_key("Enter")
-    except Exception as e:
-        # 回退至 JS 点击与表单提交
-        js_send = """
-        (() => {
-            const submitBtn = document.querySelector("#composer-submit-button") ||
-                              document.querySelector(".composer-submit-button-color") ||
-                              document.querySelector("button[data-testid='send-button']") ||
-                              document.querySelector("button[aria-label*='发送']") ||
-                              document.querySelector("button[aria-label*='Send']");
-            if (submitBtn && !submitBtn.disabled && submitBtn.getAttribute("aria-disabled") !== "true") {
-                submitBtn.click();
-                submitBtn.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, view: window }));
-                submitBtn.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, view: window }));
-                submitBtn.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
-                return "CLICKED_SUBMIT";
-            }
-            return "ERR_NO_SEND";
-        })()
-        """
-        try:
-            send_res = client.evaluate(js_send)
-        except Exception:
-            send_res = "FALLBACK_CLICK_FAILED"
+            try:
+                # 备用 2: 系统级原生 Enter 按键
+                try:
+                    client.focus("#prompt-textarea")
+                except Exception:
+                    pass
+                client.press_key("Enter")
+                send_res = "BSK_PRESS_ENTER"
+            except Exception as e:
+                # 回退至 JS 点击与表单提交
+                js_send = """
+                (() => {
+                    const submitBtn = document.querySelector("#composer-submit-button") ||
+                                      document.querySelector(".composer-submit-button-color") ||
+                                      document.querySelector("button[data-testid='send-button']") ||
+                                      document.querySelector("button[aria-label*='发送']") ||
+                                      document.querySelector("button[aria-label*='Send']");
+                    if (submitBtn && !submitBtn.disabled && submitBtn.getAttribute("aria-disabled") !== "true") {
+                        submitBtn.click();
+                        submitBtn.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, view: window }));
+                        submitBtn.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, view: window }));
+                        submitBtn.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
+                        return "CLICKED_SUBMIT";
+                    }
+                    return "ERR_NO_SEND";
+                })()
+                """
+                try:
+                    send_res = client.evaluate(js_send)
+                except Exception:
+                    send_res = "FALLBACK_CLICK_FAILED"
 
     emit_event("send", EXIT_OK, f"发送触发结果: {send_res}")
 
