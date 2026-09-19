@@ -89,7 +89,7 @@ git -C "$env:USERPROFILE\.gemini\antigravity\skills\safari-chatgpt-reasoner" pul
 
 | 驱动模式 | 核心技术 | 是否需 Node.js | 优势与特点 |
 |---|---|---|---|
-| 🚀 **Browser-Skill (`bsk`)（推荐主力）** | Rust CLI + BrowserSkill 扩展 | ❌ 不需要 Node.js | 直接连接日常 Edge/Chrome；可借用指定用户标签页；Cloudflare/CAPTCHA/登录等人工步骤通过 `request-help` 明确交还用户处理 |
+| 🚀 **Browser-Skill (`bsk`)（推荐主力）** | Rust CLI + BrowserSkill 扩展 | ❌ 不需要 Node.js | 默认独立 Agent Window、不抢主窗口；支持按 instance_id / 唯一 label 固定浏览器 Profile；只有显式 `--borrow` 才借用精确目标 Tab；人工验证通过 `request-help` 处理 |
 | 🛡️ **Node.js CDP 模式（备用兼容）** | 原生 `http` / `WebSocket` (0 npm) | ✅ 需要 (Node >= 18) | 零三方依赖，直接通过 Chrome 远程调试端口驱动浏览器，无需额外 CLI 工具 |
 
 ### 🔍 运行一键环境自检
@@ -103,16 +103,20 @@ check_env_windows.bat
 ### Windows 推荐调用
 
 ```powershell
-# 只检查 BrowserSkill 主通道
-py -3 scripts\bsk_chatgpt.py --check-env
+# 列出在线 BrowserSkill Profile
+py -3 scripts\bsk_chatgpt.py --list-browser-profiles
 
-# 免 remote-debugging-port，复用已经打开的目标 ChatGPT 会话
+# 检查 BrowserSkill 主通道并固定目标 Profile
+py -3 scripts\bsk_chatgpt.py --check-env --browser-profile "GPT专用"
+
+# 免 remote-debugging-port，使用指定 Profile 的独立 Agent Window
 py -3 scripts\bsk_chatgpt.py `
+  --browser-profile "GPT专用" `
   --target-url "https://chatgpt.com/c/<conversation-id>" `
   --type plan `
   --prompt "任务目标"
 
-# BrowserSkill-first 编排；找不到 bsk 时 --driver auto 才回退到 Node/CDP
+# BrowserSkill-first 编排；auto 仅在 bsk+扩展在线时选 bsk
 py -3 scripts\orchestrate.py init `
   --name demo `
   --requirement "任务描述" `
@@ -120,10 +124,11 @@ py -3 scripts\orchestrate.py init `
   --repo "owner/repo" `
   --cwd "C:\path\to\repo" `
   --branch "windows" `
-  --driver auto
+  --driver auto `
+  --browser-profile "GPT专用"
 ```
 
-> BrowserSkill 的 `request-help` 是人工接管机制，不是验证码绕过器。出现 Cloudflare、CAPTCHA、OTP 或登录确认时，自动化应暂停并等待用户完成；取消、超时或关闭人工协助都按阻塞处理。
+> 若指定了 `--browser-profile`，Orchestrator 会持久化该选择并在 plan / task-code / task-review 全链路转发；当 bsk 不可用时会 fail-closed，不会静默切到其他 Profile/CDP。BrowserSkill 的 `request-help` 是人工接管机制，不是验证码绕过器。出现 Cloudflare、CAPTCHA、OTP 或登录确认时，自动化应暂停并等待用户完成；取消、超时或关闭人工协助都按阻塞处理。
 
 ---
 
