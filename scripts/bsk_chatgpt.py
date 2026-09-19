@@ -18,8 +18,17 @@ import os
 import re
 import time
 import json
-import fcntl
 import tempfile
+
+try:
+    import fcntl  # POSIX
+except ImportError:  # pragma: no cover - Windows
+    fcntl = None
+
+try:
+    import msvcrt  # Windows
+except ImportError:  # pragma: no cover - POSIX
+    msvcrt = None
 import subprocess
 import argparse
 import hashlib
@@ -58,7 +67,9 @@ EXIT_CODE_NAME = {
 # =============================================================================
 # 路径 / 超时常量
 # =============================================================================
-CIRCUIT_STATE_FILE   = "/tmp/bsk_chatgpt_circuit_breaker.json"
+CIRCUIT_STATE_FILE   = os.path.join(
+    tempfile.gettempdir(), "bsk_chatgpt_circuit_breaker.json"
+)
 CIRCUIT_WINDOW_SEC   = 3600
 CIRCUIT_MAX_RETRIES  = 3
 
@@ -168,6 +179,43 @@ class CircuitOpenError(RuntimeError):
     pass
 
 
+def _lock_fd(fd: int, *, blocking: bool) -> None:
+    """Acquire one byte of OS-backed advisory locking without third-party deps."""
+    if os.name == "nt":
+        if msvcrt is None:
+            raise RuntimeError("Windows file locking backend unavailable")
+        if os.fstat(fd).st_size < 1:
+            os.write(fd, b"\0")
+        os.lseek(fd, 0, os.SEEK_SET)
+        mode = msvcrt.LK_LOCK if blocking else msvcrt.LK_NBLCK
+        try:
+            msvcrt.locking(fd, mode, 1)
+        except OSError as e:
+            if not blocking:
+                raise BlockingIOError(str(e)) from e
+            raise
+        return
+
+    if fcntl is None:
+        raise RuntimeError("POSIX file locking backend unavailable")
+    flags = fcntl.LOCK_EX | (0 if blocking else fcntl.LOCK_NB)
+    fcntl.flock(fd, flags)
+
+
+def _unlock_fd(fd: int) -> None:
+    if os.name == "nt":
+        if msvcrt is None:
+            return
+        os.lseek(fd, 0, os.SEEK_SET)
+        try:
+            msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+        except OSError:
+            pass
+        return
+    if fcntl is not None:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+
+
 def _circuit_lock_path() -> str:
     return CIRCUIT_STATE_FILE + ".lock"
 
@@ -196,7 +244,7 @@ def check_circuit_breaker(signature: str) -> None:
     norm_sig = normalize_failure_signature(signature)
     lock_fd = os.open(_circuit_lock_path(), os.O_CREAT | os.O_RDWR, 0o600)
     try:
-        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+        _lock_fd(lock_fd, blocking=True)
         state = _read_circuit_state_unlocked()
         now = time.time()
         failures = state.get(norm_sig, [])
@@ -214,7 +262,7 @@ def check_circuit_breaker(signature: str) -> None:
             )
     finally:
         try:
-            fcntl.flock(lock_fd, fcntl.LOCK_UN)
+            _unlock_fd(lock_fd)
         finally:
             os.close(lock_fd)
 
@@ -223,7 +271,7 @@ def record_failure(signature: str) -> None:
     norm_sig = normalize_failure_signature(signature)
     lock_fd = os.open(_circuit_lock_path(), os.O_CREAT | os.O_RDWR, 0o600)
     try:
-        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+        _lock_fd(lock_fd, blocking=True)
         state = _read_circuit_state_unlocked()
         now = time.time()
         failures = state.get(norm_sig, [])
@@ -233,7 +281,7 @@ def record_failure(signature: str) -> None:
         _atomic_write_state_unlocked(state)
     finally:
         try:
-            fcntl.flock(lock_fd, fcntl.LOCK_UN)
+            _unlock_fd(lock_fd)
         finally:
             os.close(lock_fd)
 
@@ -242,14 +290,14 @@ def record_success(signature: str) -> None:
     norm_sig = normalize_failure_signature(signature)
     lock_fd = os.open(_circuit_lock_path(), os.O_CREAT | os.O_RDWR, 0o600)
     try:
-        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+        _lock_fd(lock_fd, blocking=True)
         state = _read_circuit_state_unlocked()
         if norm_sig in state:
             state.pop(norm_sig, None)
             _atomic_write_state_unlocked(state)
     finally:
         try:
-            fcntl.flock(lock_fd, fcntl.LOCK_UN)
+            _unlock_fd(lock_fd)
         finally:
             os.close(lock_fd)
 
@@ -258,14 +306,14 @@ def reset_circuit_breaker() -> int:
     lock_fd = os.open(_circuit_lock_path(), os.O_CREAT | os.O_RDWR, 0o600)
     cleared = 0
     try:
-        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+        _lock_fd(lock_fd, blocking=True)
         state = _read_circuit_state_unlocked()
         cleared = len(state)
         if os.path.exists(CIRCUIT_STATE_FILE):
             os.remove(CIRCUIT_STATE_FILE)
     finally:
         try:
-            fcntl.flock(lock_fd, fcntl.LOCK_UN)
+            _unlock_fd(lock_fd)
         finally:
             os.close(lock_fd)
     return cleared
@@ -281,13 +329,15 @@ class TargetTabBusyError(RuntimeError):
 class TargetTabLock:
     def __init__(self, target_url: str):
         digest = hashlib.sha256(target_url.encode("utf-8")).hexdigest()[:24]
-        self.path = f"/tmp/bsk_chatgpt_tab_{digest}.lock"
+        self.path = os.path.join(
+            tempfile.gettempdir(), f"bsk_chatgpt_tab_{digest}.lock"
+        )
         self.fd: Optional[int] = None
 
     def __enter__(self):
         self.fd = os.open(self.path, os.O_CREAT | os.O_RDWR, 0o600)
         try:
-            fcntl.flock(self.fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            _lock_fd(self.fd, blocking=False)
         except BlockingIOError:
             try:
                 os.close(self.fd)
@@ -302,7 +352,7 @@ class TargetTabLock:
     def __exit__(self, exc_type, exc, tb):
         if self.fd is not None:
             try:
-                fcntl.flock(self.fd, fcntl.LOCK_UN)
+                _unlock_fd(self.fd)
             finally:
                 try:
                     os.close(self.fd)
@@ -516,9 +566,24 @@ class BSKClient:
             raise BSKError(f"启动 bsk 会话失败: {err.strip() or out.strip()}")
         try:
             data = json.loads(out)
-            self.session_id = data["session_id"]
+            session_id = data["session_id"]
+            actual_browser = str(data.get("browser_instance_id", "") or "").strip()
+            if actual_browser != selected:
+                self.session_id = session_id
+                try:
+                    self.stop_session()
+                finally:
+                    self.session_id = None
+                raise BSKError(
+                    f"bsk session 绑定实例不一致：requested={selected}, "
+                    f"actual={actual_browser or '<missing>'}"
+                )
+            self.session_id = session_id
+            self.selected_browser_instance_id = actual_browser
             self.agent_window_id = data.get("agent_window_id")
             return self.session_id
+        except BSKError:
+            raise
         except Exception as e:
             raise BSKError(f"解析 bsk session start 结果失败: {e}; out={out[:200]}")
 
@@ -559,8 +624,8 @@ class BSKClient:
         if not self.session_id:
             raise BSKError("无可用 session_id，无法 borrow_tab")
         code, out, err = self._exec_bsk(
-            ["tab", "borrow", str(tab_id), "--session", self.session_id, "--timeout", "15s"],
-            timeout=20,
+            ["tab", "borrow", str(tab_id), "--session", self.session_id, "--timeout", "60s"],
+            timeout=75,
         )
         if code != 0:
             raise BSKError(f"借用 tab {tab_id} 失败: {err.strip() or out.strip()}")
@@ -573,6 +638,8 @@ class BSKClient:
         self._exec_bsk(["tab", "return", str(tab_id), "--session", self.session_id], timeout=5)
         if self.borrowed_tab_id == tab_id:
             self.borrowed_tab_id = None
+            if self.active_tab_id == tab_id:
+                self.active_tab_id = None
 
     def navigate(self, url: str) -> None:
         if not self.session_id:
@@ -607,12 +674,25 @@ class BSKClient:
     def request_help(self, prompt: str, timeout: str = "5m") -> None:
         if not self.session_id:
             raise BSKError("无可用 session_id，无法 request_help")
-        code, out, err = self._exec_bsk(
-            ["request-help", "--session", self.session_id, "--prompt", prompt, "--timeout", timeout],
-            timeout=330,
-        )
+        args = [
+            "request-help", "--session", self.session_id,
+            "--prompt", prompt, "--timeout", timeout, "--json",
+        ]
+        if self.active_tab_id is not None:
+            args.extend(["--tab-id", str(self.active_tab_id)])
+        code, out, err = self._exec_bsk(args, timeout=330)
         if code != 0:
             raise BSKError(f"bsk request-help 失败: {err.strip() or out.strip()}")
+        try:
+            result = json.loads(out)
+        except json.JSONDecodeError as e:
+            raise BSKError(f"bsk request-help 输出非合法 JSON: {out[:200]}") from e
+        outcome = str(result.get("outcome", "") or "").strip().lower()
+        if outcome in ("continued", "completed"):
+            return
+        if outcome in ("cancelled", "timed_out", "disabled", "navigated"):
+            raise BSKError(f"人工协助未完成，outcome={outcome}")
+        raise BSKError(f"人工协助返回未知 outcome={outcome!r}: {out[:200]}")
 
     def focus(self, selector: str = "#prompt-textarea") -> None:
         if not self.session_id:
@@ -873,6 +953,39 @@ def format_evidence_payload(task_type: str, context_text: str,
 
 
 # =============================================================================
+# Tab Borrow 精确绑定
+# =============================================================================
+def _matching_target_tabs(
+    tabs: List[Dict[str, Any]], target_url: str
+) -> List[Dict[str, Any]]:
+    """只匹配明确指定的 conversation/page，禁止模糊借用其他 ChatGPT Tab。"""
+    target_uuid = extract_conversation_uuid(target_url)
+    if target_uuid:
+        return [
+            t for t in tabs
+            if extract_conversation_uuid(str(t.get("url", "") or "")) == target_uuid
+        ]
+
+    def canonical(url: str) -> Tuple[str, str, str, str]:
+        try:
+            p = urlparse(url)
+            return (
+                p.scheme.lower(),
+                (p.hostname or "").lower(),
+                (p.path or "/").rstrip("/") or "/",
+                p.query,
+            )
+        except Exception:
+            return ("", "", "", "")
+
+    wanted = canonical(target_url)
+    return [
+        t for t in tabs
+        if canonical(str(t.get("url", "") or "")) == wanted
+    ]
+
+
+# =============================================================================
 # 核心桥接实现：send_and_receive_bsk_chatgpt
 # =============================================================================
 def send_and_receive_bsk_chatgpt(
@@ -902,40 +1015,39 @@ def send_and_receive_bsk_chatgpt(
         emit_event("session_start", EXIT_SAFARI_FAIL, f"启动 bsk 会话失败: {e}")
         return EXIT_SAFARI_FAIL, ""
 
-    # 寻找匹配的标签页
-    uuid_part = extract_conversation_uuid(target_url)
+    # 默认使用 Agent Window；只有显式 --borrow 时才尝试精确借用目标 Tab。
     bound_target = False
 
     if allow_borrow:
         try:
             user_tabs = client.list_tabs(scope="user")
-            matching_tabs = [
-                t for t in user_tabs
-                if target_url in t.get("url", "") or (uuid_part and uuid_part in t.get("url", ""))
-            ]
-            if not matching_tabs:
-                # 模糊匹配：若用户已在 Chrome 中打开任何 chatgpt.com 页面，直接借用
-                matching_tabs = [
-                    t for t in user_tabs
-                    if "chatgpt.com" in t.get("url", "")
-                ]
+            matching_tabs = _matching_target_tabs(user_tabs, target_url)
 
-            if len(matching_tabs) >= 1:
-                # 优先选择当前活跃或精确匹配的 tab
-                target_tab = next((t for t in matching_tabs if target_url in t.get("url", "") or (uuid_part and uuid_part in t.get("url", ""))), matching_tabs[0])
-                tab_id = target_tab["tab_id"]
+            if len(matching_tabs) == 1:
+                tab_id = matching_tabs[0]["tab_id"]
                 try:
                     client.borrow_tab(tab_id)
                     bound_target = True
-                    emit_event("tab_bind", EXIT_OK, f"成功借用用户已有 Chrome ChatGPT 标签页 (tab_id={tab_id})", tab_id=tab_id)
-                    
-                    # 检查借用后 URL 是否需要导航至目标会话
-                    curr_href = str(client.evaluate("location.href") or "")
-                    if target_url not in curr_href and (not uuid_part or uuid_part not in curr_href):
-                        emit_event("navigate", EXIT_OK, f"导航借用的标签页至目标会话", target_url=target_url)
-                        client.navigate(target_url)
+                    emit_event(
+                        "tab_bind", EXIT_OK,
+                        f"成功借用精确目标 ChatGPT 标签页 (tab_id={tab_id})",
+                        tab_id=tab_id,
+                    )
                 except Exception as e:
-                    emit_event("tab_borrow_fallback", EXIT_OK, f"借用用户标签未被确认或失败，降级为 Agent Window 直接导航: {e}")
+                    emit_event(
+                        "tab_borrow_fallback", EXIT_OK,
+                        f"精确目标 Tab 借用失败，降级为 Agent Window: {e}",
+                    )
+            elif len(matching_tabs) > 1:
+                emit_event(
+                    "tab_borrow_ambiguous", EXIT_OK,
+                    f"发现 {len(matching_tabs)} 个精确匹配目标 Tab，拒绝猜测并改用 Agent Window",
+                )
+            else:
+                emit_event(
+                    "tab_borrow_miss", EXIT_OK,
+                    "未找到精确目标 Tab，不借用其他 ChatGPT 页面，改用 Agent Window",
+                )
         except Exception as e:
             emit_event("tab_borrow_err", EXIT_OK, f"列出或借用标签异常: {e}")
 
@@ -1076,14 +1188,22 @@ def send_and_receive_bsk_chatgpt(
         return !!b && !b.disabled && b.getAttribute("aria-disabled") !== "true";
     })()
     """
-    sb_start = time.monotonic()
-    while time.monotonic() - sb_start < 3.0:
+    sb_budget = min(5.0, max(0.0, float(submit_deadline)), remaining())
+    sb_deadline = time.monotonic() + sb_budget
+    send_button_ready = False
+    while time.monotonic() < sb_deadline:
         try:
             if client.evaluate(send_btn_ready_js):
+                send_button_ready = True
                 break
         except Exception:
             pass
         time.sleep(0.2)
+    if not send_button_ready:
+        emit_event(
+            "send_ready", EXIT_OK,
+            "发送按钮在等待预算内未 ready；继续原生点击/Enter 回退链，并以提交验证为最终判据",
+        )
 
     send_res = "BSK_CLICK_SEND_BTN"
     try:
