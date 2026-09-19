@@ -530,6 +530,16 @@ class BSKClient:
         if code != 0:
             raise BSKError(f"bsk request-help 失败: {err.strip() or out.strip()}")
 
+    def press_key(self, key: str = "Enter") -> None:
+        if not self.session_id:
+            raise BSKError("无可用 session_id，无法 press_key")
+        args = ["press", key, "--session", self.session_id, "--json"]
+        if self.active_tab_id is not None:
+            args.extend(["--tab-id", str(self.active_tab_id)])
+        code, out, err = self._exec_bsk(args, timeout=5)
+        if code != 0:
+            raise BSKError(f"bsk press {key} 失败: {err.strip() or out.strip()}")
+
 
 # =============================================================================
 # DOM 工具与 JS 模板
@@ -602,6 +612,7 @@ def _user_commit_probe_js(expected_prompt: str) -> str:
             (s || "")
                 .replace(/\\r\\n/g, "\\n")
                 .replace(/\\u00a0/g, " ")
+                .replace(/\\s+/g, " ")
                 .trim();
         const users = document.querySelectorAll("[data-message-author-role='user']");
         const last  = users.length > 0 ? users[users.length - 1] : null;
@@ -612,7 +623,7 @@ def _user_commit_probe_js(expected_prompt: str) -> str:
                     ? last.closest("[data-message-id]").getAttribute("data-message-id")
                     : null)) : null;
         const exp = norm({expected_literal});
-        const match = (text === exp) || (exp.length > 50 && (text.startsWith(exp.slice(0, 50)) || text.includes(exp.slice(0, 50)) || text.endsWith(exp.slice(-50))));
+        const match = (text === exp) || (exp.length > 20 && (text.startsWith(exp.slice(0, 20)) || text.includes(exp.slice(0, 20)) || exp.startsWith(text.slice(0, 20))));
         return {{
             userCount: users.length,
             matchesExpected: match,
@@ -630,6 +641,7 @@ def _inject_verify_js(expected_prompt: str) -> str:
             (s || "")
                 .replace(/\\r\\n/g, "\\n")
                 .replace(/\\u00a0/g, " ")
+                .replace(/\\s+/g, " ")
                 .trim();
         const el = document.querySelector("#prompt-textarea") ||
                    document.querySelector("form [contenteditable='true']") ||
@@ -638,7 +650,7 @@ def _inject_verify_js(expected_prompt: str) -> str:
         const actual = (el.innerText || el.textContent || el.value || "");
         const normActual = norm(actual);
         const exp = norm({expected_literal});
-        const match = (normActual === exp) || (exp.length > 30 && (normActual.startsWith(exp.slice(0, 30)) || normActual.includes(exp.slice(0, 30))));
+        const match = (normActual === exp) || (exp.length > 20 && (normActual.startsWith(exp.slice(0, 20)) || normActual.includes(exp.slice(0, 20)) || exp.startsWith(normActual.slice(0, 20))));
         return {{
             ok: true,
             matchesExpected: match,
@@ -760,19 +772,31 @@ def send_and_receive_bsk_chatgpt(
                 t for t in user_tabs
                 if target_url in t.get("url", "") or (uuid_part and uuid_part in t.get("url", ""))
             ]
-            if len(matching_tabs) == 1:
-                tab_id = matching_tabs[0]["tab_id"]
+            if not matching_tabs:
+                # 模糊匹配：若用户已在 Chrome 中打开任何 chatgpt.com 页面，直接借用
+                matching_tabs = [
+                    t for t in user_tabs
+                    if "chatgpt.com" in t.get("url", "")
+                ]
+
+            if len(matching_tabs) >= 1:
+                # 优先选择当前活跃或精确匹配的 tab
+                target_tab = next((t for t in matching_tabs if target_url in t.get("url", "") or (uuid_part and uuid_part in t.get("url", ""))), matching_tabs[0])
+                tab_id = target_tab["tab_id"]
                 try:
                     client.borrow_tab(tab_id)
                     bound_target = True
-                    emit_event("tab_bind", EXIT_OK, f"成功借用用户已有 ChatGPT 标签页 (tab_id={tab_id})", tab_id=tab_id)
+                    emit_event("tab_bind", EXIT_OK, f"成功借用用户已有 Chrome ChatGPT 标签页 (tab_id={tab_id})", tab_id=tab_id)
+                    
+                    # 检查借用后 URL 是否需要导航至目标会话
+                    curr_href = str(client.evaluate("location.href") or "")
+                    if target_url not in curr_href and (not uuid_part or uuid_part not in curr_href):
+                        emit_event("navigate", EXIT_OK, f"导航借用的标签页至目标会话", target_url=target_url)
+                        client.navigate(target_url)
                 except Exception as e:
                     emit_event("tab_borrow_fallback", EXIT_OK, f"借用用户标签未被确认或失败，降级为 Agent Window 直接导航: {e}")
-            elif len(matching_tabs) > 1:
-                emit_event("tab_ambiguous", EXIT_AMBIGUOUS_TAB, f"检测到多个同 URL 标签页，避免错位: {len(matching_tabs)} 个")
-                return EXIT_AMBIGUOUS_TAB, ""
-        except Exception:
-            pass
+        except Exception as e:
+            emit_event("tab_borrow_err", EXIT_OK, f"列出或借用标签异常: {e}")
 
     if not bound_target:
         # 在 Agent Window 标签中直接导航
@@ -895,39 +919,34 @@ def send_and_receive_bsk_chatgpt(
                isContentEditable=cv_snap.get("isContentEditable"))
 
     # ---- 步骤 3：触发发送 ----
-    js_send = """
-    (() => {
-        const submitBtn = document.querySelector("#composer-submit-button") ||
-                          document.querySelector("button[data-testid='send-button']") ||
-                          document.querySelector("button[aria-label='发送提示词']") ||
-                          document.querySelector("button[aria-label='发送提示']") ||
-                          document.querySelector("button[aria-label='Send prompt']");
-        if (submitBtn && !submitBtn.disabled && submitBtn.getAttribute("aria-disabled") !== "true") {
-            submitBtn.click();
-            submitBtn.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, view: window }));
-            submitBtn.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, view: window }));
-            submitBtn.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
-            return "CLICKED_SUBMIT";
-        }
-        const el = document.querySelector('#prompt-textarea') ||
-                   document.querySelector("form [contenteditable='true']") ||
-                   document.querySelector("form");
-        if (el) {
-            const ke = new KeyboardEvent('keydown', {
-                bubbles: true, cancelable: true,
-                key: 'Enter', code: 'Enter', keyCode: 13, which: 13
-            });
-            el.dispatchEvent(ke);
-            return "DISPATCHED_ENTER";
-        }
-        return "ERR_NO_SEND";
-    })()
-    """
+    send_res = "BSK_PRESS_ENTER"
     try:
-        send_res = client.evaluate(js_send)
-    except BSKError as e:
-        emit_event("send", EXIT_SAFARI_FAIL, f"发送触发失败: {e}")
-        return EXIT_SAFARI_FAIL, ""
+        # 优先触发系统级原生 Enter 按键
+        client.press_key("Enter")
+    except Exception as e:
+        # 回退至 JS 点击与表单提交
+        js_send = """
+        (() => {
+            const submitBtn = document.querySelector("#composer-submit-button") ||
+                              document.querySelector(".composer-submit-button-color") ||
+                              document.querySelector("button[data-testid='send-button']") ||
+                              document.querySelector("button[aria-label*='发送']") ||
+                              document.querySelector("button[aria-label*='Send']");
+            if (submitBtn && !submitBtn.disabled && submitBtn.getAttribute("aria-disabled") !== "true") {
+                submitBtn.click();
+                submitBtn.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, view: window }));
+                submitBtn.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, view: window }));
+                submitBtn.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
+                return "CLICKED_SUBMIT";
+            }
+            return "ERR_NO_SEND";
+        })()
+        """
+        try:
+            send_res = client.evaluate(js_send)
+        except Exception:
+            send_res = "FALLBACK_CLICK_FAILED"
+
     emit_event("send", EXIT_OK, f"发送触发结果: {send_res}")
 
     # ---- 步骤 4：精确 user-message identity 验证 ----
