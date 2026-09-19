@@ -960,12 +960,12 @@ def send_and_receive_bsk_chatgpt(
     except Exception as e:
         emit_event("challenge_check", EXIT_OK, f"人机验证探测非阻断提示: {e}")
 
-    # 等待页面输入框就绪
+    # 等待页面输入框就绪（必须等待 React 水合完成，contenteditable 置为 true）
     composer_ready_js = """
     (() => {
-        return !!(document.querySelector('#prompt-textarea') ||
-                  document.querySelector("form [contenteditable='true']") ||
-                  document.querySelector("form"));
+        const el = document.querySelector('#prompt-textarea');
+        if (!el) return false;
+        return el.getAttribute('contenteditable') === 'true' || el.isContentEditable || el.tagName.toLowerCase() === 'textarea';
     })()
     """
     ready_start = time.monotonic()
@@ -982,6 +982,9 @@ def send_and_receive_bsk_chatgpt(
     if not ready:
         emit_event("ready_check", EXIT_SAFARI_FAIL, "页面在 25s 内未能加载出 ChatGPT 输入框")
         return EXIT_SAFARI_FAIL, ""
+
+    # 等待页面历史消息稳定呈现
+    time.sleep(1.0)
 
     # ---- 步骤 1：基线采集 ----
     try:
@@ -1065,15 +1068,34 @@ def send_and_receive_bsk_chatgpt(
                isContentEditable=cv_snap.get("isContentEditable"))
 
     # ---- 步骤 3：触发发送 ----
+    # 等待 ChatGPT React 将语音按钮切换为发送按钮
+    send_btn_ready_js = """
+    (() => {
+        const b = document.querySelector("button[data-testid='send-button']") ||
+                  document.querySelector("#composer-submit-button");
+        return !!b && !b.disabled && b.getAttribute("aria-disabled") !== "true";
+    })()
+    """
+    sb_start = time.monotonic()
+    while time.monotonic() - sb_start < 3.0:
+        try:
+            if client.evaluate(send_btn_ready_js):
+                break
+        except Exception:
+            pass
+        time.sleep(0.2)
+
     send_res = "BSK_CLICK_SEND_BTN"
     try:
         # 优先通过 bsk click 原生点击发送按钮
         client.click_element('button[data-testid="send-button"]')
-    except Exception:
+    except Exception as e_click:
+        emit_event("click_err", EXIT_OK, f"button[data-testid='send-button'] 失败: {e_click}")
         try:
             # 备用 1: 尝试点击 composer-submit-button
             client.click_element("#composer-submit-button")
-        except Exception:
+        except Exception as e_click2:
+            emit_event("click_err2", EXIT_OK, f"#composer-submit-button 失败: {e_click2}")
             try:
                 # 备用 2: 系统级原生 Enter 按键
                 try:
@@ -1083,6 +1105,7 @@ def send_and_receive_bsk_chatgpt(
                 client.press_key("Enter")
                 send_res = "BSK_PRESS_ENTER"
             except Exception as e:
+                emit_event("press_err", EXIT_OK, f"press_key Enter 失败: {e}")
                 # 回退至 JS 点击与表单提交
                 js_send = """
                 (() => {
