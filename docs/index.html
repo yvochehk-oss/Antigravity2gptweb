@@ -42,22 +42,22 @@
     /* Background Ambient Glow */
     .ambient-glow {
       position: fixed;
-      top: -20%;
+      top: -15%;
       left: 50%;
       transform: translateX(-50%);
-      width: 900px;
-      height: 600px;
-      background: radial-gradient(circle, var(--glow-purple) 0%, var(--glow-cyan) 40%, transparent 70%);
-      filter: blur(80px);
+      width: 1300px;
+      height: 750px;
+      background: radial-gradient(circle, var(--glow-purple) 0%, var(--glow-cyan) 35%, transparent 70%);
+      filter: blur(100px);
       z-index: -1;
       pointer-events: none;
     }
 
     /* Container */
     .container {
-      max-width: 1200px;
+      max-width: 1440px;
       margin: 0 auto;
-      padding: 0 24px;
+      padding: 0 40px;
     }
 
     /* Navigation */
@@ -139,7 +139,7 @@
 
     /* Hero Section */
     .hero {
-      padding: 90px 0 60px;
+      padding: 100px 0 70px;
       text-align: center;
     }
 
@@ -147,15 +147,16 @@
       display: inline-flex;
       align-items: center;
       gap: 8px;
-      padding: 6px 16px;
+      padding: 7px 18px;
       background: rgba(56, 189, 248, 0.1);
       border: 1px solid rgba(56, 189, 248, 0.3);
       border-radius: 50px;
       color: var(--accent-cyan);
-      font-size: 0.85rem;
+      font-size: 0.88rem;
       font-weight: 600;
       margin-bottom: 28px;
       backdrop-filter: blur(8px);
+      box-shadow: 0 4px 16px rgba(56, 189, 248, 0.15);
     }
 
     .release-badge span {
@@ -168,11 +169,13 @@
     }
 
     .hero h1 {
-      font-size: 3.5rem;
-      line-height: 1.2;
+      font-size: clamp(2.4rem, 4.4vw, 4rem);
+      line-height: 1.25;
       font-weight: 800;
-      margin-bottom: 24px;
-      letter-spacing: -0.02em;
+      margin: 0 auto 24px;
+      max-width: 1240px;
+      letter-spacing: -0.025em;
+      text-wrap: balance;
     }
 
     .text-gradient {
@@ -182,17 +185,18 @@
     }
 
     .hero-desc {
-      max-width: 780px;
-      margin: 0 auto 40px;
-      font-size: 1.2rem;
-      color: var(--text-muted);
-      line-height: 1.7;
+      max-width: 1060px;
+      margin: 0 auto 44px;
+      font-size: clamp(1.12rem, 1.4vw, 1.28rem);
+      color: #94a3b8;
+      line-height: 1.8;
+      text-wrap: pretty;
     }
 
     .hero-actions {
       display: flex;
       justify-content: center;
-      gap: 16px;
+      gap: 18px;
       flex-wrap: wrap;
       margin-bottom: 48px;
     }
@@ -201,7 +205,7 @@
       display: inline-flex;
       align-items: center;
       gap: 10px;
-      padding: 14px 28px;
+      padding: 15px 30px;
       background: linear-gradient(135deg, #0284c7 0%, #6366f1 100%);
       color: #ffffff;
       text-decoration: none;
@@ -221,7 +225,7 @@
       display: inline-flex;
       align-items: center;
       gap: 10px;
-      padding: 14px 28px;
+      padding: 15px 28px;
       background: rgba(255, 255, 255, 0.05);
       border: 1px solid var(--border-color);
       color: var(--text-main);
@@ -240,21 +244,22 @@
 
     /* Terminal Quick Copy Box */
     .terminal-box {
-      max-width: 780px;
+      max-width: 1080px;
       margin: 0 auto;
       background: rgba(13, 17, 23, 0.95);
-      border: 1px solid var(--border-color);
-      border-radius: 14px;
+      border: 1px solid rgba(56, 189, 248, 0.25);
+      border-radius: 16px;
       overflow: hidden;
       text-align: left;
-      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.4);
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5), 0 0 30px rgba(56, 189, 248, 0.08);
+      backdrop-filter: blur(16px);
     }
 
     .terminal-header {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 10px 16px;
+      padding: 12px 20px;
       background: rgba(255, 255, 255, 0.03);
       border-bottom: 1px solid var(--border-color);
     }
@@ -275,44 +280,115 @@
     .terminal-dots span:nth-child(2) { background: #f59e0b; }
     .terminal-dots span:nth-child(3) { background: #10b981; }
 
-    .terminal-title {
-      font-size: 0.8rem;
+    .terminal-tabs {
+      display: flex;
+      gap: 8px;
+    }
+
+    .terminal-tab {
+      background: transparent;
+      border: none;
       color: var(--text-muted);
-      font-family: monospace;
+      font-size: 0.82rem;
+      padding: 4px 10px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: 500;
+      transition: all 0.2s;
+    }
+
+    .terminal-tab.active {
+      background: rgba(56, 189, 248, 0.15);
+      color: var(--accent-cyan);
+      font-weight: 600;
     }
 
     .terminal-body {
-      padding: 16px 20px;
+      padding: 18px 24px;
       display: flex;
       justify-content: space-between;
       align-items: center;
-      gap: 16px;
+      gap: 20px;
       overflow-x: auto;
     }
 
     .terminal-body code {
       font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
       color: var(--accent-cyan);
-      font-size: 0.9rem;
+      font-size: 0.95rem;
       white-space: nowrap;
+      letter-spacing: 0.01em;
     }
 
     .btn-copy {
-      padding: 6px 12px;
+      padding: 8px 16px;
       background: rgba(255, 255, 255, 0.08);
       border: 1px solid var(--border-color);
-      border-radius: 6px;
+      border-radius: 8px;
       color: var(--text-main);
-      font-size: 0.78rem;
+      font-size: 0.85rem;
       font-weight: 600;
       cursor: pointer;
       transition: all 0.2s;
       white-space: nowrap;
+      display: flex;
+      align-items: center;
+      gap: 6px;
     }
 
     .btn-copy:hover {
       background: var(--accent-cyan);
       color: #0a0d14;
+      border-color: var(--accent-cyan);
+    }
+
+    /* Hero Value Props Bar */
+    .hero-stats {
+      max-width: 1080px;
+      margin: 32px auto 0;
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+    }
+
+    .stat-pill {
+      background: rgba(22, 27, 34, 0.55);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      padding: 14px 18px;
+      text-align: left;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      backdrop-filter: blur(8px);
+      transition: all 0.25s ease;
+    }
+
+    .stat-pill:hover {
+      border-color: var(--border-hover);
+      transform: translateY(-2px);
+      background: rgba(30, 38, 48, 0.7);
+    }
+
+    .stat-icon {
+      font-size: 1.5rem;
+      flex-shrink: 0;
+    }
+
+    .stat-text {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .stat-title {
+      font-size: 0.88rem;
+      font-weight: 600;
+      color: var(--text-main);
+    }
+
+    .stat-sub {
+      font-size: 0.75rem;
+      color: var(--text-muted);
     }
 
     /* Core Features Grid */
@@ -598,19 +674,30 @@
     }
 
     /* Responsive */
-    @media (max-width: 900px) {
-      .hero h1 { font-size: 2.5rem; }
+    @media (max-width: 1100px) {
+      .container { padding: 0 28px; }
+      .grid-cards { grid-template-columns: repeat(2, 1fr); }
       .flow-grid { grid-template-columns: repeat(2, 1fr); }
+      .hero-stats { grid-template-columns: repeat(2, 1fr); }
+    }
+
+    @media (max-width: 900px) {
       .board-columns { grid-template-columns: 1fr; }
       .download-grid { grid-template-columns: 1fr; }
       .nav-links { display: none; }
     }
 
-    @media (max-width: 600px) {
-      .hero h1 { font-size: 2rem; }
+    @media (max-width: 680px) {
+      .container { padding: 0 16px; }
+      .hero { padding: 60px 0 40px; }
+      .hero-stats { grid-template-columns: 1fr; }
       .flow-grid { grid-template-columns: 1fr; }
+      .grid-cards { grid-template-columns: 1fr; }
       .hero-actions { flex-direction: column; }
       .btn-primary, .btn-secondary { width: 100%; justify-content: center; }
+      .terminal-header { flex-direction: column; gap: 10px; align-items: flex-start; }
+      .terminal-tabs { width: 100%; justify-content: space-between; }
+      .terminal-tab { font-size: 0.75rem; padding: 4px 6px; }
     }
   </style>
 </head>
@@ -649,8 +736,7 @@
         <span></span> v1.1.0 深度加固版现已发布 · 纯自然语言驱动
       </div>
       <h1>
-        桌面 AI Agent <span class="text-gradient">× ChatGPT 网页版</span><br>
-        全自动双向协作闭环
+        桌面 AI Agent <span class="text-gradient">× ChatGPT 网页版</span> 全自动双向协作闭环
       </h1>
       <p class="hero-desc">
         告别在浏览器与编辑器之间反复复制、粘贴与报错排查。让云端顶级大模型（GPT 5.6 SOL / GPT 6.0 Astra）担任你的总架构师，桌面 Agent 成为确定性跑测双手，自然语言驱动，代码真实闭环交付。
@@ -674,12 +760,50 @@
           <div class="terminal-dots">
             <span></span><span></span><span></span>
           </div>
-          <span class="terminal-title">Antigravity IDE 快速挂载命令 (macOS)</span>
-          <span></span>
+          <div class="terminal-tabs">
+            <button class="terminal-tab active" id="tab-macos" onclick="switchTab('macos')">🍎 macOS (Safari / AppleScript)</button>
+            <button class="terminal-tab" id="tab-windows" onclick="switchTab('windows')">🪟 Windows (Node.js / Edge)</button>
+          </div>
+          <span style="width: 40px;"></span>
         </div>
         <div class="terminal-body">
           <code id="cmd-text">git clone --branch macos --single-branch https://github.com/yvochehk-oss/Antigravity2gptweb.git ~/.gemini/antigravity/skills/safari-chatgpt-reasoner</code>
-          <button class="btn-copy" onclick="copyCmd()">复制命令</button>
+          <button class="btn-copy" onclick="copyCmd()">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+            <span id="copy-btn-text">复制命令</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Hero Value Props Strip -->
+      <div class="hero-stats">
+        <div class="stat-pill">
+          <div class="stat-icon">🎯</div>
+          <div class="stat-text">
+            <span class="stat-title">纯自然语言交互</span>
+            <span class="stat-sub">母语提需求，0 复杂配置</span>
+          </div>
+        </div>
+        <div class="stat-pill">
+          <div class="stat-icon">💰</div>
+          <div class="stat-text">
+            <span class="stat-title">0 额外 API 账单</span>
+            <span class="stat-sub">复用 Plus/Team 网页订阅</span>
+          </div>
+        </div>
+        <div class="stat-pill">
+          <div class="stat-icon">⚡</div>
+          <div class="stat-text">
+            <span class="stat-title">免调试端口直连日常浏览器</span>
+            <span class="stat-sub">独立副驾窗口，带人工唤醒</span>
+          </div>
+        </div>
+        <div class="stat-pill">
+          <div class="stat-icon">🛡️</div>
+          <div class="stat-text">
+            <span class="stat-title">18 项自动化测试全过</span>
+            <span class="stat-sub">跨平台双环境严密终审闭环</span>
+          </div>
         </div>
       </div>
     </div>
@@ -934,18 +1058,32 @@
   </footer>
 
   <script>
+    const commands = {
+      macos: 'git clone --branch macos --single-branch https://github.com/yvochehk-oss/Antigravity2gptweb.git ~/.gemini/antigravity/skills/safari-chatgpt-reasoner',
+      windows: 'git clone --branch windows --single-branch https://github.com/yvochehk-oss/Antigravity2gptweb.git %USERPROFILE%\\.gemini\\antigravity\\skills\\safari-chatgpt-reasoner'
+    };
+
+    function switchTab(platform) {
+      document.getElementById('tab-macos').classList.toggle('active', platform === 'macos');
+      document.getElementById('tab-windows').classList.toggle('active', platform === 'windows');
+      document.getElementById('cmd-text').innerText = commands[platform];
+    }
+
     function copyCmd() {
       const text = document.getElementById('cmd-text').innerText;
       navigator.clipboard.writeText(text).then(() => {
+        const btnText = document.getElementById('copy-btn-text');
+        const orig = btnText.innerText;
+        btnText.innerText = "已复制";
         const btn = document.querySelector('.btn-copy');
-        const orig = btn.innerText;
-        btn.innerText = "✓ 已复制";
         btn.style.background = "#22c55e";
         btn.style.color = "#0a0d14";
+        btn.style.borderColor = "#22c55e";
         setTimeout(() => {
-          btn.innerText = orig;
+          btnText.innerText = orig;
           btn.style.background = "";
           btn.style.color = "";
+          btn.style.borderColor = "";
         }, 2000);
       });
     }
