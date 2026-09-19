@@ -43,7 +43,7 @@ BRIDGE_BY_BROWSER = {
     "bsk":    "scripts/bsk_chatgpt.py",
 }
 
-MAX_FIX_ATTEMPTS = 5          # 单任务最大修复轮次
+MAX_FIX_ATTEMPTS = 3          # 与 README/SKILL 契约一致：最多 3 轮
 GIT_TIMEOUT = 30              # git 操作超时（秒）
 
 # =============================================================================
@@ -299,11 +299,17 @@ def _bridge_call(type_: str, prompt: str,
         args += ["--evidence", evidence]
     if signature:
         args += ["--signature", signature]
-    if browser_profile and bridge_script.endswith("bsk_chatgpt.py"):
+    if browser_profile:
+        if not bridge_script.endswith("bsk_chatgpt.py"):
+            raise RuntimeError(
+                "--browser-profile 只能与 BrowserSkill 驱动一起使用；拒绝静默降级到其他浏览器驱动"
+            )
         args += ["--browser-profile", browser_profile]
     if extra_args:
         args += extra_args
     r = subprocess.run(args, capture_output=True, text=True, timeout=timeout + 60)
+    if r.returncode != 0 and r.stderr:
+        print(r.stderr[-3000:], file=sys.stderr, end="" if r.stderr.endswith("\n") else "\n")
     return r.returncode, r.stdout
 
 
@@ -326,6 +332,11 @@ def cmd_init(args) -> int:
         return 0
 
     bridge_script = _resolve_bridge(browser)
+    if browser_profile and not bridge_script.endswith("bsk_chatgpt.py"):
+        raise RuntimeError(
+            "已指定 --browser-profile，但当前没有解析到 BrowserSkill 驱动；"
+            "请显式使用 --browser bsk 并确保 bsk/扩展在线。"
+        )
     project_dir = ORCHESTRATOR_HOME / name
     plan_path = project_dir / "PLAN.md"
     tasks_path = project_dir / "TASKS.json"
@@ -339,26 +350,22 @@ def cmd_init(args) -> int:
     if browser_profile:
         print(f"  → bsk Profile: {browser_profile}")
 
-    # 初始化 git 仓库（如果需要）
+    # 本地 Agent 只读/验收：不初始化仓库、不改 origin、不制造初始 commit。
     if not (Path(cwd) / ".git").exists():
-        print("[init] 目录还不是 git 仓库，初始化…")
-        _run(["git", "init"], cwd=cwd)
-        _run(["git", "remote", "add", "origin", repo_url], cwd=cwd)
-    else:
-        r = _run(["git", "remote", "get-url", "origin"], cwd=cwd)
-        if r.stdout.strip() != repo_url:
-            _run(["git", "remote", "set-url", "origin", repo_url], cwd=cwd)
+        raise RuntimeError("目标目录不是 Git 工作副本；请先准备好已连接远端的仓库。")
+    r = _run(["git", "remote", "get-url", "origin"], cwd=cwd)
+    if r.returncode != 0:
+        raise RuntimeError("当前 Git 工作副本缺少 origin。")
+    if r.stdout.strip() != repo_url:
+        raise RuntimeError(
+            f"origin 与 --repo 不一致，拒绝自动改写：origin={r.stdout.strip()!r}, repo={repo_url!r}"
+        )
     _ensure_branch(cwd, branch, repo_url)
 
-    # 初始 commit（如果目录完全为空）
     r = _run(["git", "rev-parse", "HEAD"], cwd=cwd)
     initial_sha = r.stdout.strip()
-    if not initial_sha:
-        print("[init] 空仓库，创建初始 commit…")
-        Path(cwd, ".gitkeep").touch()
-        _run(["git", "add", "."], cwd=cwd)
-        _run(["git", "commit", "-m", "chore: initial (orchestrate init)"], cwd=cwd)
-        initial_sha = _run(["git", "rev-parse", "HEAD"], cwd=cwd).strip()
+    if r.returncode != 0 or not initial_sha:
+        raise RuntimeError("当前分支没有有效 HEAD；本地 Orchestrator 不负责创建初始提交。")
 
     # 生成初始 PLAN.md（让 GPT 推演方案）
     print(f"[init] 请求 GPT-5.6 生成初始方案（--type plan）…")
@@ -409,7 +416,7 @@ def cmd_init(args) -> int:
     print(f"\n请打开 {plan_path} 查看初始方案，然后：")
     print(f"  1. 审核方案，如需修改 → orchestrate.py refine --name {name}")
     print(f"  2. 确认无误 → orchestrate.py lock --name {name}")
-    print(f"  3. 开始执行 → orchestrate.py run-all --name {name}")
+    print(f"  3. 开始执行 → orchestrate.py run-task --name {name} --autonomous")
     return 0
 
 
@@ -520,19 +527,7 @@ def cmd_lock(args) -> int:
     state.tasks = tasks
     state.task_locked = True
 
-    # commit PLAN.md 到 GitHub
-    plan_file = Path(state.plan_md_path)
-    tasks_file = Path(state.tasks_json_path)
-    _run(["git", "add", str(plan_file), str(tasks_file)], cwd=state.cwd)
-    r = _run(["git", "status", "--porcelain"], cwd=state.cwd)
-    if r.stdout.strip():
-        commit_msg = f"chore: lock project plan for {name}\n\n需求：{state.requirement[:80]}"
-        _run(["git", "commit", "-m", commit_msg], cwd=state.cwd)
-        _run(["git", "push", "-u", "origin", state.branch], cwd=state.cwd)
-        head_sha = _run(["git", "rev-parse", "HEAD"], cwd=state.cwd).strip()
-        state.commit_sha_init = head_sha
-        state.commit_sha_head = head_sha
-
+    # 计划锁定仅更新 Orchestrator 私有状态；禁止本地 Agent commit/push。
     now = datetime.utcnow().isoformat()
     state.updated_at = now
     state.save()
@@ -1061,7 +1056,7 @@ def _build_parser() -> argparse.ArgumentParser:
                           help="用户反馈（如：第3步太复杂，能否拆成2步）")
 
     # lock
-    p_lock = sub.add_parser("lock", help="锁定方案（解析为任务列表，推送到 GitHub）")
+    p_lock = sub.add_parser("lock", help="锁定方案（仅解析并保存本地任务状态，不修改 Git 仓库）")
     p_lock.add_argument("--name", required=True, help="项目名称")
 
     # run-task
