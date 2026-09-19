@@ -89,7 +89,7 @@ git -C "$env:USERPROFILE\.gemini\antigravity\skills\safari-chatgpt-reasoner" pul
 
 | 驱动模式 | 核心技术 | 是否需 Node.js | 优势与特点 |
 |---|---|---|---|
-| 🚀 **Browser-Skill (`bsk`)（推荐主力）** | Rust 单二进制原生 CLI + Chrome 扩展 | ❌ 不需要 | 采用物理级原生键盘事件（`bsk press Enter`），前台可见、静默无感、绝不抢占物理鼠标光标，体验丝滑流畅 |
+| 🚀 **Browser-Skill (`bsk`)（推荐主力）** | Rust CLI + BrowserSkill 扩展 | ❌ 不需要 Node.js | 直接连接日常 Edge/Chrome；可借用指定用户标签页；Cloudflare/CAPTCHA/登录等人工步骤通过 `request-help` 明确交还用户处理 |
 | 🛡️ **Node.js CDP 模式（备用兼容）** | 原生 `http` / `WebSocket` (0 npm) | ✅ 需要 (Node >= 18) | 零三方依赖，直接通过 Chrome 远程调试端口驱动浏览器，无需额外 CLI 工具 |
 
 ### 🔍 运行一键环境自检
@@ -97,6 +97,33 @@ git -C "$env:USERPROFILE\.gemini\antigravity\skills\safari-chatgpt-reasoner" pul
 ```cmd
 check_env_windows.bat
 ```
+
+自检会同时确认：`bsk.exe` 是否可执行、BrowserSkill daemon 是否响应、Edge/Chrome 扩展是否已连接、Python 是否可运行，以及 Node.js CDP 回退通道是否存在。
+
+### Windows 推荐调用
+
+```powershell
+# 只检查 BrowserSkill 主通道
+py -3 scripts\bsk_chatgpt.py --check-env
+
+# 免 remote-debugging-port，复用已经打开的目标 ChatGPT 会话
+py -3 scripts\bsk_chatgpt.py `
+  --target-url "https://chatgpt.com/c/<conversation-id>" `
+  --type plan `
+  --prompt "任务目标"
+
+# BrowserSkill-first 编排；找不到 bsk 时 --driver auto 才回退到 Node/CDP
+py -3 scripts\orchestrate.py init `
+  --name demo `
+  --requirement "任务描述" `
+  --target-url "https://chatgpt.com/c/<conversation-id>" `
+  --repo "owner/repo" `
+  --cwd "C:\path\to\repo" `
+  --branch "windows" `
+  --driver auto
+```
+
+> BrowserSkill 的 `request-help` 是人工接管机制，不是验证码绕过器。出现 Cloudflare、CAPTCHA、OTP 或登录确认时，自动化应暂停并等待用户完成；取消、超时或关闭人工协助都按阻塞处理。
 
 ---
 
