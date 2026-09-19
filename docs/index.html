@@ -244,7 +244,7 @@
 
     /* Terminal Quick Copy Box */
     .terminal-box {
-      max-width: 1080px;
+      width: 100%;
       margin: 0 auto;
       background: rgba(13, 17, 23, 0.95);
       border: 1px solid rgba(56, 189, 248, 0.25);
@@ -290,7 +290,7 @@
       border: none;
       color: var(--text-muted);
       font-size: 0.82rem;
-      padding: 4px 10px;
+      padding: 5px 12px;
       border-radius: 6px;
       cursor: pointer;
       font-weight: 500;
@@ -306,10 +306,18 @@
     .terminal-body {
       padding: 18px 24px;
       display: flex;
-      justify-content: space-between;
       align-items: center;
-      gap: 20px;
+      gap: 14px;
       overflow-x: auto;
+    }
+
+    .terminal-prompt {
+      color: #64748b;
+      font-family: monospace;
+      font-weight: 700;
+      user-select: none;
+      font-size: 1rem;
+      flex-shrink: 0;
     }
 
     .terminal-body code {
@@ -321,12 +329,12 @@
     }
 
     .btn-copy {
-      padding: 8px 16px;
+      padding: 6px 14px;
       background: rgba(255, 255, 255, 0.08);
       border: 1px solid var(--border-color);
       border-radius: 8px;
       color: var(--text-main);
-      font-size: 0.85rem;
+      font-size: 0.82rem;
       font-weight: 600;
       cursor: pointer;
       transition: all 0.2s;
@@ -344,11 +352,11 @@
 
     /* Hero Value Props Bar */
     .hero-stats {
-      max-width: 1080px;
-      margin: 32px auto 0;
+      width: 100%;
+      margin: 24px auto 0;
       display: grid;
       grid-template-columns: repeat(4, 1fr);
-      gap: 16px;
+      gap: 24px;
     }
 
     .stat-pill {
@@ -414,7 +422,7 @@
 
     .grid-cards {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      grid-template-columns: repeat(4, 1fr);
       gap: 24px;
     }
 
@@ -462,7 +470,7 @@
     .flow-grid {
       display: grid;
       grid-template-columns: repeat(4, 1fr);
-      gap: 18px;
+      gap: 24px;
       margin-top: 40px;
     }
 
@@ -764,14 +772,14 @@
             <button class="terminal-tab active" id="tab-macos" onclick="switchTab('macos')">🍎 macOS (Safari / AppleScript)</button>
             <button class="terminal-tab" id="tab-windows" onclick="switchTab('windows')">🪟 Windows (Node.js / Edge)</button>
           </div>
-          <span style="width: 40px;"></span>
-        </div>
-        <div class="terminal-body">
-          <code id="cmd-text">git clone --branch macos --single-branch https://github.com/yvochehk-oss/Antigravity2gptweb.git ~/.gemini/antigravity/skills/safari-chatgpt-reasoner</code>
           <button class="btn-copy" onclick="copyCmd()">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
             <span id="copy-btn-text">复制命令</span>
           </button>
+        </div>
+        <div class="terminal-body">
+          <span class="terminal-prompt">$</span>
+          <code id="cmd-text">git clone --branch macos --single-branch https://github.com/yvochehk-oss/Antigravity2gptweb.git ~/.gemini/antigravity/skills/safari-chatgpt-reasoner</code>
         </div>
       </div>
 
