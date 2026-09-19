@@ -12,6 +12,7 @@ echo.
 set "BSK_FOUND=0"
 set "BSK_CONNECTED=0"
 set "PYTHON_FOUND=0"
+set "PY_CMD="
 set "NODE_FOUND=0"
 set "BROWSER_FOUND=0"
 
@@ -51,11 +52,13 @@ echo [3/5] 检查 Python...
 where py >nul 2>&1
 if not errorlevel 1 (
     set "PYTHON_FOUND=1"
+    set "PY_CMD=py -3"
     for /f "tokens=*" %%v in ('py -3 --version 2^>^&1') do echo     [OK] %%v
 ) else (
     where python >nul 2>&1
     if not errorlevel 1 (
         set "PYTHON_FOUND=1"
+        set "PY_CMD=python"
         for /f "tokens=*" %%v in ('python --version 2^>^&1') do echo     [OK] %%v
     ) else (
         echo     [WARN] 未找到 Python 3
@@ -88,12 +91,22 @@ echo.
 
 echo ===========================================================
 if "%BSK_FOUND%"=="1" if "%BSK_CONNECTED%"=="1" if "%PYTHON_FOUND%"=="1" (
-    echo  [READY] BrowserSkill 主通道已就绪
-    echo.
-    echo  无需 --remote-debugging-port。保持日常 Edge/Chrome 打开目标
-    echo  ChatGPT 会话，然后运行：
-    echo    py -3 scripts\bsk_chatgpt.py --target-url "https://chatgpt.com/c/..." --prompt "你好"
-    goto :done
+    %PY_CMD% scripts\bsk_chatgpt.py --check-env >nul 2>&1
+    if errorlevel 1 (
+        echo  [WARN] bsk CLI 看似在线，但 Python bridge 自检未通过
+        echo         请运行：%PY_CMD% scripts\bsk_chatgpt.py --check-env
+    ) else (
+        echo  [READY] BrowserSkill 主通道已就绪
+        echo.
+        echo  在线 BrowserSkill Profile：
+        %PY_CMD% scripts\bsk_chatgpt.py --list-browser-profiles
+        echo.
+        echo  无需 --remote-debugging-port。多 Profile 时请显式指定：
+        echo    --browser-profile ^<instance_id 或唯一 label^>
+        echo  示例：
+        echo    %PY_CMD% scripts\bsk_chatgpt.py --browser-profile "GPT专用" --target-url "https://chatgpt.com/c/..." --prompt "你好"
+        goto :done
+    )
 )
 
 if "%NODE_FOUND%"=="1" (
