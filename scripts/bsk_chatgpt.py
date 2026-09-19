@@ -530,6 +530,16 @@ class BSKClient:
         if code != 0:
             raise BSKError(f"bsk request-help 失败: {err.strip() or out.strip()}")
 
+    def focus(self, selector: str = "#prompt-textarea") -> None:
+        if not self.session_id:
+            raise BSKError("无可用 session_id，无法 focus")
+        args = ["focus", selector, "--session", self.session_id, "--json"]
+        if self.active_tab_id is not None:
+            args.extend(["--tab-id", str(self.active_tab_id)])
+        code, out, err = self._exec_bsk(args, timeout=5)
+        if code != 0:
+            raise BSKError(f"bsk focus {selector} 失败: {err.strip() or out.strip()}")
+
     def press_key(self, key: str = "Enter") -> None:
         if not self.session_id:
             raise BSKError("无可用 session_id，无法 press_key")
@@ -860,6 +870,11 @@ def send_and_receive_bsk_chatgpt(
                lastUserMessageId=baseline.get("lastUserMessageId"))
 
     # ---- 步骤 2：注入 prompt ----
+    try:
+        client.focus("#prompt-textarea")
+    except Exception:
+        pass
+
     js_inject = f"""
     (() => {{
         const el = document.querySelector('#prompt-textarea') ||
@@ -921,7 +936,11 @@ def send_and_receive_bsk_chatgpt(
     # ---- 步骤 3：触发发送 ----
     send_res = "BSK_PRESS_ENTER"
     try:
-        # 优先触发系统级原生 Enter 按键
+        # 确保焦点在输入框后触发系统级原生 Enter 按键
+        try:
+            client.focus("#prompt-textarea")
+        except Exception:
+            pass
         client.press_key("Enter")
     except Exception as e:
         # 回退至 JS 点击与表单提交
