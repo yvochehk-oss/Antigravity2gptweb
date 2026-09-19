@@ -55,7 +55,7 @@ description: 纯自然语言驱动的通用 AI 协作开发桥梁：让任意桌
 
 ## 安装到 Antigravity IDE
 
-本项目通过 GitHub 分支发布：Windows 使用纯 Node.js 的 `windows` 分支，macOS 使用 `macos` 分支；`main` 仅提供公开项目说明。安装和更新都需要 Git。请选择全局或项目级安装其中一种，不能同时安装同名副本。
+本项目通过 GitHub 分支发布：Windows 使用双引擎（Browser-Skill `bsk` 主引擎 + 纯 Node.js CDP 备用引擎）的 `windows` 分支，macOS 使用 `macos` 分支；`main` 仅提供公开项目说明。安装和更新都需要 Git。请选择全局或项目级安装其中一种，不能同时安装同名副本。
 
 ### 全局安装（所有项目可用）
 
@@ -80,6 +80,25 @@ git -C "$env:USERPROFILE\.gemini\antigravity\skills\safari-chatgpt-reasoner" pul
 ```
 
 项目级安装时，把路径改为 `.agent\skills\safari-chatgpt-reasoner`。安装或更新后请新开一个 Antigravity 对话。
+
+---
+
+## 🛠️ Windows 运行引擎说明与环境检测
+
+在 Windows 环境下，本 Skill 支持双驱动引擎自动无缝切换：
+
+| 驱动模式 | 核心技术 | 是否需 Node.js | 优势与特点 |
+|---|---|---|---|
+| 🚀 **Browser-Skill (`bsk`)（推荐主力）** | Rust 单二进制原生 CLI + Chrome 扩展 | ❌ 不需要 | 采用物理级原生键盘事件（`bsk press Enter`），前台可见、静默无感、绝不抢占物理鼠标光标，体验丝滑流畅 |
+| 🛡️ **Node.js CDP 模式（备用兼容）** | 原生 `http` / `WebSocket` (0 npm) | ✅ 需要 (Node >= 18) | 零三方依赖，直接通过 Chrome 远程调试端口驱动浏览器，无需额外 CLI 工具 |
+
+### 🔍 运行一键环境自检
+在 Skill 目录下运行自检脚本即可快速确认本地环境准备状态：
+```cmd
+check_env_windows.bat
+```
+
+---
 
 ## GitHub 前置条件
 

@@ -83,7 +83,9 @@ description: 双层混合 Agent 系统：以 Safari/Chrome ChatGPT 网页端 Cus
 
 ### 标准调用模式
 
-> **标准跨平台 Bridge 通道**：基于 Node.js 原生 API 实现（`scripts/chrome_chatgpt.js`），支持 Windows / macOS / Linux 全平台，零 npm 依赖，零 Python 依赖。已彻底剔除旧版 Unix 独占的 Python `fcntl` 实现。
+> **Windows 驱动双引擎架构**：
+> 1. **【最高阶推荐】Browser-Skill (bsk) 引擎**：免开 `--remote-debugging-port` 调试端口，直接复用日常已登录好的 Microsoft Edge / Chrome 窗口，内置 Cloudflare / 验证码人工唤醒介入（`request-help`）；
+> 2. **【极简免 Python 备用】Node.js 原生 CDP 引擎**：基于 Node.js 原生 API 实现（`scripts/chrome_chatgpt.js`），0 npm 外部依赖，需配合 `start_edge_cdp.bat` 调试端口启动。
 
 > **安装根目录**：示例统一使用 `$SKILL_ROOT`。Antigravity 全局安装时为 `~/.gemini/antigravity/skills/safari-chatgpt-reasoner`；项目级安装时为 `<项目根目录>/.agent/skills/safari-chatgpt-reasoner`。
 
@@ -93,26 +95,51 @@ description: 双层混合 Agent 系统：以 Safari/Chrome ChatGPT 网页端 Cus
 
 用户还必须准备目标 GitHub 仓库，且 Custom GPT 的 GitHub 工具只获授本任务所需的仓库权限。没有入口地址时不得自动新开对话；没有 GitHub 授权时不得声称完成远端修改与本地验收闭环。
 
-> **中文 Windows 编码**：批处理文件统一使用 UTF-8 与 `chcp 65001`。Bridge 和 Node 编排器读取提示、证据文件及测试输出时依次支持 UTF-8（含 BOM）、UTF-16LE 和 GB18030/GBK 回退，避免中文日志变成乱码。
+> **中文 Windows 编码**：批处理文件统一使用 UTF-8 与 `chcp 65001`。Bridge 读取提示、证据文件及测试输出时依次支持 UTF-8（含 BOM）、UTF-16LE 和 GB18030/GBK 回退，避免中文日志变成乱码。
 
-#### Node.js 跨平台标准 Bridge (`chrome_chatgpt.js`)
+#### 1. 【推荐】Browser-Skill 版（免调试端口直连日常 Edge/Chrome）
 
-前置条件：启动目标浏览器（Chrome 或 Edge）并开启 CDP 调试端口后，导航至 ChatGPT 会话页：
+前置条件：已安装 `bsk.exe` 并在 Edge/Chrome 中启用了 BrowserSkill 扩展。
+
+```powershell
+# 环境自检
+python scripts\bsk_chatgpt.py --check-env
+
+# 1. 精确指定 Tab 执行架构规划与 Prompt 发送
+python "$SKILL_ROOT\scripts\bsk_chatgpt.py" `
+  --target-url "https://chatgpt.com/c/6a9f7b81-0bcc-83e9-a4c1-036d110e1665" `
+  --type plan `
+  --prompt "任务目标描述"
+
+# 2. 本地执行测试日志反馈闭环（带 L1 渐进脱敏与熔断保护）
+python "$SKILL_ROOT\scripts\bsk_chatgpt.py" `
+  --target-url "https://chatgpt.com/c/6a9f7b81-0bcc-83e9-a4c1-036d110e1665" `
+  --type feedback `
+  --prompt "正在执行模块 A 重构" `
+  --evidence-file C:\temp\pytest_fail.log `
+  --level L1 `
+  --signature "ALEMBIC_MIGRATION_DUPLICATE_KEY_ERR"
+
+# 3. 清空 bsk 熔断器
+python "$SKILL_ROOT\scripts\bsk_chatgpt.py" --reset-circuit
+```
+
+#### 2. 【备选】Node.js 原生 CDP 版（0 npm 依赖）
+
+前置条件：启动目标浏览器（Edge 或 Chrome）并开启 CDP 调试端口：
 
 ```cmd
-:: Windows 下启动 Chrome / Edge
-chrome.exe --remote-debugging-port=9222 --remote-allow-origins=*
-:: 或
+:: 双击 start_edge_cdp.bat 或执行：
 msedge.exe --remote-debugging-port=9222 --remote-allow-origins=*
 ```
 
-Node.js Bridge 标准调用方法（全平台统一使用 `node chrome_chatgpt.js`）：
+Node.js Bridge 标准调用方法：
 
-```bash
-# 1. 精确指定 Tab 执行架构规划与 Prompt 发送
-node "$SKILL_ROOT/scripts/chrome_chatgpt.js" \
-  --target-url "https://chatgpt.com/c/6a9f7b81-0bcc-83e9-a4c1-036d110e1665" \
-  --type plan \
+```powershell
+# 1. 执行架构规划与 Prompt 发送
+node "$SKILL_ROOT\scripts\chrome_chatgpt.js" `
+  --target-url "https://chatgpt.com/c/6a9f7b81-0bcc-83e9-a4c1-036d110e1665" `
+  --type plan `
   --prompt "任务目标描述"
 
 # 2. 本地执行测试日志反馈闭环（带 L1 渐进脱敏与熔断保护）
