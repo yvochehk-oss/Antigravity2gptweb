@@ -535,7 +535,7 @@ def cmd_lock(args) -> int:
     print(f"[lock] ✅ 计划已锁定，{len(tasks)} 个任务：")
     for t in tasks:
         print(f"  [{t.id}] {t.title}")
-    print(f"\n  → 开始执行：orchestrate.py run-all --name {name}")
+    print(f"\n  → 开始执行：orchestrate.py run-task --name {name} --autonomous")
     return 0
 
 
@@ -896,13 +896,6 @@ def _auto_fix_loop(state: ProjectState, task: Task,
     task.last_fix_note = f"达到最大修复次数 {max_attempts}"
     state.save()
     print(f"[Task {task.id}] ❌ 修复失败：达到最大尝试次数")
-    return False
-
-
-# =============================================================================
-# 子命令：run-all
-# =============================================================================
-    state.save()
     return False
 
 
