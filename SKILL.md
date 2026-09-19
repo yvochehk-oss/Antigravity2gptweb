@@ -84,8 +84,8 @@ description: 双层混合 Agent 系统：以 Safari/Chrome ChatGPT 网页端 Cus
 ### 标准调用模式
 
 > **Windows 驱动双引擎架构**：
-> 1. **默认：Browser-Skill (`bsk`)**。`scripts/bsk_chatgpt.py` 仅依赖 Python 标准库与 `bsk.exe`，不要求 `--remote-debugging-port`；它只借用精确匹配目标 URL / conversation UUID 的用户标签页，找不到时使用隔离 Agent Window，不得抢占任意 ChatGPT 标签页。Cloudflare、CAPTCHA、OTP、登录确认必须通过 `request-help` 交由用户完成，严禁绕过；
-> 2. **兼容回退：Node.js CDP**。`scripts/chrome_chatgpt.js` 保留为显式回退，0 npm 依赖，但需要远程调试端口。
+> 1. **默认：Browser-Skill (`bsk`)**。`scripts/bsk_chatgpt.py` 仅依赖 Python 标准库与 `bsk.exe`，不要求 `--remote-debugging-port`。默认使用独立 Agent Window + `--no-focus`，不借用用户主窗口标签页；只有显式 `--borrow` 时才允许借用，而且仅限精确匹配目标 URL / conversation UUID，匹配缺失或歧义时退回 Agent Window。可通过 `--browser-profile <instance_id|唯一label>` 固定用户指定 Profile。Cloudflare、CAPTCHA、OTP、登录确认必须通过 `request-help` 交由用户完成，严禁绕过；
+> 2. **兼容回退：Node.js CDP**。`scripts/chrome_chatgpt.js` 保留为显式回退，0 npm 依赖，但需要远程调试端口。若项目锁定了 `--browser-profile`，禁止静默回退到 CDP。
 
 > **安装根目录**：示例统一使用 `$SKILL_ROOT`。Antigravity 全局安装时为 `~/.gemini/antigravity/skills/safari-chatgpt-reasoner`；项目级安装时为 `<项目根目录>/.agent/skills/safari-chatgpt-reasoner`。
 
@@ -102,11 +102,15 @@ description: 双层混合 Agent 系统：以 Safari/Chrome ChatGPT 网页端 Cus
 前置条件：已安装 `bsk.exe` 并在 Edge/Chrome 中启用了 BrowserSkill 扩展。
 
 ```powershell
-# 环境自检
-python scripts\bsk_chatgpt.py --check-env
+# 列出在线 BrowserSkill Profile / instance
+python scripts\bsk_chatgpt.py --list-browser-profiles
 
-# 1. 精确指定 Tab 执行架构规划与 Prompt 发送
+# 环境自检（多 Profile 时建议明确指定）
+python scripts\bsk_chatgpt.py --check-env --browser-profile "GPT专用"
+
+# 1. 使用指定 Profile 的独立 Agent Window 执行架构规划与 Prompt 发送
 python "$SKILL_ROOT\scripts\bsk_chatgpt.py" `
+  --browser-profile "GPT专用" `
   --target-url "https://chatgpt.com/c/6a9f7b81-0bcc-83e9-a4c1-036d110e1665" `
   --type plan `
   --prompt "任务目标描述"
@@ -209,7 +213,7 @@ v4.1 **删除** `--new` 参数。新会话的开启由 Execution Plane 在调用
 
 ## Orchestrator：端到端任务编排器
 
-Windows 默认使用 `scripts/orchestrate.py`：`--driver auto` 优先选择 BrowserSkill，只有本机找不到 `bsk.exe` 时才使用 Node/CDP 回退。`scripts/orchestrate.js` 继续保留，供已有纯 Node 工作流兼容使用。无论哪种驱动，**Custom GPT 独占 GitHub 修改/提交权；本地 orchestrator 只允许 clean-checkout fast-forward、运行 GPT 指定测试、回传证据**。
+Windows 默认使用 `scripts/orchestrate.py`：`--driver auto` 只有在 `bsk` daemon 可响应且至少一个浏览器扩展实例在线时才选择 BrowserSkill，否则才考虑 Node/CDP 回退；若指定 `--browser-profile`，则禁止回退到 CDP。`scripts/orchestrate.js` 继续保留，供已有纯 Node 工作流兼容使用。无论哪种驱动，**Custom GPT 独占 GitHub 修改/提交权；本地 orchestrator 只允许 clean-checkout fast-forward、运行 GPT 指定测试、回传证据**。
 
 ### 架构
 
@@ -262,7 +266,8 @@ py -3 scripts\orchestrate.py init `
   --repo "owner/repo" `
   --cwd "C:\path\to\repo" `
   --branch "feature/my-migration" `
-  --driver auto
+  --driver auto `
+  --browser-profile "GPT专用"
 
 py -3 scripts\orchestrate.py lock --name my-migration
 py -3 scripts\orchestrate.py run-task --name my-migration --task-id 1
