@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -21,7 +22,7 @@ HOME = Path.home() / ".antigravity" / "orchestrator"
 HERE = Path(__file__).resolve().parent
 BSK_BRIDGE = HERE / "bsk_chatgpt.py"
 CDP_BRIDGE = HERE / "chrome_chatgpt.js"
-MAX_FIX_ATTEMPTS = 5
+MAX_FIX_ATTEMPTS = 3
 
 
 class OrchestratorError(RuntimeError):
@@ -123,20 +124,38 @@ def load(name: str) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def bsk_ready() -> bool:
+    exe = shutil.which("bsk") or shutil.which("bsk.exe")
+    if not exe:
+        return False
+    try:
+        p = run([exe, "status", "--json"], timeout=6)
+        if p.returncode != 0:
+            return False
+        data = json.loads(decode(p.stdout))
+        return bool(data.get("browsers", []))
+    except (OrchestratorError, json.JSONDecodeError, TypeError, AttributeError):
+        return False
+
+
 def resolve_driver(requested: str) -> str:
     if requested == "bsk":
         if not (shutil.which("bsk") or shutil.which("bsk.exe")):
             raise OrchestratorError("--driver bsk 已指定，但 PATH 中找不到 bsk.exe。")
+        if not bsk_ready():
+            raise OrchestratorError(
+                "--driver bsk 已指定，但 daemon/浏览器扩展尚未形成可用连接。"
+            )
         return "bsk"
     if requested == "cdp":
         if not shutil.which("node"):
             raise OrchestratorError("--driver cdp 已指定，但找不到 Node.js。")
         return "cdp"
-    if shutil.which("bsk") or shutil.which("bsk.exe"):
+    if bsk_ready():
         return "bsk"
     if shutil.which("node"):
         return "cdp"
-    raise OrchestratorError("既找不到 bsk.exe，也找不到 Node.js/CDP 回退环境。")
+    raise OrchestratorError("既没有可用的 BrowserSkill 连接，也没有 Node.js/CDP 回退环境。")
 
 
 def bridge(state: dict[str, Any], kind: str, prompt: str, *, timeout=360,
@@ -153,7 +172,16 @@ def bridge(state: dict[str, Any], kind: str, prompt: str, *, timeout=360,
     if signature:
         common += ["--signature", signature]
 
+    browser_profile = str(state.get("browser_profile", "") or "").strip()
+    if browser_profile and driver != "bsk":
+        raise OrchestratorError(
+            "项目已锁定 BrowserSkill Profile，但当前解析到非 bsk 驱动；"
+            "拒绝静默降级到 CDP，以免使用错误浏览器/Profile。"
+        )
+
     if driver == "bsk":
+        if browser_profile:
+            common += ["--browser-profile", browser_profile]
         cmd = [sys.executable, str(BSK_BRIDGE), *common]
     else:
         cmd = ["node", str(CDP_BRIDGE), *common]
@@ -320,7 +348,9 @@ def cmd_init(args) -> None:
         "name": args.name, "created_at": now(), "updated_at": now(),
         "requirement": args.requirement, "chatgpt_url": args.target_url,
         "repo_url": args.repo, "branch": args.branch, "cwd": cwd,
-        "driver": args.driver, "task_locked": False, "current_task_id": None,
+        "driver": args.driver,
+        "browser_profile": (args.browser_profile or "").strip(),
+        "task_locked": False, "current_task_id": None,
         "tasks": [], "commit_sha_head": head,
         "plan_md_path": str(work_dir(args.name) / "PLAN.md"),
     }
@@ -372,6 +402,7 @@ def cmd_status(args) -> None:
         "name": state["name"], "branch": state["branch"],
         "head": state["commit_sha_head"],
         "driver": state.get("resolved_driver", state.get("driver")),
+        "browser_profile": state.get("browser_profile", ""),
         "tasks": [
             {"id": t["id"], "title": t["title"], "status": t["status"],
              "verdict": t.get("last_verdict", "")}
@@ -392,6 +423,11 @@ def parser() -> argparse.ArgumentParser:
     x.add_argument("--cwd", required=True)
     x.add_argument("--branch", required=True)
     x.add_argument("--driver", choices=("auto", "bsk", "cdp"), default="auto")
+    x.add_argument(
+        "--browser-profile",
+        default=os.environ.get("BSK_BROWSER_PROFILE", ""),
+        help="BrowserSkill instance_id 或唯一 label；指定后禁止静默回退到 CDP。",
+    )
     x.set_defaults(func=cmd_init)
 
     x = sub.add_parser("lock")
