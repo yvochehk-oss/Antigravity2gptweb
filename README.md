@@ -12,7 +12,7 @@ description: 纯自然语言驱动的通用 AI 协作开发桥梁：让任意桌
 
 > 🌐 **产品官方网站与交互大屏**：👉 [**https://yvochehk-oss.github.io/Antigravity2gptweb/**](https://yvochehk-oss.github.io/Antigravity2gptweb/)  
 > 📥 **官方极速下载中心**：👉 [**https://yvochehk-oss.github.io/Antigravity2gptweb/#download**](https://yvochehk-oss.github.io/Antigravity2gptweb/#download)  
-> ⚡ **两大核心版本系列**：分为【Browser-Skill 增强版 (v1.1.0 · 推荐主力使用)】与【系统原生极简版 (Native Engine · 0 外部依赖)】，各自提供 macOS 与 Windows 专版通道。
+> ⚡ **Windows 官方专版**：纯原生 CDP 驱动（0 浏览器扩展 · 0 npm 外部依赖 · 双击 BAT 一键秒开）。
 
 ---
 
@@ -61,7 +61,7 @@ description: 纯自然语言驱动的通用 AI 协作开发桥梁：让任意桌
 
 ## 安装到 Antigravity IDE
 
-本项目通过 GitHub 分支发布：Windows 使用双引擎（Browser-Skill `bsk` 主引擎 + 纯 Node.js CDP 备用引擎）的 `windows` 分支，macOS 使用 `macos` 分支；`main` 仅提供公开项目说明。安装和更新都需要 Git。请选择全局或项目级安装其中一种，不能同时安装同名副本。
+本项目通过 GitHub 分支发布：Windows 使用纯原生 Node.js CDP 驱动的 `windows` 分支（0 扩展 · 0 npm 依赖），macOS 使用 `macos` 分支；`main` 仅提供公开项目说明。安装和更新都需要 Git。请选择全局或项目级安装其中一种，不能同时安装同名副本。
 
 ### 全局安装（所有项目可用）
 
@@ -91,50 +91,37 @@ git -C "$env:USERPROFILE\.gemini\antigravity\skills\safari-chatgpt-reasoner" pul
 
 ## 🛠️ Windows 运行引擎说明与环境检测
 
-在 Windows 环境下，本 Skill 支持双驱动引擎自动无缝切换：
+针对 Windows 环境下第三方扩展与后台守护进程容易掉线、被安全软件误报或注册表握手失败的痛点，**Windows 专版完全采用官方推荐的纯原生 CDP 驱动方案**！
 
-| 驱动模式 | 核心技术 | 是否需 Node.js | 优势与特点 |
+| 驱动模式 | 核心技术 | 依赖要求 | 优势与特点 |
 |---|---|---|---|
-| 🚀 **Browser-Skill (`bsk`)（推荐主力）** | Rust CLI + BrowserSkill 扩展 | ❌ 不需要 Node.js | 默认独立 Agent Window、不抢主窗口；支持按 instance_id / 唯一 label 固定浏览器 Profile；只有显式 `--borrow` 才借用精确目标 Tab；人工验证通过 `request-help` 处理 |
-| 🛡️ **Node.js CDP 模式（备用兼容）** | 原生 `http` / `WebSocket` (0 npm) | ✅ 需要 (Node >= 18) | 零三方依赖，直接通过 Chrome 远程调试端口驱动浏览器，无需额外 CLI 工具 |
+| 🪟 **Microsoft Edge 原生专版（推荐）** | 系统自带 Edge + 原生 CDP | 仅需 Node.js 18+ (0 npm 依赖) | **0 个扩展插件**；双击 `start_edge_cdp.bat` 一秒启动；独立用户数据目录，ChatGPT 登录态永久保存，绝不与日常 Edge 进程冲突 |
+| 🪟 **Google Chrome 原生专版** | Chrome + 原生 CDP | 仅需 Node.js 18+ (0 npm 依赖) | **0 个扩展插件**；双击 `start_chrome_cdp.bat` 一秒启动；毫秒级 WebSocket 原生连接，稳定运行 99.99% |
 
 ### 🔍 运行一键环境自检
-在 Skill 目录下运行自检脚本即可快速确认本地环境准备状态：
+在 Skill 目录下双击或在命令行运行自检脚本：
 ```cmd
 check_env_windows.bat
 ```
+自检会自动验证：Node.js 运行时、系统 Edge/Chrome 路径以及 9222 远程调试端口是否处于监听状态。
 
-自检会同时确认：`bsk.exe` 是否可执行、BrowserSkill daemon 是否响应、Edge/Chrome 扩展是否已连接、Python 是否可运行，以及 Node.js CDP 回退通道是否存在。
+### 🚀 极速两步使用指引
 
-### Windows 推荐调用
+#### 第一步：双击启动浏览器调试端口
+双击项目根目录下的 **`start_edge_cdp.bat`**（推荐）或 **`start_chrome_cdp.bat`**：
+* 脚本会自动创建独立的数据目录（`%LOCALAPPDATA%\Antigravity2gptweb\..._cdp_profile`），开启 9222 端口并打开 ChatGPT；
+* 在弹出的浏览器中登录您的 ChatGPT 账号，并打开目标会话；
+* 登录状态会自动持久化保存，以后再次双击即可自动免密进入！
 
-```powershell
-# 列出在线 BrowserSkill Profile
-py -3 scripts\bsk_chatgpt.py --list-browser-profiles
-
-# 检查 BrowserSkill 主通道并固定目标 Profile
-py -3 scripts\bsk_chatgpt.py --check-env --browser-profile "GPT专用"
-
-# 免 remote-debugging-port，使用指定 Profile 的独立 Agent Window
-py -3 scripts\bsk_chatgpt.py `
-  --browser-profile "GPT专用" `
-  --target-url "https://chatgpt.com/c/<conversation-id>" `
-  --type plan `
-  --prompt "任务目标"
-
-# BrowserSkill-first 编排；auto 仅在 bsk+扩展在线时选 bsk
-py -3 scripts\orchestrate.py init `
-  --name demo `
-  --requirement "任务描述" `
-  --target-url "https://chatgpt.com/c/<conversation-id>" `
-  --repo "owner/repo" `
-  --cwd "C:\path\to\repo" `
-  --branch "windows" `
-  --driver auto `
-  --browser-profile "GPT专用"
+#### 第二步：运行原生驱动（或交给桌面 Agent 自动调度）
+打开新的 CMD 命令行窗口，直接运行原生驱动（无需安装任何 npm 包）：
+```cmd
+node scripts\chrome_chatgpt.js --browser-name edge --target-url "https://chatgpt.com/c/你的会话ID" --prompt "你的任务需求"
 ```
-
-> 若指定了 `--browser-profile`，Orchestrator 会持久化该选择并在 plan / task-code / task-review 全链路转发；当 bsk 不可用时会 fail-closed，不会静默切到其他 Profile/CDP。BrowserSkill 的 `request-help` 是人工接管机制，不是验证码绕过器。出现 Cloudflare、CAPTCHA、OTP 或登录确认时，自动化应暂停并等待用户完成；取消、超时或关闭人工协助都按阻塞处理。
+或者使用全自动任务编排器：
+```cmd
+node scripts\orchestrate.js init --browser edge --target-url "https://chatgpt.com/c/你的会话ID" --repo "owner/repo" --cwd "C:\path\to\repo" --requirement "任务需求"
+```
 
 ---
 

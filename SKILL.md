@@ -83,9 +83,11 @@ description: 双层混合 Agent 系统：以 Safari/Chrome ChatGPT 网页端 Cus
 
 ### 标准调用模式
 
-> **Windows 驱动双引擎架构**：
-> 1. **默认：Browser-Skill (`bsk`)**。`scripts/bsk_chatgpt.py` 仅依赖 Python 标准库与 `bsk.exe`，不要求 `--remote-debugging-port`。默认使用独立 Agent Window + `--no-focus`，不借用用户主窗口标签页；只有显式 `--borrow` 时才允许借用，而且仅限精确匹配目标 URL / conversation UUID，匹配缺失或歧义时退回 Agent Window。可通过 `--browser-profile <instance_id|唯一label>` 固定用户指定 Profile。Cloudflare、CAPTCHA、OTP、登录确认必须通过 `request-help` 交由用户完成，严禁绕过；
-> 2. **兼容回退：Node.js CDP**。`scripts/chrome_chatgpt.js` 保留为显式回退，0 npm 依赖，但需要远程调试端口。若项目锁定了 `--browser-profile`，禁止静默回退到 CDP。
+> **Windows 平台官方唯一推荐：纯原生 CDP 驱动 (Pure Native CDP Engine)**：
+> 针对 Windows 环境下第三方扩展与后台守护进程容易掉线、安全软件误报或注册表握手失败的痛点，Windows 专版**完全采用纯原生 CDP 驱动方案**（0 浏览器扩展 · 0 npm 外部依赖）：
+> 1. 双击运行 `start_edge_cdp.bat`（推荐，系统自带 Edge）或 `start_chrome_cdp.bat`；
+> 2. 脚本使用独立用户数据目录（`%LOCALAPPDATA%\Antigravity2gptweb\..._cdp_profile`），开启 9222 端口，不与日常浏览器冲突，ChatGPT 登录态永久保存；
+> 3. 驱动端由原生 Node.js 18+ 直接驱动（`scripts/chrome_chatgpt.js`），无需安装任何 npm 依赖，开箱即用！
 
 > **安装根目录**：示例统一使用 `$SKILL_ROOT`。Antigravity 全局安装时为 `~/.gemini/antigravity/skills/safari-chatgpt-reasoner`；项目级安装时为 `<项目根目录>/.agent/skills/safari-chatgpt-reasoner`。
 
@@ -97,45 +99,9 @@ description: 双层混合 Agent 系统：以 Safari/Chrome ChatGPT 网页端 Cus
 
 > **中文 Windows 编码**：批处理文件统一使用 UTF-8 与 `chcp 65001`。Bridge 读取提示、证据文件及测试输出时依次支持 UTF-8（含 BOM）、UTF-16LE 和 GB18030/GBK 回退，避免中文日志变成乱码。
 
-#### 1. 【推荐】Browser-Skill 版（免调试端口直连日常 Edge/Chrome）
+#### 🚀 Node.js 原生 CDP 驱动标准用法（0 扩展 · 0 npm 依赖）
 
-前置条件：已安装 `bsk.exe` 并在 Edge/Chrome 中启用了 BrowserSkill 扩展。
-
-```powershell
-# 列出在线 BrowserSkill Profile / instance
-python scripts\bsk_chatgpt.py --list-browser-profiles
-
-# 环境自检（多 Profile 时建议明确指定）
-python scripts\bsk_chatgpt.py --check-env --browser-profile "GPT专用"
-
-# 1. 使用指定 Profile 的独立 Agent Window 执行架构规划与 Prompt 发送
-python "$SKILL_ROOT\scripts\bsk_chatgpt.py" `
-  --browser-profile "GPT专用" `
-  --target-url "https://chatgpt.com/c/6a9f7b81-0bcc-83e9-a4c1-036d110e1665" `
-  --type plan `
-  --prompt "任务目标描述"
-
-# 2. 本地执行测试日志反馈闭环（带 L1 渐进脱敏与熔断保护）
-python "$SKILL_ROOT\scripts\bsk_chatgpt.py" `
-  --target-url "https://chatgpt.com/c/6a9f7b81-0bcc-83e9-a4c1-036d110e1665" `
-  --type feedback `
-  --prompt "正在执行模块 A 重构" `
-  --evidence-file C:\temp\pytest_fail.log `
-  --level L1 `
-  --signature "ALEMBIC_MIGRATION_DUPLICATE_KEY_ERR"
-
-# 3. 清空 bsk 熔断器
-python "$SKILL_ROOT\scripts\bsk_chatgpt.py" --reset-circuit
-```
-
-#### 2. 【备选】Node.js 原生 CDP 版（0 npm 依赖）
-
-前置条件：启动目标浏览器（Edge 或 Chrome）并开启 CDP 调试端口：
-
-```cmd
-:: 双击 start_edge_cdp.bat 或执行：
-msedge.exe --remote-debugging-port=9222 --remote-allow-origins=*
-```
+前置条件：双击运行项目根目录下的 `start_edge_cdp.bat`（推荐）或 `start_chrome_cdp.bat`，在弹出的窗口中登录 ChatGPT 并打开目标会话。
 
 Node.js Bridge 标准调用方法：
 
@@ -170,9 +136,8 @@ node "$SKILL_ROOT/scripts/chrome_chatgpt.js" \
 ```
 
 > **注意**：
-> - Windows 分支现在同时包含 `bsk_chatgpt.py` / `orchestrate.py` 与旧的 `chrome_chatgpt.js` / `orchestrate.js`。默认优先 Python + bsk；Node/CDP 只作兼容回退。
-> - BrowserSkill 主通道不需要 9222/9223；只有显式使用 CDP 回退时才需要调试端口。
-> - **不要同时在同一 CDP 端口启两个 Chromium 实例**：端口冲突会让 `/json/list` 返回错乱 Tab。
+> - Windows 官方推荐使用纯原生 Node.js CDP 驱动引擎（`chrome_chatgpt.js`），0 个 npm 依赖包，0 个浏览器扩展插件。
+> - 使用前双击 `start_edge_cdp.bat`（或 `start_chrome_cdp.bat`）即可自动以隔离数据目录秒开 9222 端口，绝不影响日常浏览器。
 
 ### 下游消费规范
 
@@ -213,7 +178,7 @@ v4.1 **删除** `--new` 参数。新会话的开启由 Execution Plane 在调用
 
 ## Orchestrator：端到端任务编排器
 
-Windows 默认使用 `scripts/orchestrate.py`：`--driver auto` 只有在 `bsk` daemon 可响应且至少一个浏览器扩展实例在线时才选择 BrowserSkill，否则才考虑 Node/CDP 回退；若指定 `--browser-profile`，则禁止回退到 CDP。`scripts/orchestrate.js` 继续保留，供已有纯 Node 工作流兼容使用。无论哪种驱动，**Custom GPT 独占 GitHub 修改/提交权；本地 orchestrator 只允许 clean-checkout fast-forward、运行 GPT 指定测试、回传证据**。
+Windows 原生专版提供纯原生 Node.js 编排器 `scripts/orchestrate.js`（纯原生 0 npm 依赖）与 Python 编排器 `scripts/orchestrate.py`（指定 `--driver cdp`）。无论哪种驱动，**Custom GPT 独占 GitHub 修改/提交权；本地 orchestrator 只允许 clean-checkout fast-forward、运行 GPT 指定测试、回传证据**。
 
 ### 架构
 
@@ -221,13 +186,13 @@ Windows 默认使用 `scripts/orchestrate.py`：`--driver auto` 只有在 `bsk` 
 开发者需求
     │
     ▼
-orchestrate.py init ────→ GPT 生成方案（plan）
+orchestrate.js init ────→ GPT 生成方案（plan）
     │
     ▼
-orchestrate.py lock ────→ 解析为任务列表
+orchestrate.js lock ────→ 解析为任务列表
     │
     ▼
-orchestrate.py run-task × N ────→ 每个任务的闭环：
+orchestrate.js run-task × N ────→ 每个任务的闭环：
     │
     ├── GPT 通过 GitHub 直连修改 + commit + push（task-code）
     ├── 本地 fast-forward pull（工作区 dirty 即停止）
@@ -255,25 +220,21 @@ orchestrate.py run-task × N ────→ 每个任务的闭环：
 4. 如果任务涉及多文件，请按依赖顺序排列。
 5. 只测试命令，不要输出代码，不要写说明文字。
 
-### Orchestrator 子命令速查
+### Orchestrator 子命令速查（纯原生 CDP）
 
 ```powershell
-# BrowserSkill-first；--driver auto 优先 bsk
-py -3 scripts\orchestrate.py init `
+# 原生 CDP 编排初始化
+node scripts\orchestrate.js init `
+  --browser edge `
   --name my-migration `
   --requirement "把 Flask 认证迁移到 FastAPI + JWT" `
   --target-url "https://chatgpt.com/c/xxx" `
   --repo "owner/repo" `
   --cwd "C:\path\to\repo" `
-  --branch "feature/my-migration" `
-  --driver auto `
-  --browser-profile "GPT专用"
+  --branch "feature/my-migration"
 
-py -3 scripts\orchestrate.py lock --name my-migration
-py -3 scripts\orchestrate.py run-task --name my-migration --task-id 1
-py -3 scripts\orchestrate.py status --name my-migration
-
-# 旧纯 Node/CDP 工作流仍保留
+node scripts\orchestrate.js lock --name my-migration
+node scripts\orchestrate.js run-task --name my-migration --task-id 1
 node scripts\orchestrate.js status --name my-migration
 ```
 
