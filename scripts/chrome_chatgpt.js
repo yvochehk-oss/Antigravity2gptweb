@@ -460,14 +460,73 @@ async function captureBaseline(ws) {
   return b;
 }
 
+async function dispatchCdpEnterKey(ws) {
+  // 1. RawKeyDown
+  await ws.sendCommand('Input.dispatchKeyEvent', {
+    type: 'rawKeyDown',
+    windowsVirtualKeyCode: 13,
+    nativeVirtualKeyCode: 13,
+    macCharCode: 13,
+    unmodifiedText: '\r',
+    text: '\r',
+    key: 'Enter',
+    code: 'Enter'
+  });
+  // 2. Char (兼容部分 Chromium 版本对字符事件的监听)
+  try {
+    await ws.sendCommand('Input.dispatchKeyEvent', {
+      type: 'char',
+      windowsVirtualKeyCode: 13,
+      nativeVirtualKeyCode: 13,
+      macCharCode: 13,
+      unmodifiedText: '\r',
+      text: '\r',
+      key: 'Enter',
+      code: 'Enter'
+    });
+  } catch (_) {}
+  // 3. KeyUp
+  await ws.sendCommand('Input.dispatchKeyEvent', {
+    type: 'keyUp',
+    windowsVirtualKeyCode: 13,
+    nativeVirtualKeyCode: 13,
+    macCharCode: 13,
+    unmodifiedText: '\r',
+    text: '\r',
+    key: 'Enter',
+    code: 'Enter'
+  });
+}
+
 async function waitForUserMessageCommitted(ws, baselineUserCount, expectedPrompt, timeout, baselineUserId) {
   const probeJs=userCommitProbeJs(expectedPrompt), deadline=Date.now()+timeout*1000;
   let lastSnap=null;
+  let attempts=0;
   while (Date.now()<deadline) {
     const snap=await fetchSnapshot(ws, probeJs); lastSnap=snap;
     const currId=snap.messageId;
     const idChg=baselineUserId!=null?currId!==baselineUserId:currId!=null;
     if ((snap.userCount===baselineUserCount+1||idChg)&&snap.matchesExpected===true) return snap;
+
+    attempts++;
+    // 若 1.2s 或 2.4s 后消息仍未上屏（应对 React 状态机异步更新延迟）：重新激活并补发物理 Enter 键
+    if (attempts === 3 || attempts === 6) {
+      try {
+        await executeCdpJs(ws, `(() => {
+          const el = document.querySelector('#prompt-textarea') || document.querySelector("form [contenteditable='true']");
+          if (el) {
+            el.focus();
+            el.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+          }
+          const btn = document.querySelector('button[data-testid="send-button"]') || document.querySelector("#composer-submit-button");
+          if (btn && !btn.disabled && btn.getAttribute('aria-disabled') !== 'true') {
+            btn.click();
+          }
+        })()`);
+        await dispatchCdpEnterKey(ws);
+      } catch (_) {}
+    }
+
     await sleep(400);
   }
   throw new CDPError(`用户消息提交超时（>${timeout}s）。最终快照=${JSON.stringify(lastSnap)}`);
@@ -576,35 +635,83 @@ async function sendAndReceive(ws, prompt, targetUrl, waitTimeout, submitDeadline
         el.focus();
         document.execCommand('selectAll', false, null);
         document.execCommand('insertText', false, ${JSON.stringify(prompt)});
-        el.dispatchEvent(new Event('input', { bubbles: true }));
+        el.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
         return "FALLBACK_OK";
       })()`;
       await executeCdpJs(ws, fallbackJs);
     }
+
+    // 唤醒 React / ProseMirror 受控状态机，确保状态更新与发送按钮解除 disabled
+    const reactWakeJs = `(() => {
+      const el = document.querySelector('#prompt-textarea') || document.querySelector("form [contenteditable='true']") || document.querySelector("textarea");
+      if (el) {
+        el.focus();
+        el.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+        el.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
+        el.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, composed: true, key: ' ' }));
+      }
+      return "WOKEN";
+    })()`;
+    await executeCdpJs(ws, reactWakeJs);
   }
   catch(e){emitEvent('inject',EXIT_BROWSER_FAIL,`输入框注入失败: ${e.message}`);return{exitCode:EXIT_BROWSER_FAIL,text:''};}
+
+  await sleep(250);
 
   const cvBudget=Math.min(5,submitDeadline,remaining());
   if(cvBudget<=0){emitEvent('composer_verify',EXIT_TIMEOUT_EMPTY,'无预算执行composer验证');return{exitCode:EXIT_TIMEOUT_EMPTY,text:''};}
   try{const cv=await verifyComposer(ws,prompt,cvBudget); emitEvent('composer_verify',EXIT_OK,'Composer内容已确认为expected prompt',{textLen:cv.textLen,visible:cv.visible,isContentEditable:cv.isContentEditable});}
   catch(e){emitEvent('composer_verify',EXIT_SUBMIT_FAIL,`Composer注入未生效: ${e.message}`);return{exitCode:EXIT_SUBMIT_FAIL,text:''};}
 
-  const sendJs=`(() => {
-  const btn = document.querySelector('button[data-testid="send-button"]')
-    || document.querySelector('button[aria-label*="Send"]')
-    || document.querySelector('button[aria-label*="发送"]')
-    || document.querySelector("#composer-submit-button")
-    || document.querySelector("form button[type='submit']");
-  if(btn){
-    btn.removeAttribute('disabled'); btn.disabled=false;
-    btn.click();
-    return "CLICKED";
+  // 等待发送按钮进入就绪状态（最多等待 2 秒）
+  const waitSendButtonJs = `(() => {
+    const btn = document.querySelector('button[data-testid="send-button"]')
+      || document.querySelector('#composer-submit-button')
+      || document.querySelector("button[aria-label*='Send']")
+      || document.querySelector("button[aria-label*='发送']");
+    return !!btn && !btn.disabled && btn.getAttribute('aria-disabled') !== 'true';
+  })()`;
+  const btnDeadline = Date.now() + 2000;
+  while (Date.now() < btnDeadline) {
+    try {
+      const r = await executeCdpJs(ws, waitSendButtonJs);
+      if (r === true || r === 'true') break;
+    } catch (_) {}
+    await sleep(100);
   }
-  return "NO_BUTTON";
-})()`;
-  try{
-    const sendRes=await executeCdpJs(ws,sendJs);
-    emitEvent('send',EXIT_OK,`发送触发结果: ${sendRes}`);
+
+  // 触发发送：核心物理回车键（Input.dispatchKeyEvent） + 真实按键点击双重兜底
+  let sendRes = "NONE";
+  try {
+    await executeCdpJs(ws, `(() => {
+      const el = document.querySelector('#prompt-textarea') || document.querySelector("form [contenteditable='true']");
+      if (el) el.focus();
+      return true;
+    })()`);
+    await sleep(100);
+
+    // 核心物理触发 1：向浏览器内核发送真正的物理回车键事件 (Enter KeyDown + KeyUp)
+    await dispatchCdpEnterKey(ws);
+    sendRes = "CDP_KEY_ENTER";
+
+    await sleep(200);
+
+    // 核心物理触发 2：若发送按钮已处于激活状态，同时执行真实点击双重兜底
+    const clickJs = `(() => {
+      const btn = document.querySelector('button[data-testid="send-button"]')
+        || document.querySelector('button[aria-label*="Send"]')
+        || document.querySelector('button[aria-label*="发送"]')
+        || document.querySelector("#composer-submit-button")
+        || document.querySelector("form button[type='submit']");
+      if (btn && !btn.disabled && btn.getAttribute('aria-disabled') !== 'true') {
+        btn.click();
+        return "CLICKED";
+      }
+      return btn ? "DISABLED" : "NO_BUTTON";
+    })()`;
+    const clickRes = await executeCdpJs(ws, clickJs);
+    if (clickRes === "CLICKED") sendRes += "+BTN_CLICK";
+    emitEvent('send', EXIT_OK, `发送触发结果: ${sendRes}`);
   }
   catch(e){emitEvent('send',EXIT_BROWSER_FAIL,`发送触发失败: ${e.message}`);return{exitCode:EXIT_BROWSER_FAIL,text:''};}
 
