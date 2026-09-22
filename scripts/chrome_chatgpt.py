@@ -916,6 +916,42 @@ def _fetch_snapshot(client: ChromeCDPClient,
     return snap
 
 
+def dispatch_cdp_enter_key(client: ChromeCDPClient) -> None:
+    client.send_command("Input.dispatchKeyEvent", {
+        "type": "rawKeyDown",
+        "windowsVirtualKeyCode": 13,
+        "nativeVirtualKeyCode": 13,
+        "macCharCode": 13,
+        "unmodifiedText": "\r",
+        "text": "\r",
+        "key": "Enter",
+        "code": "Enter"
+    })
+    try:
+        client.send_command("Input.dispatchKeyEvent", {
+            "type": "char",
+            "windowsVirtualKeyCode": 13,
+            "nativeVirtualKeyCode": 13,
+            "macCharCode": 13,
+            "unmodifiedText": "\r",
+            "text": "\r",
+            "key": "Enter",
+            "code": "Enter"
+        })
+    except Exception:
+        pass
+    client.send_command("Input.dispatchKeyEvent", {
+        "type": "keyUp",
+        "windowsVirtualKeyCode": 13,
+        "nativeVirtualKeyCode": 13,
+        "macCharCode": 13,
+        "unmodifiedText": "\r",
+        "text": "\r",
+        "key": "Enter",
+        "code": "Enter"
+    })
+
+
 def wait_for_user_message_committed(client: ChromeCDPClient,
                                     baseline_user_count: int,
                                     expected_prompt: str,
@@ -923,12 +959,30 @@ def wait_for_user_message_committed(client: ChromeCDPClient,
     probe_js = _user_commit_probe_js(expected_prompt)
     deadline = time.monotonic() + timeout
     last_snapshot: Optional[Dict[str, Any]] = None
+    attempts = 0
     while time.monotonic() < deadline:
         snap = _fetch_snapshot(client, js_override=probe_js)
         last_snapshot = snap
         if (snap.get("userCount") == baseline_user_count + 1
                 and snap.get("matchesExpected") is True):
             return snap
+        attempts += 1
+        if attempts in (3, 6):
+            try:
+                execute_chrome_js(client, """(() => {
+                    const el = document.querySelector('#prompt-textarea') || document.querySelector("form [contenteditable='true']");
+                    if (el) {
+                        el.focus();
+                        el.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+                    }
+                    const btn = document.querySelector('button[data-testid="send-button"]') || document.querySelector("#composer-submit-button");
+                    if (btn && !btn.disabled && btn.getAttribute('aria-disabled') !== 'true') {
+                        btn.click();
+                    }
+                })()""")
+                dispatch_cdp_enter_key(client)
+            except Exception:
+                pass
         time.sleep(0.4)
     raise CDPError(f"用户消息提交超时（>{timeout:.1f}s）。最终快照={last_snapshot}")
 
@@ -1117,40 +1171,64 @@ def send_and_receive_chrome_chatgpt(client: ChromeCDPClient, prompt: str,
                visible=cv_snap.get("visible"),
                isContentEditable=cv_snap.get("isContentEditable"))
 
-    # ---- Step 3：触发发送 ----
-    js_send = """
+    # 等待发送按钮进入就绪状态（最多 2s）
+    btn_ready_js = """
     (() => {
-        const submitBtn = document.querySelector("#composer-submit-button") ||
-                          document.querySelector("button[data-testid='send-button']") ||
-                          document.querySelector("button[aria-label='发送提示']") ||
-                          document.querySelector("button[aria-label='Send prompt']");
-        if (submitBtn && !submitBtn.disabled) {
-            submitBtn.click();
-            return "CLICKED_SUBMIT";
-        }
-        const el = document.querySelector('#prompt-textarea') ||
-                   document.querySelector("form [contenteditable='true']") ||
-                   document.querySelector("form");
-        if (el) {
-            const ke = new KeyboardEvent('keydown', {
-                bubbles: true, cancelable: true,
-                key: 'Enter', code: 'Enter', keyCode: 13, which: 13
-            });
-            el.dispatchEvent(ke);
-            return "DISPATCHED_ENTER";
-        }
-        return "ERR_NO_SEND";
+        const btn = document.querySelector('button[data-testid="send-button"]') ||
+                    document.querySelector('#composer-submit-button') ||
+                    document.querySelector("button[aria-label*='Send']") ||
+                    document.querySelector("button[aria-label*='发送']");
+        return !!btn && !btn.disabled && btn.getAttribute('aria-disabled') !== 'true';
     })()
     """
+    btn_deadline = time.monotonic() + 2.0
+    while time.monotonic() < btn_deadline:
+        try:
+            if execute_chrome_js(client, btn_ready_js) is True:
+                break
+        except Exception:
+            pass
+        time.sleep(0.1)
+
+    # ---- Step 3：触发发送（CDP 原生硬件回车键 + 按钮点击双重保障） ----
+    send_res = "NONE"
     try:
-        send_res = execute_chrome_js(client, js_send)
+        execute_chrome_js(client, """(() => {
+            const el = document.querySelector('#prompt-textarea') || document.querySelector("form [contenteditable='true']");
+            if (el) el.focus();
+            return true;
+        })()""")
+        time.sleep(0.1)
+
+        # 核心物理触发 1：向浏览器内核发送真正的物理回车键事件 (Enter KeyDown + KeyUp)
+        dispatch_cdp_enter_key(client)
+        send_res = "CDP_KEY_ENTER"
+
+        time.sleep(0.2)
+
+        # 核心物理触发 2：若发送按钮已处于激活状态，同时执行真实点击双重兜底
+        click_js = """(() => {
+            const btn = document.querySelector('button[data-testid="send-button"]') ||
+                        document.querySelector('#composer-submit-button') ||
+                        document.querySelector("button[aria-label*='Send']") ||
+                        document.querySelector("button[aria-label*='发送']") ||
+                        document.querySelector("form button[type='submit']");
+            if (btn && !btn.disabled && btn.getAttribute('aria-disabled') !== 'true') {
+                btn.click();
+                return "CLICKED";
+            }
+            return btn ? "DISABLED" : "NO_BUTTON";
+        })()"""
+        click_res = execute_chrome_js(client, click_js)
+        if click_res == "CLICKED":
+            send_res += "+BTN_CLICK"
+        emit_event("send", EXIT_OK, f"发送触发结果: {send_res}")
     except NoTargetTabError as e:
         emit_event("send", EXIT_NO_TAB, f"目标 Tab 在发送阶段丢失: {e}")
         return EXIT_NO_TAB, ""
     except CDPError as e:
         emit_event("send", EXIT_SAFARI_FAIL, f"发送触发失败: {e}")
         return EXIT_SAFARI_FAIL, ""
-    emit_event("send", EXIT_OK, f"发送触发结果: {send_res}")
 
     # ---- Step 4：精确 user-message identity 验证 ----
     sub_budget = min(submit_deadline, remaining())
