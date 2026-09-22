@@ -895,11 +895,11 @@
       </p>
 
       <div class="hero-actions">
-        <a href="#download-bsk" class="btn-primary">
-          ⚡ 下载 Browser-Skill 增强版 (v1.1.0)
+        <a href="#download-macos" class="btn-primary">
+          🍏 获取 macOS 版 (bsk 增强 / Safari 原生)
         </a>
-        <a href="#download-native" class="btn-secondary">
-          🛡️ 下载系统原生极简版 (0 依赖)
+        <a href="#download-windows" class="btn-secondary" style="background: rgba(34, 197, 94, 0.12); border-color: rgba(34, 197, 94, 0.35); color: #4ade80;">
+          🪟 获取 Windows 原生版 (0 扩展 · 双击秒开)
         </a>
         <a href="https://github.com/yvochehk-oss/Antigravity2gptweb/releases/tag/v1.1.0" target="_blank" class="btn-secondary">
           🏷️ Release v1.1.0 说明
@@ -913,8 +913,9 @@
             <span></span><span></span><span></span>
           </div>
           <div class="terminal-tabs">
-            <button class="terminal-tab active" id="tab-macos" onclick="switchTab('macos')">🍎 macOS (Safari / AppleScript)</button>
-            <button class="terminal-tab" id="tab-windows" onclick="switchTab('windows')">🪟 Windows (Node.js / Edge)</button>
+            <button class="terminal-tab active" id="tab-macos-bsk" onclick="switchTab('macos-bsk')">🍎 macOS (Browser-Skill 增强版)</button>
+            <button class="terminal-tab" id="tab-windows" onclick="switchTab('windows')">🪟 Windows (Edge/Chrome 原生 CDP)</button>
+            <button class="terminal-tab" id="tab-macos-safari" onclick="switchTab('macos-safari')">🍎 macOS (Safari 原生极简版)</button>
           </div>
           <button class="btn-copy" onclick="copyCmd()">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
@@ -1140,38 +1141,38 @@
     <div class="container">
       <div class="section-title">
         <h2>📥 极速下载与安装中心</h2>
-        <p>分两大核心版本系列，各自原生提供 macOS 与 Windows 专版通道，按需自由选择</p>
+        <p>macOS 专享 Browser-Skill 增强版与 Safari 原生版；Windows 官方独家采用纯原生 CDP 驱动（0 扩展 0 依赖 · 双击 BAT 秒开）</p>
       </div>
 
       <div class="download-panels">
-        <!-- Edition 1: Browser-Skill Edition -->
-        <div class="version-panel" id="download-bsk">
-          <div class="panel-badge badge-bsk">⚡ 推荐主力使用 · v1.1.0 发行版</div>
+        <!-- Panel 1: macOS Exclusive Panel (bsk + Safari) -->
+        <div class="version-panel" id="download-macos">
+          <div class="panel-badge badge-bsk">🍏 macOS 专享 · 稳定双通道</div>
           <div class="panel-header">
-            <div class="panel-icon">🌐</div>
+            <div class="panel-icon">🍏</div>
             <div>
-              <h3>Browser-Skill 扩展驱动版 (v1.1.0)</h3>
-              <p class="panel-subtitle">免开调试端口 · 直连日常已登录 Chrome/Edge · 独立副驾窗口 · 验证码人工唤醒</p>
+              <h3>macOS 专区（bsk 增强版 & Safari 原生版）</h3>
+              <p class="panel-subtitle">支持日常主力 Chrome/Edge 免端口直连，或系统自带 Safari 极简原生零依赖</p>
             </div>
           </div>
 
           <ul class="feature-list">
-            <li><strong>日常免端口直连</strong>：基于 Browser-Skill (bsk)，直接连接您日常已登录的主力浏览器</li>
+            <li><strong>macOS 专享 Browser-Skill</strong>：免开 9222 调试端口，直连日常已登录 Chrome/Edge</li>
             <li><strong>独立 Agent Window</strong>：默认副驾窗口（--no-focus），彻底不抢占用户日常操作焦点</li>
-            <li><strong>多 Profile 精准隔离</strong>：支持企业与个人多账号隔离，指定 Profile 严格 fail-closed 拦截</li>
-            <li><strong>人工风控唤醒</strong>：内置 Cloudflare Turnstile 与验证码智能呼叫 (request-help)</li>
-            <li><strong>18 项测试全过</strong>：跨平台驱动与编排契约自动化测试 100% PASS</li>
+            <li><strong>Safari 纯原生零依赖</strong>：系统内置 AppleScript 驱动，无需安装任何扩展与第三方库</li>
+            <li><strong>智能人工风控唤醒</strong>：支持 Cloudflare Turnstile 与验证码智能呼叫 (request-help)</li>
+            <li><strong>POSIX fcntl 内核锁保护</strong>：生命周期由操作系统内核级托管，18 项测试 100% PASS</li>
           </ul>
 
           <div class="panel-downloads">
             <div class="download-subcard">
               <div class="subcard-header">
-                <span class="subcard-title">🍏 macOS 专版</span>
-                <span class="subcard-tag">Python CDP / bsk</span>
+                <span class="subcard-title">🍏 macOS (bsk 增强版)</span>
+                <span class="subcard-tag">Chrome / Edge</span>
               </div>
-              <p class="subcard-desc">针对 macOS 优化，POSIX fcntl 内核锁保护</p>
+              <p class="subcard-desc">直连日常已登录浏览器，带副驾窗口与人工唤醒</p>
               <a href="https://github.com/yvochehk-oss/Antigravity2gptweb/archive/refs/heads/macos.zip" class="btn-primary" style="width: 100%; justify-content: center; font-size: 0.88rem; padding: 10px 16px;">
-                📥 下载 macOS 版 (.zip)
+                📥 下载 macOS 增强版 (.zip)
               </a>
               <div class="subcard-cmd">
                 <code>git clone --branch macos ...</code>
@@ -1180,65 +1181,65 @@
 
             <div class="download-subcard">
               <div class="subcard-header">
-                <span class="subcard-title">🪟 Windows 专版</span>
-                <span class="subcard-tag">Node.js / bsk</span>
+                <span class="subcard-title">🍏 macOS (Safari 原生版)</span>
+                <span class="subcard-tag">Safari 0 依赖</span>
               </div>
-              <p class="subcard-desc">Windows 10/11 原生支持，msvcrt 锁与环境自检</p>
-              <a href="https://github.com/yvochehk-oss/Antigravity2gptweb/archive/refs/heads/windows.zip" class="btn-secondary" style="width: 100%; justify-content: center; font-size: 0.88rem; padding: 10px 16px; background: rgba(56, 189, 248, 0.1); border-color: rgba(56, 189, 248, 0.3); color: var(--accent-cyan);">
-                📥 下载 Windows 版 (.zip)
+              <p class="subcard-desc">系统自带 AppleScript 驱动，无需安装任何扩展</p>
+              <a href="https://github.com/yvochehk-oss/Antigravity2gptweb/archive/refs/heads/macos.zip" class="btn-primary" style="width: 100%; justify-content: center; font-size: 0.88rem; padding: 10px 16px; background: linear-gradient(135deg, #10b981 0%, #0284c7 100%);">
+                📥 下载 Safari 原生版 (.zip)
               </a>
               <div class="subcard-cmd">
-                <code>git clone --branch windows ...</code>
+                <code>git clone --branch macos ...</code>
               </div>
             </div>
           </div>
         </div>
 
-        <!-- Edition 2: Native Engine Edition -->
-        <div class="version-panel" id="download-native">
-          <div class="panel-badge badge-native">🛡️ 极致纯净 · 0 外部依赖</div>
+        <!-- Panel 2: Windows Pure Native CDP Panel -->
+        <div class="version-panel" id="download-windows">
+          <div class="panel-badge badge-native">🪟 Windows 官方推荐 · 纯原生 CDP (0 扩展)</div>
           <div class="panel-header">
-            <div class="panel-icon">⚡</div>
+            <div class="panel-icon">🪟</div>
             <div>
-              <h3>系统原生直连版 (Native Engine)</h3>
-              <p class="panel-subtitle">0 浏览器扩展依赖 · 系统底层原生调用 · 毫秒级开箱即用 · 纯粹自洽架构</p>
+              <h3>Windows 专版（纯原生 CDP 驱动 · 0 扩展 0 依赖）</h3>
+              <p class="panel-subtitle">彻底杜绝 bsk 在 Windows 下的后台进程掉线与注册表握手失败，99.9% 原生稳定运行</p>
             </div>
           </div>
 
           <ul class="feature-list">
-            <li><strong>0 外部浏览器扩展</strong>：无需安装任何第三方浏览器插件或守护进程，纯净原生</li>
-            <li><strong>macOS 原生 Safari</strong>：基于系统内置 AppleScript 驱动，原生无感控制，系统级可靠</li>
-            <li><strong>Windows 原生 Node.js</strong>：纯原生 Node.js 18+，<strong>0 个 npm 外部依赖包</strong>，毫秒自洽启动</li>
-            <li><strong>全流程闭环保障</strong>：同样享受云端 GPT 5.6/6.0 顶级推演与本地测试 Exit Code 终审</li>
-            <li><strong>防覆盖安全熔断</strong>：严格 fast-forward 保护本地修改，敏感凭据自动掩码脱敏</li>
+            <li><strong>纯原生 Node.js 18+ 驱动</strong>：<strong>0 个 npm 外部依赖包</strong>，无需运行繁琐的 npm install</li>
+            <li><strong>0 浏览器扩展依赖</strong>：无需在 Edge/Chrome 中安装任何外部插件，原生清洁稳定</li>
+            <li><strong>内置开箱即用 BAT 脚本</strong>：双击 start_edge_cdp.bat 或 start_chrome_cdp.bat 一键秒开</li>
+            <li><strong>独立 Profile 隔离与持久化</strong>：ChatGPT 登录态永久保存，彻底避免与日常 Edge 进程冲突</li>
+            <li><strong>Windows msvcrt 文件锁保护</strong>：生命周期由操作系统内核托管，18 项测试全部通过</li>
           </ul>
 
           <div class="panel-downloads">
             <div class="download-subcard">
               <div class="subcard-header">
-                <span class="subcard-title">🍏 macOS 原生版</span>
-                <span class="subcard-tag">Safari AppleScript</span>
+                <span class="subcard-title">🪟 Microsoft Edge 原生专版</span>
+                <span class="subcard-tag">Windows 自带</span>
               </div>
-              <p class="subcard-desc">系统自带 0 依赖，原生 Safari 无需装插件</p>
-              <a href="https://github.com/yvochehk-oss/Antigravity2gptweb/archive/refs/heads/macos.zip" class="btn-primary" style="width: 100%; justify-content: center; font-size: 0.88rem; padding: 10px 16px; background: linear-gradient(135deg, #10b981 0%, #0284c7 100%);">
-                📥 下载 macOS 原生版 (.zip)
+              <p class="subcard-desc">系统内置 Edge，双击 start_edge_cdp.bat 一秒拉起</p>
+              <a href="https://github.com/yvochehk-oss/Antigravity2gptweb/archive/refs/heads/windows.zip" class="btn-secondary" style="width: 100%; justify-content: center; font-size: 0.88rem; padding: 10px 16px; background: rgba(34, 197, 94, 0.12); border-color: rgba(34, 197, 94, 0.35); color: #4ade80;">
+                📥 下载 Windows 专版 (.zip)
               </a>
               <div class="subcard-cmd">
-                <code>git clone --branch macos ...</code>
+                <code>双击运行 start_edge_cdp.bat</code>
               </div>
             </div>
 
             <div class="download-subcard">
               <div class="subcard-header">
-                <span class="subcard-title">🪟 Windows 原生版</span>
-                <span class="subcard-tag">Node.js (0 npm)</span>
+                <span class="subcard-title">🪟 Google Chrome 原生专版</span>
+                <span class="subcard-tag">Chrome 原生 CDP</span>
               </div>
-              <p class="subcard-desc">纯原生 Edge/Chrome 直连，0 npm 依赖包</p>
-              <a href="https://github.com/yvochehk-oss/Antigravity2gptweb/archive/refs/heads/windows.zip" class="btn-secondary" style="width: 100%; justify-content: center; font-size: 0.88rem; padding: 10px 16px; background: rgba(16, 185, 129, 0.1); border-color: rgba(16, 185, 129, 0.3); color: #34d399;">
-                📥 下载 Windows 原生版 (.zip)
+              <p class="subcard-desc">极速直连 Chrome，双击 start_chrome_cdp.bat 即可连接</p>
+              <a href="https://github.com/yvochehk-oss/Antigravity2gptweb/archive/refs/heads/windows.zip" class="btn-secondary" style="width: 100%; justify-content: center; font-size: 0.88rem; padding: 10px 16px; background: rgba(56, 189, 248, 0.1); border-color: rgba(56, 189, 248, 0.3); color: var(--accent-cyan);">
+                📥 下载 Windows 专版 (.zip)
               </a>
               <div class="subcard-cmd">
-                <code>git clone --branch windows ...</code>
+                <code>双击运行 start_chrome_cdp.bat</code>
               </div>
             </div>
           </div>
@@ -1248,7 +1249,7 @@
       <!-- Release strip -->
       <div class="release-strip">
         <div>
-          <strong>🏷️ 官方正式发行版 v1.1.0</strong>（包含全部双版本源码、双平台驱动与 18 项测试套件）：
+          <strong>🏷️ 官方正式发行版 v1.1.0</strong>（包含 macOS 双驱动、Windows 原生 CDP 与 18 项测试套件）：
           <a href="https://github.com/yvochehk-oss/Antigravity2gptweb/releases/tag/v1.1.0" target="_blank">查看 Release v1.1.0 发行注记与完整 SHA-256 校验码 &rarr;</a>
         </div>
         <a href="https://github.com/yvochehk-oss/Antigravity2gptweb/archive/refs/tags/v1.1.0.zip" class="btn-secondary" style="padding: 8px 18px; font-size: 0.85rem; border-color: rgba(168, 85, 247, 0.4); color: #c084fc;">
@@ -1272,13 +1273,15 @@
 
   <script>
     const commands = {
-      macos: 'git clone --branch macos --single-branch https://github.com/yvochehk-oss/Antigravity2gptweb.git ~/.gemini/antigravity/skills/safari-chatgpt-reasoner',
-      windows: 'git clone --branch windows --single-branch https://github.com/yvochehk-oss/Antigravity2gptweb.git %USERPROFILE%\\.gemini\\antigravity\\skills\\safari-chatgpt-reasoner'
+      'macos-bsk': 'git clone --branch macos --single-branch https://github.com/yvochehk-oss/Antigravity2gptweb.git ~/.gemini/antigravity/skills/safari-chatgpt-reasoner',
+      'windows': 'git clone --branch windows --single-branch https://github.com/yvochehk-oss/Antigravity2gptweb.git "%USERPROFILE%\\.gemini\\antigravity\\skills\\safari-chatgpt-reasoner"',
+      'macos-safari': 'git clone --branch macos --single-branch https://github.com/yvochehk-oss/Antigravity2gptweb.git ~/.gemini/antigravity/skills/safari-chatgpt-reasoner'
     };
 
     function switchTab(platform) {
-      document.getElementById('tab-macos').classList.toggle('active', platform === 'macos');
+      document.getElementById('tab-macos-bsk').classList.toggle('active', platform === 'macos-bsk');
       document.getElementById('tab-windows').classList.toggle('active', platform === 'windows');
+      document.getElementById('tab-macos-safari').classList.toggle('active', platform === 'macos-safari');
       document.getElementById('cmd-text').innerText = commands[platform];
     }
 

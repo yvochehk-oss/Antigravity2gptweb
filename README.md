@@ -49,25 +49,25 @@
 
 ## 📥 极速下载与安装中心
 
-本项目分为 **两大核心版本系列**，均提供预打包免配置 ZIP 安装包与 Git 快捷部署，点击即可前往官网下载大屏：
+本项目针对不同操作系统量身定制，均提供预打包免配置 ZIP 安装包与 Git 快捷部署：
 
 > 🚀 **官方可视化下载大屏**：👉 [**https://yvochehk-oss.github.io/Antigravity2gptweb/#download**](https://yvochehk-oss.github.io/Antigravity2gptweb/#download)
 
-### 1️⃣ Browser-Skill 扩展驱动版（v1.1.0 发行版 · 日常推荐）
-> 适用场景：日常使用已登录的 Chrome / Edge 浏览器，免开 9222 调试端口，具备独立副驾窗口（--no-focus，零抢占焦点）与风控人工唤醒能力。
+### 🍏 1️⃣ macOS 专区（Browser-Skill 增强版 & Safari 原生极简版）
+> 适用场景：macOS 平台守护进程与扩展通信极度稳定，原生支持双通道驱动。
 
-| 平台通道 | 官网下载入口 / 备用直链 | 核心组件与特性 |
+| 驱动模式 | 官网下载入口 / 备用直链 | 核心组件与特性优势 |
 | :--- | :--- | :--- |
-| 🍏 **macOS 版 (v1.1.0)** | [**📥 前往官网下载 macOS 增强版**](https://yvochehk-oss.github.io/Antigravity2gptweb/#download-bsk) <br/><sub>[备用直链 (.zip)](https://github.com/yvochehk-oss/Antigravity2gptweb/archive/refs/heads/macos.zip)</sub> | Browser-Skill (`bsk`) 免端口直连、Python CDP 桥接、POSIX fcntl 锁、18 项全量测试通过 |
-| 🪟 **Windows 版 (v1.1.0)** | [**📥 前往官网下载 Windows 增强版**](https://yvochehk-oss.github.io/Antigravity2gptweb/#download-bsk) <br/><sub>[备用直链 (.zip)](https://github.com/yvochehk-oss/Antigravity2gptweb/archive/refs/heads/windows.zip)</sub> | Browser-Skill (`bsk`) 直连日常 Edge/Chrome、Windows msvcrt 锁与环境自检、18 项测试全过 |
+| 🍏 **macOS (bsk 增强版 · 推荐)** | [**📥 官网下载 macOS 增强版**](https://yvochehk-oss.github.io/Antigravity2gptweb/#download-macos) <br/><sub>[备用直链 (.zip)](https://github.com/yvochehk-oss/Antigravity2gptweb/archive/refs/heads/macos.zip)</sub> | **macOS 专享** Browser-Skill (`bsk`) 免开 9222 调试端口直连日常 Chrome/Edge；默认独立副驾窗口（`--no-focus`，零抢占焦点）；支持 Cloudflare Turnstile 智能人工唤醒 (`request-help`)；18 项测试全过 |
+| 🍏 **macOS (Safari 原生极简版)** | [**📥 官网下载 Safari 原生版**](https://yvochehk-oss.github.io/Antigravity2gptweb/#download-macos) <br/><sub>[备用直链 (.zip)](https://github.com/yvochehk-oss/Antigravity2gptweb/archive/refs/heads/macos.zip)</sub> | 纯 Safari 原生 AppleScript 驱动，系统自带 **0 外部扩展 0 依赖**，开箱即用，极简纯净 |
 
-### 2️⃣ 系统原生直连版（Native Engine · 0 外部依赖）
-> 适用场景：追求极致轻量、0 外部浏览器扩展、0 npm 依赖包的极简纯净开发者，系统底层原生直连。
+### 🪟 2️⃣ Windows 专区（纯原生 CDP 驱动 · 0 扩展 0 依赖 · 官方推荐）
+> 适用场景：针对 Windows 环境下 bsk 容易因安全软件拦截、后台进程保活及注册表 Native Messaging 异常导致掉线等痛点，**Windows 平台独家采用经过工业级加固的纯原生 CDP 驱动方案**！
 
-| 平台通道 | 官网下载入口 / 备用直链 | 核心组件与特性 |
+| 驱动模式 | 官网下载入口 / 备用直链 | 核心组件与特性优势 |
 | :--- | :--- | :--- |
-| 🍏 **macOS 原生版** | [**📥 前往官网下载 macOS 原生版**](https://yvochehk-oss.github.io/Antigravity2gptweb/#download-native) <br/><sub>[备用直链 (.zip)](https://github.com/yvochehk-oss/Antigravity2gptweb/archive/refs/heads/macos.zip)</sub> | 纯 Safari 原生 AppleScript 驱动，系统自带 0 扩展依赖，开箱即用 |
-| 🪟 **Windows 原生版** | [**📥 前往官网下载 Windows 原生版**](https://yvochehk-oss.github.io/Antigravity2gptweb/#download-native) <br/><sub>[备用直链 (.zip)](https://github.com/yvochehk-oss/Antigravity2gptweb/archive/refs/heads/windows.zip)</sub> | 纯原生 Node.js 18+ 驱动引擎（**0 个 npm 依赖包**），毫秒级独立自洽启动 |
+| 🪟 **Microsoft Edge 原生专版** | [**📥 官网下载 Windows 专版**](https://yvochehk-oss.github.io/Antigravity2gptweb/#download-windows) <br/><sub>[备用直链 (.zip)](https://github.com/yvochehk-oss/Antigravity2gptweb/archive/refs/heads/windows.zip)</sub> | Windows 10/11 系统内置 Edge，双击 `start_edge_cdp.bat` 秒开；**0 个浏览器插件**；独立持久化数据目录，ChatGPT 登录态永久保存，绝不与日常 Edge 进程冲突 |
+| 🪟 **Google Chrome 原生专版** | [**📥 官网下载 Windows 专版**](https://yvochehk-oss.github.io/Antigravity2gptweb/#download-windows) <br/><sub>[备用直链 (.zip)](https://github.com/yvochehk-oss/Antigravity2gptweb/archive/refs/heads/windows.zip)</sub> | 双击 `start_chrome_cdp.bat` 一键秒开；驱动端使用 Node.js 18+ 原生引擎，**0 个 npm 依赖包（无需 npm install）**；Windows msvcrt 文件锁保护，稳定性 99.99% |
 
 > 🏷️ **源码与发行说明**：[Releases v1.1.0 官方发行页](https://github.com/yvochehk-oss/Antigravity2gptweb/releases/tag/v1.1.0) \| [下载全量源码包 (.zip)](https://github.com/yvochehk-oss/Antigravity2gptweb/archive/refs/tags/v1.1.0.zip)
 
@@ -174,38 +174,46 @@ sequenceDiagram
 
 | 平台 | 分支 | 运行时要求 | 浏览器驱动通道 | 特性优势 |
 | :--- | :--- | :--- | :--- | :--- |
-| **macOS** | [`macos`](https://github.com/yvochehk-oss/Antigravity2gptweb/tree/macos) | Python 3 | Safari AppleScript / **Browser-Skill (`bsk`)** / Chrome CDP | 原生零依赖极简驱动，支持免端口直连日常 Chrome，带 Cloudflare 人机唤醒与编排闭环 |
-| **Windows 10/11** | [`windows`](https://github.com/yvochehk-oss/Antigravity2gptweb/tree/windows) | Node.js 18+ 或 Python+bsk | **Browser-Skill (`bsk`)** / Edge / Chrome CDP | 免调试端口直连日常浏览器，**0 个 npm 依赖包**，启动飞快且支持风控人工介入 |
+| **macOS** | [`macos`](https://github.com/yvochehk-oss/Antigravity2gptweb/tree/macos) | Python 3 | **Browser-Skill (`bsk`)** / Safari AppleScript / Chrome CDP | **macOS 专享 bsk 驱动**，免开端口直连日常 Chrome/Edge，带独立副驾窗口与 Cloudflare 人机唤醒；支持 Safari 原生零配置 |
+| **Windows 10/11** | [`windows`](https://github.com/yvochehk-oss/Antigravity2gptweb/tree/windows) | Node.js 18+ | **Edge / Chrome 原生 CDP 驱动** | **官方推荐纯原生引擎**，内置 `start_edge_cdp.bat` / `start_chrome_cdp.bat`，**0 个 npm 依赖包，0 个浏览器扩展**，彻底杜绝 bsk 掉线与 Defender 误报 |
 
 ### 独立终端快速运行
 
-#### 🍎 macOS 快速启动（Safari 零配置）
-```bash
-git clone --depth 1 --branch macos https://github.com/yvochehk-oss/Antigravity2gptweb.git chatgpt-web-reasoner
-cd chatgpt-web-reasoner
-python3 scripts/safari_chatgpt.py --help
-```
+#### 🍏 macOS 快速启动
 
-#### 🌐 全平台 Browser-Skill 模式（免 `--remote-debugging-port`，直连日常已登录 Chrome/Edge）
-```bash
-# 查看在线 Browser Profile
-python3 scripts/bsk_chatgpt.py --list-browser-profiles
+* **方式 A：Browser-Skill 增强版（免 `--remote-debugging-port`，直连日常已登录 Chrome/Edge）**
+  ```bash
+  git clone --depth 1 --branch macos https://github.com/yvochehk-oss/Antigravity2gptweb.git chatgpt-web-reasoner
+  cd chatgpt-web-reasoner
+  
+  # 检查环境与在线 Profile
+  python3 scripts/bsk_chatgpt.py --check-env
+  
+  # 发送任务
+  python3 scripts/bsk_chatgpt.py \
+    --target-url "https://chatgpt.com/c/<conversation-uuid>" \
+    --prompt "你的任务需求"
+  ```
 
-# 检查 bsk 连通性
-python3 scripts/bsk_chatgpt.py --check-env
+* **方式 B：Safari 纯原生极简版（系统自带零配置）**
+  ```bash
+  python3 scripts/safari_chatgpt.py --help
+  ```
 
-# 发送任务
-python3 scripts/bsk_chatgpt.py \
-  --target-url "https://chatgpt.com/c/<conversation-uuid>" \
-  --prompt "你的任务需求"
-```
+#### 🪟 Windows 快速启动（纯原生 CDP 驱动 · 0 依赖 0 插件）
 
-#### 🪟 Windows 快速启动（Edge / Chrome 原生轻量引擎）
-```powershell
+```cmd
+:: 1. 克隆 Windows 专版分支
 git clone --depth 1 --branch windows https://github.com/yvochehk-oss/Antigravity2gptweb.git chatgpt-web-reasoner
 cd chatgpt-web-reasoner
-.\check_env_windows.bat
-.\start_edge_cdp.bat
+
+:: 2. 双击运行启动 Edge（或 start_chrome_cdp.bat 启动 Chrome）
+start_edge_cdp.bat
+
+:: 3. 在弹出的 Edge 窗口中登录 ChatGPT 并打开目标会话
+
+:: 4. 运行原生 Node 驱动（0 npm 依赖包，开箱即用）：
+node scripts\chrome_chatgpt.js --browser-name edge --target-url "https://chatgpt.com/c/你的会话ID" --prompt "你的任务需求"
 ```
 
 ---
