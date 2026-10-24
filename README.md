@@ -10,7 +10,7 @@
 [![Website Portal](https://img.shields.io/badge/Website-Live%20Portal-00d2ff.svg)](https://yvochehk-oss.github.io/Antigravity2gptweb/)
 [![Latest Release](https://img.shields.io/badge/Release-v1.1.0-blue.svg)](https://github.com/yvochehk-oss/Antigravity2gptweb/releases/tag/v1.1.0)
 [![Download](https://img.shields.io/badge/Download-Official%20Portal-success.svg)](https://yvochehk-oss.github.io/Antigravity2gptweb/#download)
-[![Tests](https://img.shields.io/badge/Tests-18%2F18%20Passing-brightgreen.svg)](#-单元测试与架构终审)
+[![Tests](https://img.shields.io/badge/Tests-4%2F4%20Passing-brightgreen.svg)](#-单元测试与架构终审)
 [![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Windows-lightgrey.svg)](#-平台支持与跨平台安装)
 [![Agent](https://img.shields.io/badge/Agent-Antigravity%20%7C%20Claude%20Code%20%7C%20Cursor-8A2BE2.svg)](#-安装到-antigravity-ide)
 [![ChatGPT](https://img.shields.io/badge/ChatGPT-Web%20UI%20Bridge-10a37f.svg)](#-双脑协作架构与执行时序)
@@ -25,7 +25,7 @@
   <a href="https://yvochehk-oss.github.io/Antigravity2gptweb/#download"><b>📥 前往官方极速下载中心</b></a> •
   <a href="#-核心价值与痛点解决">核心价值</a> •
   <a href="#-双脑协作架构与执行时序">架构原理</a> •
-  <a href="#-browser-skill-bsk-驱动加固特性-v110">v1.1.0 特性</a> •
+  <a href="#-驱动通道与加固特性">驱动特性</a> •
   <a href="#-平台支持与跨平台安装">跨平台安装</a> •
   <a href="#-安装到-antigravity-ide">Antigravity 集成</a> •
   <a href="#-单元测试与架构终审">测试与终审</a> •
@@ -53,21 +53,21 @@
 
 > 🚀 **官方可视化下载大屏**：👉 [**https://yvochehk-oss.github.io/Antigravity2gptweb/#download**](https://yvochehk-oss.github.io/Antigravity2gptweb/#download)
 
-### 🍏 1️⃣ macOS 专区（Browser-Skill 增强版 & Safari 原生极简版）
+### 🍏 1️⃣ macOS 专区（Safari 原生版 & Chrome CDP 版）
 > 适用场景：macOS 平台守护进程与扩展通信极度稳定，原生支持双通道驱动。
 
 | 驱动模式 | 官网下载入口 / 备用直链 | 核心组件与特性优势 |
 | :--- | :--- | :--- |
-| 🍏 **macOS (bsk 增强版 · 推荐)** | [**📥 官网下载 macOS 增强版**](https://yvochehk-oss.github.io/Antigravity2gptweb/#download-macos) <br/><sub>[备用直链 (.zip)](https://github.com/yvochehk-oss/Antigravity2gptweb/archive/refs/heads/macos.zip)</sub> | **macOS 专享** Browser-Skill (`bsk`) 免开 9222 调试端口直连日常 Chrome/Edge；默认独立副驾窗口（`--no-focus`，零抢占焦点）；支持 Cloudflare Turnstile 智能人工唤醒 (`request-help`)；18 项测试全过 |
-| 🍏 **macOS (Safari 原生极简版)** | [**📥 官网下载 Safari 原生版**](https://yvochehk-oss.github.io/Antigravity2gptweb/#download-macos) <br/><sub>[备用直链 (.zip)](https://github.com/yvochehk-oss/Antigravity2gptweb/archive/refs/heads/macos.zip)</sub> | 纯 Safari 原生 AppleScript 驱动，系统自带 **0 外部扩展 0 依赖**，开箱即用，极简纯净 |
+| 🍏 **macOS (Chrome CDP 版)** | [**📥 官网下载 macOS 版**](https://yvochehk-oss.github.io/Antigravity2gptweb/#download-macos) <br/><sub>[备用直链 (.zip)](https://github.com/yvochehk-oss/Antigravity2gptweb/archive/refs/heads/main.zip)</sub> | Python CDP 驱动 Chrome / Edge / Brave / Arc / Chromium；以独立数据目录开启 9222 调试端口，ChatGPT 登录态持久保存，不干扰日常浏览器 |
+| 🍏 **macOS (Safari 原生极简版)** | [**📥 官网下载 Safari 原生版**](https://yvochehk-oss.github.io/Antigravity2gptweb/#download-macos) <br/><sub>[备用直链 (.zip)](https://github.com/yvochehk-oss/Antigravity2gptweb/archive/refs/heads/main.zip)</sub> | 纯 Safari 原生 AppleScript 驱动，直驱日常已登录 Safari，系统自带 **0 外部扩展 0 依赖**，开箱即用，极简纯净 |
 
 ### 🪟 2️⃣ Windows 专区（纯原生 CDP 驱动 · 0 扩展 0 依赖 · 官方推荐）
-> 适用场景：针对 Windows 环境下 bsk 容易因安全软件拦截、后台进程保活及注册表 Native Messaging 异常导致掉线等痛点，**Windows 平台独家采用经过工业级加固的纯原生 CDP 驱动方案**！
+> 适用场景：Windows 平台采用经过工业级加固的纯原生 CDP 驱动方案，0 扩展 0 依赖，避开安全软件拦截与后台进程保活问题。
 
 | 驱动模式 | 官网下载入口 / 备用直链 | 核心组件与特性优势 |
 | :--- | :--- | :--- |
-| 🪟 **Microsoft Edge 原生专版** | [**📥 官网下载 Windows 专版**](https://yvochehk-oss.github.io/Antigravity2gptweb/#download-windows) <br/><sub>[备用直链 (.zip)](https://github.com/yvochehk-oss/Antigravity2gptweb/archive/refs/heads/windows.zip)</sub> | Windows 10/11 系统内置 Edge，双击 `start_edge_cdp.bat` 秒开；**0 个浏览器插件**；独立持久化数据目录，ChatGPT 登录态永久保存，绝不与日常 Edge 进程冲突 |
-| 🪟 **Google Chrome 原生专版** | [**📥 官网下载 Windows 专版**](https://yvochehk-oss.github.io/Antigravity2gptweb/#download-windows) <br/><sub>[备用直链 (.zip)](https://github.com/yvochehk-oss/Antigravity2gptweb/archive/refs/heads/windows.zip)</sub> | 双击 `start_chrome_cdp.bat` 一键秒开；驱动端使用 Node.js 18+ 原生引擎，**0 个 npm 依赖包（无需 npm install）**；Windows msvcrt 文件锁保护，稳定性 99.99% |
+| 🪟 **Microsoft Edge 原生专版** | [**📥 官网下载 Windows 专版**](https://yvochehk-oss.github.io/Antigravity2gptweb/#download-windows) <br/><sub>[备用直链 (.zip)](https://github.com/yvochehk-oss/Antigravity2gptweb/archive/refs/heads/main.zip)</sub> | Windows 10/11 系统内置 Edge，双击 `start_edge_cdp.bat` 秒开；**0 个浏览器插件**；独立持久化数据目录，ChatGPT 登录态永久保存，绝不与日常 Edge 进程冲突 |
+| 🪟 **Google Chrome 原生专版** | [**📥 官网下载 Windows 专版**](https://yvochehk-oss.github.io/Antigravity2gptweb/#download-windows) <br/><sub>[备用直链 (.zip)](https://github.com/yvochehk-oss/Antigravity2gptweb/archive/refs/heads/main.zip)</sub> | 双击 `start_chrome_cdp.bat` 一键秒开；驱动端使用 Node.js 18+ 原生引擎，**0 个 npm 依赖包（无需 npm install）**；Windows msvcrt 文件锁保护，稳定性 99.99% |
 
 > 🏷️ **源码与发行说明**：[Releases v1.1.0 官方发行页](https://github.com/yvochehk-oss/Antigravity2gptweb/releases/tag/v1.1.0) \| [下载全量源码包 (.zip)](https://github.com/yvochehk-oss/Antigravity2gptweb/archive/refs/tags/v1.1.0.zip)
 
@@ -141,56 +141,50 @@ sequenceDiagram
 
 ---
 
-## 🚀 Browser-Skill (`bsk`) 驱动加固特性 (v1.1.0)
+## 🚀 驱动通道与加固特性
 
-针对企业与客户在生产环境中的深度体验，v1.1.0 引入了重大加固与闭环保护机制：
+统一版只保留三条经过实战验证的驱动通道，并内置以下加固机制：
 
-1. **默认独立 Agent Window 副驾模式**：
-   - 彻底废弃对用户日常主窗口的强行抢占，默认以 `--no-focus` 在独立 Agent Window 标签中静默运行；
-   - 100% 保持操作系统焦点留在当前编辑器中，日常工作不受任何打断，且彻底消除了 Chrome 顶部醒目的黄色调试提示条。
-2. **多 Browser Profile 明确选择与防串号安全保护 (Fail-Closed)**：
-   - 支持通过 `--list-browser-profiles` 枚举所有在线浏览器 Profile 实例；
-   - 支持通过 `--browser-profile <instance_id|label>` 精准绑定工作环境；
-   - 单 Profile 自动适配；检测到多 Profile 未显式指定时**严格拦截（Fail-Closed）**，绝不进行模糊猜测。
-3. **React 水合状态检测与原生 CDP 点击**：
-   - 严格等待编辑器水合就绪（`isContentEditable === true`）；
-   - 通过原生 CDP 物理点击 `button[data-testid="send-button"]`，彻底解决 ProseMirror 多行长文本误插入换行的问题；
+1. **Safari 原生驱动（macOS）**：
+   - 纯 AppleScript 直驱日常已登录的 Safari，复用现有登录态，系统自带 0 扩展 0 依赖；
+   - Tab 精确绑定 + 跨进程事务锁，避免多任务串话与误投递。
+2. **Chromium CDP 驱动（macOS / Windows）**：
+   - macOS 使用 Python 驱动（`chrome_chatgpt.py`），Windows 使用 Node.js 原生引擎（`chrome_chatgpt.js`，0 npm 依赖包）；
+   - 以独立持久化数据目录拉起浏览器（Windows 双击 `start_edge_cdp.bat` / `start_chrome_cdp.bat`），ChatGPT 登录态长期保存，绝不与日常浏览器进程冲突；
+   - 严格等待 React 水合就绪（`isContentEditable === true`），通过原生 CDP 物理点击 `button[data-testid="send-button"]`，彻底解决 ProseMirror 多行长文本误插入换行的问题；
    - 提交成功判据为“DOM 中实际出现匹配预期内容的 User 消息节点”，绝非仅依赖按键事件返回。
-4. **跨平台 P0 级文件锁与状态隔离**：
-   - POSIX / macOS 平台使用 `fcntl.flock`；
-   - Windows 原生平台使用 `msvcrt.locking`；
-   - 锁文件统一存放于 `tempfile.gettempdir()`，生命周期由操作系统内核管理，进程异常中断自动释放，彻底避免死锁。
-5. **人机验证 (Cloudflare / CAPTCHA) 防假阳性自愈**：
-   - 唤醒 `bsk request-help` 提示用户验证，强制校验 JSON 返回值；
-   - 仅当 `outcome` 为 `continued` 或 `completed` 时方可继续；若遇取消或超时则安全熔断。
-6. **增强型凭据脱敏**：
+3. **跨平台 P0 级文件锁与状态隔离**：
+   - POSIX / macOS 平台使用 `fcntl.flock`，Windows 原生平台使用 `msvcrt.locking`；
+   - 锁文件统一存放于 `tempfile.gettempdir()`，生命周期由操作系统内核管理，进程异常中断自动释放，彻底避免死锁；各驱动熔断器使用独立状态文件，互不影响。
+4. **增强型凭据脱敏**：
    - 过滤覆盖 Cookie、Authorization、Basic Auth、带用户名密码的 URI，全面守护企业资产。
 
 ---
 
 ## 📦 平台支持与跨平台安装
 
-本项目采用**平台专项分支发布**模式：`main` 分支作为公开统一门面；macOS 与 Windows 分别拥有专属优化分支，用户无需安装任何臃肿庞大的第三方依赖包。
+本项目统一发布于 `main` 分支：同一仓库同时包含 macOS 与 Windows 两套驱动，按操作系统选用对应通道即可，无需切换分支，也无需安装任何臃肿庞大的第三方依赖包。
 
 | 平台 | 分支 | 运行时要求 | 浏览器驱动通道 | 特性优势 |
 | :--- | :--- | :--- | :--- | :--- |
-| **macOS** | [`macos`](https://github.com/yvochehk-oss/Antigravity2gptweb/tree/macos) | Python 3 | **Browser-Skill (`bsk`)** / Safari AppleScript / Chrome CDP | **macOS 专享 bsk 驱动**，免开端口直连日常 Chrome/Edge，带独立副驾窗口与 Cloudflare 人机唤醒；支持 Safari 原生零配置 |
-| **Windows 10/11** | [`windows`](https://github.com/yvochehk-oss/Antigravity2gptweb/tree/windows) | Node.js 18+ | **Edge / Chrome 原生 CDP 驱动** | **官方推荐纯原生引擎**，内置 `start_edge_cdp.bat` / `start_chrome_cdp.bat`，**0 个 npm 依赖包，0 个浏览器扩展**，彻底杜绝 bsk 掉线与 Defender 误报 |
+| **macOS** | `main` | Python 3 | **Safari AppleScript** / Chrome CDP (Python) | Safari 原生零配置直驱已登录会话；Chromium 家族（Chrome / Edge / Brave / Arc）统一走 CDP |
+| **Windows 10/11** | `main` | Node.js 18+ | **Edge / Chrome 原生 CDP 驱动** | **纯原生引擎**，内置 `start_edge_cdp.bat` / `start_chrome_cdp.bat`，**0 个 npm 依赖包，0 个浏览器扩展**，避开安全软件拦截与 Defender 误报 |
 
 ### 独立终端快速运行
 
 #### 🍏 macOS 快速启动
 
-* **方式 A：Browser-Skill 增强版（免 `--remote-debugging-port`，直连日常已登录 Chrome/Edge）**
+* **方式 A：Chrome CDP 版（Chromium 家族通用）**
   ```bash
-  git clone --depth 1 --branch macos https://github.com/yvochehk-oss/Antigravity2gptweb.git chatgpt-web-reasoner
+  git clone --depth 1 https://github.com/yvochehk-oss/Antigravity2gptweb.git chatgpt-web-reasoner
   cd chatgpt-web-reasoner
-  
-  # 检查环境与在线 Profile
-  python3 scripts/bsk_chatgpt.py --check-env
-  
-  # 发送任务
-  python3 scripts/bsk_chatgpt.py \
+
+  # 以调试端口启动 Chrome（独立数据目录，登录态持久保存）
+  /Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome \
+    --remote-debugging-port=9222 --user-data-dir="$HOME/.chatgpt-cdp-profile"
+
+  # 在弹出的窗口中登录 ChatGPT 并打开目标会话后，发送任务
+  python3 scripts/chrome_chatgpt.py \
     --target-url "https://chatgpt.com/c/<conversation-uuid>" \
     --prompt "你的任务需求"
   ```
@@ -203,8 +197,8 @@ sequenceDiagram
 #### 🪟 Windows 快速启动（纯原生 CDP 驱动 · 0 依赖 0 插件）
 
 ```cmd
-:: 1. 克隆 Windows 专版分支
-git clone --depth 1 --branch windows https://github.com/yvochehk-oss/Antigravity2gptweb.git chatgpt-web-reasoner
+:: 1. 克隆仓库（统一 main 分支）
+git clone --depth 1 https://github.com/yvochehk-oss/Antigravity2gptweb.git chatgpt-web-reasoner
 cd chatgpt-web-reasoner
 
 :: 2. 双击运行启动 Edge（或 start_chrome_cdp.bat 启动 Chrome）
@@ -227,7 +221,7 @@ node scripts\chrome_chatgpt.js --browser-name edge --target-url "https://chatgpt
 * **macOS**：
   ```bash
   mkdir -p ~/.gemini/antigravity/skills
-  git clone --branch macos --single-branch \
+  git clone \
     https://github.com/yvochehk-oss/Antigravity2gptweb.git \
     ~/.gemini/antigravity/skills/safari-chatgpt-reasoner
   ```
@@ -235,7 +229,7 @@ node scripts\chrome_chatgpt.js --browser-name edge --target-url "https://chatgpt
 * **Windows PowerShell**：
   ```powershell
   New-Item -ItemType Directory -Force "$env:USERPROFILE\.gemini\antigravity\skills" | Out-Null
-  git clone --branch windows --single-branch https://github.com/yvochehk-oss/Antigravity2gptweb.git "$env:USERPROFILE\.gemini\antigravity\skills\safari-chatgpt-reasoner"
+  git clone https://github.com/yvochehk-oss/Antigravity2gptweb.git "$env:USERPROFILE\.gemini\antigravity\skills\safari-chatgpt-reasoner"
   ```
 
 ### 2. 项目级安装（随项目团队代码库分发）
@@ -243,11 +237,11 @@ node scripts\chrome_chatgpt.js --browser-name edge --target-url "https://chatgpt
 在项目的根目录下执行：
 ```bash
 mkdir -p .agent/skills
-git clone --branch macos --single-branch \
+git clone \
   https://github.com/yvochehk-oss/Antigravity2gptweb.git \
   .agent/skills/safari-chatgpt-reasoner
 ```
-*(Windows 用户只需将上述命令中的 `macos` 替换为 `windows`)*
+*(macOS 与 Windows 使用同一 `main` 分支，无需区分。)*
 
 ### 3. 一键更新
 ```bash
@@ -262,9 +256,8 @@ git -C ~/.gemini/antigravity/skills/safari-chatgpt-reasoner pull --ff-only
 
 | 测试套件 | 覆盖内容 | 用例数 | 状态 |
 | :--- | :--- | :---: | :--- |
-| `tests/test_bsk_profile_selection.py` | Profile 解析、多实例 fail-closed、Agent Window 默认隔离、Tab Borrow 精确匹配、跨平台锁路径、request-help 状态机、凭证脱敏 | 14 | ✅ PASS (0.005s) |
-| `tests/test_orchestrator_contract.py` | 最大 3 次重试契约、Profile 驱动转发、禁止静默降级、本地只读契约 | 4 | ✅ PASS (0.001s) |
-| **总计** | **双端全量回归测试矩阵** | **18** | **✅ 100% 全部通过** |
+| `tests/test_orchestrator_contract.py` | 最大 3 次重试契约、已移除驱动契约、本地只读（不 commit / 不 push）契约、无残留旧命令契约 | 4 | ✅ PASS (0.001s) |
+| **总计** | **统一版全量回归测试** | **4** | **✅ 100% 全部通过** |
 
 **云端架构终审结果**：通过云端 Custom GPT 实时审查全部代码并进行双向物理握手，最终裁决：**`架构终审闭环通过`**。
 
@@ -291,7 +284,8 @@ git -C ~/.gemini/antigravity/skills/safari-chatgpt-reasoner pull --ff-only
 | :--- | :--- | :--- |
 | **Q3 核心闭环** | Safari & Edge/Chrome 双向自动化桥接与任务审查协议 | `✅ 已发布 (Done)` |
 | **Q3 跨平台** | Windows 零 npm 依赖 Node.js CDP 原生引擎 | `✅ 已发布 (Done)` |
-| **v1.1.0 深度加固** | Browser-Skill (`bsk`) 免调试端口通道、独立 Agent Window 零抢占、多 Profile 精确选择、跨平台文件锁统一 (POSIX/msvcrt) 与 18 项自动化测试矩阵 | `✅ 已发布 (Done)` |
+| **v1.1.0 深度加固** | 独立数据目录隔离运行、React 水合检测与原生 CDP 点击、跨平台文件锁统一 (POSIX/msvcrt) 与自动化测试矩阵 | `✅ 已发布 (Done)` |
+| **统一版收敛** | 全平台代码统一至 `main` 分支；移除 Browser-Skill 驱动，macOS 保留 Safari + Chrome、Windows 保留 Edge + Chrome | `✅ 已发布 (Done)` |
 | **Q4 体验增强** | 多浏览器自动探测、端口智能动态适配与长会话平滑交接 (Handoff) | `🚀 进行中 (In Progress)` |
 | **Q4 开放生态** | 企业私有知识库挂载与多 Git 仓库联合协同编排流水线 | `📋 规划中 (Backlog)` |
 
@@ -302,7 +296,7 @@ git -C ~/.gemini/antigravity/skills/safari-chatgpt-reasoner pull --ff-only
 欢迎通过 GitHub 提交反馈与需求：
 * 遇到异常或 Bug：欢迎提交 [Bug Report](https://github.com/yvochehk-oss/Antigravity2gptweb/issues/new?template=bug_report.md)
 * 新增功能建议：欢迎提交 [Feature Request](https://github.com/yvochehk-oss/Antigravity2gptweb/issues/new?template=feature_request.md)
-* 驱动升级需求看板：查看 [Issue #9 (Browser-Skill 架构升级)](https://github.com/yvochehk-oss/Antigravity2gptweb/issues/9)
+* 驱动升级需求看板：查看 [Issue #9](https://github.com/yvochehk-oss/Antigravity2gptweb/issues/9)
 * 安全漏洞通报：请查阅 [SECURITY.md](SECURITY.md)
 
 ---

@@ -1044,12 +1044,12 @@
         <div class="craft-card">
           <div>
             <div class="craft-icon">🕊️</div>
-            <h3 class="craft-title">独立副驾，不抢焦点</h3>
+            <h3 class="craft-title">独立档案，后台运行</h3>
             <p class="craft-desc">
-              自动化任务在独立的后台副驾窗口中运行，全程保持 <code>--no-focus</code>，无论您在打字聊天还是查资料，鼠标焦点丝毫不受打扰。
+              自动化任务在独立数据目录的浏览器窗口中运行，与日常浏览器互不干扰；Safari 通道直驱已登录会话，后台执行不打扰手头工作。
             </p>
           </div>
-          <div class="craft-pill-note">18 项跨平台自动化测试 100% PASS</div>
+          <div class="craft-pill-note">跨平台自动化测试 100% PASS</div>
         </div>
       </div>
     </div>
@@ -1077,8 +1077,8 @@
               <span>#9 · Driver</span>
               <span>100% PASS</span>
             </div>
-            <div class="note-title">[驱动加固] Browser-Skill 免端口与副驾视窗闭环</div>
-            <div class="note-snippet">默认独立视窗零抢占焦点，多 Profile 精确选择，18 项跨平台测试与云端终审闭环。</div>
+            <div class="note-title">[驱动加固] CDP 原生点击与独立数据目录闭环</div>
+            <div class="note-snippet">独立数据目录隔离运行，React 水合检测与原生 CDP 点击，跨平台测试与云端终审闭环。</div>
           </a>
 
           <a href="https://github.com/yvochehk-oss/Antigravity2gptweb/issues/8" target="_blank" class="kanban-note">
@@ -1087,7 +1087,7 @@
               <span>v1.1.0</span>
             </div>
             <div class="note-title">[版本发布] v1.1.0 深度加固版正式发布</div>
-            <div class="note-snippet">提供绿色压缩包直链下载、18 项测试用例与全量审查报告。</div>
+            <div class="note-snippet">提供绿色压缩包直链下载、自动化测试用例与全量审查报告。</div>
           </a>
 
           <a href="https://github.com/yvochehk-oss/Antigravity2gptweb/issues/1" target="_blank" class="kanban-note">
@@ -1170,7 +1170,7 @@
       <div class="section-headline">
         <span class="section-tag">开箱即用</span>
         <h2 class="section-title">下载适用于您操作系统的版本</h2>
-        <p class="section-subtitle">macOS 专享 bsk 增强版与 Safari 原生双驱动；Windows 采用免扩展的纯原生 CDP 驱动。</p>
+        <p class="section-subtitle">macOS 提供 Safari 原生与 Chrome CDP 双驱动；Windows 采用免扩展的纯原生 CDP 驱动。统一 main 分支，一包双平台。</p>
       </div>
 
       <div class="download-grid">
@@ -1179,22 +1179,22 @@
           <div>
             <span class="platform-tag tag-mac">🍏 macOS 专享 · 稳定双通道</span>
             <h3 class="box-title">macOS 专版套件</h3>
-            <p class="box-sub">日常使用的 Chrome/Edge 免端口直连，或系统内置 Safari 极简零依赖。</p>
+            <p class="box-sub">Chrome / Edge / Brave 走 CDP 驱动，或系统内置 Safari 极简零依赖。</p>
 
             <ul class="box-bullets">
-              <li><strong>日常浏览器直连</strong>：免开 9222 调试端口，直接使用当前已登录账号</li>
-              <li><strong>独立副驾视窗</strong>：后台自动处理，全程保持不抢占打字焦点</li>
+              <li><strong>Safari 直驱日常会话</strong>：AppleScript 直驱已登录的 Safari，复用现有登录态</li>
+              <li><strong>独立数据目录</strong>：Chromium 以独立档案开启 9222 端口，登录态持久保存</li>
               <li><strong>Safari 纯原生零依赖</strong>：系统自带 AppleScript 驱动，无需安装插件</li>
-              <li><strong>POSIX 内核锁托管</strong>：防多进程争夺，18 项跨平台测试全部通过</li>
+              <li><strong>POSIX 内核锁托管</strong>：防多进程争夺，跨平台测试全部通过</li>
             </ul>
           </div>
 
           <div class="box-download-actions">
-            <a href="https://github.com/yvochehk-oss/Antigravity2gptweb/archive/refs/heads/macos.zip" class="btn-pack">
-              <span class="pack-name">macOS 增强版 (.zip)</span>
+            <a href="https://github.com/yvochehk-oss/Antigravity2gptweb/archive/refs/heads/main.zip" class="btn-pack">
+              <span class="pack-name">macOS Chrome CDP 版 (.zip)</span>
               <span class="pack-desc">支持 Chrome / Edge</span>
             </a>
-            <a href="https://github.com/yvochehk-oss/Antigravity2gptweb/archive/refs/heads/macos.zip" class="btn-pack">
+            <a href="https://github.com/yvochehk-oss/Antigravity2gptweb/archive/refs/heads/main.zip" class="btn-pack">
               <span class="pack-name">Safari 原生版 (.zip)</span>
               <span class="pack-desc">0 外部依赖 · 系统自带</span>
             </a>
@@ -1217,11 +1217,11 @@
           </div>
 
           <div class="box-download-actions">
-            <a href="https://github.com/yvochehk-oss/Antigravity2gptweb/archive/refs/heads/windows.zip" class="btn-pack">
+            <a href="https://github.com/yvochehk-oss/Antigravity2gptweb/archive/refs/heads/main.zip" class="btn-pack">
               <span class="pack-name">Microsoft Edge 专版 (.zip)</span>
               <span class="pack-desc">系统自带 · 双击秒开</span>
             </a>
-            <a href="https://github.com/yvochehk-oss/Antigravity2gptweb/archive/refs/heads/windows.zip" class="btn-pack">
+            <a href="https://github.com/yvochehk-oss/Antigravity2gptweb/archive/refs/heads/main.zip" class="btn-pack">
               <span class="pack-name">Google Chrome 专版 (.zip)</span>
               <span class="pack-desc">纯原生 CDP 直连</span>
             </a>
@@ -1233,7 +1233,7 @@
       <div class="quick-cli">
         <div class="cli-display">
           <span class="comment"># 终端单行快速安装（macOS 示例）：</span><br>
-          <span id="cli-cmd-str">git clone --branch macos --single-branch https://github.com/yvochehk-oss/Antigravity2gptweb.git ~/.gemini/antigravity/skills/safari-chatgpt-reasoner</span>
+          <span id="cli-cmd-str">git clone https://github.com/yvochehk-oss/Antigravity2gptweb.git ~/.gemini/antigravity/skills/safari-chatgpt-reasoner</span>
         </div>
         <button class="btn-copy-code" onclick="copyCliCmd()">
           <span id="copy-btn-label">复制命令</span>
