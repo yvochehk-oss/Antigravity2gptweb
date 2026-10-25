@@ -8,8 +8,12 @@ Desktop Agent Orchestrator — 端到端任务编排器
   init → refine（可选）→ lock → run-task × N → 完成
 
 每个 run-task 内部闭环：
-  GPT 通过 GitHub 远端提交代码 → 本地 Agent fast-forward 拉取并跑测试 →
+  GPT 通过隧道插件直接读写本机工作目录 → 本地 Agent 核对文件变更清单并原地跑测试 →
   GPT 审查测试结果 → 裁决：APPROVED / NEEDS_FIX / BLOCKED
+
+安全模型：无 GitHub 中转。每个任务开始前本地 Agent 先给工作目录做快照，
+GPT 声称完成后以文件清单（sha256）差异作为已落盘的客观证据；零变更直接判 BLOCKED。
+回滚使用 orchestrate.py restore 从快照恢复。
 """
 
 import sys
@@ -22,6 +26,7 @@ import shutil
 import textwrap
 import subprocess
 import argparse
+import hashlib
 import platform
 from pathlib import Path
 from typing import Optional, Dict, Any, List, Tuple
@@ -43,7 +48,7 @@ BRIDGE_BY_BROWSER = {
 }
 
 MAX_FIX_ATTEMPTS = 3          # 与 README/SKILL 契约一致：最多 3 轮
-GIT_TIMEOUT = 30              # git 操作超时（秒）
+CMD_TIMEOUT = 30              # 本地命令超时（秒）
 
 # =============================================================================
 # 数据模型
@@ -72,9 +77,7 @@ class ProjectState:
     updated_at: str
     requirement: str
     chatgpt_url: str
-    repo_url: str
-    branch: str
-    cwd: str                    # 本地仓库路径
+    cwd: str                    # 本地工作目录（GPT 经隧道插件直读写）
     browser: str                 # safari / chrome / edge / ...
     bridge_script: str           # 实际调用的 bridge 脚本相对路径
     plan_md_path: str
@@ -82,8 +85,8 @@ class ProjectState:
     task_locked: bool = False
     current_task_id: Optional[int] = None
     tasks: List[Task] = field(default_factory=list)
-    commit_sha_init: str = ""    # lock 时的 commit SHA
-    commit_sha_head: str = ""    # 当前 HEAD commit SHA
+    workspace_manifest: Dict[str, str] = field(default_factory=dict)  # 相对路径 → sha256 或 large:size
+    snapshots: List[str] = field(default_factory=list)                # 快照目录列表（回滚用）
 
     def save(self) -> None:
         path = Path(self.plan_md_path)
@@ -119,6 +122,8 @@ class ProjectState:
         with open(state_path, "r", encoding="utf-8") as f:
             d = json.load(f)
         d.pop("browser_profile", None)  # 旧版本状态文件兼容：该字段已随旧驱动一并移除
+        for _legacy in ("repo_url", "branch", "commit_sha_init", "commit_sha_head"):
+            d.pop(_legacy, None)  # 旧 GitHub 流程字段，统一版已移除
         tasks = [Task(**t) for t in d.pop("tasks", [])]
         d["tasks"] = tasks
         return ProjectState(**d)
@@ -128,29 +133,13 @@ class ProjectState:
 # 工具函数
 # =============================================================================
 
-def _run(args: List[str], cwd: str = ".", timeout: int = GIT_TIMEOUT,
+def _run(args: List[str], cwd: str = ".", timeout: int = CMD_TIMEOUT,
          capture: bool = True) -> subprocess.CompletedProcess:
     """安全的 subprocess.run 封装"""
     return subprocess.run(
         args, cwd=cwd, capture_output=capture,
         text=True, timeout=timeout, check=False
     )
-
-
-def _git(cmd: str, cwd: str) -> str:
-    """执行 git 命令，返回 stdout"""
-    r = _run(["git"] + cmd.split(), cwd=cwd)
-    if r.returncode != 0:
-        print(f"[git {' '.join(cmd.split())}] stderr: {r.stderr[:300]}", file=sys.stderr)
-    r.check_returncode()
-    return r.stdout.strip()
-
-
-def _git_or_raise(cmd: str, cwd: str, msg: str) -> str:
-    r = _run(["git"] + cmd.split(), cwd=cwd)
-    if r.returncode != 0:
-        raise RuntimeError(f"{msg}: {r.stderr[:200]}")
-    return r.stdout.strip()
 
 
 def _resolve_bridge(browser: str) -> str:
@@ -168,32 +157,68 @@ def _resolve_bridge(browser: str) -> str:
     return str(base / script)
 
 
-def _ensure_branch(cwd: str, branch: str, repo_url: str) -> None:
-    """确保本地分支存在且跟踪远程"""
-    existing = _run(["git", "branch", "--show-current"], cwd=cwd).stdout.strip()
-    if existing == branch:
-        return
-    # 尝试 checkout（如果远程有）
-    _git_or_raise("fetch origin " + branch, cwd, "无法拉取目标分支")
-    r2 = _run(["git", "checkout", branch], cwd=cwd)
-    if r2.returncode != 0:
-        tracked = _run(["git", "checkout", "-b", branch, "--track", f"origin/{branch}"], cwd=cwd)
-        if tracked.returncode != 0:
-            _git_or_raise("checkout -b " + branch, cwd, "无法创建目标分支")
+_IGNORE_DIRS = {".git", "__pycache__", "node_modules", ".venv", "venv",
+                ".antigravity", ".mypy_cache", ".pytest_cache"}
+_IGNORE_SUFFIXES = (".pyc",)
 
 
-def _sync_remote_branch(cwd: str, branch: str) -> str:
-    """Fail closed on local edits, then require an exact remote HEAD match."""
-    dirty = _git_or_raise("status --porcelain", cwd, "无法检查工作区状态")
-    if dirty:
-        raise RuntimeError("本地工作区存在未提交改动；拒绝 git pull，避免覆盖验收环境")
-    _git_or_raise("fetch origin " + branch, cwd, "无法获取远端提交")
-    _git_or_raise("pull --ff-only origin " + branch, cwd, "无法 fast-forward 拉取远端提交")
-    head = _git_or_raise("rev-parse HEAD", cwd, "无法读取本地 HEAD")
-    remote = _git_or_raise("rev-parse origin/" + branch, cwd, "无法读取远端 HEAD")
-    if head != remote:
-        raise RuntimeError(f"拉取后 HEAD 不一致：local={head}, origin={remote}")
-    return head
+def _iter_workspace_files(cwd: str):
+    """枚举工作目录内受管文件（相对路径用 posix 分隔）。"""
+    base = Path(cwd)
+    for p in sorted(base.rglob("*")):
+        if not p.is_file():
+            continue
+        rel = p.relative_to(base)
+        if any(part in _IGNORE_DIRS for part in rel.parts):
+            continue
+        if p.suffix in _IGNORE_SUFFIXES:
+            continue
+        yield p, rel.as_posix()
+
+
+def _workspace_manifest(cwd: str) -> Dict[str, str]:
+    """相对路径 → 内容指纹。>20MB 的文件只记大小，避免大文件哈希开销。"""
+    manifest: Dict[str, str] = {}
+    for p, rel in _iter_workspace_files(cwd):
+        try:
+            size = p.stat().st_size
+            if size > 20 * 1024 * 1024:
+                manifest[rel] = f"large:{size}"
+            else:
+                manifest[rel] = hashlib.sha256(p.read_bytes()).hexdigest()
+        except OSError:
+            continue
+    return manifest
+
+
+def _manifest_diff(old: Dict[str, str], new: Dict[str, str]):
+    added = sorted(set(new) - set(old))
+    deleted = sorted(set(old) - set(new))
+    modified = sorted(k for k in set(old) & set(new) if old[k] != new[k])
+    return added, modified, deleted
+
+
+def _changed_summary(changed, limit: int = 30) -> str:
+    added, modified, deleted = changed
+    lines = []
+    for tag, items in (("新增", added), ("修改", modified), ("删除", deleted)):
+        for rel in items[:limit]:
+            lines.append(f"{tag}: {rel}")
+        if len(items) > limit:
+            lines.append(f"{tag}: ……另 {len(items) - limit} 个")
+    return "\n".join(lines) if lines else "（无变化）"
+
+
+def _make_snapshot(name: str, cwd: str, label: str) -> Path:
+    """把工作目录当前状态复制到 ORCHESTRATOR_HOME/<name>/snapshots/<label>-<时间戳>。"""
+    ts = datetime.utcnow().strftime("%Y%m%d%H%M%S")
+    dest = ORCHESTRATOR_HOME / name / "snapshots" / f"{label}-{ts}"
+    dest.mkdir(parents=True, exist_ok=True)
+    for p, rel in _iter_workspace_files(cwd):
+        target = dest / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(p, target)
+    return dest
 
 
 # =============================================================================
@@ -293,8 +318,6 @@ def cmd_init(args) -> int:
     name = args.name
     requirement = args.requirement
     target_url = args.target_url
-    repo_url = args.repo
-    branch = args.branch or f"orchestrate/{name}"
     cwd = os.path.abspath(os.path.expanduser(args.cwd or "."))
     browser = args.browser
 
@@ -310,26 +333,14 @@ def cmd_init(args) -> int:
     print(f"[init] 创建项目 {name!r}")
     print(f"  → 工作目录 : {cwd}")
     print(f"  → ChatGPT  : {target_url}")
-    print(f"  → 仓库      : {repo_url}")
-    print(f"  → 分支      : {branch}")
     print(f"  → 浏览器    : {browser}")
 
-    # 本地 Agent 只读/验收：不初始化仓库、不改 origin、不制造初始 commit。
-    if not (Path(cwd) / ".git").exists():
-        raise RuntimeError("目标目录不是 Git 工作副本；请先准备好已连接远端的仓库。")
-    r = _run(["git", "remote", "get-url", "origin"], cwd=cwd)
-    if r.returncode != 0:
-        raise RuntimeError("当前 Git 工作副本缺少 origin。")
-    if r.stdout.strip() != repo_url:
-        raise RuntimeError(
-            f"origin 与 --repo 不一致，拒绝自动改写：origin={r.stdout.strip()!r}, repo={repo_url!r}"
-        )
-    _ensure_branch(cwd, branch, repo_url)
-
-    r = _run(["git", "rev-parse", "HEAD"], cwd=cwd)
-    initial_sha = r.stdout.strip()
-    if r.returncode != 0 or not initial_sha:
-        raise RuntimeError("当前分支没有有效 HEAD；本地 Orchestrator 不负责创建初始提交。")
+    # 本地 Agent 只做验收、不写业务代码；GPT 经隧道插件直接读写工作目录。
+    if not Path(cwd).is_dir():
+        raise RuntimeError(f"工作目录不存在：{cwd}")
+    snapshot = _make_snapshot(name, cwd, "init")
+    manifest = _workspace_manifest(cwd)
+    print(f"  → 初始快照 : {snapshot}")
 
     # 生成初始 PLAN.md（让 GPT 推演方案）
     print(f"[init] 请求 GPT-5.6 生成初始方案（--type plan）…")
@@ -345,8 +356,7 @@ def cmd_init(args) -> int:
     )
     ec, plan_text = _bridge_call(
         "plan", plan_prompt, target_url, bridge_script, cwd,
-        timeout=300, signature=f"init:{name}",
-        browser_profile=browser_profile
+        timeout=300, signature=f"init:{name}"
     )
     if ec != 0:
         print(f"[init] ⚠ GPT 调用失败（exit={ec}），跳过方案生成，稍后请手动 refine")
@@ -365,11 +375,11 @@ def cmd_init(args) -> int:
     state = ProjectState(
         name=name, created_at=now, updated_at=now,
         requirement=requirement, chatgpt_url=target_url,
-        repo_url=repo_url, branch=branch, cwd=cwd,
+        cwd=cwd,
         browser=browser, bridge_script=bridge_script,
         plan_md_path=str(plan_path), tasks_json_path=str(tasks_path),
         task_locked=False, tasks=[],
-        commit_sha_init=initial_sha, commit_sha_head=initial_sha,
+        workspace_manifest=manifest, snapshots=[str(snapshot)],
     )
     state.save()
 
@@ -539,15 +549,20 @@ def execute_task(state: ProjectState, task: Task,
     task.status = "coding"
     task.attempts += 1
 
+    # 动笔前先快照 + 记录文件清单，作为本轮变更核验的基线
+    snap = _make_snapshot(state.name, state.cwd, f"task{task.id}-a{task.attempts}")
+    state.snapshots.append(str(snap))
+    manifest_before = _workspace_manifest(state.cwd)
+    state.save()
+
     # 构造任务 prompt
     task_prompt = (
         f"【任务 {task.id}/{len(state.tasks)}】{task.title}\n\n"
         f"【详细描述】\n{task.description or '(见上方任务标题)'}\n\n"
-        "【当前项目 Git 状态】\n"
-        f"  最新提交: {state.commit_sha_head[:8]}\n"
-        f"  分支: {state.branch}\n\n"
-        "请使用你的 GitHub 直连工具在上述分支完成此任务，并提交、推送代码。"
-        "本地 Agent 不会从回复中写入代码、提交或推送。严格只输出：\n\n"
+        "【工作目录（本机）】\n"
+        f"  {state.cwd}\n\n"
+        "请使用你的隧道插件直接读写上述本机目录中的文件完成此任务。"
+        "本地 Agent 不会写入任何代码，只负责核对文件变更与运行测试。严格只输出：\n\n"
         "1. 测试命令（必须提供，至少一个）：\n"
         "   ```bash\n"
         "   TEST: <命令>\n"
@@ -558,7 +573,7 @@ def execute_task(state: ProjectState, task: Task,
         "- EXPECTED 描述应简洁明确（如 'all tests pass', 'exit 0', 'no errors'）\n"
         "- 在提交完成前不要输出测试命令\n"
         "- 不要粘贴代码、文件内容或额外说明\n"
-        "- 我会拉取远端提交并把真实测试结果反馈给你"
+        "- 我会核对本地文件变更并把真实测试结果反馈给你"
     )
 
     ec, code_output = _bridge_call(
@@ -582,7 +597,7 @@ def execute_task(state: ProjectState, task: Task,
         # 让 GPT 补充测试命令
         retry_prompt = (
             f"【任务 {task.id}】{task.title}\n"
-            "请确认已通过 GitHub 在目标分支提交并推送本任务代码。"
+            "请确认已通过隧道插件直接修改本机工作目录中的文件，完成本任务代码。"
             "你忘记提供测试命令了。请仅补充至少一个测试命令，格式：\n"
             "```bash\n"
             "TEST: <命令>\n"
@@ -604,19 +619,20 @@ def execute_task(state: ProjectState, task: Task,
             state.save()
             return False
 
-    # The cloud GPT owns every repository mutation. Local execution is a
-    # read-and-verify data plane, so synchronization must be fast-forward only.
-    try:
-        print(f"[Task {task.id}] 🔄 拉取并校验远端提交 (fast-forward only)...")
-        state.commit_sha_head = _sync_remote_branch(state.cwd, state.branch)
-        print(f"[Task {task.id}] ✅ 本地与远端 HEAD 已齐平: {state.commit_sha_head[:8]}")
-    except Exception as exc:
+    # GPT 经隧道插件直接改本机文件；本地以文件清单差异作为已落盘的客观证据。
+    manifest_after = _workspace_manifest(state.cwd)
+    changed = _manifest_diff(manifest_before, manifest_after)
+    state.workspace_manifest = manifest_after
+    state.save()
+    if not any(changed):
         task.status = "blocked"
         task.last_verdict = "BLOCKED"
-        task.last_fix_note = f"无法安全同步远端提交: {exc}"
+        task.last_fix_note = "GPT 声称完成，但工作目录无任何文件变化"
         state.save()
         print(f"[Task {task.id}] 🚫 {task.last_fix_note}")
         return False
+    change_summary = _changed_summary(changed)
+    print(f"[Task {task.id}] ✅ 已核对文件变更：\n{change_summary}")
 
     # 运行测试
     task.status = "testing"
@@ -652,7 +668,7 @@ def execute_task(state: ProjectState, task: Task,
     # GPT 审查测试结果并决定下一步
     review_prompt = (
         f"【任务 {task.id}】{task.title}\n\n"
-        f"【已验证远端提交】{state.commit_sha_head}\n\n"
+        f"【本轮文件变更（本地核验）】\n{change_summary}\n\n"
         f"【本地 Agent 测试结果】\n{task.test_results}\n\n"
         "请根据测试结果决定下一步行动。严格按以下格式输出：\n\n"
         "1. APPROVED - 测试全部通过，代码符合要求，任务完成\n"
@@ -711,7 +727,7 @@ def _auto_fix_loop(state: ProjectState, task: Task,
                    test_cmds: List[Tuple[str, str]],
                    max_attempts: int) -> bool:
     """
-    自动修复循环：GPT 在远端修复并推送 → Agent 拉取测试 → GPT 审查
+    自动修复循环：GPT 经隧道插件原地修复 → Agent 核对变更并测试 → GPT 审查
     """
     fix_note = task.last_fix_note
     code_output = original_code
@@ -722,12 +738,16 @@ def _auto_fix_loop(state: ProjectState, task: Task,
         print(f"\n[Task {task.id}] 🔧 自动修复轮次 {task.attempts}/{max_attempts}")
         print(f"           修复提示：{fix_note[:200]}")
 
+        snap = _make_snapshot(state.name, state.cwd, f"task{task.id}-fix{task.attempts}")
+        state.snapshots.append(str(snap))
+        manifest_before_fix = _workspace_manifest(state.cwd)
+        state.save()
+
         fix_prompt = (
             f"【任务 {task.id}】{task.title}\n\n"
-            f"【上次已验证提交】{state.commit_sha_head}\n\n"
             f"【测试结果】\n{task.test_results}\n\n"
             f"【你的审查反馈】{fix_note}\n\n"
-            "请通过 GitHub 直连工具在目标分支修复并推送。不要输出代码；"
+            "请通过隧道插件直接修改本机工作目录中的文件进行修复。不要输出代码；"
             "仅在 bash 代码块中输出测试命令：\nTEST: ...\nEXPECTED: ..."
         )
 
@@ -758,15 +778,19 @@ def _auto_fix_loop(state: ProjectState, task: Task,
             state.save()
             return False
 
-        try:
-            state.commit_sha_head = _sync_remote_branch(state.cwd, state.branch)
-            print(f"[Task {task.id}] ✅ 已同步远端修复: {state.commit_sha_head[:8]}")
-        except Exception as exc:
+        manifest_after_fix = _workspace_manifest(state.cwd)
+        changed_fix = _manifest_diff(manifest_before_fix, manifest_after_fix)
+        state.workspace_manifest = manifest_after_fix
+        state.save()
+        if not any(changed_fix):
             task.status = "blocked"
             task.last_verdict = "BLOCKED"
-            task.last_fix_note = f"无法安全同步远端修复: {exc}"
+            task.last_fix_note = "GPT 声称已修复，但工作目录无任何文件变化"
             state.save()
+            print(f"[Task {task.id}] 🚫 {task.last_fix_note}")
             return False
+        change_summary = _changed_summary(changed_fix)
+        print(f"[Task {task.id}] ✅ 已核对修复变更：\n{change_summary}")
 
         # 重新运行测试
         task.status = "testing"
@@ -800,7 +824,7 @@ def _auto_fix_loop(state: ProjectState, task: Task,
         review_prompt = (
             f"【任务 {task.id}】{task.title}\n\n"
             f"【修复轮次】{task.attempts}/{max_attempts}\n\n"
-            f"【修复后已验证提交】{state.commit_sha_head}\n\n"
+            f"【本轮修复变更（本地核验）】\n{change_summary}\n\n"
             f"【本地 Agent 测试结果】\n{task.test_results}\n\n"
             "请根据测试结果决定下一步：\n"
             "APPROVED - 通过\n"
@@ -935,8 +959,9 @@ def cmd_status(args) -> int:
 
     print(f"\n项目: {state.name}")
     print(f"需求: {state.requirement[:80]}")
-    print(f"分支: {state.branch}")
+    print(f"工作目录: {state.cwd}")
     print(f"浏览器: {state.browser}")
+    print(f"快照: {len(state.snapshots)} 份" + (f"（最近：{state.snapshots[-1]}）" if state.snapshots else ""))
     print(f"锁定: {'是' if state.task_locked else '否'}")
     print(f"当前任务: {state.current_task_id or '无'}")
     print(f"\n任务列表（共 {len(state.tasks)} 个）：")
@@ -956,6 +981,33 @@ def cmd_status(args) -> int:
 
 
 # =============================================================================
+# 子命令：restore
+# =============================================================================
+
+def cmd_restore(args) -> int:
+    """从指定快照恢复工作目录（只覆盖快照内文件；快照后新增的文件保留并提示）。"""
+    state = ProjectState.load(args.name)
+    snap = Path(args.snapshot)
+    if not snap.is_dir():
+        print(f"[restore] ❌ 快照不存在：{snap}")
+        return 1
+    cwd = Path(state.cwd)
+    restored = 0
+    for src in sorted(snap.rglob("*")):
+        if src.is_file():
+            rel = src.relative_to(snap)
+            dst = cwd / rel
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dst)
+            restored += 1
+    state.workspace_manifest = _workspace_manifest(state.cwd)
+    state.save()
+    print(f"[restore] ✅ 已从快照恢复 {restored} 个文件 → {state.cwd}")
+    print("[restore] 注意：快照之后新增的文件未删除，如需处理请人工核对。")
+    return 0
+
+
+# =============================================================================
 # CLI 入口
 # =============================================================================
 
@@ -966,12 +1018,13 @@ def _build_parser() -> argparse.ArgumentParser:
         epilog=textwrap.dedent("""\
             工作流示例：
               orchestrate.py init --name myproj --requirement "迁移到 FastAPI" \\
-                --target-url "https://chatgpt.com/c/xxx" --repo git@github.com:xxx/yyy.git
+                --target-url "https://chatgpt.com/c/xxx" --cwd /path/to/project
               orchestrate.py refine --name myproj --feedback "第3步太复杂"
               orchestrate.py lock --name myproj
               orchestrate.py run-task --name myproj
               orchestrate.py run-task --name myproj --autonomous  # 全自动跑完
               orchestrate.py status --name myproj
+              orchestrate.py restore --name myproj --snapshot <快照目录>
         """)
     )
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -981,9 +1034,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p_init.add_argument("--name", required=True, help="项目名称（英文，唯一标识）")
     p_init.add_argument("--requirement", required=True, help="项目需求描述")
     p_init.add_argument("--target-url", required=True, help="ChatGPT Tab URL")
-    p_init.add_argument("--repo", required=True, help="GitHub 仓库 URL（git@... 或 https://...）")
-    p_init.add_argument("--branch", default=None, help="Git 分支（默认 orchestrate/<name>）")
-    p_init.add_argument("--cwd", default=None, help="本地仓库路径（默认当前目录）")
+    p_init.add_argument("--cwd", default=None, help="本地工作目录（默认当前目录；GPT 经隧道插件直读写此目录）")
     p_init.add_argument("--browser", default="safari",
                         choices=["safari", "chrome", "edge", "brave", "arc", "chromium"],
                         help="浏览器类型（默认 safari）")
@@ -995,7 +1046,7 @@ def _build_parser() -> argparse.ArgumentParser:
                           help="用户反馈（如：第3步太复杂，能否拆成2步）")
 
     # lock
-    p_lock = sub.add_parser("lock", help="锁定方案（仅解析并保存本地任务状态，不修改 Git 仓库）")
+    p_lock = sub.add_parser("lock", help="锁定方案（仅解析并保存本地任务状态，不修改工作目录）")
     p_lock.add_argument("--name", required=True, help="项目名称")
 
     # run-task
@@ -1014,6 +1065,11 @@ def _build_parser() -> argparse.ArgumentParser:
     p_st = sub.add_parser("status", help="查看项目状态")
     p_st.add_argument("--name", required=True, help="项目名称")
 
+    # restore
+    p_rs = sub.add_parser("restore", help="从快照恢复工作目录")
+    p_rs.add_argument("--name", required=True, help="项目名称")
+    p_rs.add_argument("--snapshot", required=True, help="快照目录路径（status 中可查）")
+
     return p
 
 
@@ -1031,6 +1087,8 @@ def main() -> int:
         return cmd_run_task(args)
     elif args.cmd == "status":
         return cmd_status(args)
+    elif args.cmd == "restore":
+        return cmd_restore(args)
     else:
         parser.print_help()
         return 1

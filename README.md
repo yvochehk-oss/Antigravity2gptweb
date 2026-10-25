@@ -2,7 +2,7 @@
 
 # 🤖 Antigravity2gptweb
 ### 纯自然语言驱动的通用“双脑”AI 协作开发桥梁
-**Desktop Agent × ChatGPT 网页版 (GPT 5.6 SOL / GPT 6.0 Astra) × GitHub 全自动闭环**
+**Desktop Agent × ChatGPT 网页版 (GPT 5.6 SOL / GPT 6.0 Astra) × 隧道直连本机 全自动闭环**
 
 <br/>
 
@@ -14,7 +14,7 @@
 [![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Windows-lightgrey.svg)](#-平台支持与跨平台安装)
 [![Agent](https://img.shields.io/badge/Agent-Antigravity%20%7C%20Claude%20Code%20%7C%20Cursor-8A2BE2.svg)](#-安装到-antigravity-ide)
 [![ChatGPT](https://img.shields.io/badge/ChatGPT-Web%20UI%20Bridge-10a37f.svg)](#-双脑协作架构与执行时序)
-[![Security](https://img.shields.io/badge/Security-Strict%20Fast--Forward%20%26%20Masking-success.svg)](#-安全合规与隐私保障)
+[![Security](https://img.shields.io/badge/Security-Snapshot%20%26%20Manifest%20%26%20Masking-success.svg)](#-安全合规与隐私保障)
 [![Project Roadmap](https://img.shields.io/badge/Roadmap-Live%20Project%20Board-orange.svg)](https://github.com/users/yvochehk-oss/projects/2/views/1)
 [![GitHub Stars](https://img.shields.io/github/stars/yvochehk-oss/Antigravity2gptweb?style=social)](https://github.com/yvochehk-oss/Antigravity2gptweb)
 
@@ -43,7 +43,7 @@
 
 ---
 
-> **一句话愿景**：告别在网页端与代码编辑器之间繁琐的“复制、粘贴、运行、报错、再复制”。你只需在聊天框里用平常说话的自然语言描述需求，桌面 AI Agent 即可自动直连 ChatGPT 网页端顶尖大模型（GPT 5.6 SOL / GPT 6.0 Astra），完成**云端架构推演、GitHub 远端修改提交、本地确定性快速拉取与闭环测试验收**！
+> **一句话愿景**：告别在网页端与代码编辑器之间繁琐的“复制、粘贴、运行、报错、再复制”。你只需在聊天框里用平常说话的自然语言描述需求，桌面 AI Agent 即可自动直连 ChatGPT 网页端顶尖大模型（GPT 5.6 SOL / GPT 6.0 Astra），完成**云端架构推演、隧道直连本机修改落盘、本地变更核对与闭环测试验收**！
 
 ---
 
@@ -88,7 +88,7 @@
 | **交互方式** | 手动在网页与 IDE 间来回搬运代码 | **纯自然语言下发**，全流程自动化闭环 |
 | **推理成本** | 昂贵的商业 API 计费、Token 消耗极快 | **零额外 API 成本**，充分复用已有的 ChatGPT Plus/Team 网页订阅 |
 | **代码可靠性** | 本地模型经常“幻觉伪造”，改完报错 | **严格闭环验收**：本地真实跑测，GPT 裁决 `APPROVED` 方可交付 |
-| **版本安全** | 容易直接覆盖本地代码，改错无法恢复 | **GitHub 严格护栏**：强制原子化提交与 Fast-Forward，随时一键回滚 |
+| **版本安全** | 容易直接覆盖本地代码，改错无法恢复 | **快照严格护栏**：每个任务开始前自动快照 + 文件清单基线，改错随时一键回滚 |
 
 ---
 
@@ -104,18 +104,17 @@ sequenceDiagram
     actor User as 👤 开发者 / 客户
     participant LocalAgent as ⚡ 本地桌面 Agent (Antigravity/Cursor)
     participant GPTWeb as 🧠 ChatGPT 网页版 (云端顶尖大脑)
-    participant GH as 🛡️ GitHub 远程仓库
     participant LocalEnv as 💻 本地真实运行环境
 
     User->>LocalAgent: 自然语言下发需求
     LocalAgent->>GPTWeb: 注入本地上下文与任务意图
     activate GPTWeb
     Note over GPTWeb: 深度架构推演 & 方案拆解
-    GPTWeb->>GH: 通过 GitHub 工具直接修改并推送代码
+    GPTWeb->>LocalEnv: 通过隧道插件直接读写本机文件
     GPTWeb-->>LocalAgent: 发送验证指令 (TEST: ... EXPECTED: ...)
     deactivate GPTWeb
     activate LocalAgent
-    LocalAgent->>GH: git pull --ff-only 严格快进同步
+    Note over LocalAgent: 任务前快照已就绪，比对文件清单核对变更
     LocalAgent->>LocalEnv: 运行本地真实构建与测试命令
     LocalEnv-->>LocalAgent: 捕获真实 Exit Code、stdout 与 stderr
     LocalAgent->>GPTWeb: 回传客观执行日志进行终审 (task-review)
@@ -126,7 +125,7 @@ sequenceDiagram
         GPTWeb-->>LocalAgent: 裁决 APPROVED (闭环达成)
         LocalAgent-->>User: 交付完成报告
     else 存在异常或未通过
-        GPTWeb-->>GH: 推送修复补丁，自动触发下一轮验收
+        GPTWeb->>LocalEnv: 原地修复，自动触发下一轮验收
     end
     deactivate GPTWeb
 ```
@@ -135,9 +134,9 @@ sequenceDiagram
 
 | 角色 | 核心职责 | 行为边界（严禁越位） | 带来的好处 |
 | :--- | :--- | :--- | :--- |
-| 🧠 **ChatGPT 网页版**<br>*(云端总架构师)* | 负责深度逻辑推演、方案拆解、**通过 GitHub 工具修改、提交和推送业务代码**、提供测试命令与审核测试结果 | 仅操作用户授权的远程仓库与分支，独占方案与代码修改权 | 借助网页端顶尖推理能力，保证全局架构与业务代码的高水准 |
-| ⚡ **本地桌面 Agent**<br>*(精准验收执行端)* | 负责提取环境上下文、`git pull --ff-only` 同步远端提交、运行真实测试命令、将测试日志回传 GPT 审查 | **严禁越俎代庖编写或覆盖本地业务代码**；工作区有未提交变动时必须停止同步 | 用真实环境提供可复核的客观证据，彻底杜绝 AI 幻觉和瞎编 |
-| 🛡️ **GitHub 仓库**<br>*(版本安全管家)* | 自动记录每一次变动，保留完整历史 | 任何一次改动都具备原子化 Commit，改错了随时一键撤销 | 历史透明可追溯，保障企业级代码资产绝对安全 |
+| 🧠 **ChatGPT 网页版**<br>*(云端总架构师)* | 负责深度逻辑推演、方案拆解、**通过隧道插件直接读写本机工作目录中的业务文件**、提供测试命令与审核测试结果 | 仅操作用户授权的本机工作目录，独占方案与代码修改权 | 借助网页端顶尖推理能力，保证全局架构与业务代码的高水准 |
+| ⚡ **本地桌面 Agent**<br>*(精准验收执行端)* | 负责提取环境上下文、任务前快照与文件清单基线、核对落盘变更、运行真实测试命令、将测试日志回传 GPT 审查 | **严禁越俎代庖编写或覆盖本地业务代码**；GPT 声称完成但零文件变更时直接判 BLOCKED | 用真实环境提供可复核的客观证据，彻底杜绝 AI 幻觉和瞎编 |
+| 🛡️ **本地快照**<br>*(版本安全管家)* | 每个任务开始前自动保存工作目录快照与文件清单 | 任何一轮改坏都可用 `restore` 从任务前快照一键恢复 | 落盘证据可核对、变更可回滚，保障本地代码资产安全 |
 
 ---
 
@@ -267,10 +266,10 @@ git -C ~/.gemini/antigravity/skills/safari-chatgpt-reasoner pull --ff-only
 
 1. **自动敏感凭据脱敏**：
    内置自动化安全正则扫描引擎，所有提交与回传日志中的 API Key（如 `sk-...`）、授权 Token 会被自动转换为掩码（`[OPENAI_KEY]`），确保任何敏感凭据绝不泄露到网络中。
-2. **严格 Fast-Forward 防覆盖机制**：
-   本地只允许 `git pull --ff-only` 操作。一旦检测到本地有未提交的改动或冲突，程序立即安全熔断，绝不强制覆盖开发者已写好的任何业务代码。
+2. **快照 + 清单双重防覆盖机制**：
+   每个任务开始前自动给工作目录做快照并记录文件清单（sha256）。GPT 声称完成但清单零变更时直接判 BLOCKED；任何一轮改坏可用 `orchestrate.py restore` 从任务前快照恢复，绝不让错误改动无声覆盖开发者已写好的业务代码。
 3. **完全所有权**：
-   用户始终拥有对 GitHub 仓库与本地运行环境的绝对控制权，代码只存储在您的 GitHub 账户与本地机器中。
+   用户始终拥有对本地工作目录与运行环境的绝对控制权，代码只存储在您的本地机器中。
 
 ---
 
