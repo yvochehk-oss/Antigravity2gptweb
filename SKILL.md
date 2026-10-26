@@ -3,7 +3,9 @@ name: safari-chatgpt-reasoner
 description: 双层混合 Agent 系统：以 Safari/Chrome ChatGPT 网页端 Custom GPT 为云端认知与代码修改控制面（配备隧道插件，直接读写本机工作目录中的文件），以任意本地桌面 Agent 为确定性执行与验收数据面（核对文件变更清单、运行本地测试进行最终闭环验收；任务前自动快照，可一键回滚）。强制执行 Tab 精确绑定 + 跨进程事务锁 + 闭环测试验收，证据完整性真正可机验。
 ---
 
-# Safari / Chrome ChatGPT Reasoner Skill (v4.1 Evidence-Integrity)
+# Safari / Chrome ChatGPT Reasoner Skill (v4.2 Evidence-Integrity)
+
+> **v4.2（2026-10-26）Safari 桥接修复**：`scripts/safari_chatgpt.py` 已按 Pro 实探 DOM 换代——Tab 绑定改为首个 URL 匹配直接执行（不再逐 Tab readiness 探测、不抢焦点、找不到不自开新标签页），单次 osascript 超时 60s；回合模型改走共享 helper `__turns`（`[data-message-author-role]` 节点不存在时按 main.innerText 的「你说：/ChatGPT 说：」标记切分虚拟回合 + 指纹 id）；编辑器定位 `__findEditor`（可见 div.ProseMirror[role=textbox] 优先，过滤 rect=0 隐藏副本）；发送按钮/停止判据补中文 aria-label 且停止判据只看 main 内按钮；新增 `--probe` 只读基线诊断（不发消息、不触发熔断）。原 v4.1 的 `#prompt-textarea` / `data-message-author-role` 假设在当前 ChatGPT 页面上不成立（实测均为 0），勿按旧假设排查。
 
 ### 架构原则与契约 (Architecture Contracts)
 1. **【第一铁律】Custom GPT 隧道直读写本机文件与本地 Agent 闭环验收 (P0 - Supreme Law)**：

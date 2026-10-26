@@ -29,6 +29,27 @@ P2.【selector 去掉 div 前缀；contenteditable 限制到 form / composer；
     AppleScript 使用独立 escape 函数；自定义 error number；
     删除 unused imports。】
 
+v4.2 修复（2026-10-26，基于 Pro 实探 DOM + 83 项目三卷监督实证）：
+F1.【Tab 绑定瘦身】：_applescript_invoke 不再对每个 URL 匹配的 Tab 逐个跑
+    readiness do JavaScript（重页面上单次调用可挂起 >30s，整段 AppleScript
+    被 30s 超时杀掉 → BASELINE_FAIL → 熔断）；不再 set current tab 抢焦点；
+    找不到 Tab 不再 activate + open location 自开新标签页（违反标签页纪律，
+    且新开页 SPA 未水合、无输入框）。改为：首个 URL 匹配的 Tab 直接执行，
+    无匹配 → NO_TARGET_TAB。单次 osascript 超时 30s → 60s。
+F2.【DOM 模型换代】：实探目标会话页面中 [data-message-author-role] 节点
+    为 0、#prompt-textarea 不存在、article/conversation-turn 亦为 0；
+    composer 是无 id 的 div.ProseMirror（role=textbox，aria-label
+    "询问 ChatGPT"），且页面上存在一个 rect=0 的隐藏同类编辑器。
+    新增共享 DOM helper：__findEditor（可见性过滤 + role=textbox 优先）、
+    __turns（role 节点存在时用节点，否则按 main.innerText 中的
+    「你说：/ChatGPT 说：」标记切分虚拟回合，合成指纹 id）。
+    baseline / 提交验证 / 新回合 / 稳定等待全部改走 helper。
+F3.【发送与流式判据本地化】：发送按钮增加 aria-label 中文标签匹配并
+    优先编辑器所在 form 内按钮；Enter 兜底改为 keydown/keypress/keyup
+    全序列；流式判据增加 aria-label「停止」等中文标签。
+F4.【--probe 只读模式】：仅采集 baseline 并输出 JSON，供连通性诊断，
+    不发消息、不触发熔断计数。
+
 调用范例见 SKILL.md。
 """
 
@@ -81,7 +102,7 @@ CIRCUIT_STATE_FILE  = "/tmp/safari_chatgpt_circuit_breaker.json"
 CIRCUIT_WINDOW_SEC  = 3600   # 1 小时滑动窗口
 CIRCUIT_MAX_RETRIES = 3
 
-OSASCRIPT_TIMEOUT_SEC = 30   # 单次 osascript / Safari JS 调用超时
+OSASCRIPT_TIMEOUT_SEC = 60   # 单次 osascript / Safari JS 调用超时（v4.2：30→60，重页面基线采集留余量）
 
 # =============================================================================
 # 阶段死线（每个阶段的"理想"上限；真实上限会被 overall_deadline 切片）
@@ -497,59 +518,27 @@ def _applescript_invoke(js_code: str, target_url: str, timeout: int) -> str:
         f.write(js_code)
         tmp_js_path = f.name
 
+    # v4.2 F1：首个 URL 匹配的 Tab 直接执行。不做 readiness 逐 Tab 探测
+    # （重页面会挂起并拖垮整段 AppleScript）、不 set current tab 抢焦点、
+    # 找不到时不自开新标签页，直接报 NO_TARGET_TAB。
     applescript = f'''
     tell application "Safari"
         set targetTab to missing value
-        set targetWin to missing value
-        set foundReady to false
         repeat with w in windows
             repeat with t in tabs of w
                 set u to (URL of t as text)
                 if (u starts with "{escaped_base_url}" or u contains "{uuid_part}") then
-                    try
-                        tell t
-                            set isReady to (do JavaScript "!!(document.querySelector('#prompt-textarea') || document.querySelector('form [contenteditable=\\"true\\"]') || document.querySelector('form'))")
-                        end tell
-                        if isReady is true or isReady is "true" then
-                            set targetTab to t
-                            set targetWin to w
-                            set foundReady to true
-                            exit repeat
-                        end if
-                    end try
-                    if targetTab is missing value then
-                        set targetTab to t
-                        set targetWin to w
-                    end if
+                    set targetTab to t
+                    exit repeat
                 end if
             end repeat
-            if foundReady is true then exit repeat
+            if targetTab is not missing value then exit repeat
         end repeat
-
-        if targetTab is missing value then
-            try
-                activate
-                open location "{_escape_applescript_string(target_url)}"
-                delay 4
-                repeat with w in windows
-                    repeat with t in tabs of w
-                        set u to (URL of t as text)
-                        if (u starts with "{escaped_base_url}" or u contains "{uuid_part}") then
-                            set targetTab to t
-                            set targetWin to w
-                            exit repeat
-                        end if
-                    end repeat
-                    if targetTab is not missing value then exit repeat
-                end repeat
-            end try
-        end if
 
         if targetTab is missing value then
             error "NO_TARGET_TAB" number 17001
         end if
 
-        set current tab of targetWin to targetTab
         set jsStr to (read (POSIX file "{tmp_js_path}") as «class utf8»)
         tell targetTab
             return do JavaScript jsStr
@@ -588,25 +577,110 @@ def execute_safari_js(js_code: str, target_url: str,
 
 
 # =============================================================================
-# DOM 工具：捕获目标 message node 的 data-message-id（v4.1）
+# v4.2 共享 DOM helper（注入每个 JS 片段头部，各片段是独立 do JavaScript 调用）
+# 实探依据（2026-10-26，Pro 上目标 Custom GPT 会话）：
+#   [data-message-author-role] = 0、#prompt-textarea 不存在、article = 0；
+#   composer = div.ProseMirror[role=textbox]（无 id），页面含一个 rect=0 的
+#   隐藏同类编辑器，必须按可见性过滤；回合文本在 main.innerText 中以
+#   「你说：」/「ChatGPT 说：」标记分段（83 项目三卷监督实证可靠）。
+# =============================================================================
+_DOM_HELPERS_JS = r"""
+function __fpId(role, idx, text) {
+    let h = 5381;
+    const s = (text || "").slice(0, 160);
+    for (let i = 0; i < s.length; i++) { h = (((h << 5) + h) + s.charCodeAt(i)) >>> 0; }
+    return role + "@" + idx + "#" + (text || "").length + "#" + h.toString(16);
+}
+function __findEditor() {
+    const ces = Array.from(document.querySelectorAll('[contenteditable="true"]'));
+    const vis = el => {
+        const r = el.getBoundingClientRect();
+        return (r.width > 0 && r.height > 0) || el.offsetWidth > 0 || el.offsetHeight > 0;
+    };
+    const pick = arr => arr.find(el => el.getAttribute('role') === 'textbox') || arr[0] || null;
+    const visible = ces.filter(vis);
+    if (visible.length) return pick(visible);
+    const pt = document.querySelector('#prompt-textarea');
+    if (pt) return pt;
+    return pick(ces);
+}
+function __turns() {
+    const nodes = Array.from(document.querySelectorAll('[data-message-author-role]'));
+    if (nodes.length) {
+        return nodes.map((el, i) => {
+            const role = el.getAttribute('data-message-author-role') || '';
+            const text = (el.innerText || '').trim();
+            const id = el.getAttribute('data-message-id') ||
+                (el.closest && el.closest('[data-message-id]')
+                    ? el.closest('[data-message-id]').getAttribute('data-message-id')
+                    : null) || __fpId(role, i, text);
+            return {role: role, text: text, id: id};
+        }).filter(t => t.role === 'user' || t.role === 'assistant');
+    }
+    const main = document.querySelector('main');
+    const mt = main ? (main.innerText || '') : '';
+    const MARKERS = [
+        ['user', '你说：'], ['user', '你说:'], ['user', 'You said:'],
+        ['assistant', 'ChatGPT 说：'], ['assistant', 'ChatGPT 说:'],
+        ['assistant', 'ChatGPT said:'], ['assistant', 'ChatGPT said：'],
+    ];
+    const hits = [];
+    for (const [role, m] of MARKERS) {
+        let from = 0;
+        while (true) {
+            const i = mt.indexOf(m, from);
+            if (i < 0) break;
+            hits.push({idx: i, role: role, mlen: m.length});
+            from = i + m.length;
+        }
+    }
+    hits.sort((a, b) => a.idx - b.idx);
+    const turns = [];
+    for (let k = 0; k < hits.length; k++) {
+        const start = hits[k].idx + hits[k].mlen;
+        const end = (k + 1 < hits.length) ? hits[k + 1].idx : mt.length;
+        let text = mt.slice(start, end).trim();
+        // 页面底部免责声明是 UI chrome 不是消息内容，最后一段尾部要切掉
+        const cut = text.indexOf('ChatGPT 可能会出错');
+        if (cut >= 0) text = text.slice(0, cut).trim();
+        if (!text) continue;
+        turns.push({role: hits[k].role, text: text, id: __fpId(hits[k].role, turns.length, text)});
+    }
+    return turns;
+}
+function __lastOf(turns, role) {
+    const f = turns.filter(t => t.role === role);
+    return f.length ? f[f.length - 1] : null;
+}
+function __isStreaming() {
+    // 只看 main 内的按钮：页面上浮动聊天/语音等区域也有「停止」类按钮，
+    // 全文档扫描会假阳性，害稳定等待永远等不到「不在生成」。
+    const root = document.querySelector('main') || document;
+    if (root.querySelector("button[data-testid='stop-button']")) return true;
+    const labels = ['停止回答', '停止', '停止生成', 'Stop generating', 'Stop responding', 'Stop'];
+    return Array.from(root.querySelectorAll('button')).some(b => {
+        const a = (b.getAttribute('aria-label') || '').trim();
+        return labels.indexOf(a) >= 0 || a.indexOf('停止') === 0;
+    });
+}
+"""
+
+# =============================================================================
+# DOM 工具：捕获目标 message node 的 data-message-id（v4.1；v4.2 改走 __turns）
 # =============================================================================
 def _last_message_id_js(role: str) -> str:
-    """JS 模板：取最近一条指定 role 的 message 的 data-message-id。"""
-    return f"""
+    """JS 模板：取最近一条指定 role 的回合的 id（真实 id 或指纹 id）。"""
+    return _DOM_HELPERS_JS + f"""
     (() => {{
-        const nodes = document.querySelectorAll("[data-message-author-role='{role}']");
-        const last = nodes.length > 0 ? nodes[nodes.length - 1] : null;
+        const turns = __turns();
+        const f = turns.filter(t => t.role === '{role}');
+        const last = f.length > 0 ? f[f.length - 1] : null;
         if (!last) return JSON.stringify({{id: null, count: 0, textLen: 0}});
-        const id =
-            last.getAttribute("data-message-id") ||
-            (last.closest && last.closest("[data-message-id]")
-                ? last.closest("[data-message-id]").getAttribute("data-message-id")
-                : null);
         return JSON.stringify({{
-            id: id,
-            count: nodes.length,
-            textLen: (last.innerText || "").trim().length,
-            fp: ((last.innerText || "").trim()).slice(0, 80),
+            id: last.id,
+            count: f.length,
+            textLen: (last.text || "").length,
+            fp: (last.text || "").slice(0, 80),
         }});
     }})()
     """
@@ -615,36 +689,27 @@ def _last_message_id_js(role: str) -> str:
 # =============================================================================
 # 基线比对（v4.1：totalCount / userCount / assistantCount / lastMessageId）
 # =============================================================================
-_BASELINE_JS = r"""
+_BASELINE_JS_BODY = r"""
 (() => {
-    const all  = document.querySelectorAll("[data-message-author-role]");
-    const usr  = document.querySelectorAll("[data-message-author-role='user']");
-    const asst = document.querySelectorAll("[data-message-author-role='assistant']");
+    const turns = __turns();
+    const usr  = turns.filter(t => t.role === 'user');
+    const asst = turns.filter(t => t.role === 'assistant');
     const lastU = usr.length  > 0 ? usr[usr.length - 1]  : null;
     const lastA = asst.length > 0 ? asst[asst.length - 1] : null;
-    function midOf(el) {
-        if (!el) return null;
-        return el.getAttribute("data-message-id") ||
-            (el.closest && el.closest("[data-message-id]")
-                ? el.closest("[data-message-id]").getAttribute("data-message-id")
-                : null);
-    }
-    const totalCount = all.length;
-    const userCount = usr.length;
-    const assistantCount = asst.length;
-    const lastUserText = lastU ? (lastU.innerText || "").trim() : "";
-    const lastAsstText = lastA ? (lastA.innerText || "").trim() : "";
     return JSON.stringify({
-        totalCount: totalCount,
-        userCount: userCount,
-        assistantCount: assistantCount,
-        lastUserText: lastUserText,
-        lastAsstText: lastAsstText,
-        lastUserMessageId: midOf(lastU),
-        lastAsstMessageId: midOf(lastA),
+        totalCount: turns.length,
+        userCount: usr.length,
+        assistantCount: asst.length,
+        lastUserText: lastU ? lastU.text : "",
+        lastAsstText: lastA ? lastA.text : "",
+        lastUserMessageId: lastU ? lastU.id : null,
+        lastAsstMessageId: lastA ? lastA.id : null,
+        hasEditor: !!__findEditor(),
     });
 })()
 """
+
+_BASELINE_JS = _DOM_HELPERS_JS + _BASELINE_JS_BODY
 
 
 def capture_baseline(target_url: str) -> Dict[str, Any]:
@@ -663,6 +728,10 @@ def capture_baseline(target_url: str) -> Dict[str, Any]:
 
     if not isinstance(b, dict) or "totalCount" not in b or "userCount" not in b:
         raise SafariError(f"基线字段缺失或类型错误: {b}")
+    # v4.2：0 回合且无编辑器 = 页面根本没渲染出会话（SPA 未水合/错误页），
+    # 不能拿这种假基线 poison 后续阶段；新会话（有编辑器、0 回合）放行。
+    if b.get("totalCount") == 0 and not b.get("hasEditor"):
+        raise SafariError("基线为空且无可用编辑器：页面未渲染出会话")
     return b
 
 
@@ -672,6 +741,8 @@ def _fetch_snapshot(target_url: str,
     返回 dict。任何 JSON 错误转化为 SafariError。
     """
     js = js_override if js_override is not None else _BASELINE_JS
+    if "__fpId" not in js:
+        js = _DOM_HELPERS_JS + js
     try:
         raw = execute_safari_js(js, target_url)
     except SafariError:
@@ -693,21 +764,18 @@ def _user_commit_probe_js(expected_prompt: str) -> str:
     不传完整 prompt 到 snapshot，只传 metadata。
     """
     expected_literal = json.dumps(expected_prompt)
-    return f"""
+    return _DOM_HELPERS_JS + f"""
     (() => {{
         const norm = s =>
             (s || "")
                 .replace(/\\r\\n/g, "\\n")
                 .replace(/\\u00a0/g, " ")
                 .trim();
-        const users = document.querySelectorAll("[data-message-author-role='user']");
+        const turns = __turns();
+        const users = turns.filter(t => t.role === 'user');
         const last  = users.length > 0 ? users[users.length - 1] : null;
-        const text  = last ? norm(last.innerText || "") : "";
-        const id =
-            last ? (last.getAttribute("data-message-id") ||
-                (last.closest && last.closest("[data-message-id]")
-                    ? last.closest("[data-message-id]").getAttribute("data-message-id")
-                    : null)) : null;
+        const text  = last ? norm(last.text || "") : "";
+        const id    = last ? last.id : null;
         const exp = norm({expected_literal});
         const match = (text === exp) || (exp.length > 50 && (text.startsWith(exp.slice(0, 50)) || text.includes(exp.slice(0, 50)) || text.endsWith(exp.slice(-50))));
         return JSON.stringify({{
@@ -749,17 +817,15 @@ def wait_for_user_message_committed(target_url: str, baseline_user_count: int,
 # =============================================================================
 def _inject_verify_js(expected_prompt: str) -> str:
     expected_literal = json.dumps(expected_prompt)
-    return f"""
+    return _DOM_HELPERS_JS + f"""
     (() => {{
         const norm = s =>
             (s || "")
                 .replace(/\\r\\n/g, "\\n")
                 .replace(/\\u00a0/g, " ")
                 .trim();
-        // 优先 #prompt-textarea，再退到 form 内的 contenteditable，最后 fallback 到 form 节点
-        const el = document.querySelector("#prompt-textarea") ||
-                   document.querySelector("form [contenteditable='true']") ||
-                   document.querySelector("form");
+        // v4.2：统一走 __findEditor（可见 ProseMirror 编辑器优先）
+        const el = __findEditor();
         if (!el) return JSON.stringify({{ok: false, reason: "NO_INPUT"}});
         const actual =
             (el.innerText || el.textContent || el.value || "");
@@ -828,34 +894,30 @@ def wait_for_assistant_new_turn(target_url: str, baseline_assistant_count: int,
 # 稳定等待：只读取 target assistant turn 节点（P0-1 / Evidence Integrity 收口）
 # =============================================================================
 def _stable_poll_js(target_message_id: Optional[str]) -> str:
-    """若 target_message_id 存在，按 id 定位；若因占位符升级或 DOM 渲染未命中，自动回退到最新 assistant turn。
-    任何时候都验证 assistant turn 节点仍然存在。
-    """
-    safe_msg_id = target_message_id.replace("'", "") if target_message_id else ""
-    query_part = f'document.querySelector("[data-message-id=\'{safe_msg_id}\']")' if target_message_id else 'null'
-    return f"""
+    """若 target_message_id 存在，按 id 定位；未命中回退到最新 assistant turn。
+    任何时候都验证 assistant turn 节点仍然存在。（v4.2 改走 __turns）"""
+    return _DOM_HELPERS_JS + f"""
     (() => {{
-        const stopBtn = document.querySelector(
-            "button[data-testid='stop-button']") ||
-            document.querySelector("button[aria-label='停止回答']");
-        let node = {query_part};
-        const asst = document.querySelectorAll("[data-message-author-role='assistant']");
-        const last = asst.length > 0 ? asst[asst.length - 1] : null;
-        if (!node && last) {{
-            node = last;
+        const streaming = __isStreaming();
+        const turns = __turns();
+        const asst = turns.filter(t => t.role === 'assistant');
+        let node = null;
+        const targetId = {json.dumps(target_message_id or "")};
+        if (targetId) {{
+            node = asst.find(t => t.id === targetId) || null;
+        }}
+        if (!node && asst.length) {{
+            node = asst[asst.length - 1];
         }}
         if (!node) return JSON.stringify({{
-            targetPresent: false, isStreaming: !!stopBtn, text: "",
+            targetPresent: false, isStreaming: streaming, text: "",
             messageId: null
         }});
         return JSON.stringify({{
             targetPresent: true,
-            isStreaming: !!stopBtn,
-            text: (node.innerText || "").trim(),
-            messageId: node.getAttribute("data-message-id") ||
-                (node.closest && node.closest("[data-message-id]")
-                    ? node.closest("[data-message-id]").getAttribute("data-message-id")
-                    : null),
+            isStreaming: streaming,
+            text: node.text || "",
+            messageId: node.id,
         }});
     }})()
     """
@@ -973,7 +1035,7 @@ def send_and_receive_safari_chatgpt(prompt: str, target_url: str,
         return max(0.0, overall_deadline - time.monotonic())
 
     emit_event("start", EXIT_OK,
-               "Safari ChatGPT Cognitive-Control Bridge v4.1 启动",
+               "Safari ChatGPT Cognitive-Control Bridge v4.2 启动",
                target_url=target_url, wait_timeout=wait_timeout)
 
     # ---- Step 1：基线（必须捕获 userCount / assistantCount / lastUserId）----
@@ -994,26 +1056,28 @@ def send_and_receive_safari_chatgpt(prompt: str, target_url: str,
                lastUserMessageId=baseline.get("lastUserMessageId"))
 
     # ---- Step 2：注入 prompt ----
-    js_inject = f"""
+    js_inject = _DOM_HELPERS_JS + f"""
     (() => {{
-        const el = document.querySelector('#prompt-textarea') ||
-                   document.querySelector("form [contenteditable='true']") ||
-                   document.querySelector("form");
+        const el = __findEditor();
         if (!el) return "ERR_NO_INPUT";
         el.focus();
-        
-        // 尝试现代 ProseMirror / ContentEditable 注入
-        const p = el.querySelector("p") || el;
-        p.innerText = {json.dumps(prompt)};
-        
-        try {{
-            document.execCommand('selectAll', false, null);
-            document.execCommand('insertText', false, {json.dumps(prompt)});
-        }} catch(e) {{}}
-        
-        el.dispatchEvent(new InputEvent('input', {{ bubbles: true, inputType: 'insertText', data: {json.dumps(prompt)} }}));
-        el.dispatchEvent(new Event('input', {{ bubbles: true }}));
-        el.dispatchEvent(new Event('change', {{ bubbles: true }}));
+        const TEXT = {json.dumps(prompt)};
+        const sel = window.getSelection();
+        // v4.2：jxa_drive 实证路线 —— beforeinput insertText 一步替换，
+        // 长度异常（双插/未落字）时清掉重走 execCommand insertText。
+        sel.selectAllChildren(el);
+        el.dispatchEvent(new InputEvent('beforeinput', {{ bubbles: true, cancelable: true, inputType: 'insertText', data: TEXT }}));
+        let len = (el.innerText || '').length;
+        if (len > TEXT.length * 1.5) {{
+            sel.selectAllChildren(el);
+            document.execCommand('delete', false, null);
+            document.execCommand('insertText', false, TEXT);
+            len = (el.innerText || '').length;
+        }} else if (len < TEXT.length * 0.5) {{
+            try {{ document.execCommand('insertText', false, TEXT); }} catch(e) {{}}
+            len = (el.innerText || '').length;
+        }}
+        el.dispatchEvent(new InputEvent('input', {{ bubbles: true, inputType: 'insertText', data: TEXT }}));
         return "OK";
     }})()
     """
@@ -1047,29 +1111,32 @@ def send_and_receive_safari_chatgpt(prompt: str, target_url: str,
                isContentEditable=cv_snap.get("isContentEditable"))
 
     # ---- Step 3：触发发送 ----
-    js_send = """
+    js_send = _DOM_HELPERS_JS + """
     (() => {
-        const submitBtn = document.querySelector("#composer-submit-button") ||
-                          document.querySelector("button[data-testid='send-button']") ||
-                          document.querySelector("button[aria-label='发送提示词']") ||
-                          document.querySelector("button[aria-label='发送提示']") ||
-                          document.querySelector("button[aria-label='Send prompt']");
+        const el = __findEditor();
+        const sels = ["#composer-submit-button",
+                      "button[data-testid='send-button']",
+                      "button[data-testid='composer-submit-button']"];
+        let submitBtn = null;
+        for (const s of sels) { submitBtn = document.querySelector(s); if (submitBtn) break; }
+        if (!submitBtn) {
+            const labels = ['发送提示词', '发送提示', '发送消息', '发送', 'Send prompt', 'Send message'];
+            const byLabel = arr => arr.find(b => labels.indexOf((b.getAttribute('aria-label') || '').trim()) >= 0);
+            const form = el && el.closest ? el.closest('form') : null;
+            submitBtn = (form ? byLabel(Array.from(form.querySelectorAll('button'))) : null)
+                        || byLabel(Array.from(document.querySelectorAll('button')));
+        }
         if (submitBtn && !submitBtn.disabled && submitBtn.getAttribute("aria-disabled") !== "true") {
             submitBtn.click();
-            submitBtn.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, view: window }));
-            submitBtn.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, view: window }));
-            submitBtn.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
             return "CLICKED_SUBMIT";
         }
-        const el = document.querySelector('#prompt-textarea') ||
-                   document.querySelector("form [contenteditable='true']") ||
-                   document.querySelector("form");
         if (el) {
-            const ke = new KeyboardEvent('keydown', {
-                bubbles: true, cancelable: true,
-                key: 'Enter', code: 'Enter', keyCode: 13, which: 13
-            });
-            el.dispatchEvent(ke);
+            el.focus();
+            const opts = { bubbles: true, cancelable: true, view: window,
+                           key: 'Enter', code: 'Enter', keyCode: 13, which: 13, charCode: 13 };
+            el.dispatchEvent(new KeyboardEvent('keydown', opts));
+            el.dispatchEvent(new KeyboardEvent('keypress', opts));
+            el.dispatchEvent(new KeyboardEvent('keyup', opts));
             return "DISPATCHED_ENTER";
         }
         return "ERR_NO_SEND";
@@ -1185,11 +1252,13 @@ def send_and_receive_safari_chatgpt(prompt: str, target_url: str,
 # =============================================================================
 def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        description="Safari ChatGPT Cognitive-Control Bridge v4.1 (Evidence-Integrity)"
+        description="Safari ChatGPT Cognitive-Control Bridge v4.2 (Evidence-Integrity)"
     )
-    p.add_argument("--prompt", type=str, required=True, help="提示词或上下文")
-    p.add_argument("--target-url", type=str, required=True,
+    p.add_argument("--prompt", type=str, required=False, default=None, help="提示词或上下文")
+    p.add_argument("--target-url", type=str, required=False, default=None,
                    help="目标 ChatGPT 会话的完整 URL（必须 https://chatgpt.com）")
+    p.add_argument("--probe", action="store_true",
+                   help="只读诊断：仅采集 baseline 并以 JSON 输出后退出（不发消息、不触发熔断计数）；需 --target-url，不需 --prompt")
 
     p.add_argument("--type", type=str, default="raw",
                    choices=["raw", "plan", "feedback", "review", "task-code", "task-review"],
@@ -1236,12 +1305,40 @@ def main() -> int:
         return EXIT_OK
 
     # 0b. target_url 强校验
+    if not args.target_url:
+        emit_event("validate_target", EXIT_SAFARI_FAIL,
+                   "--target-url 必填（--reset-circuit 除外）")
+        return EXIT_SAFARI_FAIL
     try:
         validate_target_url(args.target_url)
     except ValueError as e:
         emit_event("validate_target", EXIT_SAFARI_FAIL,
                    f"target_url 校验失败: {e}",
                    target_url=args.target_url)
+        return EXIT_SAFARI_FAIL
+
+    # 0b2. --probe 只读诊断：采集 baseline 输出 JSON 后退出
+    if args.probe:
+        try:
+            baseline = capture_baseline(args.target_url)
+        except NoTargetTabError as e:
+            emit_event("probe", EXIT_NO_TAB, f"目标 Tab 不存在: {e}",
+                       target_url=args.target_url)
+            return EXIT_NO_TAB
+        except SafariError as e:
+            emit_event("probe", EXIT_BASELINE_FAIL, f"基线采集失败: {e}")
+            return EXIT_BASELINE_FAIL
+        print(json.dumps(baseline, ensure_ascii=False))
+        emit_event("probe", EXIT_OK, "只读基线采集成功",
+                   totalCount=baseline.get("totalCount"),
+                   userCount=baseline.get("userCount"),
+                   assistantCount=baseline.get("assistantCount"),
+                   hasEditor=baseline.get("hasEditor"))
+        return EXIT_OK
+
+    if not args.prompt:
+        emit_event("validate_target", EXIT_SAFARI_FAIL,
+                   "--prompt 必填（--probe / --reset-circuit 除外）")
         return EXIT_SAFARI_FAIL
 
     # 0c. evidence 读取
